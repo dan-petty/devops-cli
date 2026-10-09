@@ -129,7 +129,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
 3. **SSRF Protections**: An HTTP client built by the `devops_cli.http.client` factory (`web_fetch`, tool downloads, the search tools, Vault, the Kubernetes clients, the sandbox probe, Jaeger and the LLM client base) has an egress level (`devops_cli.http.egress`) and resolves a host once, at the connect, dialling only the addresses its level admits; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Untrusted URLs (`web_fetch`, tool downloads) are public-only whatever the configuration says. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may name loopback, and a private address once `ai.allow_private_network` (`DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true`) is set. Internal infrastructure clients (Vault, the Kubernetes API, Loki) reach private addresses. Cloud metadata addresses are refused at every level. Factory clients ignore `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`.
 4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
-5. **Checksum Verification**: `devops install-tools` verifies SHA-256 checksums for kubectl, kustomize, helm, argo, argocd and kubectl-argo-rollouts. For trivy, popeye, pluto and k9s it aborts on a mismatch but installs with a warning if the checksum file is unavailable. kube-linter is installed without verification.
+5. **Checksum Verification**: `devops install-tools` installs every tool only from `tools.lock` (`src/devops_cli/tools_lock/`), at an exact version. A binary is checked against the lock's SHA-256 for its platform, and a Python tool (Semgrep, Bandit) installs with `uv pip sync --require-hashes` into a virtual environment of its own; a mismatch is refused and the command exits 1. `devops install-tools --check` lists each tool not linked at its locked version.
 6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
 
 ---
@@ -188,7 +188,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
-| **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
+| **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
@@ -259,7 +259,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config output [OPTIONS]` | Output environment variables available for devops-cli configuration. |
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
-|  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
+|  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited. |
 | **ci** | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
@@ -331,6 +331,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review verify [OPTIONS] <session>` | Record a person's or an agent's verdict on a review finding or candidate. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
+|  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
 |  | `devops review export-feedback [OPTIONS]` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads. |
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |

@@ -1,4 +1,4 @@
-"""AI Code Review CLI command group (branch, path, PR, findings, verify, stats)."""
+"""AI Code Review CLI command group (branch, path, PR, findings, verify, stats, score)."""
 
 from __future__ import annotations
 
@@ -142,6 +142,12 @@ from devops_cli.output import (
     print_table,
     print_warning,
     write_stdout,
+)
+from devops_cli.review.score import (
+    Agreement,
+    ScoreReport,
+    materialise_golden,
+    score_sessions,
 )
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
@@ -1567,6 +1573,214 @@ def benchmark(
             results=summary.model_dump(mode="json"),
         )
     )
+
+
+# =============================================================================
+# Command: devops review score
+# =============================================================================
+
+
+def _agreement_text(agreement: Agreement, unit: str) -> str:
+    if agreement.value is None:
+        return f"not computable ({agreement.reason})"
+    return f"{agreement.value:.3f} (n={agreement.n} {unit})"
+
+
+def _render_score(report: ScoreReport) -> None:
+    """Show each session's precision and recall, each input's stability, and what is unlabelled."""
+    print_section(" Review Score ", style="bold cyan")
+    sessions = report.sessions
+    print_table(
+        title="Precision per Session",
+        columns=[
+            ("Session", "cyan"),
+            ("Input", ""),
+            ("Rows", "right"),
+            ("Lenient", "right"),
+            ("Strict", "right"),
+            ("Per Defect", "right"),
+        ],
+        rows=[
+            [escape_text(s.session), escape_text(s.input), str(s.rows)]
+            + [str(ratio) for ratio in (s.lenient, s.strict, s.distinct)]
+            for s in sessions
+        ],
+    )
+    print_table(
+        title="VERIFIED, HIGH/CRITICAL and Recall per Session",
+        columns=[
+            ("Session", "cyan"),
+            ("VERIFIED", "right"),
+            ("VERIFIED, Strict", "right"),
+            ("HIGH/CRITICAL", "right"),
+            ("Recall Set", "right"),
+            ("Known Defects", "right"),
+        ],
+        rows=[
+            [escape_text(s.session)]
+            + [
+                str(ratio)
+                for ratio in (s.verified, s.verified_strict, s.high, s.recall_set, s.known_defects)
+            ]
+            for s in sessions
+        ],
+    )
+    print_table(
+        title="Precision by Producer",
+        columns=[
+            ("Session", "cyan"),
+            ("Producer", ""),
+            ("Rows", "right"),
+            ("Lenient", "right"),
+            ("Strict", "right"),
+            ("Per Defect", "right"),
+        ],
+        rows=[
+            [escape_text(s.session), escape_text(name), str(p.rows)]
+            + [str(ratio) for ratio in (p.lenient, p.strict, p.distinct)]
+            for s in sessions
+            for name, p in s.by_producer.items()
+        ],
+    )
+    _render_score_inputs(report)
+
+
+def _render_score_inputs(report: ScoreReport) -> None:
+    print_table(
+        title="Inputs: Pooled Precision and Stability",
+        columns=[
+            ("Input", "cyan"),
+            ("Split", ""),
+            ("Sessions", "right"),
+            ("Lenient", "right"),
+            ("Strict", "right"),
+            ("Jaccard", "right"),
+            ("Fleiss κ", "right"),
+        ],
+        rows=[
+            [
+                escape_text(g.input),
+                g.split or "unlabelled input",
+                str(g.sessions),
+                str(g.lenient),
+                str(g.strict),
+                _agreement_text(g.jaccard, "pairs"),
+                _agreement_text(g.kappa, "identities"),
+            ]
+            for g in report.groups
+        ],
+    )
+    if report.recall_set:
+        print_table(
+            title="Recall Set",
+            columns=[("Finding", "cyan"), ("Reported In", "right")],
+            rows=[
+                [escape_text(e.location), f"{e.reported_in}/{e.sessions}"]
+                for e in report.recall_set
+            ],
+        )
+    if report.unlabelled:
+        print_table(
+            title=f"Unlabelled Rows ({len(report.unlabelled)})",
+            columns=[
+                ("Session", "cyan"),
+                ("Row", "right"),
+                ("Location", ""),
+                ("Producer", ""),
+                ("Identity", "dim"),
+            ],
+            rows=[
+                [escape_text(u.session), str(u.row), escape_text(u.location), u.producer]
+                + [escape_text(u.identity or "")]
+                for u in report.unlabelled
+            ],
+        )
+
+
+def _materialise_golden(
+    labels: Path, destination: Path, sessions: list[Path] | None, json_output: bool
+) -> None:
+    if sessions:
+        print_error(MESSAGES.review.score_golden_takes_no_sessions)
+        raise typer.Exit(1)
+    try:
+        golden = materialise_golden(labels, destination)
+    except ValidationError as exc:
+        print_error(exc.message)
+        raise typer.Exit(1) from exc
+    if json_output:
+        write_stdout(golden.model_dump_json(indent=2) + "\n")
+        return
+    print_success(
+        MESSAGES.review.score_golden_written.format(
+            path=escape_text(golden.path), files=golden.files, commit=golden.commit
+        )
+    )
+    print_table(
+        title="Accepted Recall Loss",
+        columns=[("Defect", "cyan"), ("Why No Tool Can Express It", "")],
+        rows=[
+            [escape_text(loss.defect_id), escape_text(loss.reason)] for loss in golden.accepted_loss
+        ],
+    )
+
+
+def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
+    """What could change the scored reviews: their prompts, conventions and pinned tools."""
+    profiles = [p for p in (ReviewProfile.load(d) for d in sessions) if p is not None]
+    return {
+        name: sorted({digest for p in profiles if (digest := getattr(p, name))})
+        for name in ("prompt_digest", "conventions_digest", "tools_lock_digest")
+    }
+
+
+@app.command("score")
+def review_score(
+    labels: Annotated[
+        Path,
+        typer.Option("--labels", metavar="FILE", help=HELP.review.score_labels),
+    ],
+    sessions: Annotated[
+        list[Path] | None,
+        typer.Argument(metavar="SESSION...", help=HELP.review.score_sessions),
+    ] = None,
+    materialise_golden_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--materialise-golden", metavar="DIR", help=HELP.review.score_materialise_golden
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Score saved review sessions against a label file: precision, recall and stability, each with its n."""
+    if materialise_golden_dir is not None:
+        _materialise_golden(labels, materialise_golden_dir, sessions, json_output)
+        return
+    if not sessions:
+        print_error(MESSAGES.review.score_no_sessions)
+        raise typer.Exit(1)
+    try:
+        report = score_sessions(sessions, labels)
+    except ValidationError as exc:
+        print_error(exc.message)
+        raise typer.Exit(1) from exc
+    saved = record_run(
+        Mechanism.REVIEW_SCORE,
+        setup=_score_setup(sessions),
+        subject={
+            "labels_digest": report.labels_digest,
+            "inputs": sorted({s.digest for s in report.sessions}),
+        },
+        results={**report.model_dump(mode="json"), **report.run_metrics()},
+    )
+    if json_output:
+        write_stdout(report.model_dump_json(indent=2) + "\n")
+    else:
+        _render_score(report)
+    announce_run(saved, to_stderr=json_output)
 
 
 # =============================================================================

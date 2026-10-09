@@ -169,7 +169,7 @@ prompt is built from it: a prompt changes when someone edits a file under `ai/ta
 
 | Data | Default path | Written by | Read by |
 | :--- | :--- | :--- | :--- |
-| Review sessions | `.data/reviews/<session>/` | each review | `devops review findings`, `verify`, `stats`, `export-feedback`, `corpus score` |
+| Review sessions | `.data/reviews/<session>/` | each review | `devops review findings`, `verify`, `stats`, `score`, `export-feedback`, `corpus score` |
 | Learned catalog | `.data/common_hallucinations.json` | a person's INVALIDATED verdict | every review |
 | Mitigations ledger | `.data/mitigated_findings.json` | a person's MITIGATED verdict | branch and PR reviews, `devops pr check-readiness` |
 | Feedback dataset | `.data/feedback_dataset.jsonl` | `devops review export-feedback` | `devops ai prompt-eval` |
@@ -642,7 +642,10 @@ verified and reported finding counts. The profile's session ID is an attribute o
 `review.session` span, so a slow stage can be followed into its trace. It also records how each
 static analyzer took part (`static_analyzers`), why each that failed did, as review.md's Static
 Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
-seconds each analyzer's scans ran (`static_analyzer_seconds`).
+seconds each analyzer's scans ran (`static_analyzer_seconds`). `tools_lock_digest` is the digest of
+the tools lock the review started with, so two runs used the same tool versions only when theirs
+match, and `code_changed_during_run` is true, with a warning printed, when devops-cli's own
+checkout got a commit or an edit while the review ran.
 
 Each stage also counts its replies by the reason the provider gave for their end
 (`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by
@@ -969,69 +972,30 @@ evidence. The gate calls no model, so it cannot score recall; a person runs this
    done
    ```
 
-3. **Score.** Save the script below as `score_recall.py` and run it once per arm on that arm's
-   sessions, as in `python3 score_recall.py $R/b/tests/fixtures/review_recall/recall_set.json
-   $R/data-b/reviews/2*/`. For each finding of the set it prints how many samples found it, with a
-   match among the candidates before verification, and how many reported it, then the location
-   and title of each match. A match names the file and cites a line inside the set's range. Last,
-   it lists every other candidate on the set's files.
-
-   ```python
-   import json, re, sys
-
-   recall_set, *sessions = sys.argv[1:]
-   entries = json.load(open(recall_set))["findings"]
-
-
-   def place(finding):
-       """The set's path that a finding names, or None, and the first and last line it cites."""
-       path, _, lines = finding["location"].partition(":")
-       named = next(
-           (e["path"] for e in entries if path == e["path"] or path.endswith("/" + e["path"])),
-           None,
-       )
-       span = re.fullmatch(r"(\d+)(?:-(\d+))?", lines)
-       return named, span and (int(span[1]), int(span[2] or span[1]))
-
-
-   def matches(entry, finding):
-       path, span = place(finding)
-       start, end = entry["lines"]
-       return path == entry["path"] and bool(span) and span[0] <= end and span[1] >= start
-
-
-   def load(session, name):
-       return json.load(open(f"{session}/{name}"))["findings"]
-
-
-   for entry in entries:
-       found = [[f for f in load(s, "candidates.json") if matches(entry, f)] for s in sessions]
-       kept = [[f for f in load(s, "findings.json") if matches(entry, f)] for s in sessions]
-       print(
-           f"{entry['path']}:{entry['lines'][0]}-{entry['lines'][1]}",
-           f"found {sum(map(bool, found))}/{len(sessions)}",
-           f"reported {sum(map(bool, kept))}/{len(sessions)}",
-       )
-       for session, hits in zip(sessions, found):
-           for f in hits:
-               print("   ", session, f["location"], f["title"])
-   print("unmatched on the set's files")
-   for session in sessions:
-       for f in load(session, "candidates.json"):
-           if place(f)[0] and not any(matches(e, f) for e in entries):
-               print("   ", session, f["location"], f["title"])
-   ```
+3. **Score.** From a devops-cli checkout, score each arm's sessions with `devops review score`,
+   as in `devops review score $R/data-b/reviews/2*/ --labels
+   tests/fixtures/review_labels/labels.json`. The label file names the recall set, so the Recall
+   Set table shows, for each finding of the set, how many samples reported it. A row matches when
+   it names the file, as a repository path or through the file its cited code names, cites a line
+   inside the set's range, and was raised on the file's own page rather than echoed from a
+   fixture. A location without line numbers, as kube-linter gives, cites no line. The Unlabelled
+   Rows table lists every row no label covers, those on the set's files among them. The score
+   reads each session's reported rows (`findings.json`) only. The `score_recall.py` script this
+   step ran until #1138 also counted the candidates before re-ranking and verification
+   (`candidates.json`), and its bar counted a sample that found a set finding there; the protocol
+   no longer measures candidates, so it no longer tells a finding lost after generation from one
+   never generated, and the bar in step 4 counts reported rows.
 
 4. **Read.** The bar counts a sample only when one of its matches describes the set's defect:
-   read each title, because a finding on the construct's lines can describe another defect. An
-   unmatched candidate that describes a set's defect on other lines counts for it too; name it in
-   the PR. Label every other unmatched candidate valid, opinion or false: they are what the
-   change adds on the set's own files. B passes when it finds each Network Exposure finding of the
-   set in at least 2 of its 3 samples; the Error Handling and Security Claims findings are counted
-   and reported, not gated. A path review shows no code to a docs page and no diff to a broad
-   `except`, so those two classes are measured in branch reviews; #423 carries broad excepts and
-   #921 the `docs/VISION.md` text. A's counts, read the same way, are the baseline. A finding that B found and
-   did not report was lost at verification, not at generation.
+   read each title (`devops review findings <session>`), because a finding on the construct's
+   lines can describe another defect. An unmatched row that describes a set's defect on other
+   lines counts for it too; name it in the PR. Label every other row on the set's files valid,
+   opinion or false: they are what the change adds on the set's own files. B passes when it
+   reports each Network Exposure finding of the set in at least 2 of its 3 samples; the Error
+   Handling and Security Claims findings are counted and reported, not gated. A path review shows
+   no code to a docs page and no diff to a broad `except`, so those two classes are measured in
+   branch reviews; #423 carries broad excepts and #921 the `docs/VISION.md` text. A's counts, read
+   the same way, are the baseline.
 5. **Precision guard.** Session `20261002-205520` reported 24 findings on 15 files, and 22 of them
    were false or opinion: all but the broad excepts at `pricing.py:55` and `:65`. Review those
    files once from B, fresh, at T, and label each finding in the session's `findings.json` valid,
@@ -1233,7 +1197,7 @@ claim is matched on:
   stated only in prose cannot be told from another claim about the same line.
 
 The tool, persona and wording are not part of the match. Findings whose location names no line,
-such as kube-linter's `Kind/name` objects, are not suppressed. Any later verdict on the finding
+such as kube-linter's `Kind/namespace/name` objects, are not suppressed. Any later verdict on the finding
 but INVALIDATED withdraws the entry, whether VERIFIED, MITIGATED or a reset to UNVERIFIED, so a
 claim a person changes their mind about is raised again.
 

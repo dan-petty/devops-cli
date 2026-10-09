@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 import git as gitlib
 
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
+    CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
     CONST_GIT_SYMLINK_MODE,
@@ -25,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PERM_DIR,
     CONST_SAFE_GIT_REF_PATTERN,
     CONST_URL_SCHEME_HTTP,
@@ -222,13 +225,56 @@ def pull_tracking(repo_dir: Path) -> None:
 
 
 def create_branch(repo_dir: Path, branch_name: str) -> None:
-    """Create and checkout a new branch from the current HEAD."""
+    """Create and checkout a new branch from the current HEAD.
+
+    When git refuses the branch, :class:`GitOperationError` carries git's reason. `-b` takes
+    the next argument as the name, and the hyphen guard stops it being read as an option, so
+    no `--` is used.
+    """
     if branch_name.startswith("-"):
         raise InvalidBranchNameError(branch_name, reason="cannot start with a hyphen")
     repo = gitlib.Repo(str(repo_dir))
     if branch_name in [b.name for b in repo.branches]:
         raise BranchAlreadyExistsError(branch_name)
-    repo.git.checkout("-b", "--", branch_name)
+    status, _, stderr = repo.git.checkout(
+        "-b", branch_name, with_extended_output=True, with_exceptions=False
+    )
+    if status:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        raise GitOperationError(
+            mask_secrets(stderr.strip()),
+            operation="branch_create",
+            details={"branch_name": branch_name[:CONST_MAX_ERROR_DETAIL_LENGTH]},
+        )
+
+
+def commit_snapshot(
+    repo_dir: Path,
+    paths: list[str],
+    message: str,
+    *,
+    author: str,
+    email: str,
+    date: datetime,
+) -> str:
+    """Make `repo_dir` a new repository whose one commit holds `paths`, and return its id.
+
+    The author, committer and both dates are the ones given, no hook runs and nothing is signed,
+    so the same files always give the same commit, whatever the git configuration.
+    """
+    repo = gitlib.Repo.init(str(repo_dir), initial_branch=CONST_GIT_MAIN_BRANCH)
+    repo.index.add(sorted(paths))
+    actor = gitlib.Actor(author, email)
+    commit = repo.index.commit(
+        message,
+        author=actor,
+        committer=actor,
+        author_date=date,
+        commit_date=date,
+        skip_hooks=True,
+    )
+    return str(commit.hexsha)
 
 
 def list_branches(

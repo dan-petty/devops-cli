@@ -8,7 +8,13 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
-from devops_cli.docs.command_resolver import ArgvPlaceholder, module_click_command
+from devops_cli.docs.command_resolver import (
+    ArgvPlaceholder,
+    CommandReferenceDefect,
+    CommandReferenceFinding,
+    module_click_command,
+    resolve_devops_argv,
+)
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.docs.markdown_argv_collector import (
     collect_handwritten_docs_argv_references,
@@ -193,3 +199,29 @@ devops scan kubelinter -p k8s/
     refs = collect_markdown_argv_references(defective_md, "test_defective.md")
     unresolved = describe_unresolved_references(refs)
     assert len(unresolved) == 2
+
+
+def test_an_option_in_optional_group_brackets_is_validated() -> None:
+    """Verify an option written inside a synopsis optional group is checked, not skipped."""
+    markdown = """\
+```bash
+devops release pr [-v <ver>]
+devops release pr [--no-such-flag]
+```
+"""
+    references = collect_markdown_argv_references(markdown, "x.md")
+
+    assert (
+        references[0].tokens,
+        [resolve_devops_argv(reference.tokens) for reference in references],
+    ) == (
+        ("release", "pr", "-v", ArgvPlaceholder(expression="<ver>]")),
+        [
+            None,
+            CommandReferenceFinding(
+                defect=CommandReferenceDefect.UNKNOWN_OPTION,
+                command_path="devops release pr",
+                token="--no-such-flag",
+            ),
+        ],
+    )

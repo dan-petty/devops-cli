@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.security.complexity import (
-    analyze_file_complexity,
-    run_complexity_scan,
-)
+from devops_cli.core.code_metrics import FunctionComplexity, measure_tree
+from devops_cli.security.complexity import run_complexity_scan
 
 runner = CliRunner()
+
+
+def _measure(path: Path) -> list[FunctionComplexity]:
+    return measure_tree(ast.parse(path.read_text(encoding="utf-8")))
 
 
 def test_analyze_simple_function(tmp_path: Path) -> None:
@@ -23,11 +26,11 @@ def test_analyze_simple_function(tmp_path: Path) -> None:
         "def add(a: int, b: int) -> int:\n    return a + b\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(sample)
-    assert len(rep.functions) == 1
-    assert rep.functions[0].name == "add"
-    assert rep.functions[0].cyclomatic_complexity == 1
-    assert rep.functions[0].max_nesting_depth == 1
+    functions = _measure(sample)
+    assert len(functions) == 1
+    assert functions[0].name == "add"
+    assert functions[0].cyclomatic_complexity == 1
+    assert functions[0].max_nesting_depth == 1
 
 
 def test_analyze_complex_function(tmp_path: Path) -> None:
@@ -47,9 +50,9 @@ def test_analyze_complex_function(tmp_path: Path) -> None:
         "    return res\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(sample)
-    assert len(rep.functions) == 1
-    fn = rep.functions[0]
+    functions = _measure(sample)
+    assert len(functions) == 1
+    fn = functions[0]
     assert fn.name == "process"
     assert fn.cyclomatic_complexity >= 5
     assert fn.max_nesting_depth >= 4
@@ -108,16 +111,19 @@ def test_analyze_class_method_distinction(tmp_path: Path) -> None:
         "        pass\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(sample)
-    assert len(rep.functions) == 2
-    standalone = next(f for f in rep.functions if f.name == "standalone")
-    method = next(f for f in rep.functions if f.name == "method")
+    functions = _measure(sample)
+    assert len(functions) == 2
+    standalone = next(f for f in functions if f.name == "standalone")
+    method = next(f for f in functions if f.name == "method")
     assert standalone.is_method is False
     assert method.is_method is True
 
 
-def test_a_def_directly_in_a_function_body_is_measured_on_its_own(tmp_path: Path) -> None:
-    """A closure's branches belong to the closure, not to the function that defines it."""
+def test_a_closure_counts_toward_the_enclosing_function_but_nests_on_its_own(
+    tmp_path: Path,
+) -> None:
+    """As in Ruff's C901, a closure adds 1 plus its own count to the function defining it and
+    is reported on its own too; its nesting is measured from its own body."""
     sample = tmp_path / "closure.py"
     sample.write_text(
         "def outer(x):\n"
@@ -129,12 +135,11 @@ def test_a_def_directly_in_a_function_body_is_measured_on_its_own(tmp_path: Path
         "    return inner\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(sample)
     assert sorted(
-        (f.name, f.cyclomatic_complexity, f.max_nesting_depth) for f in rep.functions
+        (f.name, f.cyclomatic_complexity, f.max_nesting_depth) for f in _measure(sample)
     ) == [
         ("inner", 3, 2),
-        ("outer", 1, 1),
+        ("outer", 4, 1),
     ]
 
 
@@ -151,8 +156,7 @@ def test_a_class_directly_in_a_function_body_has_methods(tmp_path: Path) -> None
         "    return C\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(sample)
-    assert sorted((f.name, f.is_method) for f in rep.functions) == [
+    assert sorted((f.name, f.is_method) for f in _measure(sample)) == [
         ("factory", False),
         ("helper", False),
         ("m", True),
@@ -178,15 +182,15 @@ def test_complexity_boolops_match_and_syntax_error(tmp_path: Path) -> None:
         "            return 0\n",
         encoding="utf-8",
     )
-    rep = analyze_file_complexity(code_f)
-    assert len(rep.functions) == 2
-    assert rep.file_max_complexity is not None and rep.file_max_complexity > 1
+    assert sorted((f.name, f.cyclomatic_complexity) for f in _measure(code_f)) == [
+        ("evaluate_cmd", 5),
+        ("nested_helper", 1),
+    ]
 
-    # 2. Syntax error handling
+    # 2. An unparseable file is skipped
     bad_f = tmp_path / "broken.py"
     bad_f.write_text("def broken( :::", encoding="utf-8")
-    rep_bad = analyze_file_complexity(bad_f)
-    assert len(rep_bad.errors) > 0
+    assert run_complexity_scan(bad_f) == []
 
     # 3. Directory scanning with ignored subdirs and non-python file
     sub_dir = tmp_path / "src"

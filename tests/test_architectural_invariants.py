@@ -34,7 +34,12 @@ from devops_cli.config.constants import (
     CONST_SUPPRESSION_LINT_RULES,
     CONST_TEST_ASSERTION_LINT_RULES,
 )
-from devops_cli.config.defaults import DEFAULT_C901_SUPPRESSION_CEILING, DEFAULT_MAX_COMPLEXITY
+from devops_cli.config.defaults import (
+    DEFAULT_C901_SUPPRESSION_CEILING,
+    DEFAULT_MAX_COMPLEXITY,
+    DEFAULT_MAX_NESTING_DEPTH,
+)
+from devops_cli.core.code_metrics import measure_tree
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -167,18 +172,28 @@ def test_test_model_pytest_collection_disabled() -> None:
     assert getattr(TestModel, "__test__", None) is False
 
 
-def test_no_excessive_nesting_in_src() -> None:
-    """Assert nesting depth <= 5 across all of src/devops_cli."""
-    from devops_cli.security.complexity import run_complexity_scan
+def _parse_src() -> dict[Path, ast.Module]:
+    """Parse every module under src/devops_cli once, for the whole-tree invariants."""
+    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    return {
+        path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for path in sorted(src.rglob("*.py"))
+    }
 
-    src_dir = Path("src/devops_cli")
-    assert src_dir.exists(), f"Directory {src_dir} does not exist"
-    findings = run_complexity_scan(src_dir, max_complexity=100, max_nesting_depth=5)
-    nesting_findings = [f for f in findings if "Excessive Nesting Depth" in f.title]
-    assert not nesting_findings, (
-        f"Excessive nesting depth found in src/devops_cli: "
-        f"{[f'{f.title} at {f.location}' for f in nesting_findings]}"
-    )
+
+def test_the_source_tree_keeps_its_structural_invariants() -> None:
+    """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep.
+
+    The function body is depth 1, as the structural-invariants commit hook counts it. This is
+    the one test that parses the whole tree: further whole-tree rules belong here, on its parse.
+    """
+    too_deep = [
+        f"{path}:{fn.line_number}: {fn.name} nesting {fn.max_nesting_depth}"
+        for path, tree in _parse_src().items()
+        for fn in measure_tree(tree)
+        if fn.max_nesting_depth > DEFAULT_MAX_NESTING_DEPTH
+    ]
+    assert too_deep == []
 
 
 def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
@@ -209,16 +224,12 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     for mod_path in modules_to_check:
         assert mod_path.exists(), f"Path {mod_path} does not exist"
         tree = ast.parse(mod_path.read_text(encoding="utf-8"), filename=str(mod_path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Raise) and node.exc is not None:
-                exc_name = None
-                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                    exc_name = node.exc.func.id
-                elif isinstance(node.exc, ast.Name):
-                    exc_name = node.exc.id
-
-                if exc_name in prohibited_exceptions:
-                    violations.append(f"{mod_path}:{node.lineno} raises bare {exc_name}")
+        raises = [node for node in ast.walk(tree) if isinstance(node, ast.Raise)]
+        for node in raises:
+            raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            exc_name = raised.id if isinstance(raised, ast.Name) else None
+            if exc_name in prohibited_exceptions:
+                violations.append(f"{mod_path}:{node.lineno} raises bare {exc_name}")
 
     assert not violations, "Prohibited generic exceptions raised in domain modules:\n" + "\n".join(
         violations

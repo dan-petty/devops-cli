@@ -582,7 +582,7 @@ Install and manage DevOps tool binaries.
 
 ### `devops install-tools status`
 
-**Show installation status and versions for all managed tools.**
+**Show each tool's locked version and where its command is installed, without a request.**
 
 ```bash
 devops install-tools status [OPTIONS]
@@ -592,7 +592,7 @@ devops install-tools status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target-dir`, `-d` | `path` | `~/.local/bin` | - |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
 
 ---
 
@@ -2354,7 +2354,7 @@ devops config audit-stream <destination>
 
 ### `devops config audit-keys`
 
-**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance.**
+**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited.**
 
 ```bash
 devops config audit-keys [OPTIONS]
@@ -3621,6 +3621,28 @@ devops ai review benchmark [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
+#### `devops ai review score`
+
+**Score saved review sessions against a label file: precision, recall and stability, each with its n.**
+
+```bash
+devops ai review score [OPTIONS] <sessions>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<sessions>` | `path` | No | Review session directories to score. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
+| `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 #### `devops ai review export-feedback`
 
 **Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
@@ -4536,7 +4558,7 @@ devops ai runs reindex [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
 
 #### `devops ai runs connect`
 
@@ -4567,7 +4589,7 @@ devops ai runs list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
 | `--subject-key`, `-s` | `string` | - | Only list runs matching this subject key or prefix. |
 | `--limit`, `-n` | `integer` | `20` | Maximum number of runs to show. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
@@ -4635,6 +4657,9 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
 | `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-precision-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%). |
+| `--max-stability-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%). |
+| `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai runs baseline`
@@ -4689,7 +4714,7 @@ devops ai runs baseline show [OPTIONS] <subject_or_run>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai cost`
@@ -5208,6 +5233,28 @@ devops review benchmark [OPTIONS] <targets>
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+
+### `devops review score`
+
+**Score saved review sessions against a label file: precision, recall and stability, each with its n.**
+
+```bash
+devops review score [OPTIONS] <sessions>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<sessions>` | `path` | No | Review session directories to score. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
+| `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops review export-feedback`
 
@@ -8815,8 +8862,9 @@ devops sandbox network-policy [OPTIONS]
 | `--network-mode`, `-m` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--name`, `-n` | `string` | `app-sandbox` | Name prefix for the NetworkPolicy resource |
 | `--namespace` | `string` | `sandbox` | Target Kubernetes namespace |
-| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
-| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
+| `--public-whitelist` | `string` | - | Comma-separated public destinations allowed for egress, each opening one TCP port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `--local-whitelist` | `string` | - | Comma-separated local or private destinations allowed for egress, with the same forms and ports as --public-whitelist: scheme://host:port, host:port or [v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `--allow-collector` | `boolean` | - | Add one egress rule to the OTel collector's pods in the otel namespace on TCP 4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes) |
 
 ---
 

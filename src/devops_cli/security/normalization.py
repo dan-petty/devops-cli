@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review_schema import Finding, _parse_location
 from devops_cli.config.constants import (
     CONST_SEVERITY_ALIASES,
     CONST_SEVERITY_MEDIUM,
@@ -57,12 +57,14 @@ def severity_rank(severity: str) -> int:
 def split_location(location: str) -> tuple[str, int | None, str | None]:
     """Split a scanner location string into path, line number, and symbolic locator.
 
-    Scanners write `path:line`, but also `path:Deployment/name`, `image:efficiency` and
+    Scanners write `path:line`, but also `path:Deployment/ns/name`, `image:efficiency` and
     `path:simulation`. Assuming an integer would either raise or silently drop the locator,
-    so a non-numeric suffix is preserved as a symbol instead.
+    so a non-numeric suffix is preserved as a symbol instead. A line range, `path:start-end`
+    as Semgrep writes a multi-line result, reads as its start line: it is a line, not a name.
     """
-    if not location:
-        return "", None, None
+    line_path, start, _ = _parse_location(location)
+    if start is not None:
+        return line_path, start, None
     head, separator, tail = location.rpartition(":")
     if not separator:
         return location.strip(), None, None
@@ -71,8 +73,6 @@ def split_location(location: str) -> tuple[str, int | None, str | None]:
     if not path:
         # A leading colon means there was no path, only a locator.
         return "", None, suffix or None
-    if suffix.isdigit():
-        return path, int(suffix), None
     return path, None, suffix or None
 
 
@@ -159,20 +159,25 @@ class NormalizedFinding:
         The line number is deliberately excluded. A finding that moves because unrelated
         code was inserted above it is the same finding, and including the line would
         re-open every suppression on the next edit. Path, tool, rule and canonical message
-        are what actually identify it.
+        are what actually identify it, with the symbol when there is one: an object's name,
+        such as `Service/monitoring/prometheus`, unlike a line, does not move when lines are
+        added above it, and two objects failing one check in one file are two findings. A
+        finding without a symbol keeps the fingerprint it had before the symbol counted.
         """
-        parts = (self.tool, self.rule_id, self.path, _canonical_message(self.message))
+        parts = [self.tool, self.rule_id, self.path, _canonical_message(self.message)]
+        if self.symbol:
+            parts.append(self.symbol)
         return hashlib.sha256("␟".join(parts).encode()).hexdigest()[:32]
 
     @property
-    def correlation_key(self) -> tuple[str, int | None, str]:
+    def correlation_key(self) -> tuple[str, int | None, str | None, str]:
         """The identity used to relate findings *across* tools.
 
         Tool and rule id are excluded on purpose: different scanners name the same defect
-        differently, and the observable thing they agree on is the location and what they
-        say about it.
+        differently, and the observable thing they agree on is the location, the object
+        when there is one, and what they say about it.
         """
-        return (self.path, self.line, _canonical_message(self.message))
+        return (self.path, self.line, self.symbol, _canonical_message(self.message))
 
 
 def normalize_finding(
@@ -233,7 +238,7 @@ def deduplicate(findings: list[NormalizedFinding]) -> list[NormalizedFinding]:
 class FindingCluster:
     """A group of findings that different tools reported about the same thing."""
 
-    key: tuple[str, int | None, str]
+    key: tuple[str, int | None, str | None, str]
     findings: list[NormalizedFinding] = field(default_factory=list)
 
     @property
@@ -269,7 +274,7 @@ def correlate(findings: list[NormalizedFinding]) -> list[FindingCluster]:
     states what is observable — that several tools flagged the same place — and leaves the
     individual results intact.
     """
-    clusters: dict[tuple[str, int | None, str], FindingCluster] = {}
+    clusters: dict[tuple[str, int | None, str | None, str], FindingCluster] = {}
     for finding in findings:
         cluster = clusters.get(finding.correlation_key)
         if cluster is None:

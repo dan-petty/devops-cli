@@ -64,10 +64,8 @@ def test_kubelinter_parser() -> None:
     data = {
         "Reports": [
             {
-                "Diagnostic": {
-                    "Message": "container 'web' has no runAsNonRoot set",
-                    "Check": "run-as-non-root",
-                },
+                "Check": "run-as-non-root",
+                "Diagnostic": {"Message": "container 'web' has no runAsNonRoot set"},
                 "Object": {
                     "K8sObject": {
                         "GroupVersionKind": {"Kind": "Deployment"},
@@ -79,9 +77,12 @@ def test_kubelinter_parser() -> None:
         ]
     }
     findings = parse_kubelinter_json(data, target_path="k8s/deployment.yaml")
-    assert len(findings) == 1
-    assert "run-as-non-root" in findings[0].title
-    assert "Deployment/nginx-web" in findings[0].location
+    assert [(f.title, f.location.rpartition(":")[2]) for f in findings] == [
+        (
+            "[run-as-non-root] container 'web' has no runAsNonRoot set",
+            "Deployment/production/nginx-web",
+        )
+    ]
 
 
 def test_kubelinter_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -162,9 +163,14 @@ def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
         {
             "Reports": [
                 {
-                    "Diagnostic": {"Message": "no runAsNonRoot", "Check": "run-as-non-root"},
+                    "Check": "run-as-non-root",
+                    "Diagnostic": {"Message": "no runAsNonRoot"},
                     "Object": {
-                        "K8sObject": {"Kind": "Deployment", "Name": "web", "Namespace": "prod"}
+                        "K8sObject": {
+                            "GroupVersionKind": {"Kind": "Deployment"},
+                            "Name": "web",
+                            "Namespace": "prod",
+                        }
                     },
                 }
             ]
@@ -289,7 +295,11 @@ def test_kubelinter_locations_are_relative_to_the_nested_worktree(
     manifest = nested / "k8s" / "deployment.yaml"
     manifest.parent.mkdir()
     manifest.write_text("kind: Deployment\n", encoding="utf-8")
-    report = {"Object": {"K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"}}}
+    report = {
+        "Check": "run-as-non-root",
+        "Diagnostic": {"Message": 'container "web" is not set to runAsNonRoot'},
+        "Object": {"K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"}},
+    }
     monkeypatch.chdir(nested)
 
     findings = parse_kubelinter_json({"Reports": [report]}, target_path=str(manifest))

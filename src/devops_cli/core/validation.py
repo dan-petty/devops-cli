@@ -22,6 +22,7 @@ from pydantic_ai._ssrf import (
 
 from devops_cli.config.constants import (
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
+    CONST_IPV4_EMBEDDING_IPV6_PREFIXES,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_LOOPBACK_HOSTNAME,
@@ -29,7 +30,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
     InvalidURLError,
-    InvalidVersionError,
     SSRFBlockedError,
     ValidationError,
 )
@@ -48,6 +48,19 @@ _LINK_LOCAL_IPV6_NETWORKS: tuple[ipaddress.IPv6Network, ...] = tuple(
 )
 _LINK_LOCAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
     _LINK_LOCAL_IPV4_NETWORKS + _LINK_LOCAL_IPV6_NETWORKS
+)
+# Every non-public block, with each private IPv4 block's NAT64 and IPv4-compatible images, which
+# hold the addresses the classifier decodes to that block. A range overlapping one is non-public.
+_NON_PUBLIC_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    *_PRIVATE_NETWORKS,
+    *(
+        ipaddress.IPv6Network(
+            (int(prefix.network_address) + int(block.network_address), 96 + block.prefixlen)
+        )
+        for prefix in map(ipaddress.IPv6Network, CONST_IPV4_EMBEDDING_IPV6_PREFIXES)
+        for block in _PRIVATE_NETWORKS
+        if isinstance(block, ipaddress.IPv4Network)
+    ),
 )
 _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
     dns.name.from_text(n) for n in CONST_CLOUD_METADATA_DNS_HOSTNAMES
@@ -186,12 +199,23 @@ def is_non_public_ip(
         | ipaddress.IPv6Network
     ),
 ) -> bool:
-    """Return True if the IP address or network is private, loopback, link-local, or non-global."""
+    """Return True if the IP address or network is private, loopback, link-local, or non-global.
+
+    A range is non-public when it is not global, when either end is non-public, or when it
+    overlaps one of pydantic-ai's non-public blocks or a private IPv4 block's NAT64 or
+    IPv4-compatible image, so `8.0.0.0/5` (which holds 10.0.0.0/8) and `64::/16` (which holds
+    `64:ff9b::/96`) are refused. Space only Python's `is_global` treats as non-global, such as
+    `3fff::/20`, is not looked for inside a wider range. An IPv4 range never overlaps an IPv6
+    block. An ISATAP-style interface id, which the classifier also reads as an IPv4 address,
+    occurs in every /64, so it is not taken to hide one inside a range: `2606:4700::/48` stays
+    public.
+    """
     if isinstance(addr, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
         return (
             not addr.is_global
             or is_non_public_ip(addr.network_address)
             or is_non_public_ip(addr.broadcast_address)
+            or any(addr.overlaps(net) for net in _NON_PUBLIC_NETWORKS)
         )
     return not addr.is_global or is_private_ip(str(addr))
 
@@ -645,20 +669,6 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
         )
         raise typer.Exit(1)
     return clean_val
-
-
-def validate_version_str(version: str, tool_name: str = "tool") -> str:
-    """Validate that a version string matches standard PEP 440 / SemVer pattern."""
-    clean_version = version.strip()
-    if not clean_version:
-        raise InvalidVersionError(version, tool_name=tool_name)
-    try:
-        from packaging.version import InvalidVersion, Version
-
-        Version(clean_version.lstrip("v"))
-    except (InvalidVersion, ValueError) as exc:
-        raise InvalidVersionError(version, tool_name=tool_name) from exc
-    return clean_version.lstrip("v")
 
 
 def validate_session_id(session_id: str) -> str:

@@ -31,7 +31,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.sandbox.models import (
-    _extract_host_or_ip,
+    _parse_whitelist_entry,
     _resolve_local_host,
     _resolve_public_host,
     _validate_local_whitelist_item,
@@ -211,37 +211,28 @@ def test_property_resolve_hosts_emit_correct_prefix_lengths(
 @example(ip=ipaddress.IPv6Address("fd00:ec2::254"), port=8080, prefix_len=128)
 @example(ip=ipaddress.IPv6Address("::1"), port=11434, prefix_len=128)
 @example(ip=ipaddress.IPv6Address("2001:db8::1"), port=443, prefix_len=64)
-def test_property_extract_host_or_ip_parses_ipv6_oracle(
+def test_property_parse_whitelist_entry_reads_ipv6_hosts_and_ports_oracle(
     ip: ipaddress.IPv6Address, port: int, prefix_len: int
 ) -> None:
-    """Property: _extract_host_or_ip extracts full IPv6 addresses, CIDRs, bracketed and URL forms."""
+    """Property: whitelist entries keep the full IPv6 address or CIDR, and the port they state."""
     ip_str = str(ip)
     cidr_str = f"{ip_str}/{prefix_len}"
-    bracketed_port = f"[{ip_str}]:{port}"
-    bracketed_no_port = f"[{ip_str}]"
-    http_url = f"http://[{ip_str}]:{port}/api/v1"
-
-    parsed_bare = _extract_host_or_ip(ip_str)
-    parsed_cidr = _extract_host_or_ip(cidr_str)
-    parsed_bracketed_port = _extract_host_or_ip(bracketed_port)
-    parsed_bracketed = _extract_host_or_ip(bracketed_no_port)
-    parsed_url = _extract_host_or_ip(http_url)
-
     expected_cidr = str(ipaddress.ip_network(cidr_str, strict=False))
 
-    # Oracle invariant: parsed host must never be truncated to first segment (e.g. 'fd00')
+    # Oracle invariant: the host is never truncated to its first segment (e.g. 'fd00'), and an
+    # entry without a port gets 443
     assert (
-        parsed_bare,
-        parsed_cidr,
-        parsed_bracketed_port,
-        parsed_bracketed,
-        parsed_url,
+        _parse_whitelist_entry(ip_str),
+        _parse_whitelist_entry(cidr_str),
+        _parse_whitelist_entry(f"[{ip_str}]:{port}"),
+        _parse_whitelist_entry(f"[{ip_str}]"),
+        _parse_whitelist_entry(f"http://[{ip_str}]:{port}/api/v1"),
     ) == (
-        ip_str,
-        expected_cidr,
-        ip_str,
-        ip_str,
-        ip_str,
+        (ip_str, 443),
+        (expected_cidr, 443),
+        (ip_str, port),
+        (ip_str, 443),
+        (ip_str, port),
     )
 
 

@@ -45,8 +45,10 @@ from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_req
 from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
 from devops_cli.config.settings import AIConfig
+from devops_cli.lang import MESSAGES
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage, FileAnalysisMeta
+from devops_cli.tools_lock import tools_lock_digest
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -453,6 +455,55 @@ def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
     profile = ReviewProfiler().build(session_id="s", target="t")
 
     assert profile.prompt_digest == review_prompt_digest()
+
+
+def test_a_profile_records_the_tools_lock_it_started_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tools lock digest is a review input, read when the review starts (#1142)."""
+    packaged = ReviewProfiler().build(session_id="s", target="t").tools_lock_digest
+    monkeypatch.setattr(profile_module, "tools_lock_digest", lambda: "at-start")
+    profiler = ReviewProfiler()
+    monkeypatch.setattr(profile_module, "tools_lock_digest", lambda: "at-end")
+
+    assert (packaged, profiler.build(session_id="s", target="t").tools_lock_digest) == (
+        tools_lock_digest(),
+        "at-start",
+    )
+
+
+@pytest.mark.parametrize(
+    ("at_start", "at_end", "changed"),
+    [
+        (("commit-a", "diff-a"), ("commit-b", "diff-a"), True),
+        (("commit-a", "diff-a"), ("commit-a", "diff-b"), True),
+        (("commit-a", "diff-a"), ("commit-a", "diff-a"), False),
+        (None, None, False),
+    ],
+    ids=["committed", "edited", "unchanged", "installed-copy"],
+)
+def test_a_review_warns_when_its_own_source_changes_during_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    at_start: tuple[str, str] | None,
+    at_end: tuple[str, str] | None,
+    changed: bool,
+) -> None:
+    """A commit or an edit to devops-cli's own checkout between a review's start and its end is
+    recorded in profile.json and printed as a warning (#1050, #1142)."""
+    states = iter([at_start, at_end])
+    monkeypatch.setattr(profile_module, "own_source_state", lambda: next(states))
+    warnings: list[str] = []
+    monkeypatch.setattr(runner, "print_warning", lambda message, **kwargs: warnings.append(message))
+    orchestrator = MagicMock(session_id="s1", session_dir=tmp_path)
+
+    with profiling() as profiler:
+        profile = _write_review_profile(profiler, orchestrator, "playbooks", 1)
+    saved = ReviewProfile.load(tmp_path)
+
+    assert (
+        profile.code_changed_during_run,
+        saved.code_changed_during_run if saved else None,
+        warnings,
+    ) == (changed, changed, [MESSAGES.review.code_changed_during_run] if changed else [])
 
 
 # ── A review whose replies the response cache answered (#816) ─────────────────────────────────

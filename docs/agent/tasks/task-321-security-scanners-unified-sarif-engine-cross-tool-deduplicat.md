@@ -26,18 +26,20 @@ everything downstream of the scan.
 - [x] **Normalized Finding Taxonomy (`src/devops_cli/security/normalization.py`)**:
   - `NormalizedFinding` carrying tool, rule id, severity, path, line and symbolic locator.
   - `split_location` handles every shape the scanners actually emit — `path:line`,
-    `path:Deployment/name`, `image:efficiency`, `path:simulation` — because assuming an
-    integer suffix either raises or silently discards the locator.
+    `path:start-end` (read as its start line), `path:Deployment/namespace/name`,
+    `image:efficiency`, `path:simulation` — because assuming an integer suffix either raises
+    or silently discards the locator.
   - One severity vocabulary with per-scanner aliases. An unrecognised severity normalizes
     to MEDIUM rather than INFO: silently demoting a finding this code does not understand
     is how a real issue drops out of a report.
   - Kept separate from `Finding` itself, which is also the schema an LLM populates during
     review, so tightening the security taxonomy does not constrain model output.
-- [x] **Stable Fingerprints**: identity is tool, rule, path and canonical message —
-  deliberately **not** the line number. A finding pushed down by an unrelated edit is the
-  same finding, and including the line would re-open every suppression on the next commit.
-- [x] **Deduplication and Correlation**: exact duplicates collapse; findings at one location
-  group into a `FindingCluster` that reports which tools agreed and the most severe
+- [x] **Stable Fingerprints**: identity is tool, rule, path, canonical message and the symbol
+  when there is one (#1045) — deliberately **not** the line number. A finding pushed down by
+  an unrelated edit is the same finding, and including the line would re-open every
+  suppression on the next commit; an object's name does not move.
+- [x] **Deduplication and Correlation**: exact duplicates collapse; findings at one path, line
+  and object group into a `FindingCluster` that reports which tools agreed and the most severe
   assessment any of them made. Clusters **group without merging** — two tools reporting one
   line may be describing different problems, and collapsing them would hide one. Ranking
   treats corroboration as a signal: at equal severity, a line three scanners flagged

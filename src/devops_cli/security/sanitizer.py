@@ -147,8 +147,16 @@ def _mask_literal(match: re.Match[str], masked: str) -> str:
 
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     (
+        # GitHub documents six token prefixes; the only length it states is the legacy
+        # 40-character installation token, so a ghs_ body has at least 36 characters. ghp_,
+        # gho_, ghu_ and ghr_ keep a 10-character minimum, so a shortened token is still
+        # masked, and github_pat_ keeps 20. Installation tokens (Actions' GITHUB_TOKEN
+        # included) are now ghs_APPID_JWT, about 520 characters and varying, so ghs_ also
+        # allows "." and "-". A prefix after a letter, a digit or "_" is inside a longer word,
+        # such as the identifier "test_it_reads_ghu_login_of_the_user", and is left alone.
         re.compile(
-            r"(?<![a-zA-Z0-9<])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})\b"
+            r"(?<![A-Za-z0-9_<])(?:gh[pour]_[A-Za-z0-9_]{10,}|ghs_[A-Za-z0-9_.-]{36,}"
+            r"|github_pat_[A-Za-z0-9_]{20,})\b"
         ),
         "<masked-github-token>",
     ),

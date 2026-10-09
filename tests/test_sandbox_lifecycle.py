@@ -13,6 +13,10 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from devops_cli.config.constants import (
+    CONST_TRACEPARENT_ENV_VAR,
+    CONST_TRACESTATE_ENV_VAR,
+)
 from devops_cli.exceptions.docker import DockerEngineError, DockerSandboxError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -26,6 +30,7 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxNetworkConfig,
     SandboxPolicy,
     SandboxStatus,
 )
@@ -35,6 +40,11 @@ from devops_cli.sandbox.ports import (
     is_port_available,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from devops_cli.telemetry import (
+    extract_env,
+    get_recent_spans,
+    reset_tracer,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Models & Port Allocation Tests
@@ -279,51 +289,92 @@ def _engine_dir(tmp_path: Path) -> Path:
     return tmp_path / "d" / "engine"
 
 
-def _symlinked_engine_socket(tmp_path: Path) -> tuple[Path, Path, str]:
+def _symlinked_engine_socket(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     """Link `link/docker.sock` to `real/docker.sock`, as Docker Desktop's WSL integration links
     /var/run/docker.sock into /mnt/wsl, so the socket the client opens lives in `real`."""
     real, link = tmp_path / "real", tmp_path / "link"
     real.mkdir()
     link.mkdir()
     (link / "docker.sock").symlink_to(real / "docker.sock")
-    return real, real, f"unix://{link}/docker.sock"
+    return real, real, {"DOCKER_HOST": f"unix://{link}/docker.sock"}
 
 
-# Each case: the workspace, the directory its refusal names, and the DOCKER_HOST it runs under.
+def _symlinked_ssh_agent_socket(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    """Link `link/agent.1` to `real/agent.1`, so the agent socket the client opens lives in `real`."""
+    real, link = tmp_path / "real", tmp_path / "link"
+    real.mkdir()
+    link.mkdir()
+    (link / "agent.1").symlink_to(real / "agent.1")
+    return real, real, {"SSH_AUTH_SOCK": f"{link}/agent.1"}
+
+
+# Each case: the workspace, the directory its refusal names, and the environment it runs under.
 _REFUSED_WORKSPACES: dict[str, Any] = {
-    "run": lambda tmp, rt: (Path("/run"), Path("/run"), None),
-    "run-user": lambda tmp, rt: (Path("/run/user/1000"), Path("/run"), None),
-    "run-user-gnupg": lambda tmp, rt: (Path("/run/user/1000/gnupg"), Path("/run"), None),
-    "var-run": lambda tmp, rt: (Path("/var/run"), Path("/var/run"), None),
-    "runtime-dir": lambda tmp, rt: (rt, rt, None),
-    "under-runtime-dir": lambda tmp, rt: (rt / "sub", rt, None),
-    "holds-runtime-dir": lambda tmp, rt: (rt.parent, rt, None),
+    "run": lambda tmp, rt: (Path("/run"), Path("/run"), {}),
+    "run-user": lambda tmp, rt: (Path("/run/user/1000"), Path("/run"), {}),
+    "run-user-gnupg": lambda tmp, rt: (Path("/run/user/1000/gnupg"), Path("/run"), {}),
+    "var-run": lambda tmp, rt: (Path("/var/run"), Path("/var/run"), {}),
+    "runtime-dir": lambda tmp, rt: (rt, rt, {}),
+    "under-runtime-dir": lambda tmp, rt: (rt / "sub", rt, {}),
+    "holds-runtime-dir": lambda tmp, rt: (rt.parent, rt, {}),
     "engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp),
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     "under-engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp) / "sub",
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     "holds-engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp).parent,
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     # docker-py reads `unix://tmp/...` as `/tmp/...`, so the check must too.
     "engine-socket-dir-two-slash": lambda tmp, rt: (
         _engine_dir(tmp),
         _engine_dir(tmp),
-        f"unix://{str(_engine_dir(tmp)).lstrip('/')}/docker.sock",
+        {"DOCKER_HOST": f"unix://{str(_engine_dir(tmp)).lstrip('/')}/docker.sock"},
     ),
     "symlinked-engine-socket": lambda tmp, rt: _symlinked_engine_socket(tmp),
-    "unsupported-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "fd://"),
+    "unsupported-engine-endpoint": lambda tmp, rt: (
+        tmp / "ws",
+        tmp / "ws",
+        {"DOCKER_HOST": "fd://"},
+    ),
     # docker-py's parse_host raises a bare ValueError here, not a DockerException.
-    "unparseable-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "tcp://host:abc"),
-    "system-subpath": lambda tmp, rt: (Path("/etc/ssl"), Path("/etc/ssl"), None),
+    "unparseable-engine-endpoint": lambda tmp, rt: (
+        tmp / "ws",
+        tmp / "ws",
+        {"DOCKER_HOST": "tcp://host:abc"},
+    ),
+    "system-subpath": lambda tmp, rt: (Path("/etc/ssl"), Path("/etc/ssl"), {}),
+    "ssh-agent-dir": lambda tmp, rt: (
+        tmp / "ssh-abc",
+        tmp / "ssh-abc",
+        {"SSH_AUTH_SOCK": f"{tmp}/ssh-abc/agent.1"},
+    ),
+    "holds-ssh-agent-dir": lambda tmp, rt: (
+        tmp,
+        tmp / "ssh-abc",
+        {"SSH_AUTH_SOCK": f"{tmp}/ssh-abc/agent.1"},
+    ),
+    "symlinked-ssh-agent-socket": lambda tmp, rt: _symlinked_ssh_agent_socket(tmp),
+    # VS Code puts its SSH-auth socket directly in /tmp.
+    "vscode-ssh-auth-socket": lambda tmp, rt: (
+        tmp,
+        tmp,
+        {"SSH_AUTH_SOCK": f"{tmp}/vscode-ssh-auth-x.sock"},
+    ),
+    "x11-dir": lambda tmp, rt: (Path("/tmp/.X11-unix"), Path("/tmp/.X11-unix"), {}),
+    # The test's runtime directory lies under /tmp, so it is cleared for the X11 rule to answer.
+    "holds-x11-dir": lambda tmp, rt: (
+        Path("/tmp"),
+        Path("/tmp/.X11-unix"),
+        {"XDG_RUNTIME_DIR": ""},
+    ),
 }
 
 
@@ -338,13 +389,15 @@ def test_a_workspace_overlapping_a_socket_directory_is_refused_before_any_engine
     docker_engine: Any,
 ) -> None:
     """Both runners refuse /run, the runtime directory and the engine socket's directory when the
-    workspace is, holds or sits under one, and name the workspace and that directory (#1115)."""
+    workspace is, holds or sits under one (#1115), and the SSH agent's directory and
+    /tmp/.X11-unix when the workspace is or holds one (#1384). The refusal names the workspace and
+    that directory."""
     run, refusal = _SANDBOX_RUNNERS[runner_name]
     runtime_dir = tmp_path_factory.mktemp("rt")
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    workspace, protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
-    if docker_host:
-        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    workspace, protected, env = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     client = MagicMock()
 
     with docker_engine(client), pytest.raises(refusal) as refused:
@@ -381,9 +434,42 @@ def test_a_workspace_beside_the_socket_directories_is_mounted(
     assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
 
 
+@pytest.mark.parametrize("runner_name", sorted(_SANDBOX_RUNNERS))
+@pytest.mark.parametrize(
+    "agent_socket",
+    ["{tmp}/vscode-ssh-auth-x.sock", None, "", "agent.1"],
+    ids=["vscode-in-parent", "unset", "empty", "relative"],
+)
+def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
+    runner_name: str,
+    agent_socket: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """The SSH agent rule is one-way, so a workspace under the agent's directory is mounted, and an
+    unset, empty or relative SSH_AUTH_SOCK adds no rule (#1384). Resolving `agent.1` would make the
+    working directory, here the workspace, the agent's directory."""
+    run, _refusal = _SANDBOX_RUNNERS[runner_name]
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    if agent_socket is None:
+        monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+    else:
+        monkeypatch.setenv("SSH_AUTH_SOCK", agent_socket.format(tmp=tmp_path))
+    client = MagicMock()
+
+    with docker_engine(client):
+        run(workspace, tmp_path)
+
+    assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
+
+
 @pytest.mark.parametrize("tool_name", ["docker_sandbox", "sandbox_deploy"])
 @pytest.mark.parametrize(
-    "case", ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint"]
+    "case",
+    ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint", "ssh-agent-dir"],
 )
 def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
     tool_name: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -391,9 +477,9 @@ def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
     """The tool raises the shared check's refusal, so the client gets it and no command runs."""
     from devops_cli.ai.mcp import server
 
-    workspace, _protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
-    if docker_host:
-        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    workspace, _protected, env = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     tool = getattr(server, tool_name)
 
     with (
@@ -1195,3 +1281,121 @@ def test_workload_sandbox_engine_prior_samples_instance_isolation(tmp_path: Path
 
     engine1._prior_samples["test-key"] = (100.0, None)  # type: ignore[assignment]
     assert "test-key" not in engine2._prior_samples
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trace context in sandbox containers and execs (#702)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
+
+
+def _deploy_with_mock_engine(
+    tmp_path: Path, docker_engine: Any, **config: Any
+) -> tuple[WorkloadSandboxEngine, SandboxDeployConfig, SandboxInstance, MagicMock]:
+    """Deploy a sandbox through a mocked Engine API client and return what it was handed."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(exist_ok=True)
+    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    container = MagicMock()
+    container.id = "cont-trace-1"
+    container.exec_run.return_value = (0, b"")
+    client = MagicMock()
+    client.containers.create.return_value = container
+    client.containers.get.return_value = container
+    cfg = SandboxDeployConfig(workspace_dir=workspace, **config)
+    with docker_engine(client):
+        instance = engine.deploy(cfg)
+    return engine, cfg, instance, client
+
+
+def _span_ids(name: str) -> list[str]:
+    """The ids of the finished spans with this name, oldest first."""
+    return [span["spanId"] for span in get_recent_spans() if span.get("name") == name]
+
+
+def test_a_deployed_sandbox_is_parented_to_its_deploy_span(
+    tmp_path: Path, docker_engine: Any, tracer: Any
+) -> None:
+    """The container's TRACEPARENT names the deploy span; the config's env is left as it was."""
+    _engine, cfg, _instance, client = _deploy_with_mock_engine(
+        tmp_path, docker_engine, env={"APP_MODE": "test"}
+    )
+    environment = client.containers.create.call_args.kwargs["environment"]
+    child = extract_env(environment)
+    assert (
+        child.span_id if child else None,
+        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
+        cfg.env,
+    ) == (_span_ids("sandbox.deploy")[0], {"APP_MODE": "test"}, {"APP_MODE": "test"})
+
+
+def test_a_proxied_sandbox_keeps_its_proxy_variables_beside_the_trace_context(
+    tmp_path: Path, docker_engine: Any, tracer: Any
+) -> None:
+    """In a proxy mode the proxy variables are still set when the trace context is added."""
+    proxy = "http://example.com:3128"
+    network = SandboxNetworkConfig(
+        mode="public_whitelist", public_whitelist=["93.184.216.34"], egress_proxy=proxy
+    )
+    _engine, _cfg, _instance, client = _deploy_with_mock_engine(
+        tmp_path, docker_engine, network_config=network, env={"APP_MODE": "test"}
+    )
+    environment = client.containers.create.call_args.kwargs["environment"]
+    child = extract_env(environment)
+    assert (
+        child.span_id if child else None,
+        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
+    ) == (
+        _span_ids("sandbox.deploy")[0],
+        {"HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy, "APP_MODE": "test"},
+    )
+
+
+def test_a_sandbox_deployed_with_tracing_off_gets_exactly_its_configured_env(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """With tracing disabled the container's environment is the config's env and nothing else."""
+    with patch(
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+    ):
+        reset_tracer()
+        _engine, _cfg, _instance, client = _deploy_with_mock_engine(
+            tmp_path, docker_engine, env={"APP_MODE": "test"}
+        )
+        reset_tracer()
+    assert client.containers.create.call_args.kwargs["environment"] == {"APP_MODE": "test"}
+
+
+def test_each_exec_is_parented_to_its_own_exec_span(
+    tmp_path: Path, docker_engine: Any, tracer: Any
+) -> None:
+    """Two execs carry different parents, each its own `sandbox.exec` span, never the deploy span."""
+    engine, _cfg, instance, client = _deploy_with_mock_engine(tmp_path, docker_engine)
+    with docker_engine(client):
+        engine.exec(instance.instance_id, ["env"])
+        engine.exec(instance.instance_id, ["env"])
+    contexts = [
+        extract_env(exec_call.kwargs["environment"])
+        for exec_call in client.containers.get.return_value.exec_run.call_args_list
+    ]
+    parents = [context.span_id if context else None for context in contexts]
+    assert (parents, len(set(parents)), _span_ids("sandbox.deploy")[0] in parents) == (
+        _span_ids("sandbox.exec"),
+        2,
+        False,
+    )
+
+
+def test_an_exec_with_tracing_off_sends_no_environment(tmp_path: Path, docker_engine: Any) -> None:
+    """With tracing disabled an exec passes no environment, as before."""
+    with patch(
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+    ):
+        reset_tracer()
+        engine, _cfg, instance, client = _deploy_with_mock_engine(tmp_path, docker_engine)
+        with docker_engine(client):
+            engine.exec(instance.instance_id, ["env"])
+        reset_tracer()
+    exec_run = client.containers.get.return_value.exec_run
+    assert exec_run.call_args.kwargs["environment"] is None

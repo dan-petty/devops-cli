@@ -425,12 +425,22 @@ class DockerEngineService:
             ) from exc
 
     def exec_in_container(
-        self, container_id: str, command: list[str], *, workdir: str | None = None
+        self,
+        container_id: str,
+        command: list[str],
+        *,
+        workdir: str | None = None,
+        environment: dict[str, str] | None = None,
     ) -> tuple[int, str]:
-        """Execute a command inside a running container and return its status and output."""
+        """Execute a command inside a running container and return its status and output.
+
+        `environment` is added to the container's own for this command only.
+        """
         container = self.get_container(container_id)
         try:
-            exit_code, output = container.exec_run(command, workdir=workdir)
+            exit_code, output = container.exec_run(
+                command, workdir=workdir, environment=environment
+            )
         except Exception as exc:
             raise DockerEngineError(
                 f"Container exec failed: {exc}", container_id=container_id

@@ -18,3 +18,9 @@ rule = "B103"
 path = "tests/**"
 reason = "Test suites configure intentional mock file permissions and TLS certificates"
 expiry = "2099-12-31"
+
+[[suppressions]]
+rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure"
+path = "src/devops_cli/security/vault_lease.py"
+reason = "The call logs the ServiceAccount token file's path and the OSError (path and errno), never the token; verified 2026-10-08. The rule stays enabled elsewhere (#1024)."
+expiry = "2027-04-08"

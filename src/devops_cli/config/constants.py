@@ -209,9 +209,9 @@ CONST_JSON_SCHEMA_BOUND_PHRASES: Final[dict[str, str]] = {
 # An undeclared parameter's name is the caller's own text, so a refusal echoes only a masked
 # prefix of it this long.
 CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
-# FastMCP logs a refused call's pydantic errors here, and each error carries the rejected value,
-# which the log keeps as this placeholder instead.
-CONST_FASTMCP_SERVER_LOGGER: Final[str] = "fastmcp.server.server"
+# FastMCP logs each tool call's and prompt request's arguments at DEBUG on this logger, and the
+# log keeps CONST_REDACTED_LOG_VALUE in their place (#899).
+CONST_FASTMCP_OPERATIONS_LOGGER: Final[str] = "fastmcp.server.mixins.mcp_operations"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
 # HTML chrome and non-content tags decomposed during untrusted page rendering (#896).
 CONST_WEB_FETCH_CHROME_TAGS: Final[frozenset[str]] = frozenset(
@@ -664,19 +664,6 @@ CONST_CLOUDFLARE_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
 CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloudflare")
 
 
-CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
-CONST_URL_HELM_DOWNLOAD_BASE = "https://get.helm.sh"
-CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE = (
-    "https://github.com/kubernetes-sigs/kustomize/releases/download"
-)
-CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE = (
-    "https://github.com/argoproj/argo-workflows/releases/download"
-)
-CONST_URL_GITHUB_ARGOCD_RELEASES_BASE = "https://github.com/argoproj/argo-cd/releases/download"
-CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE = (
-    "https://github.com/argoproj/argo-rollouts/releases/download"
-)
-
 # ── Kubernetes & RFC 1123 Patterns ────────────────────────────────────────────
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
@@ -893,6 +880,23 @@ CONST_REVIEW_CANDIDATES_FILENAME = "candidates.json"
 # Held while `devops review verify` reads and writes a session's files, so verdicts given on one
 # session at once, as an MCP client's parallel calls give them, wait their turn (#949).
 CONST_REVIEW_VERDICT_LOCK_FILENAME = ".verify.lock"
+# The admitted tool findings of a review session, with their fingerprint_v2 (#871).
+CONST_REVIEW_SARIF_FILENAME = "findings.sarif"
+# A review session's per-page records: the file each page read and the findings it raised there.
+CONST_REVIEW_PAGES_DIRNAME = "files"
+# `devops review score` (#1138): the labels a person gives a distinct finding, the two that count
+# as valid, the producer of a model's finding, and the severities its HIGH/CRITICAL figure reads.
+CONST_REVIEW_LABEL_VALID_STRICT = "valid-strict"
+CONST_REVIEW_LABEL_VALID_LENIENT = "valid-lenient"
+CONST_REVIEW_LABEL_FALSE = "false"
+CONST_REVIEW_LABELS_VALID: Final[frozenset[str]] = frozenset(
+    {CONST_REVIEW_LABEL_VALID_STRICT, CONST_REVIEW_LABEL_VALID_LENIENT}
+)
+CONST_REVIEW_PRODUCER_PERSONA = "persona"
+CONST_REVIEW_SCORE_HIGH_SEVERITIES: Final[frozenset[str]] = frozenset({"CRITICAL", "HIGH"})
+# A model's finding matches a label of its path and origin page when their lines lie this close,
+# the window the loop study clustered persona findings with.
+CONST_REVIEW_SCORE_PERSONA_LINE_WINDOW = 5
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",
@@ -1183,6 +1187,7 @@ CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+CONST_OTEL_OTLP_GRPC_PORT = 4317
 # Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
 CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
     {"counter", "gauge", "histogram", "summary", "untyped"}
@@ -1212,6 +1217,12 @@ CONST_PYTHON_TEMPLATE_STRING_PREFIXES: Final[frozenset[str]] = frozenset({"f", "
 CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
+# The labels the opentelemetry-collector chart gives the `otel-collector` release's pods. Both
+# are needed: Jaeger runs in the same namespace and listens on the same OTLP ports.
+CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
+    "app.kubernetes.io/name": "opentelemetry-collector",
+    "app.kubernetes.io/instance": "otel-collector",
+}
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
 # The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml) and its password secret.
 CONST_RUNS_INDEX_NAMESPACE = "llm"
@@ -2166,6 +2177,10 @@ CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
 # subprocess working directories and every other `CONST_FORBIDDEN_SYSTEM_DIRS` caller do not.
 CONST_SANDBOX_RUNTIME_ROOT: Final[Path] = Path("/run")
 CONST_XDG_RUNTIME_DIR_ENV_VAR: Final[str] = "XDG_RUNTIME_DIR"
+# The user's SSH agent socket directory and the X11 socket directory. A sandbox workspace never
+# is or holds either (#1384); a workspace under one is still mounted.
+CONST_SSH_AUTH_SOCK_ENV_VAR: Final[str] = "SSH_AUTH_SOCK"
+CONST_X11_SOCKET_DIR: Final[Path] = Path("/tmp/.X11-unix")  # nosec B108
 
 # Multi-tier sandbox networking mode constants
 CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
@@ -2175,6 +2190,16 @@ CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: Final[str] = "local_whitelist"
 CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
 
 CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
+# The TCP port a whitelist entry that names none opens, by URL scheme ("" for no scheme). Any
+# other scheme has no default, so its entry must name a port.
+CONST_SANDBOX_WHITELIST_DEFAULT_PORTS: Final[dict[str, int]] = {"": 443, "https": 443, "http": 80}
+# The network modes whose NetworkPolicy can take the opt-in egress rule to the OTel collector:
+# isolated has no egress to add it to, and bridge already allows all of it.
+CONST_SANDBOX_COLLECTOR_LANE_MODES: Final[tuple[str, ...]] = (
+    CONST_SANDBOX_NETWORK_NAMESPACE,
+    CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+)
 CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
 
 # Exit status reported when a sandbox workload exceeds its wall-clock budget,
@@ -2471,6 +2496,9 @@ CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}
 )
+# The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
+# decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
+CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30

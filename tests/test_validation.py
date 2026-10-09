@@ -20,7 +20,6 @@ from devops_cli.core.validation import (
     validate_service_url,
     validate_url,
     validate_url_egress,
-    validate_version_str,
 )
 from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
 
@@ -73,6 +72,30 @@ def test_is_non_public_ip() -> None:
         True,
         True,
     )
+
+
+@pytest.mark.parametrize(
+    ("cidr", "non_public"),
+    [
+        ("0.0.0.0/0", True),
+        ("::/0", True),
+        ("128.0.0.0/1", True),
+        ("8.0.0.0/5", True),
+        ("64:ff9b::/96", True),
+        ("64:ff9b::800:0/101", True),
+        ("::800:0/101", True),
+        ("64::/16", True),
+        ("2606:4700::/48", False),
+        ("140.82.112.0/20", False),
+    ],
+)
+def test_a_range_is_non_public_when_any_of_its_addresses_is(cidr: str, non_public: bool) -> None:
+    """A range holding a non-public block is non-public even when both its ends are public.
+
+    `8.0.0.0/5` holds 10.0.0.0/8; `64:ff9b::800:0/101` and `::800:0/101` are its NAT64 and
+    IPv4-compatible images, holding that block's images; `64::/16` holds `64:ff9b::/96`.
+    """
+    assert is_non_public_ip(ipaddress.ip_network(cidr)) is non_public
 
 
 def test_validate_url_valid() -> None:
@@ -188,14 +211,6 @@ def test_validate_path_parameterized(tmp_path: Path) -> None:
         validate_path("../outside", allow_traversal=False)
 
 
-def test_validate_version_str() -> None:
-    assert validate_version_str("v1.28.0") == "1.28.0"
-    assert validate_version_str("2.0.1-rc1") == "2.0.1-rc1"
-
-    with pytest.raises(ValueError, match="Invalid tool version string"):
-        validate_version_str("invalid..version!!")
-
-
 def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify SSRF egress checks with public IP and DNS resolution."""
     from unittest.mock import patch
@@ -221,7 +236,7 @@ def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch
 
 
 def test_validation_edge_cases() -> None:
-    """Verify validate_safe_directory_path, validate_session_id, and empty version."""
+    """Verify validate_safe_directory_path and validate_session_id."""
     from unittest.mock import patch
 
     from devops_cli.core.validation import (
@@ -229,7 +244,7 @@ def test_validation_edge_cases() -> None:
         validate_safe_directory_path,
         validate_session_id,
     )
-    from devops_cli.exceptions import InvalidVersionError, SSRFBlockedError, ValidationError
+    from devops_cli.exceptions import SSRFBlockedError, ValidationError
 
     # 1. validate_safe_directory_path
     assert validate_safe_directory_path("src/devops_cli") == Path("src/devops_cli")
@@ -247,11 +262,7 @@ def test_validation_edge_cases() -> None:
     with pytest.raises(ValidationError):
         validate_session_id("session/../traversal")
 
-    # 3. validate_version_str empty
-    with pytest.raises(InvalidVersionError):
-        validate_version_str("")
-
-    # 4. _enforce_non_private_ssrf fails closed with unparseable IP or DNS failure
+    # 3. _enforce_non_private_ssrf fails closed with unparseable IP or DNS failure
     mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
     with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):
         with pytest.raises(SSRFBlockedError):

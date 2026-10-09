@@ -51,20 +51,6 @@ VALID_SPAN_ID = "00f067aa0ba902b7"
 VALID_TRACEPARENT = f"00-{VALID_TRACE_ID}-{VALID_SPAN_ID}-01"
 
 
-@pytest.fixture
-def tracer() -> Any:
-    """Provide an enabled tracer with a clean span buffer."""
-    environment = dict(os.environ)
-    environment.pop(CONST_TRACEPARENT_ENV_VAR, None)
-    environment.pop(CONST_TRACEPARENT_HEADER, None)
-    with patch.dict(os.environ, environment, clear=True):
-        reset_tracer()
-        clear_span_buffer()
-        yield get_tracer()
-        clear_span_buffer()
-        reset_tracer()
-
-
 # =============================================================================
 # Parsing
 # =============================================================================

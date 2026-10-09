@@ -1,0 +1,3342 @@
+{
+  "about": "Seed labels for `devops review score` (#1138): the loop study's clusters of S11 (20261003-060647) and S12-S21 (20261003-065531 to -115921), one cluster per findings.json row, labelled valid-strict, valid-lenient, opinion or false. Transcribed from the study's clusters.json, cluster_overrides.json and precision report; the owner reviews them.",
+  "recall_set": "../review_recall/recall_set.json",
+  "inputs": [
+    {
+      "name": "s11",
+      "split": "tuning",
+      "digests": [
+        "197b2f088fcf1557"
+      ],
+      "root": "/workspaces/devops-cli",
+      "known_defects": [
+        "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+        "C092",
+        "C094",
+        "C096",
+        "C012",
+        "C039",
+        "C236",
+        "C237",
+        "C243"
+      ],
+      "sessions": {
+        "20261003-060647": ["C005", "C012", "C239", "C240", "C245", "C249", "C185", "C115", "C237", "C244", "C266", "C267", "C268", "C269", "C270", "C271", "C272", "C273", "C274", "C275", "C276", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C071", "C236", "C241", "C246", "C019", "C084", "C144", "C145", "C146", "C147", "C148", "C156", "C157", "C193", "C209", "C218"]
+      }
+    },
+    {
+      "name": "loop",
+      "split": "tuning",
+      "digests": [
+        "3d555ac817ab1d60"
+      ],
+      "root": "/workspaces/devops-cli",
+      "known_defects": [
+        "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+        "C092",
+        "C094",
+        "C096",
+        "C012",
+        "C039",
+        "C236",
+        "C237",
+        "C243"
+      ],
+      "sessions": {
+        "20261003-065531": ["C005", "C019", "C115", "C092", "C094", "C096", "C112", "C142", "C256", "C095", "C024", "C031", "C276", "C278", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C026", "C042", "C044", "C117", "C266", "C268", "C269", "C270", "C271", "C274", "C275", "C041", "C108", "C149", "C150", "C156", "C173", "C174", "C176"],
+        "20261003-073236": ["C005", "C107", "C115", "C007", "C010", "C019", "C051", "C139", "C256", "C009", "C012", "C024", "C125", "C276", "C278", "C281", "C282", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C014", "C029", "C057", "C059", "C108", "C113", "C116", "C131", "C266", "C021", "C156", "C173", "C179", "C212", "C213", "C053"],
+        "20261003-080659": ["C005", "C024", "C092", "C094", "C108", "C115", "C026", "C096", "C128", "C256", "C185", "C225", "C235", "C036", "C071", "C118", "C276", "C278", "C281", "C282", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C294", "C065", "C066", "C067", "C068", "C069", "C070", "C119", "C120", "C121", "C127", "C266", "C268", "C269", "C270", "C271", "C275", "C122", "C123", "C149", "C150", "C187", "C190", "C191", "C193", "C227"],
+        "20261003-084218": ["C005", "C012", "C115", "C019", "C021", "C034", "C092", "C094", "C095", "C096", "C117", "C256", "C098", "C037", "C276", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C015", "C266", "C268", "C269", "C270", "C271", "C274", "C275", "C156", "C222", "C225", "C230", "C231", "C233"],
+        "20261003-091619": ["C005", "C019", "C117", "C256", "C185", "C037", "C143", "C266", "C276", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C020", "C040", "C052", "C058", "C059", "C084", "C086", "C088", "C089", "C109", "C110", "C114", "C268", "C269", "C270", "C271", "C272", "C273", "C274", "C275", "C023", "C042", "C144", "C146", "C147", "C156"],
+        "20261003-095001": ["C005", "C019", "C141", "C142", "C020", "C025", "C027", "C037", "C256", "C023", "C206", "C208", "C210", "C276", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C022", "C061", "C101", "C103", "C124", "C266", "C268", "C269", "C270", "C275", "C122", "C150", "C173", "C233"],
+        "20261003-102523": ["C005", "C012", "C109", "C110", "C256", "C036", "C091", "C093", "C276", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C117", "C266", "C156", "C187", "C189"],
+        "20261003-105505": ["C005", "C025", "C035", "C037", "C092", "C094", "C096", "C256", "C276", "C278", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C294", "C062", "C061", "C095", "C102", "C104", "C106", "C266", "C268", "C269", "C270", "C271", "C275", "C156", "C173", "C216", "C227"],
+        "20261003-112847": ["C005", "C023", "C024", "C019", "C021", "C026", "C038", "C256", "C054", "C059", "C039", "C091", "C093", "C276", "C278", "C281", "C282", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C057", "C266", "C268", "C269", "C270", "C271", "C272", "C273", "C274", "C275", "C049", "C050", "C149", "C150", "C156"],
+        "20261003-115921": ["C005", "C013", "C092", "C094", "C096", "C256", "C156", "C227", "C012", "C115", "C276", "C278", "C281", "C283", "C284", "C285", "C286", "C287", "C288", "C289", "C290", "C291", "C292", "C293", "C294", "C295", "C017", "C018", "C026", "C042", "C046", "C266", "C268", "C269", "C270", "C271", "C272", "C274", "C275", "C011", "C095", "C157", "C173", "C177", "C182", "C184", "C187", "C196", "C228"]
+      }
+    },
+    {
+      "name": "golden",
+      "split": "held-out",
+      "digests": [],
+      "source": "../../golden/review_findings.json",
+      "known_defects": [
+        "world-writable-dir",
+        "playbook-0777",
+        "unpinned-image",
+        "dropped-await",
+        "fstring-sql",
+        "bare-except",
+        "masked-live-key",
+        "real-secret-in-tests",
+        "unbound-local",
+        "real-nameerror",
+        "token-logged",
+        "shell-injection"
+      ],
+      "accepted_loss": [
+        {
+          "defect_id": "missing-containment",
+          "reason": "no rule checks that a resolve() is followed by a containment check"
+        },
+        {
+          "defect_id": "missing-depth-limit",
+          "reason": "the defect is a project constant never enforced; no rule knows what the constant bounds"
+        },
+        {
+          "defect_id": "unchecked-status",
+          "reason": "no rule requires a status check before a response body is parsed"
+        },
+        {
+          "defect_id": "unvalidated-dest",
+          "reason": "no rule requires a containment check on a path read from the environment"
+        },
+        {
+          "defect_id": "processed-timestamps",
+          "reason": "a naive against aware comparison of values typed only at runtime"
+        },
+        {
+          "defect_id": "if-none-of",
+          "reason": "authorization logic: the loop's fall-through return"
+        },
+        {
+          "defect_id": "not-properly",
+          "reason": "rate-limiter logic: the function allows every request"
+        },
+        {
+          "defect_id": "api-need-to",
+          "reason": "an API design choice: the token arrives in the query string"
+        },
+        {
+          "defect_id": "cwe400-upload",
+          "reason": "no rule bounds a read_text() of a caller-supplied path"
+        },
+        {
+          "defect_id": "missing-auth-header",
+          "reason": "no rule knows which requests need an Authorization header"
+        },
+        {
+          "defect_id": "miscounted-line",
+          "reason": "the location is past the end of app/short.py, so admission rejects it by design"
+        },
+        {
+          "defect_id": "persona-self-dismissal",
+          "reason": "the same print as token-logged; a tool reports the construct once"
+        }
+      ]
+    }
+  ],
+  "labels": [
+    {
+      "identity": {
+        "key": "C005",
+        "producer": "persona",
+        "rule": null,
+        "path": "app/shell.py",
+        "start_line": 4,
+        "end_line": 4,
+        "object": null,
+        "origin": "tests/golden/review_findings.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C005",
+      "expected_severity": null,
+      "note": "D13: app/shell.py is not in the tree; the finding is the golden shell-injection entry",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C007",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": 350,
+        "end_line": 350,
+        "object": null,
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C007",
+      "expected_severity": null,
+      "note": "the observed pascal/maxwell/kepler is not at :351, which reads ampere-hopper",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C009",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": 359,
+        "end_line": 359,
+        "object": null,
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C009",
+      "expected_severity": null,
+      "note": "OLLAMA_HOST 0.0.0.0 is required for the Service and the probes",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C010",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": 412,
+        "end_line": 412,
+        "object": null,
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C010",
+      "expected_severity": null,
+      "note": "hostPath DirectoryOrCreate",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C011",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/otel/networkpolicy.yaml",
+        "start_line": 9,
+        "end_line": 9,
+        "object": null,
+        "origin": "k8s/otel/networkpolicy.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C011",
+      "expected_severity": null,
+      "note": "podSelector {} within the namespace",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C012",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/otel/networkpolicy.yaml",
+        "start_line": 30,
+        "end_line": 32,
+        "object": null,
+        "origin": "k8s/otel/networkpolicy.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C012",
+      "expected_severity": "MEDIUM",
+      "note": "otel NetworkPolicy ipBlock 0.0.0.0/0 on 16686 (:31-32); MEDIUM, not HIGH",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C013",
+        "producer": "persona",
+        "rule": null,
+        "path": "k8s/otel/networkpolicy.yaml",
+        "start_line": 37,
+        "end_line": 37,
+        "object": null,
+        "origin": "k8s/otel/networkpolicy.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C013",
+      "expected_severity": null,
+      "note": "OTLP ingress from all namespaces; the comment documents it as the design",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C014",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/client/unified.py",
+        "start_line": 80,
+        "end_line": 80,
+        "object": null,
+        "origin": "src/devops_cli/ai/client/unified.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C014",
+      "expected_severity": null,
+      "note": "urlsplit for span attributes only",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C015",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/gateway.py",
+        "start_line": 195,
+        "end_line": 195,
+        "object": null,
+        "origin": "src/devops_cli/ai/gateway.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C015",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: all 22 deterministic INVALIDATED checked, 21 right outcome (the wrong one is config.py:514) (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C017",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/library/drift_auditor.py",
+        "start_line": 86,
+        "end_line": 86,
+        "object": null,
+        "origin": "src/devops_cli/ai/library/drift_auditor.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C017",
+      "expected_severity": null,
+      "note": "unlink-before-write is deliberate (docstring :82-83)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C018",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/library/drift_auditor.py",
+        "start_line": 332,
+        "end_line": 332,
+        "object": null,
+        "origin": "src/devops_cli/ai/library/drift_auditor.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C018",
+      "expected_severity": null,
+      "note": "save_error is the documented contract",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C019",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/mcp/server.py",
+        "start_line": 201,
+        "end_line": 201,
+        "object": null,
+        "origin": "src/devops_cli/ai/mcp/server.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C019",
+      "expected_severity": null,
+      "note": "min_val=1 is the documented 1-based index",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C020",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/mcp/server.py",
+        "start_line": 219,
+        "end_line": 219,
+        "object": null,
+        "origin": "src/devops_cli/ai/mcp/server.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C020",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C021",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/mcp/server.py",
+        "start_line": 1146,
+        "end_line": 1149,
+        "object": null,
+        "origin": "src/devops_cli/ai/mcp/server.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C021",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C022",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/mcp/server.py",
+        "start_line": 1146,
+        "end_line": 1146,
+        "object": null,
+        "origin": "src/devops_cli/ai/mcp/server.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C022",
+      "expected_severity": null,
+      "note": "argv list, and trace_id is validated",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C023",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/mcp/server.py",
+        "start_line": 1353,
+        "end_line": 1353,
+        "object": null,
+        "origin": "src/devops_cli/ai/mcp/server.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C023",
+      "expected_severity": null,
+      "note": "the `--` separator is correct",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C024",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 196,
+        "end_line": 196,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C024",
+      "expected_severity": null,
+      "note": "an empty list from _parsed_vectors raises EmbeddingsError at :214, so nothing is silent",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C025",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 196,
+        "end_line": 196,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C025",
+      "expected_severity": null,
+      "note": "PEP 758 unparenthesized except is valid",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C026",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 206,
+        "end_line": 206,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C026",
+      "expected_severity": null,
+      "note": "the bounded reply excerpt is intended",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C027",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 206,
+        "end_line": 206,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C027",
+      "expected_severity": null,
+      "note": "the bounded reply excerpt is intended",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C029",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 703,
+        "end_line": 703,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C029",
+      "expected_severity": null,
+      "note": "the backoff re-raise is correct",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C031",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/embeddings.py",
+        "start_line": 738,
+        "end_line": 738,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/embeddings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C031",
+      "expected_severity": null,
+      "note": "the halving recursion is correct",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C034",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 147,
+        "end_line": 147,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C034",
+      "expected_severity": null,
+      "note": "a benign double-checked Event fast path",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C035",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 194,
+        "end_line": 194,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C035",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C036",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 280,
+        "end_line": 295,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C039",
+      "expected_severity": null,
+      "note": "echo of recall-set record 3 relocated onto investigator.py:280; the code has the #423 defect, but 'catches SystemExit/KeyboardInterrupt' is wrong",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C037",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 283,
+        "end_line": 283,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C037",
+      "expected_severity": null,
+      "note": "a constant bound on a slice",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C038",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 283,
+        "end_line": 283,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C038",
+      "expected_severity": null,
+      "note": "the log is debug level and %.50s",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C039",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 294,
+        "end_line": 294,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C039",
+      "expected_severity": null,
+      "note": "investigator.py:293-295 `except Exception` to a debug log, ctx None (#423; recall record 3)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C040",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/rag/investigator.py",
+        "start_line": 296,
+        "end_line": 296,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/investigator.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C040",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C041",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/common_hallucinations.py",
+        "start_line": 229,
+        "end_line": 229,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/common_hallucinations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C041",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C042",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/common_hallucinations.py",
+        "start_line": 266,
+        "end_line": 274,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/common_hallucinations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C042",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C044",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/common_hallucinations.py",
+        "start_line": 294,
+        "end_line": 294,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/common_hallucinations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C044",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C046",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/common_hallucinations.py",
+        "start_line": 314,
+        "end_line": 314,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/common_hallucinations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C046",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C049",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/mitigations.py",
+        "start_line": 171,
+        "end_line": 183,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/mitigations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C049",
+      "expected_severity": null,
+      "note": "repo_root is not input",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C050",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/mitigations.py",
+        "start_line": 194,
+        "end_line": 194,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/mitigations.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C050",
+      "expected_severity": null,
+      "note": "absolute paths never match (#845)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C051",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 1020,
+        "end_line": 1020,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C051",
+      "expected_severity": null,
+      "note": "errors=replace",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C052",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 1810,
+        "end_line": 1810,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C052",
+      "expected_severity": null,
+      "note": "secret-scan routing is deliberate",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C053",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 1824,
+        "end_line": 1824,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C053",
+      "expected_severity": null,
+      "note": "_checked_session_dir guards the session directory",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C054",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 1824,
+        "end_line": 1824,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C054",
+      "expected_severity": null,
+      "note": "_checked_session_dir guards the session directory",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C057",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 2850,
+        "end_line": 2850,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C057",
+      "expected_severity": null,
+      "note": "secret-scan routing is deliberate",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C058",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 2999,
+        "end_line": 2999,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C058",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C059",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/pipeline.py",
+        "start_line": 3091,
+        "end_line": 3091,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/pipeline.py",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C059",
+      "expected_severity": null,
+      "note": "setattr over VERDICT_FIELDS",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C061",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 442,
+        "end_line": 465,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C061",
+      "expected_severity": null,
+      "note": "S10 label (#1052)",
+      "labeller": "agent: S10 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C062",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 458,
+        "end_line": 458,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C062",
+      "expected_severity": null,
+      "note": "calibration reads findings only",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C065",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 1306,
+        "end_line": 1306,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C065",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C066",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 1497,
+        "end_line": 1497,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C066",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C067",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 1527,
+        "end_line": 1527,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C067",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C068",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 1644,
+        "end_line": 1644,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C068",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C069",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 1695,
+        "end_line": 1695,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C069",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C070",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/runner.py",
+        "start_line": 2323,
+        "end_line": 2323,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/runner.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C070",
+      "expected_severity": null,
+      "note": "a vague runner.py claim",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C071",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review/verdicts.py",
+        "start_line": 55,
+        "end_line": 210,
+        "object": null,
+        "origin": "src/devops_cli/ai/review/verdicts.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C071",
+      "expected_severity": null,
+      "note": "MITIGATED sets verified False by #845's design",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C084",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review_schema.py",
+        "start_line": 618,
+        "end_line": 618,
+        "object": null,
+        "origin": "src/devops_cli/ai/review_schema.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C084",
+      "expected_severity": null,
+      "note": "the match is a space-padded whole word",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C086",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review_schema.py",
+        "start_line": 844,
+        "end_line": 844,
+        "object": null,
+        "origin": "src/devops_cli/ai/review_schema.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C086",
+      "expected_severity": null,
+      "note": "no _parse_finding_references exists; :844 already calls parse_finding_references",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C088",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review_schema.py",
+        "start_line": 1269,
+        "end_line": 1269,
+        "object": null,
+        "origin": "src/devops_cli/ai/review_schema.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C088",
+      "expected_severity": null,
+      "note": ":1268 already reads (f.severity or \"\")",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C089",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/review_schema.py",
+        "start_line": 1483,
+        "end_line": 1483,
+        "object": null,
+        "origin": "src/devops_cli/ai/review_schema.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C089",
+      "expected_severity": null,
+      "note": "reset_verification_state clears all verdict fields",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C091",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 53,
+        "end_line": 56,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C092",
+      "expected_severity": null,
+      "note": "echo of recall-set record 5 relocated onto pricing.py:53; the code has the #423 defect, but 'catches SystemExit/KeyboardInterrupt' is wrong",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C092",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 55,
+        "end_line": 55,
+        "object": null,
+        "origin": "src/devops_cli/ai/spend/pricing.py",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C092",
+      "expected_severity": null,
+      "note": "pricing.py:55 `except Exception: return False` around load_settings (#423; recall record 5)",
+      "labeller": "agent: S10 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C093",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 65,
+        "end_line": 68,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C094",
+      "expected_severity": null,
+      "note": "echo of recall-set record 6 relocated onto pricing.py:65; the code has the #423 defect, but 'catches SystemExit/KeyboardInterrupt' is wrong",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C094",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 67,
+        "end_line": 67,
+        "object": null,
+        "origin": "src/devops_cli/ai/spend/pricing.py",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C094",
+      "expected_severity": null,
+      "note": "pricing.py:67, the same pattern (#423; recall record 6)",
+      "labeller": "agent: S10 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C095",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 97,
+        "end_line": 101,
+        "object": null,
+        "origin": "src/devops_cli/ai/spend/pricing.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C095",
+      "expected_severity": null,
+      "note": "a non-IP host correctly falls through to the configured-host checks",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C096",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 137,
+        "end_line": 137,
+        "object": null,
+        "origin": "src/devops_cli/ai/spend/pricing.py",
+        "fingerprint_v2": null
+      },
+      "label": "valid-lenient",
+      "defect_id": "C096",
+      "expected_severity": null,
+      "note": "pricing.py:137 `except Exception: pass` (#423)",
+      "labeller": "agent: S10 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C098",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/ai/spend/pricing.py",
+        "start_line": 219,
+        "end_line": 219,
+        "object": null,
+        "origin": "src/devops_cli/ai/spend/pricing.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C098",
+      "expected_severity": null,
+      "note": "resolve_review_data_path is #1063 by design",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C101",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ai_ingest.py",
+        "start_line": 46,
+        "end_line": 46,
+        "object": null,
+        "origin": "src/devops_cli/commands/ai_ingest.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C101",
+      "expected_severity": null,
+      "note": "local CLI input",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C102",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ai_ingest.py",
+        "start_line": 46,
+        "end_line": 46,
+        "object": null,
+        "origin": "src/devops_cli/commands/ai_ingest.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C102",
+      "expected_severity": null,
+      "note": "the three functions resolve the default the same way",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C103",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ai_ingest.py",
+        "start_line": 295,
+        "end_line": 295,
+        "object": null,
+        "origin": "src/devops_cli/commands/ai_ingest.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C103",
+      "expected_severity": null,
+      "note": "local CLI input",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C104",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ai_ingest.py",
+        "start_line": 295,
+        "end_line": 295,
+        "object": null,
+        "origin": "src/devops_cli/commands/ai_ingest.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C104",
+      "expected_severity": null,
+      "note": "the three functions resolve the default the same way",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C106",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ai_ingest.py",
+        "start_line": 339,
+        "end_line": 339,
+        "object": null,
+        "origin": "src/devops_cli/commands/ai_ingest.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C106",
+      "expected_severity": null,
+      "note": "the three functions resolve the default the same way",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C107",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ci.py",
+        "start_line": 357,
+        "end_line": 364,
+        "object": null,
+        "origin": "src/devops_cli/commands/ci.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C107",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C108",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/ci.py",
+        "start_line": 442,
+        "end_line": 448,
+        "object": null,
+        "origin": "src/devops_cli/commands/ci.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C108",
+      "expected_severity": null,
+      "note": "docs_fix runs generate at :357, then check always runs",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C109",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/docker.py",
+        "start_line": 382,
+        "end_line": 382,
+        "object": null,
+        "origin": "src/devops_cli/commands/docker.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C109",
+      "expected_severity": null,
+      "note": "safe=True",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C110",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/docker.py",
+        "start_line": 411,
+        "end_line": 411,
+        "object": null,
+        "origin": "src/devops_cli/commands/docker.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C110",
+      "expected_severity": null,
+      "note": "safe=True",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C112",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/gh.py",
+        "start_line": 254,
+        "end_line": 254,
+        "object": null,
+        "origin": "src/devops_cli/commands/gh.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C112",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C113",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/gh.py",
+        "start_line": 254,
+        "end_line": 259,
+        "object": null,
+        "origin": "src/devops_cli/commands/gh.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C113",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C114",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/gh.py",
+        "start_line": 325,
+        "end_line": 346,
+        "object": null,
+        "origin": "src/devops_cli/commands/gh.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C114",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C115",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/gh.py",
+        "start_line": 333,
+        "end_line": 335,
+        "object": null,
+        "origin": "src/devops_cli/commands/gh.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C115",
+      "expected_severity": null,
+      "note": "the state check at :333 runs before _resolve_repo",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C116",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/gh.py",
+        "start_line": 419,
+        "end_line": 425,
+        "object": null,
+        "origin": "src/devops_cli/commands/gh.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C116",
+      "expected_severity": null,
+      "note": "both parsers raise ValueError",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C117",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/k8s/security_audit.py",
+        "start_line": 45,
+        "end_line": 55,
+        "object": null,
+        "origin": "src/devops_cli/commands/k8s/security_audit.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C117",
+      "expected_severity": null,
+      "note": "argv list",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C118",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/review.py",
+        "start_line": 160,
+        "end_line": 160,
+        "object": null,
+        "origin": "src/devops_cli/commands/review.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C118",
+      "expected_severity": null,
+      "note": "local paths; #1063 is the guard, not a hole",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C119",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/review.py",
+        "start_line": 338,
+        "end_line": 338,
+        "object": null,
+        "origin": "src/devops_cli/commands/review.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C119",
+      "expected_severity": null,
+      "note": "local paths; #1063 is the guard, not a hole",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C120",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/review.py",
+        "start_line": 350,
+        "end_line": 350,
+        "object": null,
+        "origin": "src/devops_cli/commands/review.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C120",
+      "expected_severity": null,
+      "note": "local paths; #1063 is the guard, not a hole",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C121",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/review.py",
+        "start_line": 774,
+        "end_line": 774,
+        "object": null,
+        "origin": "src/devops_cli/commands/review.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C121",
+      "expected_severity": null,
+      "note": "local paths; #1063 is the guard, not a hole",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C122",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/scan.py",
+        "start_line": 98,
+        "end_line": 98,
+        "object": null,
+        "origin": "src/devops_cli/commands/scan.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C122",
+      "expected_severity": null,
+      "note": "safe=True",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C123",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/scan.py",
+        "start_line": 792,
+        "end_line": 792,
+        "object": null,
+        "origin": "src/devops_cli/commands/scan.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C123",
+      "expected_severity": null,
+      "note": "safe=True",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C124",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/scan.py",
+        "start_line": 894,
+        "end_line": 894,
+        "object": null,
+        "origin": "src/devops_cli/commands/scan.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C124",
+      "expected_severity": null,
+      "note": "scan_all catches each scanner and masks the reason (registry.py:79-95)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C125",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/commands/telemetry.py",
+        "start_line": 320,
+        "end_line": 327,
+        "object": null,
+        "origin": "src/devops_cli/commands/telemetry.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C125",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C127",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/core/cli.py",
+        "start_line": 199,
+        "end_line": 199,
+        "object": null,
+        "origin": "src/devops_cli/core/cli.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C127",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C128",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/github/metrics.py",
+        "start_line": 107,
+        "end_line": 108,
+        "object": null,
+        "origin": "src/devops_cli/github/metrics.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C128",
+      "expected_severity": null,
+      "note": "lines without | are skipped",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C131",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/github/metrics.py",
+        "start_line": 176,
+        "end_line": 176,
+        "object": null,
+        "origin": "src/devops_cli/github/metrics.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C131",
+      "expected_severity": null,
+      "note": "as designed",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C139",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/security/base.py",
+        "start_line": 226,
+        "end_line": 226,
+        "object": null,
+        "origin": "src/devops_cli/security/base.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C139",
+      "expected_severity": null,
+      "note": "ScanOutcome masks every reason (base.py:67-93)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C141",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/security/checkov.py",
+        "start_line": 281,
+        "end_line": 281,
+        "object": null,
+        "origin": "src/devops_cli/security/checkov.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C141",
+      "expected_severity": null,
+      "note": "S10 label: PEP 758 unparenthesized except is valid",
+      "labeller": "agent: S10 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C142",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/security/dive.py",
+        "start_line": 112,
+        "end_line": 112,
+        "object": null,
+        "origin": "src/devops_cli/security/dive.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C142",
+      "expected_severity": null,
+      "note": "a symlinked dive binary is refused",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C143",
+        "producer": "persona",
+        "rule": null,
+        "path": "src/devops_cli/security/dive.py",
+        "start_line": 112,
+        "end_line": 112,
+        "object": null,
+        "origin": "src/devops_cli/security/dive.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C143",
+      "expected_severity": null,
+      "note": "argv list",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C144",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/fixtures/review_recall/recall_set.json",
+        "start_line": 4,
+        "end_line": 10,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C144",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C145",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/fixtures/review_recall/recall_set.json",
+        "start_line": 17,
+        "end_line": 17,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C145",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C146",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/fixtures/review_recall/recall_set.json",
+        "start_line": 25,
+        "end_line": 34,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C146",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C147",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/fixtures/review_recall/recall_set.json",
+        "start_line": 41,
+        "end_line": 50,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C147",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C148",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/fixtures/review_recall/recall_set.json",
+        "start_line": 49,
+        "end_line": 49,
+        "object": null,
+        "origin": "tests/fixtures/review_recall/recall_set.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C148",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C149",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/golden/review_findings.json",
+        "start_line": 360,
+        "end_line": 374,
+        "object": null,
+        "origin": "tests/golden/review_findings.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C149",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C150",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/golden/review_findings.json",
+        "start_line": 430,
+        "end_line": 441,
+        "object": null,
+        "origin": "tests/golden/review_findings.json",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C150",
+      "expected_severity": null,
+      "note": "D15: a fixture record reported on the fixture itself",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C156",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_ai_request_priority.py",
+        "start_line": 201,
+        "end_line": 202,
+        "object": null,
+        "origin": "tests/test_ai_request_priority.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C156",
+      "expected_severity": null,
+      "note": "test_ai_request_priority:201-202 [S8-S10]",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C157",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_batch_2_review_defects.py",
+        "start_line": 182,
+        "end_line": 182,
+        "object": null,
+        "origin": "tests/test_batch_2_review_defects.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C157",
+      "expected_severity": null,
+      "note": "the call at :194 passes pr_files",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C173",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 35,
+        "end_line": 35,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C173",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: all 22 deterministic INVALIDATED checked, 21 right outcome (the wrong one is config.py:514) (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C174",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 35,
+        "end_line": 35,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C174",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C176",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 42,
+        "end_line": 42,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C176",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C177",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 43,
+        "end_line": 43,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C177",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C179",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 85,
+        "end_line": 85,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C179",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C182",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 169,
+        "end_line": 169,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C182",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C184",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_hallucination_catalog_learning.py",
+        "start_line": 181,
+        "end_line": 181,
+        "object": null,
+        "origin": "tests/test_hallucination_catalog_learning.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C184",
+      "expected_severity": null,
+      "note": "a test-helper value change narrated as a defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C185",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_host_sandbox.py",
+        "start_line": 310,
+        "end_line": 316,
+        "object": null,
+        "origin": "tests/test_host_sandbox.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C185",
+      "expected_severity": null,
+      "note": "test-only shutil.which on the sandbox PATH; criterion states the safe state",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C187",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_k8s_port_forward_daemon.py",
+        "start_line": 26,
+        "end_line": 30,
+        "object": null,
+        "origin": "tests/test_k8s_port_forward_daemon.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C187",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C189",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_k8s_port_forward_daemon.py",
+        "start_line": 28,
+        "end_line": 29,
+        "object": null,
+        "origin": "tests/test_k8s_port_forward_daemon.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C189",
+      "expected_severity": null,
+      "note": "a test helper",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C190",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_k8s_port_forward_daemon.py",
+        "start_line": 103,
+        "end_line": 103,
+        "object": null,
+        "origin": "tests/test_k8s_port_forward_daemon.py",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C190",
+      "expected_severity": null,
+      "note": "`assert mock_killpg.called` without its arguments",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C191",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_k8s_port_forward_daemon.py",
+        "start_line": 320,
+        "end_line": 320,
+        "object": null,
+        "origin": "tests/test_k8s_port_forward_daemon.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C191",
+      "expected_severity": null,
+      "note": "a test helper",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C193",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_k8s_tls.py",
+        "start_line": 85,
+        "end_line": 85,
+        "object": null,
+        "origin": "tests/test_k8s_tls.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C193",
+      "expected_severity": null,
+      "note": "tls_management.py:171 prints 'Applied TLS secret'",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C196",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_rag_indexer_retriever.py",
+        "start_line": 252,
+        "end_line": 252,
+        "object": null,
+        "origin": "tests/test_rag_indexer_retriever.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C196",
+      "expected_severity": null,
+      "note": "the real engine is used deliberately",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C206",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_scope.py",
+        "start_line": 32,
+        "end_line": 41,
+        "object": null,
+        "origin": "tests/test_review_scope.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C206",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C208",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_scope.py",
+        "start_line": 78,
+        "end_line": 78,
+        "object": null,
+        "origin": "tests/test_review_scope.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C208",
+      "expected_severity": null,
+      "note": "narration",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C209",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_scope.py",
+        "start_line": 131,
+        "end_line": 131,
+        "object": null,
+        "origin": "tests/test_review_scope.py",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C209",
+      "expected_severity": null,
+      "note": "test design",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C210",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_scope.py",
+        "start_line": 176,
+        "end_line": 176,
+        "object": null,
+        "origin": "tests/test_review_scope.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C210",
+      "expected_severity": null,
+      "note": "the observed call (head_dir=..., None) is fabricated",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C212",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_static_analyzers.py",
+        "start_line": 93,
+        "end_line": 93,
+        "object": null,
+        "origin": "tests/test_review_static_analyzers.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C212",
+      "expected_severity": null,
+      "note": "deliberate",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C213",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_static_analyzers.py",
+        "start_line": 193,
+        "end_line": 196,
+        "object": null,
+        "origin": "tests/test_review_static_analyzers.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C213",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C216",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_verification.py",
+        "start_line": 133,
+        "end_line": 155,
+        "object": null,
+        "origin": "tests/test_review_verification.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C216",
+      "expected_severity": null,
+      "note": "both tests exist",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C218",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_review_verification.py",
+        "start_line": 439,
+        "end_line": 439,
+        "object": null,
+        "origin": "tests/test_review_verification.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C218",
+      "expected_severity": null,
+      "note": ":439 passes repo_root=tmp_path; the parameter is optional",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C222",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_security_dive.py",
+        "start_line": 94,
+        "end_line": 94,
+        "object": null,
+        "origin": "tests/test_security_dive.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C222",
+      "expected_severity": null,
+      "note": "test-file hygiene, no defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C225",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_security_dive.py",
+        "start_line": 203,
+        "end_line": 203,
+        "object": null,
+        "origin": "tests/test_security_dive.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C225",
+      "expected_severity": null,
+      "note": "test-file hygiene, no defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C227",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_telemetry_profile.py",
+        "start_line": 137,
+        "end_line": 156,
+        "object": null,
+        "origin": "tests/test_telemetry_profile.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C227",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: 'LLM, all 31 checked, 31 have the right outcome' ('all false or opinion'); the synthesis says about 10 of the 31 were spot-checked (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C228",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_telemetry_profile.py",
+        "start_line": 177,
+        "end_line": 177,
+        "object": null,
+        "origin": "tests/test_telemetry_profile.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C228",
+      "expected_severity": null,
+      "note": "test-file hygiene, no defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C230",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_verdict_writers.py",
+        "start_line": 126,
+        "end_line": 126,
+        "object": null,
+        "origin": "tests/test_verdict_writers.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C230",
+      "expected_severity": null,
+      "note": "test-file hygiene, no defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C231",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_verdict_writers.py",
+        "start_line": 132,
+        "end_line": 132,
+        "object": null,
+        "origin": "tests/test_verdict_writers.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C231",
+      "expected_severity": null,
+      "note": "test-file hygiene, no defect",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C233",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_verdict_writers.py",
+        "start_line": 460,
+        "end_line": 463,
+        "object": null,
+        "origin": "tests/test_verdict_writers.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C233",
+      "expected_severity": null,
+      "note": "S11 verification lens section 6: all 22 deterministic INVALIDATED checked, 21 right outcome (the wrong one is config.py:514) (re-read at e3ff98c)",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C235",
+        "producer": "persona",
+        "rule": null,
+        "path": "tests/test_workspace.py",
+        "start_line": 217,
+        "end_line": 219,
+        "object": null,
+        "origin": "tests/test_workspace.py",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "C235",
+      "expected_severity": null,
+      "note": "asks for one more test case",
+      "labeller": "agent: loop evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C236",
+        "producer": "semgrep",
+        "rule": "yaml.kubernetes.security.run-as-non-root.run-as-non-root",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": 36,
+        "end_line": 36,
+        "object": null,
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "C236",
+      "expected_severity": null,
+      "note": "Semgrep run-as-non-root on the ollama DaemonSets (ollama-profiles.yaml:36)",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C237",
+        "producer": "semgrep",
+        "rule": "yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": 53,
+        "end_line": 53,
+        "object": null,
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "C237",
+      "expected_severity": null,
+      "note": "Semgrep allow-privilege-escalation on the ollama DaemonSets (ollama-profiles.yaml:53)",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C239",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+        "path": "src/devops_cli/ai/__init__.py",
+        "start_line": 12,
+        "end_line": 12,
+        "object": null,
+        "origin": "src/devops_cli/ai/__init__.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C239",
+      "expected_severity": null,
+      "note": "Semgrep non-literal-import on a static map",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C240",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+        "path": "src/devops_cli/ai/rag/indexer.py",
+        "start_line": 353,
+        "end_line": 353,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/indexer.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C240",
+      "expected_severity": null,
+      "note": "Semgrep logger-credential on a line that logs no credential",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C241",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+        "path": "src/devops_cli/ai/rag/qdrant.py",
+        "start_line": 164,
+        "end_line": 164,
+        "object": null,
+        "origin": "src/devops_cli/ai/rag/qdrant.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C241",
+      "expected_severity": null,
+      "note": "Semgrep logger-credential on a line that logs no credential",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C243",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+        "path": "src/devops_cli/commands/config.py",
+        "start_line": 514,
+        "end_line": 514,
+        "object": null,
+        "origin": "src/devops_cli/commands/config.py",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "C243",
+      "expected_severity": null,
+      "note": "Semgrep at config.py:514; valid, but INVALIDATED by the syntax_error check (#1022, #770) and never reported",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C244",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+        "path": "src/devops_cli/commands/release.py",
+        "start_line": 60,
+        "end_line": 60,
+        "object": null,
+        "origin": "src/devops_cli/commands/release.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C244",
+      "expected_severity": null,
+      "note": "Semgrep non-literal-import on a static map",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C245",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+        "path": "src/devops_cli/commands/workspace.py",
+        "start_line": 43,
+        "end_line": 43,
+        "object": null,
+        "origin": "src/devops_cli/commands/workspace.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C245",
+      "expected_severity": null,
+      "note": "Semgrep non-literal-import on a static map",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C246",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+        "path": "src/devops_cli/config/settings.py",
+        "start_line": 657,
+        "end_line": 657,
+        "object": null,
+        "origin": "src/devops_cli/config/settings.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C246",
+      "expected_severity": null,
+      "note": "Semgrep logger-credential on a line that logs no credential",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C249",
+        "producer": "semgrep",
+        "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+        "path": "src/devops_cli/main.py",
+        "start_line": 93,
+        "end_line": 93,
+        "object": null,
+        "origin": "src/devops_cli/main.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C249",
+      "expected_severity": null,
+      "note": "Semgrep non-literal-import on a static map",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C256",
+        "producer": "bandit",
+        "rule": "B103",
+        "path": "tests/test_crypto_tls.py",
+        "start_line": 243,
+        "end_line": 243,
+        "object": null,
+        "origin": "tests/test_crypto_tls.py",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "C256",
+      "expected_severity": null,
+      "note": "Bandit B103 0o666 is the deliberate insecure precondition of test_tls_overwriting_insecure_permissions, which then asserts 0600/0644",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C266",
+        "producer": "kube-linter",
+        "rule": "no-anti-affinity",
+        "path": "k8s/cloudflared/deployment.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Deployment/cloudflared",
+        "origin": "k8s/cloudflared/deployment.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "opinion",
+      "defect_id": "no-anti-affinity@k8s/cloudflared/deployment.yaml",
+      "expected_severity": null,
+      "note": "cloudflared anti-affinity (#1023)",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C267",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-128gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C268",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-16gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C269",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-24gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C270",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-32gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C271",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-48gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C272",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-48gib-slow",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C273",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-64gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C274",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-72gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C275",
+        "producer": "kube-linter",
+        "rule": "no-read-only-root-fs",
+        "path": "k8s/llm/profiles/ollama-profiles.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "DaemonSet/ollama-96gib",
+        "origin": "k8s/llm/profiles/ollama-profiles.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "valid-strict",
+      "defect_id": "no-read-only-root-fs@k8s/llm/profiles/ollama-profiles.yaml",
+      "expected_severity": null,
+      "note": "kube-linter no-read-only-root-fs on the ollama DaemonSets: ollama-profiles.yaml sets no securityContext",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C276",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-128gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C278",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-16gib-fast",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C281",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-32gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C282",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-48gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C283",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-48gib-fast",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C284",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-48gib-slow",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C285",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-64gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C286",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-64gib-standard",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C287",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-72gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C288",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-96gib",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C289",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-fast",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C290",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-slow",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C291",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/llm/profiles/services.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/ollama-standard",
+        "origin": "k8s/llm/profiles/services.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/llm/profiles/services.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on services.yaml; the selectors match the DaemonSet labels",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C292",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/monitoring/service-aliases.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/kube-prometheus-grafana",
+        "origin": "k8s/monitoring/service-aliases.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/monitoring/service-aliases.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on service-aliases.yaml",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C293",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/monitoring/service-aliases.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/kube-prometheus-kube-prome-prometheus",
+        "origin": "k8s/monitoring/service-aliases.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/monitoring/service-aliases.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on service-aliases.yaml",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C294",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/monitoring/service-aliases.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/prometheus",
+        "origin": "k8s/monitoring/service-aliases.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/monitoring/service-aliases.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on service-aliases.yaml",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    },
+    {
+      "identity": {
+        "key": "C295",
+        "producer": "kube-linter",
+        "rule": "dangling-service",
+        "path": "k8s/monitoring/service-aliases.yaml",
+        "start_line": null,
+        "end_line": null,
+        "object": "Service/pyroscope",
+        "origin": "k8s/monitoring/service-aliases.yaml",
+        "fingerprint_v2": null
+      },
+      "label": "false",
+      "defect_id": "dangling-service@k8s/monitoring/service-aliases.yaml",
+      "expected_severity": null,
+      "note": "D11 (#1024): kube-linter dangling-service on service-aliases.yaml",
+      "labeller": "agent: S11 evaluation",
+      "date": "2026-10-03"
+    }
+  ]
+}

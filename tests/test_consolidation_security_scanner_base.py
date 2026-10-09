@@ -475,6 +475,25 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
         )
 
 
+def test_kubelinter_contract_finding_names_its_check(tmp_path: Path) -> None:
+    """kube-linter writes `Check` beside `Diagnostic`, and the title names it."""
+    scanner = global_scanner_registry.get("kubelinter")
+    assert scanner is not None
+    test_file = tmp_path / "test_target.py"
+    test_file.write_text("content = True\n", encoding="utf-8")
+    mock_proc = MagicMock(returncode=0, stdout=_SAMPLE_STDOUTS["kubelinter"], stderr="")
+
+    with (
+        patch("devops_cli.security.base.check_binary", return_value=True),
+        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
+    ):
+        findings = scanner.scan(test_file)
+
+    assert [finding.title for finding in findings] == [
+        "[no-read-only-root-fs] Root filesystem writeable"
+    ]
+
+
 def test_kubeconform_ndjson_preserves_multiple_records(tmp_path: Path) -> None:
     """Verify Kubeconform NDJSON multi-line stream output parses all records without loss."""
     scanner = global_scanner_registry.get("kubeconform")

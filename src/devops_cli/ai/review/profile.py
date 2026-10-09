@@ -38,6 +38,8 @@ from devops_cli.config.constants import (
     CONST_FINISH_REASON_UNKNOWN,
     CONST_PERSONA_REPLY_UNPARSED,
 )
+from devops_cli.core.repo import own_source_state
+from devops_cli.tools_lock import tools_lock_digest
 
 PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
@@ -118,6 +120,12 @@ class ReviewProfile(BaseModel):
     # The target's conventions (`AGENTS.md` and `.devops/review.md`) its prompts carried, which
     # the prompt digest does not cover; empty when they carried none.
     conventions_digest: str = ""
+    # The digest of the tools lock the review started with: the versions its tools are pinned
+    # to, not proof that the tools on PATH were at those pins.
+    tools_lock_digest: str = ""
+    # Whether devops-cli's own checkout got a commit or an edit while the review ran, so that
+    # its later stages may have run other code than its earlier ones.
+    code_changed_during_run: bool = False
     files: int = 0
     total_wall_seconds: float = 0.0
     llm_calls: int = 0
@@ -177,6 +185,8 @@ class ReviewProfiler:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._started = time.monotonic()
+        self._tools_lock_digest = tools_lock_digest()
+        self._own_source_state = own_source_state()
         self._stages: dict[str, StageProfile] = {}
         # Each served call's (start, end) on the monotonic clock, by stage and backend.
         self._intervals: dict[str, dict[str, list[tuple[float, float]]]] = {}
@@ -305,6 +315,10 @@ class ReviewProfiler:
         with self._lock:
             self._partial_context = partial_context
 
+    def _own_source_changed(self) -> bool:
+        """Whether devops-cli's own checkout differs from when the review started."""
+        return self._own_source_state is not None and own_source_state() != self._own_source_state
+
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
         from devops_cli.ai.run_store import digest
@@ -330,6 +344,8 @@ class ReviewProfiler:
             target=target,
             prompt_digest=review_prompt_digest(),
             conventions_digest=digest(self._conventions) if self._conventions else "",
+            tools_lock_digest=self._tools_lock_digest,
+            code_changed_during_run=self._own_source_changed(),
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
             llm_calls=sum(s.llm_calls for s in stages),

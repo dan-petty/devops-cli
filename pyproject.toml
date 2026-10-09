@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.29"
+version = "0.2.30"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -63,6 +63,7 @@ dependencies = [
     "graphql-core==3.3.0",
     "markdownify==1.2.3",
     "beautifulsoup4==4.15.0",
+    "statsmodels==0.15.0",
 ]
 
 [project.scripts]
@@ -127,6 +128,12 @@ enable_error_code = ["ignore-without-code"]
 [[tool.mypy.overrides]]
 module = "pydantic_ai.run"
 implicit_reexport = true
+
+# statsmodels ships no type information; `devops review score` calls its fleiss_kappa and
+# aggregate_raters (#1138).
+[[tool.mypy.overrides]]
+module = "statsmodels.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

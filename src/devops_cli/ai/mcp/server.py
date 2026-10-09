@@ -18,7 +18,7 @@ from pydantic import Field
 from pydantic import ValidationError as PydanticValidationError
 
 from devops_cli.ai.mcp.argument_contract import (
-    RejectedInputLogFilter,
+    ArgumentValueLogFilter,
     argument_refusal,
     pydantic_violations,
     schema_violations,
@@ -29,7 +29,7 @@ from devops_cli.config.constants import (
     CONST_CI_TEST_BUDGET_MARGIN_SECONDS,
     CONST_CI_TEST_BUDGET_SECONDS,
     CONST_FALCO_SEVERITY_LEVELS,
-    CONST_FASTMCP_SERVER_LOGGER,
+    CONST_FASTMCP_OPERATIONS_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
@@ -1660,8 +1660,14 @@ def sandbox_network_policy(
     namespace: str = "sandbox",
     public_whitelist: list[str] | None = None,
     local_whitelist: list[str] | None = None,
+    allow_collector: bool = False,
 ) -> str:
-    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
+
+    Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP.
+    `allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318,
+    in the sandbox_namespace, public_whitelist and local_whitelist modes.
+    """
     _validate_mcp_arg("network_mode", network_mode)
     _validate_mcp_arg("name", name)
     _validate_mcp_arg("namespace", namespace)
@@ -1684,6 +1690,8 @@ def sandbox_network_policy(
         cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
     if local_whitelist:
         cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
+    if allow_collector:
+        cmd.append("--allow-collector")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
@@ -3263,4 +3271,4 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
 mcp.add_middleware(DomainGateMiddleware())
 mcp.add_middleware(ArgumentContractMiddleware())
-logging.getLogger(CONST_FASTMCP_SERVER_LOGGER).addFilter(RejectedInputLogFilter())
+logging.getLogger(CONST_FASTMCP_OPERATIONS_LOGGER).addFilter(ArgumentValueLogFilter())

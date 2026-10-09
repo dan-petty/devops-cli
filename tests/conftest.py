@@ -311,6 +311,23 @@ def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger
     return ledger
 
 
+@pytest.fixture
+def tracer() -> Iterator[Any]:
+    """An enabled tracer with a clean span buffer and no trace context inherited from the run."""
+    from devops_cli.config.constants import CONST_TRACEPARENT_ENV_VAR, CONST_TRACEPARENT_HEADER
+    from devops_cli.telemetry.tracer import clear_span_buffer, get_tracer, reset_tracer
+
+    environment = dict(os.environ)
+    environment.pop(CONST_TRACEPARENT_ENV_VAR, None)
+    environment.pop(CONST_TRACEPARENT_HEADER, None)
+    with patch.dict(os.environ, environment, clear=True):
+        reset_tracer()
+        clear_span_buffer()
+        yield get_tracer()
+        clear_span_buffer()
+        reset_tracer()
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
@@ -326,10 +343,12 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 
 @pytest.fixture(autouse=True)
 def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Keep the user-level data root, where a review's relative data paths resolve (#972), in
-    the test's temporary directory rather than the developer's home."""
+    """Keep the user-level data root, where a review's relative data paths resolve (#972) and
+    locked tools install (#1142), in the test's temporary directory rather than the developer's
+    home."""
     user_data_root = (tmp_path / "user-data").resolve()
     monkeypatch.setattr("devops_cli.core.repo.CONST_USER_DATA_ROOT", user_data_root)
+    monkeypatch.setattr("devops_cli.tools_lock.CONST_USER_DATA_ROOT", user_data_root)
     return user_data_root
 
 
@@ -386,6 +405,13 @@ def isolate_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
     reads to find the engine socket it refuses to mount (#1115). A test that needs `DOCKER_HOST`
     sets it."""
     monkeypatch.delenv("DOCKER_HOST", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def isolate_ssh_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests off the developer's own SSH agent, whose directory the sandbox workspace check
+    refuses to mount (#1384). A test that needs `SSH_AUTH_SOCK` sets it."""
+    monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
 
 
 @pytest.fixture(autouse=True)

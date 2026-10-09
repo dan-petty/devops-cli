@@ -1121,6 +1121,16 @@ class ReviewCommandHelp:
         "File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks."
     )
     benchmark_runs: str = "Number of reviews to run; the report takes medians across them."
+    score_sessions: str = "Review session directories to score."
+    score_labels: str = (
+        "Label file: the labelled inputs, the row map of each mapped session and the labels, "
+        "such as tests/fixtures/review_labels/labels.json."
+    )
+    score_materialise_golden: str = (
+        "Write the label file's golden set into this directory as a git repository with one "
+        "fixed commit, for a path review, and list the defects no tool can express. Takes no "
+        "sessions."
+    )
     corpus: str = "Synthetic defect corpora: inject known defects into clean files and score reviews against them."
     corpus_generate: str = (
         "Copy source files with one known defect injected into each, and record where."
@@ -1381,8 +1391,10 @@ class InstallCommandHelp:
     all_cmd: str = "Install all required DevOps CLI binaries."
     status: str = "Check installed DevOps toolchain versions."
     tool: str = "Install a specific tool."
-    version: str = "Specific version, e.g. v1.30.0."
-    only_missing: str = "Only install tools that are not already found in PATH."
+    only_missing: str = "Only install tools that are not linked at their locked version."
+    check: str = (
+        "Install nothing: report each tool not linked at its locked version, and exit 1 if any."
+    )
 
 
 @dataclass(frozen=True)

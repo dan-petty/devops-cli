@@ -438,7 +438,7 @@ def test_verify_ground_truth_session_20260930_entries(tmp_path: Path) -> None:
     gfd_finding = Finding(
         severity="MEDIUM",
         location=f"{gfd_file}:2",
-        title="[kube-linter-check] K8s Security Lint Warning",
+        title='[privileged-container] container "gpu-feature-discovery" is Privileged',
         description="container gpu-feature-discovery is Privileged",
     )
     gfd_gt = verify_ground_truth_hallucination(gfd_finding, gfd_entry, gfd_file)

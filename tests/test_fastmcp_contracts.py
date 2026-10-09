@@ -924,13 +924,14 @@ def handler_runner():
 
 @pytest.fixture
 def fastmcp_log(caplog):
-    """Capture FastMCP's server log, which FastMCP configures not to propagate to the root."""
+    """Capture every FastMCP logger at DEBUG; FastMCP stops them propagating to the root."""
     import logging
 
-    server_logger = logging.getLogger("fastmcp.server.server")
-    server_logger.addHandler(caplog.handler)
+    fastmcp_logger = logging.getLogger("fastmcp")
+    caplog.set_level(logging.DEBUG, logger="fastmcp")
+    fastmcp_logger.addHandler(caplog.handler)
     yield caplog
-    server_logger.removeHandler(caplog.handler)
+    fastmcp_logger.removeHandler(caplog.handler)
 
 
 async def _call(tool: str, arguments: dict[str, object]) -> tuple[bool, str]:
@@ -1094,8 +1095,9 @@ async def test_a_strict_refusal_is_rendered_like_a_schema_refusal(
 ) -> None:
     """The strict PR-number alias still refuses `1.0` when the schema check lets it through.
 
-    Pydantic reports that refusal, and FastMCP logs pydantic's errors with the input in each.
-    The reply goes through the same envelope, and neither it nor the log holds the value.
+    Pydantic reports that refusal. FastMCP logs the refusal's error count and types, and logs
+    the call's arguments at DEBUG. The reply goes through the same envelope, and neither it nor
+    any FastMCP record holds the value.
     """
     from unittest.mock import patch
 
@@ -1130,10 +1132,10 @@ async def test_an_undeclared_parameter_name_is_masked_and_bounded(handler_runner
 
 
 def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> None:
-    """FastMCP logs pydantic's error list for a refused call, and each entry holds the input.
+    """FastMCP logs a refused call's pydantic error count and types, never the input.
 
-    A malformed `vault_set` wrote its `key_values` to the log. This calls past the middleware,
-    as FastMCP itself does once middleware has run, so pydantic refuses and FastMCP logs.
+    This holds FastMCP to that. It calls past the middleware, as FastMCP itself does once
+    middleware has run, so pydantic refuses a malformed `vault_set` and FastMCP logs.
     """
     import asyncio
 
@@ -1148,6 +1150,22 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
         "Invalid arguments for tool" in fastmcp_log.text,
         "sentinel-4b1d" in fastmcp_log.text,
     ) == (True, False)
+
+
+async def test_no_tool_argument_reaches_a_debug_record(fastmcp_log) -> None:
+    """FastMCP logs every tool call's arguments at DEBUG.
+
+    With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote a `vault_set` secret to the log.
+    """
+    from unittest.mock import patch
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as runner:
+        await _call("vault_set", {"path": "secret/app", "key_values": [_SECRET_SENTINEL]})
+    assert (
+        "Handler called: call_tool vault_set" in fastmcp_log.text,
+        "sentinel-4b1d" in fastmcp_log.text,
+        runner.call_count,
+    ) == (True, False, 1)
 
 
 async def test_an_unknown_tool_is_left_to_fastmcp(handler_runner) -> None:
