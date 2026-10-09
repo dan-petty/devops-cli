@@ -20,6 +20,9 @@ K8S_DIR = REPO_ROOT / "k8s"
 HOST_UNITS = ("k3s", "k3s-agent", "nvidia-power-limit", "containerd", "systemd-journald")
 HOST_UNIT_PATTERN = f"({'|'.join(HOST_UNITS)})\\.service"
 
+# The k8s-monitoring chart's presets that set an Alloy collector's controller (`collectors/presets/`).
+CONTROLLER_PRESETS = {"singleton", "daemonset", "statefulset", "deployment"}
+
 
 def _k8s_monitoring_values() -> Any:
     with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
@@ -39,8 +42,6 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     ksm_inc = set(
         cm.get("kube-state-metrics", {}).get("metricsTuning", {}).get("includeMetrics", [])
     )
-    hm_tuning = data.get("hostMetrics", {}).get("linuxHosts", {}).get("metricsTuning", {})
-    use_integration_allow_list = hm_tuning.get("useIntegrationAllowList")
 
     required_cadvisor = {
         "machine_cpu_cores",
@@ -69,7 +70,6 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "kube_pod_container_status_running",
         "kube_pod_status_qos_class",
         "kube_pod_status_reason",
-        "kube_hpa_labels",
         "kube_pod_container_status_ready",
         "kube_pod_container_status_last_terminated_exitcode",
         "kube_pod_container_status_terminated",
@@ -77,11 +77,10 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "kube_deployment_status_replicas_unavailable",
     }
 
-    assert (
-        required_cadvisor.issubset(cadvisor_inc),
-        required_ksm.issubset(ksm_inc),
-        use_integration_allow_list,
-    ) == (True, True, True)
+    assert (required_cadvisor.issubset(cadvisor_inc), required_ksm.issubset(ksm_inc)) == (
+        True,
+        True,
+    )
 
 
 def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
@@ -127,38 +126,31 @@ def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
 
 
 def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
-    """Prometheus keeps each node's boot time, temperatures, pressure, memory and NVMe health,
-    filesystem space and the host units' state (#1080). The systemd collector is the one the
-    chart's node-exporter leaves off: it reads unit state over the host's D-Bus socket, which the
-    node's root mount already exposes, and only for the host units."""
+    """Host metrics have no keep rule: node-exporter's collector flags decide what is collected,
+    and Prometheus keeps every series it serves (#1129). The series that explain a host failure
+    (#1080: boot time, temperatures with their chip names, pressure, EDAC memory errors, NVMe,
+    filesystem space and the host units' state) come through because node-exporter serves them.
+    The systemd collector is turned on here for the host units only: it reads unit state over
+    the host's D-Bus socket, which the node's root mount already exposes.
+
+    The keep sources are rebuilt the way the chart's `_linux_hosts.alloy.tpl` concatenates them
+    (the default list unless `useDefaultAllowList` is false, the integration list when
+    `useIntegrationAllowList` is true, then `includeMetrics`), without the lists' contents."""
     values = _k8s_monitoring_values()
     tuning = values["hostMetrics"]["linuxHosts"]["metricsTuning"]
     exporter = values["telemetryServices"]["node-exporter"]
+    keep_sources = [
+        source
+        for source, on in (
+            ("default", tuning.get("useDefaultAllowList", True)),
+            ("integration", tuning.get("useIntegrationAllowList", False)),
+            ("includeMetrics", bool(tuning.get("includeMetrics"))),
+        )
+        if on
+    ]
 
-    assert (
-        tuning["useIntegrationAllowList"],
-        tuning["includeMetrics"],
-        exporter["extraArgs"],
-        exporter["env"],
-    ) == (
-        True,
-        [
-            "node_time_seconds",
-            "node_boot_time_seconds",
-            "node_hwmon_temp_celsius",
-            "node_hwmon_chip_names",
-            "node_systemd_unit_state",
-            "node_pressure_.*",
-            "node_edac_correctable_errors_total",
-            "node_edac_uncorrectable_errors_total",
-            "node_nvme_info",
-            "node_filesystem_avail_bytes",
-            "node_filesystem_size_bytes",
-            "node_uname_info",
-            "node_load.*",
-            "node_disk_io_now",
-            "node_netstat_Tcp_CurrEstab",
-        ],
+    assert (keep_sources, exporter["extraArgs"], exporter["env"]) == (
+        [],
         [
             "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs"
             "|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs"
@@ -168,6 +160,41 @@ def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
         ],
         {"DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/host/root/run/dbus/system_bus_socket"},
     )
+
+
+def test_each_alloy_collector_runs_in_one_controller_preset() -> None:
+    """Each Alloy collector names exactly one of the chart's controller presets (#1129).
+    `clusterEvents` runs unclustered, so its collector must be one pod: the chart's `singleton`
+    preset makes it a one-replica Deployment, and without a preset the Alloy chart defaults to a
+    DaemonSet, where every node's pod watches and ships the whole event stream."""
+    values = _k8s_monitoring_values()
+    controllers = {
+        name: sorted(CONTROLLER_PRESETS.intersection(collector.get("presets", [])))
+        for name, collector in values["collectors"].items()
+    }
+    events = values["clusterEvents"]
+
+    assert (
+        controllers,
+        controllers[events["collector"]],
+        events.get("clustering", False),
+    ) == (
+        {
+            "alloy-metrics": ["statefulset"],
+            "alloy-singleton": ["singleton"],
+            "alloy-logs": ["daemonset"],
+        },
+        ["singleton"],
+        False,
+    )
+
+
+def test_alloy_writes_the_cluster_name_once() -> None:
+    """Alloy labels what it writes to Prometheus with the cluster name as `cluster` only (#1129).
+    Dashboards and rules key on `cluster`; the chart default also writes `k8s_cluster_name`."""
+    values = _k8s_monitoring_values()
+
+    assert values["destinations"]["localPrometheus"]["clusterLabels"] == ["cluster"]
 
 
 def test_k8s_monitoring_ksm_telemetry_service_config() -> None:

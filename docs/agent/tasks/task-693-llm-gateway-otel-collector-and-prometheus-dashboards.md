@@ -41,7 +41,7 @@ The collector's pods carry `prometheus.io/scrape` and `prometheus.io/port` annot
 
 ## Captures
 Taken on 2026-10-01 from the deployed exporters through the Kubernetes API service proxy, in the plain text format (version 0.0.4). Each records the image or chart version, every family as its `# TYPE` line prints it with its type and label names, and the target labels its scrape path adds. No label values are kept.
-- **LiteLLM** `ghcr.io/berriai/litellm:v1.103.0`, the gateway's `/metrics/`: 107 families. Target labels from the `llm-gateway` ServiceMonitor through Alloy: `cluster`, `container`, `endpoint`, `instance`, `job`, `k8s_cluster_name`, `namespace`, `pod`, `service`.
+- **LiteLLM** `ghcr.io/berriai/litellm:v1.103.0`, the gateway's `/metrics/`: 107 families. Target labels from the `llm-gateway` ServiceMonitor through Alloy: `cluster`, `container`, `endpoint`, `instance`, `job`, `k8s_cluster_name`, `namespace`, `pod`, `service`. Since #1129, Alloy no longer adds `k8s_cluster_name`.
 - **DCGM exporter** `4.6.1-4.8.4-distroless` (chart 4.8.4), one pod on a GPU that reports the profiling fields: 20 families, labelled `hostname`, not `Hostname`. Same target labels as the gateway.
 - **OTel Collector** `0.159.0` (chart 0.174.0), port 8888: 34 families. Counters print without `_total`, and the endpoint answers in the text format even when OpenMetrics is asked for, as the server's scrape does. Target labels are the `kubernetes-pods` job's (`job`, `instance`, `namespace`, `pod`, `node`, `cluster`) plus the pod labels its labelmap copies.
 - **Prometheus server** `v3.15.0` (chart 29.35.0), `/metrics`: 264 families. The `prometheus` job adds `job` and `instance` only, so panels do not filter on `cluster`.

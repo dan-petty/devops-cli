@@ -15,7 +15,7 @@ taken_from: >-
 scraped_by: >-
   The llm-gateway ServiceMonitor (k8s/monitoring/k8s-monitoring-values.yaml), read by Alloy
   (k8s-monitoring 4.5.2), which remote-writes to the Prometheus server.
-target_labels: [cluster, container, endpoint, instance, job, k8s_cluster_name, namespace, pod, service]
+target_labels: [cluster, container, endpoint, instance, job, namespace, pod, service]
 families:
   litellm_active_users: {type: gauge, labels: []}
   litellm_api_key_budget_remaining_hours_metric: {type: gauge}
