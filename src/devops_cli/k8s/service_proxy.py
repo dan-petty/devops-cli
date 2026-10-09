@@ -46,6 +46,23 @@ class ServiceAddressError(KubernetesError):
     """Raised when a cluster service address cannot be resolved."""
 
 
+def _has_dot_segments(path: str) -> bool:
+    """Check whether a path contains dot segments that would cause path rewriting."""
+    if not path:
+        return False
+    path_part = path.partition("?")[0].lstrip("/")
+    if not path_part:
+        return False
+    import urllib.parse
+
+    import httpx2
+
+    test_path = "/" + urllib.parse.quote(urllib.parse.unquote(path_part), safe="/")
+    u_rel = httpx2.URL(path=test_path)
+    u_abs = u_rel.copy_with(scheme="http", host="example.com")
+    return u_rel.raw_path != u_abs.raw_path
+
+
 @dataclass(frozen=True)
 class ServiceRef:
     """A Service addressed through the API server proxy."""
@@ -59,6 +76,23 @@ class ServiceRef:
     # is almost entirely query string -- dropping it turns every request into a bare /proxy
     # call that the API server rejects with 400.
     query: str = ""
+
+    def __post_init__(self) -> None:
+        from devops_cli.core.validation import validate_k8s_identifier
+        from devops_cli.exceptions.validation import ValidationError
+
+        for value, label in (
+            (self.namespace, "namespace"),
+            (self.service, "service"),
+            (self.port, "port"),
+        ):
+            try:
+                validate_k8s_identifier(value, label=label, namespace=True)
+            except ValidationError as exc:
+                raise ServiceAddressError(str(exc)) from exc
+
+        if self.path and _has_dot_segments(self.path):
+            raise ServiceAddressError(f"Path '{self.path}' contains dot segments.")
 
     @property
     def target(self) -> str:
@@ -75,23 +109,41 @@ class ServiceRef:
 
         An override may carry its own query string, which replaces this reference's.
         """
+        import httpx2
+
+        from devops_cli.http.urls import append_path
+
         prefix = CONST_K8S_SERVICE_PROXY_TEMPLATE.format(
             namespace=self.namespace, target=self.target
         )
         if path is None:
-            suffix, query = self.path.lstrip("/"), self.query
+            suffix, query = self.path, self.query
         else:
-            suffix, _, query = path.lstrip("/").partition("?")
+            if _has_dot_segments(path):
+                raise ServiceAddressError(f"Path '{path}' contains dot segments.")
+            suffix, _, query = path.partition("?")
 
-        resolved = f"{prefix}/{suffix}" if suffix else prefix
+        if suffix:
+            base = append_path(httpx2.URL(path=prefix), suffix)
+            resolved = base.raw_path.decode("ascii").partition("?")[0]
+        else:
+            resolved = prefix
         return f"{resolved}?{query}" if query else resolved
 
     def describe(self) -> str:
         """Render this reference the way it is written in configuration."""
+        import httpx2
+
+        from devops_cli.http.urls import append_path
+
         scheme = CONST_K8S_URL_SCHEME_TLS if self.tls else CONST_K8S_URL_SCHEME
-        suffix = f"/{self.path.lstrip('/')}" if self.path else ""
-        query = f"?{self.query}" if self.query else ""
-        return f"{scheme}://{self.namespace}/{self.service}:{self.port}{suffix}{query}"
+        base = httpx2.URL(path=f"/{self.service}:{self.port}")
+        if self.path:
+            base = append_path(base, self.path)
+        kwargs: dict[str, Any] = {"scheme": scheme, "host": self.namespace}
+        if self.query:
+            kwargs["query"] = self.query.encode("utf-8")
+        return str(base.copy_with(**kwargs))
 
 
 def is_service_url(url: str) -> bool:
@@ -247,12 +299,14 @@ def resolve_proxy_target(
     ref: ServiceRef, path: str | None = None, context: str | None = None
 ) -> ProxyTarget:
     """Resolve a Service reference into a concrete API server URL and credentials."""
+    from devops_cli.http.urls import append_path
+
     configuration = _kube_configuration(context)
     host = str(getattr(configuration, "host", "") or "").rstrip("/")
     if not host:
         raise ServiceAddressError("The Kubernetes configuration has no API server host.")
     return ProxyTarget(
-        url=f"{host}{ref.proxy_path(path)}",
+        url=str(append_path(host, ref.proxy_path(path))),
         headers=_auth_headers(configuration),
         ssl_context=_ssl_context(configuration),
     )
@@ -290,13 +344,17 @@ class ProxyConnection:
 
 def resolve_proxy_connection(ref: ServiceRef, context: str | None = None) -> ProxyConnection:
     """Resolve a Service reference into the parts a URL-and-prefix client needs."""
-    from urllib.parse import urlparse
+    import urllib.parse
+
+    import httpx2
 
     target = resolve_proxy_target(ref, path="", context=context)
-    parsed = urlparse(target.url)
+    origin = httpx2.URL(target.url).origin
+    base_url = str(httpx2.URL(scheme=origin.scheme, host=origin.host, port=origin.port))
+    prefix = urllib.parse.urlsplit(target.url).path.strip("/")
     return ProxyConnection(
-        base_url=f"{parsed.scheme}://{parsed.netloc}",
-        prefix=parsed.path.strip("/"),
+        base_url=base_url,
+        prefix=prefix,
         headers=target.headers,
         ssl_context=target.ssl_context,
     )

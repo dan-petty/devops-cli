@@ -17,7 +17,6 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
     CONST_AI_GATEWAY_PROVIDER,
-    CONST_K8S_URL_SCHEME,
     CONST_LOCAL_DOMAIN_SUFFIXES,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
@@ -40,8 +39,10 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings
+from devops_cli.core.cli import exit_on_error
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.k8s.service_proxy import ServiceRef
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
@@ -119,7 +120,9 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
                 if _is_node_ready(item):
                     node_ip = _extract_first_node_ip(item)
                     if node_ip:
-                        return f"http://{node_ip}:{node_port}"
+                        import httpx2
+
+                        return str(httpx2.URL(scheme="http", host=node_ip, port=int(node_port)))
     except Exception as exc:
         logger.debug("Failed to resolve k8s node port URL: %s", exc)
     return None
@@ -162,7 +165,9 @@ def _extract_service_ingress_or_nodeport(
     if ingress:
         lb_host = ingress[0].get("ip") or ingress[0].get("hostname")
         if lb_host and port_num:
-            return f"http://{lb_host}:{port_num}"
+            import httpx2
+
+            return str(httpx2.URL(scheme="http", host=lb_host, port=int(port_num)))
 
     if node_port:
         return _resolve_k8s_node_port_url(ctx_args, int(node_port))
@@ -336,6 +341,26 @@ def _update_ollama_urls(
         configured["ai.ollama_urls"] = ", ".join(settings.ai.ollama_urls)
 
 
+def _extract_loopback_fallback(detected_url: str, default_scheme: str) -> str | None:
+    """Extract scheme and port from detected URL and resolve loopback fallback."""
+    import httpx2
+
+    try:
+        u = httpx2.URL(detected_url)
+        port = u.origin.port
+        scheme = u.scheme or default_scheme
+    except httpx2.InvalidURL, ValueError:
+        scheme = default_scheme
+        port = None
+        if ":" in detected_url:
+            _, _, port_str = detected_url.rpartition(":")
+            if port_str.isdigit():
+                port = int(port_str)
+    if port:
+        return _resolve_loopback_fallback(scheme, port)
+    return None
+
+
 def _resolve_accessible_url(
     detected_url: str | None,
     preferred_localhost_ports: list[int] | None = None,
@@ -356,9 +381,9 @@ def _resolve_accessible_url(
         return preferred
 
     if detected_url:
-        parsed = urlparse(detected_url)
-        if parsed.port:
-            return _resolve_loopback_fallback(parsed.scheme or scheme, parsed.port)
+        fallback = _extract_loopback_fallback(detected_url, scheme)
+        if fallback:
+            return fallback
 
     return detected_url
 
@@ -369,7 +394,6 @@ def _configure_infra_stack_urls(
     configured: dict[str, str],
 ) -> None:
     """Detect and configure accessible URLs for infrastructure stack services."""
-    from urllib.parse import urlparse
 
     from devops_cli.config.settings import dotted_set
 
@@ -408,8 +432,23 @@ def _configure_infra_stack_urls(
     if jaeger_url and _should_update_url(getattr(settings.jaeger, "url", None), jaeger_url):
         dotted_set(settings, "jaeger.url", jaeger_url)
         configured["jaeger.url"] = jaeger_url
-        j_host = urlparse(jaeger_url).hostname or "localhost"
-        otel_url = f"http://{j_host}:4318"
+        import httpx2
+
+        from devops_cli.config.constants import CONST_OTEL_OTLP_HTTP_PORT
+
+        try:
+            j_host = httpx2.URL(jaeger_url).host
+        except httpx2.InvalidURL, ValueError:
+            from urllib.parse import urlparse
+
+            j_host = urlparse(jaeger_url).hostname or "localhost"
+        otel_url = str(
+            httpx2.URL(
+                scheme="http",
+                host=j_host,
+                port=CONST_OTEL_OTLP_HTTP_PORT,
+            )
+        )
         telemetry_endpoint = getattr(getattr(settings, "telemetry", None), "endpoint", None)
         if _should_update_url(telemetry_endpoint, otel_url):
             dotted_set(settings, "otel.endpoint", otel_url)
@@ -560,8 +599,9 @@ def _preview_proxy_addresses(stacks: Sequence[str]) -> dict[str, str]:
 
     preview: dict[str, str] = {}
     for key, namespace, patterns, port_hints in targets:
-        port = next((hint for hint in port_hints if hint.isdigit()), CONST_PLACEHOLDER_PORT)
-        preview[key] = f"{CONST_K8S_URL_SCHEME}://{namespace}/{patterns[0]}:{port}"
+        port = next(hint for hint in port_hints if hint.isdigit())
+        ref = ServiceRef(namespace=namespace, service=patterns[0], port=port)
+        preview[key] = ref.describe()
     return preview
 
 
@@ -670,7 +710,9 @@ def _search_ingress_hosts(
         if _ingress_matches(key, hosts, service_pattern):
             chosen = _select_best_ingress_host(hosts, preferred_domain=preferred_domain)
             if chosen:
-                return f"https://{chosen}"
+                import httpx2
+
+                return str(httpx2.URL(scheme="https", host=chosen))
     return None
 
 
@@ -999,6 +1041,13 @@ def _launch_port_forwards(
                 svc,
                 f"{lport}:{rport}",
             ] + ctx_args
+            import httpx2
+
+            try:
+                target_url = str(httpx2.URL(scheme="http", host=address, port=lport))
+            except httpx2.InvalidURL:
+                target_url = f"{address}:{lport}"
+
             # Its own session, so the forward outlives the command that started it and does
             # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
             # lists these as background daemons, which is only true if they are detached.
@@ -1020,7 +1069,7 @@ def _launch_port_forwards(
                     start_ticks=process_start_ticks(proc.pid),
                 )
             )
-            print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
+            print_success(f"Forwarding {svc} ({ns}) to {target_url} (pid {proc.pid})")
         daemon_mgr.save_forwards(active_forwards)
 
 
@@ -1184,14 +1233,15 @@ def service_url(
     )
 
     request_path, _, request_query = path.partition("?")
-    ref = ServiceRef(
-        namespace=namespace,
-        service=service,
-        port=port,
-        tls=tls,
-        path=request_path,
-        query=request_query,
-    )
+    with exit_on_error(ServiceAddressError):
+        ref = ServiceRef(
+            namespace=namespace,
+            service=service,
+            port=port,
+            tls=tls,
+            path=request_path,
+            query=request_query,
+        )
 
     if not fetch:
         try:

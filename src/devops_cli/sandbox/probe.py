@@ -402,8 +402,7 @@ def run_sandbox_probes(
 
         for origin in target_endpoints:
             _dispatch_probes_for_port(
-                host=origin.host,
-                port=origin.port or 80,
+                origin=origin,
                 protocols=selected_protocols,
                 http_paths=http_paths or _DEFAULT_HTTP_PATHS,
                 expected_statuses=expected_statuses,
@@ -458,8 +457,7 @@ def _parse_target_endpoint(target_str: str) -> httpx2.Origin:
 
 
 def _dispatch_probes_for_port(
-    host: str,
-    port: int,
+    origin: httpx2.Origin,
     protocols: list[ProbeProtocol],
     http_paths: list[str],
     expected_statuses: list[int] | None,
@@ -468,13 +466,21 @@ def _dispatch_probes_for_port(
     latency_budget_ms: float | None,
     collector: list[EndpointProbeResult],
 ) -> None:
-    """Execute configured protocols for a specific host:port endpoint."""
+    """Execute configured protocols for a specific endpoint origin."""
+    host = origin.host
+    port = origin.port or 80
+
     if ProbeProtocol.TCP in protocols:
         collector.append(probe_tcp(host, port, timeout=timeout))
 
+    probe_scheme = "https" if origin.scheme == "https" else "http"
+    base_url = httpx2.URL(scheme=probe_scheme, host=host, port=port)
+
     if ProbeProtocol.HTTP in protocols:
+        from devops_cli.http.urls import append_path
+
         for path in http_paths:
-            url = f"http://{host}:{port}/{path.lstrip('/')}"
+            url = str(append_path(base_url, path))
             collector.append(
                 probe_http(
                     url,
@@ -486,8 +492,7 @@ def _dispatch_probes_for_port(
             )
 
     if ProbeProtocol.OPENAPI in protocols:
-        base_url = f"http://{host}:{port}"
-        collector.extend(probe_openapi(base_url, timeout=timeout))
+        collector.extend(probe_openapi(str(base_url), timeout=timeout))
 
     if ProbeProtocol.GRPC in protocols:
         collector.append(probe_grpc(host, port, timeout=timeout))
