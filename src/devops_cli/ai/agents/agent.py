@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
     from devops_cli.ai.function_signature import FunctionSignature
 
-from pydantic_ai.tools import RunContext as NativeRunContext
+from pydantic_ai._run_context import RunContext as NativeRunContext
 from pydantic_ai.toolsets import AbstractToolset as PyAIAbstractToolset
 
 from devops_cli.ai.agents.capabilities import (

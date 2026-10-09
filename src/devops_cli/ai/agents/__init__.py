@@ -134,9 +134,6 @@ from devops_cli.ai.agents.pydantic_agent import (
     NativeOutput,
     NativeTool,
     NativeToolFunc,
-    OllamaModel,
-    OllamaProvider,
-    OpenAIChatModel,
     OpenAIJsonSchemaTransformer,
     OpenAIModelProfile,
     OutputContext,
@@ -451,6 +448,10 @@ def __getattr__(name: str) -> Any:  # noqa: C901
         import devops_cli.ai.providers
 
         return getattr(devops_cli.ai.providers, name)
+    if name in {"OllamaModel", "OllamaProvider", "OpenAIChatModel"}:
+        import devops_cli.ai.models.ollama as _ollama
+
+        return getattr(_ollama, name)
     if name in {
         "AgentStream",
         "FinalResult",

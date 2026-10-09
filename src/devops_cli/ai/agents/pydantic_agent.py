@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.ai.models.ollama import (
+        OllamaModel,
+        OllamaProvider,
+        OpenAIChatModel,
+    )
+
 from pydantic_ai.agent import (
     AbstractAgent,
     Agent,
@@ -307,9 +316,6 @@ from devops_cli.ai.mcp.toolset import (
 from devops_cli.ai.models.ollama import (
     DEFAULT_OLLAMA_BASE_URL,
     ModelProfileSpec,
-    OllamaModel,
-    OllamaProvider,
-    OpenAIChatModel,
     OpenAIJsonSchemaTransformer,
     OpenAIModelProfile,
     cohere_model_profile,
@@ -483,6 +489,17 @@ from devops_cli.ai.toolsets import (
     rename_toolset,
     require_approval_toolset,
 )
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"OllamaModel", "OllamaProvider", "OpenAIChatModel"}:
+        import devops_cli.ai.models.ollama as _ollama
+
+        val = getattr(_ollama, name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",

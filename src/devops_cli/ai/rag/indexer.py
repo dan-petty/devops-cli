@@ -8,12 +8,14 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
-from devops_cli.ai.rag.qdrant import QdrantClient
+
+if TYPE_CHECKING:
+    from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_INDEX_CACHE_FILENAME,
@@ -425,6 +427,8 @@ def resolve_qdrant_client(
         if allow_private_network is not None
         else settings.ai.allow_private_network
     )
+    from devops_cli.ai.rag.qdrant import QdrantClient
+
     return QdrantClient(
         base_url=url,
         api_key=resolved_api_key,
@@ -750,3 +754,12 @@ class WorkspaceIndexer:
             if stat:
                 stats.append(stat)
         return stats
+
+
+def __getattr__(name: str) -> Any:
+    if name == "QdrantClient":
+        from devops_cli.ai.rag.qdrant import QdrantClient
+
+        globals()["QdrantClient"] = QdrantClient
+        return QdrantClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

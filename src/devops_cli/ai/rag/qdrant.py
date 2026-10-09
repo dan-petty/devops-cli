@@ -11,10 +11,6 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from qdrant_client import QdrantClient as NativeQdrantClient
-from qdrant_client.http import models as qmodels
-from qdrant_client.http.exceptions import ResponseHandlingException
-
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
     DEFAULT_MAX_RETRIES,
@@ -33,14 +29,49 @@ from devops_cli.telemetry.instruments import QDRANT_RETRIES_TOTAL, emit
 logger = logging.getLogger(__name__)
 
 
+class _LazyQModels:
+    """Lazy accessor for qdrant_client.http.models."""
+
+    def __getattr__(self, name: str) -> Any:
+        from qdrant_client.http import models as _qm
+
+        globals()["qmodels"] = _qm
+        return getattr(_qm, name)
+
+
+class _LazyNativeQdrantClient:
+    """Lazy callable for qdrant_client.QdrantClient."""
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        from qdrant_client import QdrantClient as _Native
+
+        globals()["NativeQdrantClient"] = _Native
+        return _Native(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        from qdrant_client import QdrantClient as _Native
+
+        globals()["NativeQdrantClient"] = _Native
+        return getattr(_Native, name)
+
+
+qmodels: Any = _LazyQModels()
+NativeQdrantClient: Any = _LazyNativeQdrantClient()
+
+
 class QdrantClientError(DevOpsCLIError, RuntimeError):
     """Raised when an interaction with Qdrant fails."""
 
 
 def _is_transient_qdrant_error(exc: Exception) -> bool:
     """Check if an exception is a transient connection, timeout, or server disconnect error."""
-    if isinstance(exc, ResponseHandlingException):
-        return True
+    try:
+        from qdrant_client.http.exceptions import ResponseHandlingException
+
+        if isinstance(exc, ResponseHandlingException):
+            return True
+    except ImportError:
+        pass
     err_str = str(exc).lower()
     return any(
         kw in err_str
@@ -117,7 +148,13 @@ def _record_retry(
         max_attempts,
         exc,
     )
-    cause = exc.source if isinstance(exc, ResponseHandlingException) else exc
+    try:
+        from qdrant_client.http.exceptions import ResponseHandlingException
+
+        is_rhe = isinstance(exc, ResponseHandlingException)
+    except ImportError:
+        is_rhe = False
+    cause = getattr(exc, "source", exc) if is_rhe else exc
     emit(QDRANT_RETRIES_TOTAL, 1, {"operation": operation, "error_type": type(cause).__name__})
     time.sleep(0.5 * attempt)
 

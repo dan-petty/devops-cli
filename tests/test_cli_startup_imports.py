@@ -180,3 +180,31 @@ print("__HAS_LOGFIRE__" + json.dumps(has_logfire))
     has_logfire = json.loads(found_line.removeprefix("__HAS_LOGFIRE__"))
 
     assert has_logfire is False
+
+
+def test_ai_agents_and_providers_import_no_model_sdks() -> None:
+    """Verify loading ai.agents and ai.providers imports neither anthropic, google.genai, nor openai."""
+    code = """
+import json
+import sys
+
+import devops_cli.ai.agents
+import devops_cli.ai.providers
+
+result = {
+    "anthropic": "anthropic" in sys.modules,
+    "google.genai": "google.genai" in sys.modules,
+    "openai": "openai" in sys.modules,
+}
+print("__SDKS__" + json.dumps(result))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(line for line in proc.stdout.splitlines() if line.startswith("__SDKS__"))
+    status = json.loads(found_line.removeprefix("__SDKS__"))
+    assert (status["anthropic"], status["google.genai"], status["openai"]) == (False, False, False)

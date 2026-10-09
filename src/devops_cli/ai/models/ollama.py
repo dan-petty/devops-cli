@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from openai import AsyncOpenAI
-from pydantic_ai.models.ollama import OllamaModel
-from pydantic_ai.models.openai import OpenAIChatModel
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.ollama import OllamaModel
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers import Provider
+    from pydantic_ai.providers.ollama import OllamaProvider
+
 from pydantic_ai.profiles import ModelProfileSpec
 from pydantic_ai.profiles.cohere import cohere_model_profile
 from pydantic_ai.profiles.deepseek import deepseek_model_profile
@@ -18,8 +22,6 @@ from pydantic_ai.profiles.meta import meta_model_profile
 from pydantic_ai.profiles.mistral import mistral_model_profile
 from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer, OpenAIModelProfile
 from pydantic_ai.profiles.qwen import qwen_model_profile
-from pydantic_ai.providers import Provider
-from pydantic_ai.providers.ollama import OllamaProvider
 
 from devops_cli.ai.settings import (
     ModelSettings,
@@ -150,6 +152,8 @@ def create_ollama_provider(
     normalized_url = normalize_ollama_base_url(raw_url, allow_private=allow_private)
     resolved_api_key = api_key or os.environ.get("OLLAMA_API_KEY")
 
+    from pydantic_ai.providers.ollama import OllamaProvider
+
     return OllamaProvider(
         base_url=normalized_url,
         api_key=resolved_api_key,
@@ -224,12 +228,34 @@ def create_ollama_model(
         else None
     )
 
+    from pydantic_ai.models.ollama import OllamaModel
+
     return OllamaModel(
         clean_model_name,
         provider=resolved_provider,
         profile=profile,
         settings=model_settings,
     )
+
+
+def __getattr__(name: str) -> Any:
+    if name == "OllamaModel":
+        from pydantic_ai.models.ollama import OllamaModel
+
+        return OllamaModel
+    if name == "OllamaProvider":
+        from pydantic_ai.providers.ollama import OllamaProvider
+
+        return OllamaProvider
+    if name == "OpenAIChatModel":
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        return OpenAIChatModel
+    if name == "Provider":
+        from pydantic_ai.providers import Provider
+
+        return Provider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

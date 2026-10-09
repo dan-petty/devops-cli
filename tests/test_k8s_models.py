@@ -12,7 +12,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from kubernetes import client  # type: ignore[import-untyped]
 from typer.testing import CliRunner
 
 import devops_cli.ui.data_providers as data_providers
@@ -25,6 +24,7 @@ from devops_cli.ui.projections import k8s_rows
 from tests.k8s_fakes import (
     NOW,
     FakeCoreV1,
+    client,
     crashlooping_pod,
     event,
     healthy_pod,
@@ -43,158 +43,207 @@ runner = CliRunner()
 # Pod Status
 # =============================================================================
 
-STATUS_CASES: dict[str, tuple[Any, str, str]] = {
-    "crashloop-in-a-running-pod": (
-        pod(statuses=[status("app", waiting("CrashLoopBackOff"), restarts=86)]),
-        "CrashLoopBackOff",
-        "0/1",
-    ),
-    "container-creating": (
-        pod(phase="Pending", statuses=[status("app", waiting("ContainerCreating"))]),
-        "ContainerCreating",
-        "0/1",
-    ),
-    "completed": (
-        pod(phase="Succeeded", statuses=[status("app", terminated(0, "Completed"))]),
-        "Completed",
-        "0/1",
-    ),
-    "oom-killed": (
-        pod(phase="Failed", statuses=[status("app", terminated(137, "OOMKilled"))]),
-        "OOMKilled",
-        "0/1",
-    ),
-    "exit-code-without-reason": (
-        pod(phase="Failed", statuses=[status("app", terminated(1))]),
-        "ExitCode:1",
-        "0/1",
-    ),
-    "signal-without-reason": (
-        pod(phase="Failed", statuses=[status("app", terminated(137, signal=9))]),
-        "Signal:9",
-        "0/1",
-    ),
-    "completed-beside-running-not-ready": (
-        pod(
-            containers=("app", "job"),
-            statuses=[ready_app(), status("job", terminated(0, "Completed"))],
-            conditions={"Ready": "False"},
-        ),
-        "NotReady",
-        "1/2",
-    ),
-    "completed-beside-running-ready": (
-        pod(
-            containers=("app", "job"),
-            statuses=[ready_app(), status("job", terminated(0, "Completed"))],
-            conditions={"Ready": "True"},
-        ),
-        "Running",
-        "1/2",
-    ),
-    "init-in-progress": (
-        pod(
-            phase="Pending",
-            init_containers=("migrate", "seed"),
-            init_statuses=[
-                status("migrate", running()),
-                status("seed", waiting("PodInitializing")),
-            ],
-            statuses=[status("app", waiting("PodInitializing"))],
-        ),
-        "Init:0/2",
-        "0/1",
-    ),
-    "init-crashloop": (
-        pod(
-            phase="Pending",
-            init_containers=("migrate",),
-            init_statuses=[status("migrate", waiting("CrashLoopBackOff"), restarts=4)],
-            statuses=[status("app", waiting("PodInitializing"))],
-        ),
-        "Init:CrashLoopBackOff",
-        "0/1",
-    ),
-    "init-exit-code": (
-        pod(
-            phase="Pending",
-            init_containers=("migrate",),
-            init_statuses=[status("migrate", terminated(1))],
-            statuses=[status("app", waiting("PodInitializing"))],
-        ),
-        "Init:ExitCode:1",
-        "0/1",
-    ),
-    "init-signal": (
-        pod(
-            phase="Pending",
-            init_containers=("migrate",),
-            init_statuses=[status("migrate", terminated(137, signal=9))],
-        ),
-        "Init:Signal:9",
-        "0/1",
-    ),
-    "init-terminated-reason": (
-        pod(
-            phase="Pending",
-            init_containers=("migrate",),
-            init_statuses=[status("migrate", terminated(1, "Error"))],
-        ),
-        "Init:Error",
-        "0/1",
-    ),
-    "running-sidecar-and-ready-app": (
-        pod(
-            init_containers=("proxy",),
-            sidecars=("proxy",),
-            init_statuses=[status("proxy", running(), ready=True, started=True)],
-            statuses=[ready_app()],
-            conditions={"Initialized": "True", "Ready": "True"},
-        ),
-        "Running",
-        "2/2",
-    ),
-    "finished-init-then-running": (
-        pod(
-            init_containers=("migrate",),
-            init_statuses=[status("migrate", terminated(0, "Completed"))],
-            statuses=[ready_app()],
-        ),
-        "Running",
-        "1/1",
-    ),
-    "evicted": (pod(phase="Failed", reason="Evicted"), "Evicted", "0/1"),
-    "unscheduled": (
-        pod(phase="Pending", conditions={"PodScheduled": "False"}),
-        "Pending",
-        "0/1",
-    ),
-    "terminating": (pod(statuses=[ready_app()], deleted=True), "Terminating", "1/1"),
-    "node-lost": (
-        pod(statuses=[ready_app()], reason="NodeLost", deleted=True),
-        "Unknown",
-        "1/1",
-    ),
-    "deleted-after-completing": (
-        pod(phase="Succeeded", statuses=[status("app", terminated(0, "Completed"))], deleted=True),
-        "Completed",
-        "0/1",
-    ),
-    "running": (
-        pod(containers=("app", "web"), statuses=[ready_app(), ready_app("web")]),
-        "Running",
-        "2/2",
-    ),
-}
-
-
-@pytest.mark.parametrize(
-    ("api_pod", "expected_status", "expected_ready"), STATUS_CASES.values(), ids=STATUS_CASES
+STATUS_CASE_NAMES: tuple[str, ...] = (
+    "crashloop-in-a-running-pod",
+    "container-creating",
+    "completed",
+    "oom-killed",
+    "exit-code-without-reason",
+    "signal-without-reason",
+    "completed-beside-running-not-ready",
+    "completed-beside-running-ready",
+    "init-in-progress",
+    "init-crashloop",
+    "init-exit-code",
+    "init-signal",
+    "init-terminated-reason",
+    "running-sidecar-and-ready-app",
+    "finished-init-then-running",
+    "evicted",
+    "unscheduled",
+    "terminating",
+    "node-lost",
+    "deleted-after-completing",
+    "running",
 )
-def test_from_pod_reports_the_status_and_ready_kubectl_prints(
-    api_pod: Any, expected_status: str, expected_ready: str
-) -> None:
+
+_STATUS_CASES_CACHE: dict[str, tuple[Any, str, str]] | None = None
+
+
+def _get_status_cases() -> dict[str, tuple[Any, str, str]]:
+    global _STATUS_CASES_CACHE
+    if _STATUS_CASES_CACHE is None:
+        _STATUS_CASES_CACHE = {
+            "crashloop-in-a-running-pod": (
+                pod(statuses=[status("app", waiting("CrashLoopBackOff"), restarts=86)]),
+                "CrashLoopBackOff",
+                "0/1",
+            ),
+            "container-creating": (
+                pod(phase="Pending", statuses=[status("app", waiting("ContainerCreating"))]),
+                "ContainerCreating",
+                "0/1",
+            ),
+            "completed": (
+                pod(phase="Succeeded", statuses=[status("app", terminated(0, "Completed"))]),
+                "Completed",
+                "0/1",
+            ),
+            "oom-killed": (
+                pod(phase="Failed", statuses=[status("app", terminated(137, "OOMKilled"))]),
+                "OOMKilled",
+                "0/1",
+            ),
+            "exit-code-without-reason": (
+                pod(phase="Failed", statuses=[status("app", terminated(1))]),
+                "ExitCode:1",
+                "0/1",
+            ),
+            "signal-without-reason": (
+                pod(phase="Failed", statuses=[status("app", terminated(137, signal=9))]),
+                "Signal:9",
+                "0/1",
+            ),
+            "completed-beside-running-not-ready": (
+                pod(
+                    containers=("app", "job"),
+                    statuses=[ready_app(), status("job", terminated(0, "Completed"))],
+                    conditions={"Ready": "False"},
+                ),
+                "NotReady",
+                "1/2",
+            ),
+            "completed-beside-running-ready": (
+                pod(
+                    containers=("app", "job"),
+                    statuses=[ready_app(), status("job", terminated(0, "Completed"))],
+                    conditions={"Ready": "True"},
+                ),
+                "Running",
+                "1/2",
+            ),
+            "init-in-progress": (
+                pod(
+                    phase="Pending",
+                    init_containers=("migrate", "seed"),
+                    init_statuses=[
+                        status("migrate", running()),
+                        status("seed", waiting("PodInitializing")),
+                    ],
+                    statuses=[status("app", waiting("PodInitializing"))],
+                ),
+                "Init:0/2",
+                "0/1",
+            ),
+            "init-crashloop": (
+                pod(
+                    phase="Pending",
+                    init_containers=("migrate",),
+                    init_statuses=[status("migrate", waiting("CrashLoopBackOff"), restarts=4)],
+                    statuses=[status("app", waiting("PodInitializing"))],
+                ),
+                "Init:CrashLoopBackOff",
+                "0/1",
+            ),
+            "init-exit-code": (
+                pod(
+                    phase="Pending",
+                    init_containers=("migrate",),
+                    init_statuses=[status("migrate", terminated(1))],
+                    statuses=[status("app", waiting("PodInitializing"))],
+                ),
+                "Init:ExitCode:1",
+                "0/1",
+            ),
+            "init-signal": (
+                pod(
+                    phase="Pending",
+                    init_containers=("migrate",),
+                    init_statuses=[status("migrate", terminated(137, signal=9))],
+                ),
+                "Init:Signal:9",
+                "0/1",
+            ),
+            "init-terminated-reason": (
+                pod(
+                    phase="Pending",
+                    init_containers=("migrate",),
+                    init_statuses=[status("migrate", terminated(1, "Error"))],
+                ),
+                "Init:Error",
+                "0/1",
+            ),
+            "running-sidecar-and-ready-app": (
+                pod(
+                    init_containers=("proxy",),
+                    sidecars=("proxy",),
+                    init_statuses=[status("proxy", running(), ready=True, started=True)],
+                    statuses=[ready_app()],
+                    conditions={"Initialized": "True", "Ready": "True"},
+                ),
+                "Running",
+                "2/2",
+            ),
+            "finished-init-then-running": (
+                pod(
+                    init_containers=("migrate",),
+                    init_statuses=[status("migrate", terminated(0, "Completed"))],
+                    statuses=[ready_app()],
+                ),
+                "Running",
+                "1/1",
+            ),
+            "evicted": (pod(phase="Failed", reason="Evicted"), "Evicted", "0/1"),
+            "unscheduled": (
+                pod(phase="Pending", conditions={"PodScheduled": "False"}),
+                "Pending",
+                "0/1",
+            ),
+            "terminating": (pod(statuses=[ready_app()], deleted=True), "Terminating", "1/1"),
+            "node-lost": (
+                pod(statuses=[ready_app()], reason="NodeLost", deleted=True),
+                "Unknown",
+                "1/1",
+            ),
+            "deleted-after-completing": (
+                pod(
+                    phase="Succeeded",
+                    statuses=[status("app", terminated(0, "Completed"))],
+                    deleted=True,
+                ),
+                "Completed",
+                "0/1",
+            ),
+            "running": (
+                pod(containers=("app", "web"), statuses=[ready_app(), ready_app("web")]),
+                "Running",
+                "2/2",
+            ),
+        }
+    return _STATUS_CASES_CACHE
+
+
+class _LazyStatusCases(dict[str, Any]):
+    def __getitem__(self, key: str) -> tuple[Any, str, str]:
+        return _get_status_cases()[key]
+
+    def __iter__(self):
+        return iter(STATUS_CASE_NAMES)
+
+    def __len__(self):
+        return len(STATUS_CASE_NAMES)
+
+    def keys(self):
+        return STATUS_CASE_NAMES
+
+
+STATUS_CASES: dict[str, Any] = _LazyStatusCases()
+
+
+@pytest.mark.parametrize("case_name", STATUS_CASE_NAMES)
+def test_from_pod_reports_the_status_and_ready_kubectl_prints(case_name: str) -> None:
     """STATUS is the reason a container gives, not the phase, which hid every crashloop."""
+    api_pod, expected_status, expected_ready = STATUS_CASES[case_name]
     info = PodInfo.from_pod(api_pod)
     assert (info.status, info.ready_containers) == (expected_status, expected_ready)
 
@@ -337,19 +386,20 @@ EARLIER = NOW - datetime.timedelta(minutes=10)
 
 
 @pytest.mark.parametrize(
-    ("api_event", "expected"),
+    ("event_factory", "expected"),
     [
-        (event("BackOff", last=NOW, event_time=EARLIER, count=7), (NOW, 7)),
-        (event("Scheduled", event_time=NOW, series_count=3), (NOW, 3)),
-        (event("Pulled", first=NOW), (NOW, 1)),
-        (event("Created", created=NOW), (NOW, 1)),
+        (lambda: event("BackOff", last=NOW, event_time=EARLIER, count=7), (NOW, 7)),
+        (lambda: event("Scheduled", event_time=NOW, series_count=3), (NOW, 3)),
+        (lambda: event("Pulled", first=NOW), (NOW, 1)),
+        (lambda: event("Created", created=NOW), (NOW, 1)),
     ],
+    ids=["backoff-with-event-time", "scheduled-with-series", "pulled-with-first", "created"],
 )
 def test_an_event_is_placed_and_counted_from_whichever_fields_it_has(
-    api_event: Any, expected: tuple[datetime.datetime, int]
+    event_factory: Any, expected: tuple[datetime.datetime, int]
 ) -> None:
     """events.k8s.io/v1 writers leave last_timestamp and count empty and set the series."""
-    info = PodEventInfo.from_event(api_event)
+    info = PodEventInfo.from_event(event_factory())
     assert (info.last_seen, info.count) == expected
 
 
@@ -363,13 +413,15 @@ def test_an_event_keeps_its_type_reason_and_message() -> None:
 # Surfaces Agree
 # =============================================================================
 
-MIXED_PODS = [
-    healthy_pod("api-0", "shop"),
-    crashlooping_pod("exporter-0", "monitoring"),
-    STATUS_CASES["container-creating"][0],
-    STATUS_CASES["completed"][0],
-    STATUS_CASES["running-sidecar-and-ready-app"][0],
-]
+
+def _mixed_pods() -> list[Any]:
+    return [
+        healthy_pod("api-0", "shop"),
+        crashlooping_pod("exporter-0", "monitoring"),
+        STATUS_CASES["container-creating"][0],
+        STATUS_CASES["completed"][0],
+        STATUS_CASES["running-sidecar-and-ready-app"][0],
+    ]
 
 
 def _plain(cell: str) -> str:
@@ -380,14 +432,15 @@ def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two answers for one pod would be worse than either; both now come from one port."""
-    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: FakeCoreV1(pods=MIXED_PODS))
+    mixed_pods = _mixed_pods()
+    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: FakeCoreV1(pods=mixed_pods))
     monkeypatch.setattr(data_providers, "_k8s_context_name", lambda: "lab")
     dashboard = [
         (_plain(row[2]), _plain(row[3])) for row in k8s_rows(data_providers.fetch_k8s_status())
     ]
 
     service = MagicMock()
-    service.list_pods.return_value = MIXED_PODS
+    service.list_pods.return_value = mixed_pods
     with patch.object(KubernetesService, "get_instance", return_value=service):
         table = _build_pods_table(None, None, all_namespaces=True)
     cli = [(_plain(row[2]), _plain(row[3])) for row in table.rows]

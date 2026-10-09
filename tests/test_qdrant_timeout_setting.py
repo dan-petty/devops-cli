@@ -18,7 +18,6 @@ from pydantic import ValidationError
 from devops_cli.ai.rag import embeddings as embeddings_module
 from devops_cli.ai.rag import indexer as indexer_module
 from devops_cli.ai.rag import investigator as investigator_module
-from devops_cli.ai.rag import qdrant as qdrant_module
 from devops_cli.ai.tools import builtin_tools
 from devops_cli.commands import rag as rag_commands
 from devops_cli.config import settings as settings_module
@@ -113,6 +112,8 @@ def test_each_caller_builds_its_qdrant_client_with_the_configured_timeout(
         def is_alive(self, **kwargs: Any) -> bool:
             return False
 
+    from devops_cli.ai.rag import qdrant as qdrant_module
+
     monkeypatch.setattr(qdrant_module, "QdrantClient", RecordingQdrant)
     monkeypatch.setattr(investigator_module, "QdrantClient", RecordingQdrant)
     monkeypatch.setattr(indexer_module, "QdrantClient", RecordingQdrant)
@@ -140,6 +141,8 @@ def test_a_configured_timeout_reaches_the_native_client(
     def native_client(**kwargs: Any) -> SimpleNamespace:
         native.append(kwargs)
         return SimpleNamespace()
+
+    from devops_cli.ai.rag import qdrant as qdrant_module
 
     monkeypatch.setattr(settings_module, "get_qdrant_api_key", lambda settings: "test-key")
     monkeypatch.setattr(qdrant_module, "NativeQdrantClient", native_client)
