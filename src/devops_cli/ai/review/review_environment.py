@@ -5,19 +5,14 @@ from __future__ import annotations
 import ast
 import os
 import shlex
-import signal
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
 
-from devops_cli.ai.review.criteria_evidence import counts_as_evidence, python_invocation
-from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_ALLOWED_CRITERIA_BINARIES,
     CONST_ALLOWED_GIT_SUBCOMMANDS,
-    CONST_CRITERIA_NON_DISCRIMINATING,
     CONST_DISALLOWED_SHELL_TOKENS,
     CONST_FORBIDDEN_FIND_ACTIONS,
     CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES,
@@ -26,11 +21,6 @@ from devops_cli.config.constants import (
     CONST_PYTEST_RUNNER_FUNCTIONS,
     CONST_PYTHON_CRITERIA_BINARIES,
     CONST_REVIEW_CONVENTIONS_FILE,
-)
-from devops_cli.config.defaults import (
-    DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
-    DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
-    DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS,
 )
 
 _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
@@ -332,8 +322,26 @@ def _check_python_script(script: str) -> str | None:
     return None
 
 
+def python_invocation(args: Sequence[str]) -> tuple[str, str] | None:
+    """What a `python -c <script>` or `python -m <module>` command runs: the option, and the
+    script or module; None for any other command.
+
+    Python reads its own options up to the first `-c` or `-m`, inside a cluster too, and passes
+    the rest to the script or module: `python -Bc pass -c <script>` and `python -m X -c <script>`
+    never run `<script>`. Only `-c` or `-m` as the first argument is read, so the criteria
+    validator checks what Python runs.
+    """
+    if (
+        len(args) < 3
+        or Path(args[0]).name not in CONST_PYTHON_CRITERIA_BINARIES
+        or args[1] not in {"-c", "-m"}
+    ):
+        return None
+    return args[1], args[2]
+
+
 def _check_python_command(args: list[str]) -> str | None:
-    # Read as the evidence rule reads it: a `-c` or `-m` later in the command, or inside an
+    # Only a leading `-c` or `-m` is read: one later in the command, or inside an
     # option cluster such as `-Bc`, would leave unchecked what Python runs.
     invocation = python_invocation(args)
     if invocation is None:
@@ -391,192 +399,3 @@ def validate_criteria_command(command: str) -> tuple[bool, str | None, list[str]
         return False, argument_err, None
 
     return True, None, args
-
-
-def _terminate_process_group(pid: int) -> None:
-    try:
-        pgid = os.getpgid(pid)
-        os.killpg(pgid, signal.SIGTERM)
-    except OSError:
-        pass
-
-
-def _criterion_argv(args: list[str]) -> tuple[list[str], float]:
-    """The argv a validated criterion runs as in the sandbox, and its default time limit.
-
-    A python or python3 criterion runs with SyntaxWarning ignored and under the Python criteria
-    limit, since it imports the reviewed code; any other command gets the general one. A
-    validated python criterion has no options of its own before its `-c` or `-m`.
-    """
-    exec_args = list(args)
-    if Path(exec_args[0]).name not in CONST_PYTHON_CRITERIA_BINARIES:
-        return exec_args, DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS
-    exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
-    return exec_args, DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS
-
-
-def execute_criterion_command(
-    command: str,
-    cwd: Path,
-    timeout: float | None = None,
-    max_output_bytes: int = DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
-    sandbox: Any = None,
-) -> Any:
-    """Execute an allowlisted criterion in the bubblewrap host sandbox.
-
-    Without a `timeout`, the criterion gets its binary's default limit (see `_criterion_argv`).
-    """
-    from devops_cli.ai.review_schema import CriterionExecutionResult
-    from devops_cli.sandbox.host import HostSandbox
-
-    is_valid, reason, args = validate_criteria_command(command)
-    if not is_valid or not args:
-        return CriterionExecutionResult(
-            command=command,
-            description=command,
-            executable=False,
-            exit_code=None,
-            passed=False,
-            error=reason,
-        )
-
-    sb: HostSandbox = sandbox if sandbox is not None else HostSandbox()
-    if not sb.is_available():
-        return CriterionExecutionResult(
-            command=command,
-            description=command,
-            executable=True,
-            exit_code=-1,
-            passed=False,
-            error=f"bubblewrap binary {sb.bwrap_binary} is not available on host system",
-        )
-
-    exec_args, default_timeout = _criterion_argv(args)
-
-    src_dir = cwd / "src"
-    py_path = f"{src_dir}:{cwd}" if src_dir.is_dir() else str(cwd)
-    res = sb.execute(
-        args=exec_args,
-        cwd=cwd,
-        timeout=default_timeout if timeout is None else timeout,
-        max_output_bytes=max_output_bytes,
-        env={"PYTHONPATH": py_path},
-    )
-    return CriterionExecutionResult(
-        command=command,
-        description=command,
-        executable=True,
-        exit_code=res.exit_code,
-        stdout=res.stdout,
-        stderr=res.stderr,
-        duration_seconds=res.duration_seconds,
-        passed=res.passed,
-        error=res.error,
-        timed_out=res.timed_out,
-    )
-
-
-class _CriteriaVerdict(NamedTuple):
-    """A verdict the criteria settle, and what `apply_verdict` records with it."""
-
-    status: str
-    by: str | None = None
-    confidence: float | None = None
-    reason: str | None = None
-    note: str | None = None
-
-
-def _evaluate_criteria_verdict(
-    matched_ver: list[str], matched_inv: list[str], refuting: list[str]
-) -> _CriteriaVerdict | None:
-    """The verdict the criteria settle, or None when they leave the finding for the verifier.
-
-    `matched_ver` and `matched_inv` hold every passing verification and invalidation command,
-    and `refuting` those invalidation commands that count as evidence
-    (`criteria_evidence.counts_as_evidence`). Criteria that pass on both sides, counting or
-    not, cannot tell the defect from its absence. A refuting command settles INVALIDATED.
-    Nothing settles VERIFIED: the evidence rule shows that a command checks the cited code, not
-    which side of the claim its pass supports, and a verification criterion that asserts the
-    code's correct behaviour passes because the claim is false (#1043). A passing verification
-    command that counts is recorded as matched, and the verifier judges the finding.
-    """
-    if matched_ver and matched_inv:
-        return _CriteriaVerdict("UNVERIFIED", note=CONST_CRITERIA_NON_DISCRIMINATING)
-    if refuting:
-        return _CriteriaVerdict(
-            "INVALIDATED", "criteria", 0.0, f"Invalidation criterion verified: {refuting[0]}"
-        )
-    return None
-
-
-def _evidence(passed: list[str], location: str, repo_root: Path) -> list[str]:
-    """The passing commands, once each, that count as evidence about the code at `location`."""
-    return [c for c in dict.fromkeys(passed) if counts_as_evidence(c, location, repo_root)]
-
-
-def _reconcile_finding_from_criteria(
-    finding: Any,
-    exec_results: list[Any],
-    matched_ver: list[str],
-    matched_inv: list[str],
-    repo_root: Path,
-) -> Any:
-    """Record the criteria results on the finding, with the verdict their evidence settles.
-
-    `matched_ver` and `matched_inv` are the commands that passed. Each is recorded in
-    `criteria_execution_results`; only those that count as evidence are recorded as matched.
-    """
-    proving = _evidence(matched_ver, finding.location, repo_root)
-    refuting = _evidence(matched_inv, finding.location, repo_root)
-    records: dict[str, Any] = {
-        "criteria_execution_results": list(
-            dict.fromkeys(finding.criteria_execution_results + exec_results)
-        ),
-        "verified_criteria_matched": list(
-            dict.fromkeys(finding.verified_criteria_matched + proving)
-        ),
-        "invalidated_criteria_matched": list(
-            dict.fromkeys(finding.invalidated_criteria_matched + refuting)
-        ),
-    }
-    verdict = _evaluate_criteria_verdict(matched_ver, matched_inv, refuting)
-    if verdict is None:
-        return finding.model_copy(update=records)
-    return apply_verdict(
-        finding,
-        verdict.status,
-        by=verdict.by,
-        reason=verdict.reason,
-        confidence_score=verdict.confidence,
-        verification_note=verdict.note,
-        **records,
-    )
-
-
-def _run_criteria_group(criteria: list[Any], repo_root: Path) -> tuple[list[Any], list[str]]:
-    results: list[Any] = []
-    matched: list[str] = []
-    for crit in criteria:
-        cmd = getattr(crit, "command", None)
-        if getattr(crit, "executable", False) and cmd:
-            res = execute_criterion_command(cmd, cwd=repo_root)
-            results.append(res)
-            if res.passed:
-                matched.append(cmd)
-    return results, matched
-
-
-def execute_finding_criteria(finding: Any, repo_root: Path) -> Any:
-    """Execute all allowable criteria for a finding and reconcile confidence and status."""
-    if not repo_root or not repo_root.is_dir():
-        return finding
-
-    ver_crit = getattr(finding, "verification_criteria", [])
-    inv_crit = getattr(finding, "invalidation_criteria", [])
-
-    ver_results, matched_ver = _run_criteria_group(ver_crit, repo_root)
-    inv_results, matched_inv = _run_criteria_group(inv_crit, repo_root)
-
-    return _reconcile_finding_from_criteria(
-        finding, ver_results + inv_results, matched_ver, matched_inv, repo_root
-    )

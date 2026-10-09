@@ -88,7 +88,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.security_intel_package,
             mcp_module.security_intel_network,
             mcp_module.review_findings,
-            mcp_module.verify_finding,
         ],
         "architect": [
             read_file,
@@ -124,7 +123,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.ci_run,
             mcp_module.review_stats,
             mcp_module.review_findings,
-            mcp_module.verify_finding,
         ],
         "auditor": [
             read_file,

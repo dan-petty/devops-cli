@@ -103,7 +103,7 @@ def test_benchmarks_show_each_backends_median_busy_share_and_peak() -> None:
 def test_busy_share_is_capped_and_absent_without_activity() -> None:
     """Verify a backend busier than a rounded stage time reads as fully busy, never above it."""
     stage = StageProfile(
-        name="verification",
+        name="reranking",
         wall_seconds=10.0,
         activity={VLLM: BackendActivity(calls=1, busy_seconds=10.2)},
     )

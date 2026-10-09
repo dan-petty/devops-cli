@@ -110,7 +110,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
 | [`review_export_feedback`](#review-export-feedback) | Append review verdicts the feedback dataset does not hold yet to the JSONL dataset. |
-| [`review_findings`](#review-findings) | List a session's findings, filtered by status; each keeps the number verify_finding takes. |
+| [`review_findings`](#review-findings) | List a session's findings, filtered by status, each with the number `review verify` takes. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
@@ -161,7 +161,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`vault_set`](#vault-set) | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | Check HashiCorp Vault cluster health and sealing status. |
 | [`vault_sync`](#vault-sync) | Synchronize secrets from HashiCorp Vault into the local OS Keyring. |
-| [`verify_finding`](#verify-finding) | Record an agent's verdict on the finding `review_findings` numbers `index` (from 1). |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
@@ -1315,7 +1314,7 @@ Append review verdicts the feedback dataset does not hold yet to the JSONL datas
 
 ### `review_findings`
 
-List a session's findings, filtered by status; each keeps the number verify_finding takes.
+List a session's findings, filtered by status, each with the number `review verify` takes.
 
 **Parameters:**
 
@@ -1902,19 +1901,6 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | - |
 | `keys` | `array` | No | - | - |
-
-### `verify_finding`
-
-Record an agent's verdict on the finding `review_findings` numbers `index` (from 1).
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `session_id` | `string` | Yes | - | - |
-| `index` | `integer` | Yes | - | - |
-| `status` | `string` | Yes | - | - |
-| `reason` | `string` | No | `` | - |
 
 ### `workspace_list`
 

@@ -4,8 +4,8 @@ A review must treat the repository it reads as untrusted (#946): its files may b
 steer the review. While such a command runs, devops-cli takes nothing from the repository the
 working directory is in unless the user named it. The project config layer is not read
 (`config.settings`), and a relative data path resolves under the user-level data root rather
-than under that repository (`core.repo.resolve_data_path`), so the hallucination catalog, the
-review history and baselines, the library contracts and the caches are the user's own. What a
+than under that repository (`core.repo.resolve_data_path`), so the review history and
+baselines, the library contracts and the caches are the user's own. What a
 review keeps there, every other command reads and writes there too
 (`core.repo.resolve_review_data_path`). A location the user names, `DEVOPS_CLI_CONFIG` or an
 absolute data directory, still counts: that is the explicit opt-in.

@@ -1,7 +1,7 @@
 # Review Conventions: devops-cli
 
 `devops ai review` reads this file in full when it reviews this repository, and gives it to the
-persona reviewers and to the verifier. It holds the rules that are true here and not in general.
+persona reviewers. It holds the rules that are true here and not in general.
 The shared review prompts stay project-agnostic; see `docs/SELF_IMPROVEMENT.md`.
 
 ## Python and types
@@ -104,8 +104,7 @@ These resolve claims that recur against this codebase.
 - Audit and mitigation ledgers start empty (`mitigations = []`) and fill as checks run.
 - GraphQL requests send `json.dumps()` of the query and variables; that is not double encoding.
 - `ast.parse` of reviewed files ignores `SyntaxWarning` on purpose; invalid syntax still raises.
-- `common_hallucinations.json`, the review prompts and exemplar datasets quote bad patterns to
-  detect them.
+- The review prompts and exemplar datasets quote bad patterns to detect them.
 - Hardware daemonsets (NVIDIA GPU Feature Discovery, DCGM Exporter, device plugins) need
   privileged host access (`privileged: true`, `runAsUser: 0`, `SYS_ADMIN`, `/dev/nvidia*`).
 - LLM profile NetworkPolicies allow egress to `0.0.0.0/0` to pull model weights and block

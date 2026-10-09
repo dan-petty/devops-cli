@@ -1,23 +1,13 @@
-"""Regression tests for review feedback-loop calibration.
+"""Regression tests for review finding consolidation.
 
 Each test here pins a defect observed in a real review session (`.data/reviews/`) where
-the loop itself misbehaved: duplicate findings that were never consolidated, suppression
-signatures broad enough to bury genuine defects, and a builtin catalog that silently
-vanished because one record was malformed.
+duplicate findings were never consolidated, or distinct ones were merged.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from devops_cli.ai.review.common_hallucinations import (
-    CommonHallucinationEntry,
-    _build_builtin_hallucinations,
-    _check_signature_match,
-    _is_degenerate_signature,
-    load_common_hallucinations,
-)
 from devops_cli.ai.review_schema import (
     SavedFinding,
     _extract_code_symbols,
@@ -144,103 +134,3 @@ def test_real_review_session_duplicates_are_reduced(tmp_path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Hallucination catalog safety
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_builtin_catalog_loads_completely() -> None:
-    """Every builtin catalog record validates, so the baseline is actually in effect."""
-    builtin = _build_builtin_hallucinations()
-    raw = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "src/devops_cli/ai/review/common_hallucinations.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert len(builtin) == len(raw)
-    assert builtin
-
-
-def test_one_malformed_record_does_not_discard_the_baseline(tmp_path: Path) -> None:
-    """A single invalid entry is skipped rather than silently emptying the catalog."""
-    judged = {"project": "p", "file": "a.py", "line": 1, "code_sha256": "0" * 64, "claim": ["exec"]}
-    catalog = tmp_path / "common_hallucinations.json"
-    catalog.write_text(
-        json.dumps(
-            [
-                {
-                    "id": "VALID-ENTRY",
-                    "name": "Valid",
-                    "category": "general",
-                    "description": "d",
-                    "resolution": "r",
-                    "source": "person",
-                    "judged": judged,
-                },
-                {
-                    "id": "BROKEN-ENTRY",
-                    "name": "Broken",
-                    "category": "not_a_real_category",
-                    "source": "person",
-                    "judged": judged,
-                },
-            ]
-        ),
-        encoding="utf-8",
-    )
-    entries = load_common_hallucinations(target_file=catalog, include_builtin=False)
-    assert [e.id for e in entries] == ["VALID-ENTRY"]
-
-
-def test_bare_word_signatures_are_rejected_at_match_time() -> None:
-    """A single-word suppression signature never matches, so real findings survive.
-
-    Auto-learning previously persisted words like 'unvalidated' as whole signatures,
-    which matched nearly every genuine security finding.
-    """
-    assert _is_degenerate_signature("unvalidated") is True
-    assert _is_degenerate_signature("traversal") is True
-    assert _is_degenerate_signature(r"(?=.*\bfoo\b)(?=.*\bbar\b)") is False
-
-    # A bare *code identifier* still names one specific symbol and remains valid.
-    assert _is_degenerate_signature("DEFAULT_HTTP_BROKER") is False
-    assert _is_degenerate_signature("FastMCP") is False
-
-    text = "Unvalidated path traversal in the archive extraction routine"
-    assert _check_signature_match(text, ["unvalidated"]) == []
-    assert _check_signature_match(text, ["traversal"]) == []
-
-
-def test_structured_signatures_still_match() -> None:
-    """Legitimate multi-token signatures continue to match as before."""
-    text = "Claiming the bracketless except clause is invalid syntax"
-    assert _check_signature_match(text, [r"(?:bracketless|unparenthesized)\s+except"])
-
-
-def test_invalid_signature_regex_does_not_fall_back_to_substring() -> None:
-    """A malformed regex is skipped, never degraded into a broad substring match."""
-    assert _check_signature_match("some server text", ["server("]) == []
-
-
-def test_confirmed_false_positives_are_catalogued() -> None:
-    """The two false positives confirmed by hand are now recognised patterns."""
-    catalog = {e.id: e for e in _build_builtin_hallucinations()}
-    server_entry = catalog["HALLUCINATION-SERVER-CONSTRUCTOR-NO-AUTH"]
-    consumer_entry = catalog["HALLUCINATION-DECLARATION-WITHOUT-CONSUMER"]
-
-    server_claim = (
-        "FastMCP server lacks authentication, exposing internal commands to external "
-        "clients. The FastMCP server is instantiated without any authentication."
-    )
-    consumer_claim = (
-        "Help strings reference nonexistent commands. The new fields describe commands "
-        "that are not implemented in the CLI."
-    )
-    assert _check_signature_match(server_claim, server_entry.signature_patterns)
-    assert _check_signature_match(consumer_claim, consumer_entry.signature_patterns)
-
-
-def test_catalog_entries_carry_actionable_resolutions() -> None:
-    """Every builtin entry explains why the pattern is a false positive."""
-    assert all(
-        isinstance(e, CommonHallucinationEntry) and e.resolution.strip()
-        for e in _build_builtin_hallucinations()
-    )

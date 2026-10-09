@@ -1,12 +1,10 @@
-"""Verdicts land on the finding shown, and record who gave them (#949).
+"""Verdicts land on the finding shown, and are a person's labels on the session (#949, #1150).
 
 `devops review findings` numbers each finding by its place in findings.json, or with
 `--candidates` in candidates.json, whatever filter it applies, and `devops review verify` takes
 the same numbers. A candidate the review left out can be judged, and a VERIFIED or MITIGATED
-verdict moves it into findings.json. Each verdict records its adjudicator: `human` or `agent`,
-and the MCP tool always records `agent`. Only a person's verdict ranks review history or writes
-the learned catalog and the mitigations ledger, and resetting it to UNVERIFIED removes the
-entries it created.
+verdict moves it into findings.json. Every verdict is a person's, records `verified_by="human"`
+and ranks review history; it writes the session files and nothing else.
 """
 
 from __future__ import annotations
@@ -15,7 +13,6 @@ import json
 import os
 import threading
 import time
-from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,27 +21,11 @@ from unittest.mock import MagicMock, patch, sentinel
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp.server import verify_finding
-from devops_cli.ai.review.common_hallucinations import (
-    CommonHallucinationEntry,
-    HallucinationCategory,
-    load_common_hallucinations,
-    record_judged_claim,
-    register_common_hallucination,
-)
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.history import load_review_history, review_subject
-from devops_cli.ai.review.judged_claims import JudgedClaim
-from devops_cli.ai.review.mitigations import (
-    MitigatedFindingEntry,
-    load_mitigated_findings,
-    record_mitigated_finding,
-    save_mitigated_findings,
-)
-from devops_cli.ai.review_schema import CitedCode, ReviewSessionPayload, SavedFinding
+from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands import review as review_cli
 from devops_cli.commands.review import app
-from devops_cli.exceptions.validation import ValidationError
 
 runner = CliRunner()
 
@@ -67,23 +48,6 @@ def _finding(title: str, line: int, status: str = "UNVERIFIED") -> SavedFinding:
         persona="devsecops",
         status=status,
         **verdict,
-    )
-
-
-def _template_finding(view: str = "view") -> SavedFinding:
-    """A finding a person's INVALIDATED verdict teaches the learned catalog: its review recorded
-    the code it cites, which the claim is keyed on (#950)."""
-    return SavedFinding(
-        title="Quirky Framework Obsolete Artifact Warning",
-        description="Flagged obsolete widget architecture in template engine.",
-        location=f"templates/{view}.html:4",
-        persona="qa",
-        cited_code=CitedCode(
-            project="site",
-            file=f"templates/{view}.html",
-            line=4,
-            excerpt="  {{ widget.render(artifact) }}",
-        ),
     )
 
 
@@ -215,99 +179,6 @@ def test_a_candidate_judged_again_updates_its_copy_in_findings_json(
     ) == (0, 0, [("Dropped path traversal", "UNVERIFIED", None)], [("UNVERIFIED", None)])
 
 
-@pytest.mark.parametrize(
-    "with_candidates",
-    [
-        pytest.param(True, id="with-candidates-json"),
-        # The persona loop writes no candidates.json, so history reads findings.json, where the
-        # agent's verdict lands.
-        pytest.param(False, id="without-candidates-json"),
-    ],
-)
-def test_the_mcp_tool_records_an_agent_verdict_that_history_ranking_ignores(
-    with_candidates: bool, isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify the MCP tool, numbering from 1 as the CLI does, records `verified_by="agent"` on
-    the finding it names, and that review history still counts the newer session of the
-    subject: an agent's verdict is not a person's."""
-    reviews = isolate_data_dir / "reviews"
-    for name, generated_at in (("20261001-090000", _OLDER), ("20261001-100000", _NEWER)):
-        open_finding = _finding("Open token leak", 4)
-        write_review_session(
-            reviews / name,
-            generated_at=generated_at,
-            subject=_SUBJECT,
-            findings=[open_finding],
-            candidates=[open_finding] if with_candidates else None,
-        )
-    commands: list[list[str]] = []
-
-    def run_through_cli(cmd: list[str], **_: object) -> str:
-        commands.append(cmd)
-        return runner.invoke(app, cmd[4:]).output
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", side_effect=run_through_cli):
-        verify_finding("20261001-090000", 1, "VERIFIED", "Token is live")
-
-    judged = _saved(reviews / "20261001-090000" / "findings.json")[0]
-    counted = load_review_history(reviews).counted
-    assert (
-        commands[0][-2:],
-        (judged.status, judged.verified_by),
-        tuple(s.path.name for s in counted),
-    ) == (["--adjudicator", "agent"], ("VERIFIED", "agent"), ("20261001-100000",))
-
-
-def test_an_agent_verdict_on_a_candidate_leaves_history_ranking_alone(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify an agent's verdict on an open candidate does not make its session outrank a newer
-    session of the subject: history counts no agent verdict, as a person's or as any other."""
-    reviews = isolate_data_dir / "reviews"
-    for name, generated_at in (("20261001-090000", _OLDER), ("20261001-100000", _NEWER)):
-        open_finding = _finding("Open token leak", 4)
-        write_review_session(
-            reviews / name,
-            generated_at=generated_at,
-            subject=_SUBJECT,
-            findings=[open_finding],
-            candidates=[open_finding, _finding("Dropped path traversal", 9, "INVALIDATED")],
-        )
-
-    res = runner.invoke(
-        app,
-        [
-            "verify",
-            "20261001-090000",
-            "--candidate",
-            "1",
-            "--status",
-            "INVALIDATED",
-            "--adjudicator",
-            "agent",
-        ],
-    )
-
-    judged = _saved(reviews / "20261001-090000" / "candidates.json")[0]
-    counted = load_review_history(reviews).counted
-    assert (
-        res.exit_code,
-        (judged.status, judged.verified_by),
-        tuple(s.path.name for s in counted),
-    ) == (0, ("INVALIDATED", "agent"), ("20261001-100000",))
-
-
-def test_the_mcp_tool_counts_findings_from_one() -> None:
-    """Verify the MCP tool refuses index 0, which the CLI has never accepted."""
-    with (
-        patch("devops_cli.ai.mcp.server._run_mcp_cmd") as run,
-        pytest.raises(ValidationError, match="index"),
-    ):
-        verify_finding("20261001-090000", 0, "VERIFIED")
-
-    assert run.call_count == 0
-
-
 def test_verify_requires_a_status(
     isolate_data_dir: Path, write_review_session: Callable[..., Path]
 ) -> None:
@@ -351,119 +222,6 @@ def test_a_title_matching_several_findings_is_refused(
         "#1, #2" in res.output,
         [f.status for f in after],
     ) == (1, True, ["UNVERIFIED", "UNVERIFIED"])
-
-
-def _catalog_learned_ids() -> list[str]:
-    return [e.id for e in load_common_hallucinations(include_builtin=False)]
-
-
-def _ledger_titles() -> list[str]:
-    return [e.title for e in load_mitigated_findings()]
-
-
-def test_a_reset_removes_the_catalog_and_ledger_entries_its_verdict_created(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify a person's INVALIDATED verdict teaches the learned catalog and a MITIGATED one
-    writes the mitigations ledger, and that resetting each finding to UNVERIFIED removes the
-    entries its verdict created and leaves every other entry alone."""
-    register_common_hallucination(
-        CommonHallucinationEntry(
-            id="JUDGED-EARLIER",
-            name="Earlier learned entry",
-            category=HallucinationCategory.GENERAL,
-            description="Kept",
-            resolution="Kept",
-            source="person",
-            judged=JudgedClaim(
-                project="site", file="other.py", line=1, code_sha256="0" * 64, claim=("earlier",)
-            ),
-        )
-    )
-    save_mitigated_findings(
-        [MitigatedFindingEntry(title="Earlier mitigation", location="other.py:1")]
-    )
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[
-            _template_finding(),
-            _finding("Unbounded upload buffer", 12),
-        ],
-    )
-    verdicts = (
-        ["--index", "1", "--status", "INVALIDATED", "--reason", "Engine supports widget syntax"],
-        ["--index", "2", "--status", "MITIGATED", "--reason", "Gateway caps bodies at 10 MB"],
-    )
-    resets = (
-        ["--index", "1", "--status", "UNVERIFIED"],
-        ["--index", "2", "--status", "UNVERIFIED"],
-    )
-
-    judged = [runner.invoke(app, ["verify", session.name, *args]).exit_code for args in verdicts]
-    learned, ledger = len(_catalog_learned_ids()), _ledger_titles()
-    reset = [runner.invoke(app, ["verify", session.name, *args]).exit_code for args in resets]
-
-    after = _saved(session / "findings.json")
-    assert (
-        judged,
-        learned,
-        ledger,
-        reset,
-        _catalog_learned_ids(),
-        _ledger_titles(),
-        [(f.status, f.learned_catalog_ids, f.mitigation_ledger_ids) for f in after],
-    ) == (
-        [0, 0],
-        2,
-        ["Earlier mitigation", "Unbounded upload buffer"],
-        [0, 0],
-        ["JUDGED-EARLIER"],
-        ["Earlier mitigation"],
-        [("UNVERIFIED", [], []), ("UNVERIFIED", [], [])],
-    )
-
-
-def test_an_agent_verdict_writes_neither_the_catalog_nor_the_ledger(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify `--adjudicator agent` records the verdict as the agent's, and that it teaches the
-    learned catalog nothing and writes no mitigation to the ledger."""
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[
-            _template_finding(),
-            _finding("Unbounded upload buffer", 12),
-        ],
-    )
-
-    codes = [
-        runner.invoke(
-            app,
-            [
-                "verify",
-                session.name,
-                "--index",
-                index,
-                "--status",
-                status,
-                "--adjudicator",
-                "agent",
-            ],
-        ).exit_code
-        for index, status in (("1", "INVALIDATED"), ("2", "MITIGATED"))
-    ]
-
-    after = _saved(session / "findings.json")
-    assert (
-        codes,
-        [(f.status, f.verified_by) for f in after],
-        _catalog_learned_ids(),
-        _ledger_titles(),
-    ) == ([0, 0], [("INVALIDATED", "agent"), ("MITIGATED", "agent")], [], [])
 
 
 def test_the_exporter_labels_a_record_human_only_when_a_person_judged_it(tmp_path: Path) -> None:
@@ -522,133 +280,6 @@ def test_each_review_command_loads_settings_once(
         res = runner.invoke(app, [*args, *target, "--no-logfire"])
 
     assert (res.exit_code, load.call_count) == (0, 1)
-
-
-def test_a_candidate_reset_also_removes_entries_its_copy_was_given(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify resetting a candidate removes the learned entry a person's `--index` verdict on
-    its copy in findings.json created, so neither file keeps an id the catalog lost."""
-    reported = _template_finding()
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[reported],
-        candidates=[reported],
-    )
-
-    judged = runner.invoke(
-        app,
-        ["verify", session.name, "--index", "1", "--status", "INVALIDATED", "-r", "Valid syntax"],
-    )
-    learned = len(_catalog_learned_ids())
-    reset = runner.invoke(
-        app, ["verify", session.name, "--candidate", "1", "--status", "UNVERIFIED"]
-    )
-
-    copy = _saved(session / "findings.json")[0]
-    assert (
-        judged.exit_code,
-        learned,
-        reset.exit_code,
-        _catalog_learned_ids(),
-        (copy.status, copy.learned_catalog_ids),
-    ) == (0, 1, 0, [], ("UNVERIFIED", []))
-
-
-def _learned_counts() -> list[int]:
-    return [e.occurrence_count for e in load_common_hallucinations(include_builtin=False)]
-
-
-def test_an_agent_cannot_change_a_persons_verdict(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify an agent's reset of a finding a person judged, by `--index` or through the MCP
-    tool, is refused, and that the person's verdicts and the catalog and ledger entries they
-    wrote all stay."""
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[_template_finding(), _finding("Unbounded upload buffer", 12)],
-    )
-    for args in (
-        ["--index", "1", "--status", "INVALIDATED", "--reason", "Engine supports widget syntax"],
-        ["--index", "2", "--status", "MITIGATED", "--reason", "Gateway caps bodies at 10 MB"],
-    ):
-        runner.invoke(app, ["verify", session.name, *args])
-
-    refused = runner.invoke(
-        app,
-        [
-            "verify",
-            session.name,
-            "--index",
-            "1",
-            "--status",
-            "UNVERIFIED",
-            "--adjudicator",
-            "agent",
-        ],
-    )
-    with patch(
-        "devops_cli.ai.mcp.server._run_mcp_cmd",
-        side_effect=lambda cmd, **_: runner.invoke(app, cmd[4:]).output,
-    ):
-        mcp_output = verify_finding(session.name, 2, "UNVERIFIED")
-
-    assert (
-        refused.exit_code,
-        "an agent cannot change it" in mcp_output,
-        [(f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        _learned_counts(),
-        _ledger_titles(),
-    ) == (
-        1,
-        True,
-        [("INVALIDATED", "human"), ("MITIGATED", "human")],
-        [1],
-        ["Unbounded upload buffer"],
-    )
-
-
-def test_an_agent_cannot_change_a_persons_verdict_through_a_candidate(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify an agent's verdict on a candidate whose copy in findings.json a person judged,
-    which recorded the person's verdict on the candidate too, is refused before either file
-    changes."""
-    reported = _finding("Unbounded upload buffer", 12)
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[reported],
-        candidates=[reported],
-    )
-    runner.invoke(app, ["verify", session.name, "--index", "1", "--status", "MITIGATED"])
-
-    res = runner.invoke(
-        app,
-        [
-            "verify",
-            session.name,
-            "--candidate",
-            "1",
-            "--status",
-            "INVALIDATED",
-            "--adjudicator",
-            "agent",
-        ],
-    )
-
-    assert (
-        res.exit_code,
-        [(f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        [(f.status, f.verified_by) for f in _saved(session / "candidates.json")],
-        _ledger_titles(),
-    ) == (1, [("MITIGATED", "human")], [("MITIGATED", "human")], ["Unbounded upload buffer"])
 
 
 _REPORTED_TRAVERSAL = SavedFinding(
@@ -728,74 +359,6 @@ def test_a_candidate_whose_defect_is_reported_is_never_added_twice(
     )
 
 
-def test_a_reset_keeps_a_ledger_entry_another_verdict_still_records(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify two findings of one title in one file, both MITIGATED by a person, share one
-    ledger entry that resetting the first leaves for the second, and resetting both removes."""
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[_finding("Unbounded upload buffer", 12), _finding("Unbounded upload buffer", 40)],
-    )
-
-    def verify(index: str, status: str) -> list[str]:
-        runner.invoke(app, ["verify", session.name, "--index", index, "--status", status])
-        return _ledger_titles()
-
-    steps = [
-        verify("1", "MITIGATED"),
-        verify("2", "MITIGATED"),
-        verify("1", "UNVERIFIED"),
-    ]
-    still_judged = [(f.status, f.verified_by) for f in _saved(session / "findings.json")]
-    steps.append(verify("2", "UNVERIFIED"))
-
-    assert (steps, still_judged) == (
-        [["Unbounded upload buffer"]] * 3 + [[]],
-        [("UNVERIFIED", None), ("MITIGATED", "human")],
-    )
-
-
-def test_a_reset_keeps_a_learned_entry_another_sessions_verdict_still_teaches(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify two sessions' INVALIDATED verdicts on one finding teach one learned entry twice,
-    that a candidate's reset, which its copy in findings.json mirrors, withdraws its own
-    verdict once, and that the entry goes with the last verdict behind it."""
-    reviews = isolate_data_dir / "reviews"
-    for name in ("20261001-090000", "20261001-100000"):
-        write_review_session(
-            reviews / name,
-            generated_at=_OLDER,
-            subject=_SUBJECT,
-            findings=[_template_finding()],
-            candidates=[_template_finding()],
-        )
-
-    def verify(session: str, which: str, status: str) -> list[int]:
-        reason = ["--reason", "Engine supports widget syntax"] if status == "INVALIDATED" else []
-        runner.invoke(app, ["verify", session, which, "1", "--status", status, *reason])
-        return _learned_counts()
-
-    steps = [
-        verify("20261001-090000", "--index", "INVALIDATED"),
-        verify("20261001-100000", "--candidate", "INVALIDATED"),
-        verify("20261001-100000", "--candidate", "UNVERIFIED"),
-        verify("20261001-090000", "--index", "UNVERIFIED"),
-    ]
-
-    assert steps == [[1], [2], [1], []]
-
-
-def _teaching_finding(n: int) -> SavedFinding:
-    """A reported finding whose INVALIDATED verdict by a person teaches the learned catalog."""
-    return _template_finding(f"view{n}").model_copy(
-        update={"title": f"Quirky Framework Obsolete Artifact Warning in view{n}"}
-    )
-
-
 def _dropped(n: int) -> SavedFinding:
     """A candidate the machine invalidated, in a file of its own."""
     return SavedFinding(
@@ -813,10 +376,9 @@ def _dropped(n: int) -> SavedFinding:
 def test_verdicts_given_at_once_on_one_session_all_land(
     isolate_data_dir: Path, write_review_session: Callable[..., Path]
 ) -> None:
-    """Verify verdicts given at the same time on one session, as an MCP client's parallel calls
-    give them, all land: every `--index` and `--candidate` verdict is in the session files, and
-    the learned catalog counts exactly the verdicts the findings record."""
-    reported = [_teaching_finding(1), _teaching_finding(2)]
+    """Verify verdicts given at the same time on one session all land: every `--index` and
+    `--candidate` verdict is in the session files."""
+    reported = [_finding("Open token leak", 4), _finding("Open path traversal", 8)]
     session = write_review_session(
         isolate_data_dir / "reviews" / "20261001-090000",
         generated_at=_OLDER,
@@ -855,27 +417,19 @@ def test_verdicts_given_at_once_on_one_session_all_land(
             thread.join()
 
     findings = _saved(session / "findings.json")
-    held = Counter(i for f in findings for i in f.learned_catalog_ids)
-    learned = Counter(
-        {e.id: e.occurrence_count for e in load_common_hallucinations(include_builtin=False)}
-    )
     assert (
         failures,
         sorted((f.title, f.status, f.verified_by) for f in findings),
         [(f.status, f.verified_by) for f in _saved(session / "candidates.json")[2:]],
-        sum(held.values()),
-        held == learned,
     ) == (
         [],
         [
-            ("Quirky Framework Obsolete Artifact Warning in view1", "INVALIDATED", "human"),
-            ("Quirky Framework Obsolete Artifact Warning in view2", "INVALIDATED", "human"),
+            ("Open path traversal", "INVALIDATED", "human"),
+            ("Open token leak", "INVALIDATED", "human"),
             ("Unchecked redirect target in handler1", "VERIFIED", "human"),
             ("Unchecked redirect target in handler2", "VERIFIED", "human"),
         ],
         [("VERIFIED", "human"), ("VERIFIED", "human")],
-        2,
-        True,
     )
 
 
@@ -889,26 +443,17 @@ def _replace_all_but_findings(src: Any, dst: Any, *args: Any, **kwargs: Any) -> 
     _replace(src, dst, *args, **kwargs)
 
 
-def _learned_entries() -> list[dict[str, Any]]:
-    return [e.model_dump() for e in load_common_hallucinations(include_builtin=False)]
-
-
-def _ledger_entries() -> list[dict[str, Any]]:
-    return [e.model_dump() for e in load_mitigated_findings()]
-
-
 @pytest.mark.parametrize("step", ["verdict", "reset"])
-def test_a_failed_session_write_leaves_the_catalog_and_ledger_as_they_were(
+def test_a_failed_session_write_leaves_the_session_as_it_was(
     step: str, isolate_data_dir: Path, write_review_session: Callable[..., Path]
 ) -> None:
-    """Verify a verdict whose findings.json cannot be written leaves the learned catalog and the
-    ledger as they were: a person's verdict removes the entries it created, and a reset keeps
-    the entries the unchanged findings still hold."""
+    """Verify a verdict whose findings.json cannot be written fails and leaves the session's
+    verdicts as they were, whether it gives a verdict or resets one."""
     session = write_review_session(
         isolate_data_dir / "reviews" / "20261001-090000",
         generated_at=_OLDER,
         subject=_SUBJECT,
-        findings=[_template_finding(), _finding("Unbounded upload buffer", 12)],
+        findings=[_finding("Open token leak", 4), _finding("Unbounded upload buffer", 12)],
     )
     verdicts = (
         ["--index", "1", "--status", "INVALIDATED", "--reason", "Engine supports widget syntax"],
@@ -921,76 +466,13 @@ def test_a_failed_session_write_leaves_the_catalog_and_ledger_as_they_were(
             ["--index", "1", "--status", "UNVERIFIED"],
             ["--index", "2", "--status", "UNVERIFIED"],
         )
-    before = (
-        [(f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        _learned_counts(),
-        _ledger_titles(),
-    )
+    before = [(f.status, f.verified_by) for f in _saved(session / "findings.json")]
 
     with patch("os.replace", side_effect=_replace_all_but_findings):
         codes = [runner.invoke(app, ["verify", session.name, *args]).exit_code for args in verdicts]
 
-    after = (
-        [(f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        _learned_counts(),
-        _ledger_titles(),
-    )
+    after = [(f.status, f.verified_by) for f in _saved(session / "findings.json")]
     assert (codes, after) == ([1, 1], before)
-
-
-def test_a_failed_session_write_leaves_entries_a_verdict_updated_as_they_were(
-    isolate_data_dir: Path, write_review_session: Callable[..., Path]
-) -> None:
-    """Verify a person's verdicts that update a learned-catalog entry and a ledger entry already
-    on disk, and whose findings.json cannot be written, leave every field of both entries as it
-    was: the resolution, keywords and last-seen time of the one, and the mechanism, perimeter,
-    reason, regression test and time of the other, as well as their counts."""
-    record_judged_claim(_template_finding(), "Original resolution")
-    record_mitigated_finding(
-        _finding("Unbounded upload buffer", 12),
-        reason="Gateway caps bodies at 1 MiB",
-        perimeter_files=["gateway.py", "limits.py"],
-        regression_test="tests/test_gateway.py",
-    )
-    widened = _template_finding().model_copy(
-        update={"description": f"{_template_finding().description} Zephyrine quolloxite."}
-    )
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[widened, _finding("Unbounded upload buffer", 12)],
-    )
-    verdicts = (
-        ["--index", "1", "--status", "INVALIDATED", "--reason", "Brand new reason"],
-        [
-            *("--index", "2", "--status", "MITIGATED", "--reason", "Something else entirely"),
-            *("--perimeter", "other.py", "--regression-test", "tests/test_other.py"),
-        ],
-    )
-    before = (_learned_entries(), _ledger_entries())
-
-    with patch("os.replace", side_effect=_replace_all_but_findings):
-        failed = [
-            runner.invoke(app, ["verify", session.name, *args]).exit_code for args in verdicts
-        ]
-    after = (_learned_entries(), _ledger_entries())
-    # The same verdicts, once the files can be written, update those two entries.
-    landed = [runner.invoke(app, ["verify", session.name, *args]).exit_code for args in verdicts]
-
-    assert (
-        failed,
-        after,
-        landed,
-        [(e["id"], e["occurrence_count"]) for e in _learned_entries()],
-        [(e["id"], e["verdict_count"]) for e in _ledger_entries()],
-    ) == (
-        [1, 1],
-        before,
-        [0, 0],
-        [(e["id"], 2) for e in before[0]],
-        [(e["id"], 2) for e in before[1]],
-    )
 
 
 def test_a_verdict_by_number_reaches_the_candidate_the_finding_reports(
@@ -1015,15 +497,13 @@ def test_a_verdict_by_number_reaches_the_candidate_the_finding_reports(
 
     codes = [runner.invoke(app, ["verify", session.name, *args]).exit_code for args in steps]
 
-    def verdicts(name: str) -> list[tuple[str, str | None, list[str]]]:
-        saved = _saved(session / name)
-        return [(f.status, f.verified_by, f.mitigation_ledger_ids) for f in saved]
+    def verdicts(name: str) -> list[tuple[str, str | None]]:
+        return [(f.status, f.verified_by) for f in _saved(session / name)]
 
-    assert (codes, verdicts("findings.json"), verdicts("candidates.json"), _ledger_titles()) == (
+    assert (codes, verdicts("findings.json"), verdicts("candidates.json")) == (
         [0, 0, 0],
-        [("VERIFIED", "human", []), ("UNVERIFIED", None, [])],
-        [("VERIFIED", "human", []), ("UNVERIFIED", None, [])],
-        [],
+        [("VERIFIED", "human"), ("UNVERIFIED", None)],
+        [("VERIFIED", "human"), ("UNVERIFIED", None)],
     )
 
 
@@ -1134,3 +614,31 @@ def test_a_persons_verdict_on_a_candidate_kept_out_ranks_its_session(
 
     counted = load_review_history(reviews).counted
     assert (res.exit_code, tuple(s.path.name for s in counted)) == (0, ("20261001-090000",))
+
+
+def test_a_stored_agent_verdict_leaves_history_ranking_alone(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify an agent's verdict that a session saved before #1150 holds does not make that
+    session outrank a newer one of the subject: history counts no agent verdict."""
+    reviews = isolate_data_dir / "reviews"
+    judged = _finding("Open token leak", 4).model_copy(
+        update={"status": "INVALIDATED", "reportable": False, "verified_by": "agent"}
+    )
+    write_review_session(
+        reviews / "20261001-090000",
+        generated_at=_OLDER,
+        subject=_SUBJECT,
+        findings=[_finding("Open token leak", 4)],
+        candidates=[judged],
+    )
+    write_review_session(
+        reviews / "20261001-100000",
+        generated_at=_NEWER,
+        subject=_SUBJECT,
+        findings=[_finding("Open token leak", 4)],
+    )
+
+    counted = load_review_history(reviews).counted
+
+    assert tuple(s.path.name for s in counted) == ("20261001-100000",)

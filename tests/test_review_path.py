@@ -101,19 +101,19 @@ def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
     assert _load_agents_md(tmp_path) == ""
 
 
-def test_persona_system_prompt_includes_agents_md_when_present(tmp_path: Path) -> None:
+def test_persona_system_prompt_includes_agents_md_when_present() -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
 
-    prompt = _persona_system_prompt(persona, "Use latest Python by policy.", tmp_path)
+    prompt = _persona_system_prompt(persona, "Use latest Python by policy.")
 
     assert persona.system_prompt in prompt
     assert "Use latest Python by policy." in prompt
     assert "Do not raise findings that merely restate or contradict" in prompt
 
 
-def test_persona_system_prompt_unchanged_when_no_agents_md(tmp_path: Path) -> None:
+def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
-    prompt = _persona_system_prompt(persona, "", tmp_path)
+    prompt = _persona_system_prompt(persona, "")
 
     assert prompt.startswith(persona.system_prompt)
     assert "Security & Prompt Isolation Guardrails" in prompt

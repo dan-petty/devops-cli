@@ -14,14 +14,13 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
-from devops_cli.ai.review.calibration import calibrate_findings
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
     _split_source_file_blocks,
@@ -29,7 +28,7 @@ from devops_cli.ai.review.chunker import (
 )
 from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
-from devops_cli.ai.review.path_classes import load_path_classes
+from devops_cli.ai.review.path_classes import load_path_classes, load_review_config
 from devops_cli.ai.review.profile import (
     ReviewProfile,
     ReviewProfiler,
@@ -42,12 +41,6 @@ from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir as _get_reviews_base_dir,
 )
 from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
-from devops_cli.ai.review.verification import (
-    _merge_segment_results,
-    _reconcile_verified,
-    _validate_segment_findings,
-    record_cited_code,
-)
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
@@ -56,6 +49,7 @@ from devops_cli.ai.review_schema import (
     compute_verdict_distributions,
     consolidate_duplicate_findings,
     parse_review_response,
+    reset_verification_state,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
@@ -85,6 +79,11 @@ from devops_cli.output import (
     print_warning,
     render_review_result,
 )
+from devops_cli.review.suppression import (
+    covering_suppressions,
+    format_covering_suppressions,
+    load_review_suppressions,
+)
 from devops_cli.security.sanitizer import (
     redact_text,
     sanitize_prompt_boundary_tags,
@@ -105,23 +104,12 @@ _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
 
 class ReviewClients(BaseModel):
-    """LLM clients resolved per review task, each potentially using a different model.
-
-    ``verification`` checks the findings ``analysis`` produced. It defaults to the analysis
-    client, so generation and verification share a model unless verification is configured.
-    """
+    """LLM clients resolved per review task, each potentially using a different model."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     analysis: Any
     compose: Any
-    verification: Any = None
-
-    @model_validator(mode="after")
-    def _verify_with_analysis_by_default(self) -> ReviewClients:
-        if self.verification is None:
-            self.verification = self.analysis
-        return self
 
 
 def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[PersonaDefinition]:
@@ -455,17 +443,14 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
-    findings = consolidate_duplicate_findings(calibrate_findings(findings))
+    findings = consolidate_duplicate_findings(findings)
     assert_verdict_invariants(findings)
-    record_cited_code(findings, None)
-    removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
     delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(
         generated_at=datetime.now(UTC).isoformat(),
         subject=subject or {},
         personas=[pd.name for pd, _ in completed],
         findings=findings,
-        removed_symbol_findings_count=removed_count,
         symbol_delta_summary=delta_summary,
     )
 
@@ -676,11 +661,8 @@ def _save_persona_review(
     return dest
 
 
-def _format_analysis_summary_lines(
-    analysis_metas: dict[str, FileAnalysisMeta],
-    completed: list[tuple[PersonaDefinition, ReviewResult | str]],
-) -> list[str]:
-    """Format markdown analysis metadata section with symbol delta and removed symbols."""
+def _format_analysis_summary_lines(analysis_metas: dict[str, FileAnalysisMeta]) -> list[str]:
+    """Format markdown analysis metadata section with the symbol delta."""
     lines = [
         "## Analysis Metadata\n",
         f"**Files analyzed:** {len(analysis_metas)}  \n",
@@ -690,15 +672,6 @@ def _format_analysis_summary_lines(
         lines.append(
             f"**Symbol Delta:** +{delta_summary.get('added', 0)} / -{delta_summary.get('removed', 0)} / ={delta_summary.get('retained', 0)}  \n"
         )
-    removed_count = sum(
-        1
-        for _, rev in completed
-        if isinstance(rev, ReviewResult)
-        for f in rev.findings
-        if f.verification_note == "cites removed symbol"
-    )
-    if removed_count > 0:
-        lines.append(f"**Removed-Symbol Findings:** {removed_count} cited removed symbol(s)  \n")
     lines.append("### File Summaries\n")
     for path, fmeta in analysis_metas.items():
         lines.append(
@@ -742,7 +715,7 @@ def _write_summary(
         f"**Session:** `{session_dir}`\n",
     ]
     if analysis_metas:
-        lines.extend(_format_analysis_summary_lines(analysis_metas, completed))
+        lines.extend(_format_analysis_summary_lines(analysis_metas))
     if completed:
         lines.append("## Personas\n")
         lines.append("| Persona | Recommendation | Report |")
@@ -852,7 +825,7 @@ def _prepare_review_metadata(
     if prebuilt_metadata is not None:
         count = len(prebuilt_metadata)
         print_info(
-            f"[dim]Step 1/4: Reusing pre-computed analysis metadata for {count} file(s).[/dim]",
+            f"[dim]Step 1/3: Reusing pre-computed analysis metadata for {count} file(s).[/dim]",
             prefix=False,
         )
         return prebuilt_metadata
@@ -864,7 +837,7 @@ def _prepare_review_metadata(
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     print_info(
-        f"[dim]Step 1/4: Loading analysis metadata for {total} file(s)...{analysis_suffix}[/dim]",
+        f"[dim]Step 1/3: Loading analysis metadata for {total} file(s)...{analysis_suffix}[/dim]",
         prefix=False,
     )
     return _load_file_analysis_metas(all_files, repo_root=repo_target)
@@ -939,7 +912,7 @@ def _execute_review_segments(
 ) -> list[str]:
     """Execute Step 2: review each segment across parallel or serial workers."""
     total = len(pages)
-    print_info(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]", prefix=False)
+    print_info(f"[dim]Step 2/3: Reviewing {total} file(s)...{analysis_suffix}[/dim]", prefix=False)
     t_review = time.monotonic()
 
     def _review_segment(i: int, page: str) -> tuple[int, str]:
@@ -998,131 +971,25 @@ def _execute_review_segments(
     return responses
 
 
-def _validate_single_segment_findings(
-    index: int,
-    page: str,
-    parsed: ReviewResult | None,
-    total: int,
-    pages: list[str],
-    clients: ReviewClients,
-    file_analysis_metas: dict[str, FileAnalysisMeta],
-    repo_target: Path | None,
-    analysis_suffix: str,
-) -> tuple[int, ReviewResult | None]:
-    """Verify findings for a single review segment."""
-    fns = _extract_header_filenames(page)
-    file_label = (
-        f"{', '.join(fns)} ({index}/{total})"
-        if fns and total > 1
-        else (fns[0] if fns else f"segment {index}/{total}")
-    )
-    if parsed is None or not parsed.findings:
-        print_info(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]", prefix=False)
-        return (index, parsed)
-
-    val_start = time.monotonic()
-    validated, proc_sec, _ = _validate_segment_findings(
-        parsed,
-        pages,
-        clients.verification,
-        analysis_metas=file_analysis_metas,
-        repo_root=repo_target,
-    )
-    val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
-    n_verified = sum(1 for f in validated.findings if f.verified)
-    v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
-    print_info(
-        f"[dim]  ✓ {file_label} in {format_duration(val_elapsed)}: {v_count}{analysis_suffix}[/dim]",
-        prefix=False,
-    )
-    return (index, validated)
+def _parse_reply(text: str) -> ReviewResult | None:
+    """A persona's reply parsed, its findings unverified: a model's reply sets no status, since
+    only a tool or a person does (#1150)."""
+    parsed = parse_review_response(text)
+    if parsed is None:
+        return None
+    parsed.findings = [reset_verification_state(f) for f in parsed.findings]
+    return parsed
 
 
-def _execute_findings_validation(
-    pages: list[str],
-    segment_results: list[ReviewResult | None],
-    clients: ReviewClients,
-    analysis_suffix: str,
-    target_dir: Path,
-) -> list[ReviewResult | None]:
-    """Execute Step 3: Validate and filter hallucinated findings against the repository
-    `target_dir` is in."""
-    total = len(pages)
-    if is_dry_run():
-        return segment_results
-
-    print_info(
-        f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]",
-        prefix=False,
-    )
-    t3 = time.monotonic()
-    try:
-        repo_target = find_repo_root(target_dir)
-    except Exception:
-        repo_target = None
-    file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
-
-    validated_results = list(segment_results)
-    if total > 1 and not is_dry_run():
-        from devops_cli.ai.review.pool import ReviewWorkerPool
-
-        workers = _calculate_parallel_review_workers(clients, total)
-        val_items = list(enumerate(zip(pages, segment_results, strict=True), 1))
-        pool = ReviewWorkerPool.create(concurrency=workers)
-
-        def _val_task(
-            item: tuple[int, tuple[str, ReviewResult | None]],
-        ) -> tuple[int, ReviewResult | None]:
-            i, (page, parsed) = item
-            return _validate_single_segment_findings(
-                i,
-                page,
-                parsed,
-                total,
-                pages,
-                clients,
-                file_analysis_metas,
-                repo_target,
-                analysis_suffix,
-            )
-
-        val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
-        for (idx_val, _), res_entry in zip(val_items, val_results, strict=False):
-            if isinstance(res_entry, tuple) and len(res_entry) == 2:
-                _, val_obj = res_entry
-                validated_results[idx_val - 1] = val_obj
-            elif isinstance(res_entry, Exception):
-                logger.error(
-                    "Findings validation error for segment %d (%s)",
-                    idx_val,
-                    type(res_entry).__name__,
-                )
-                validated_results[idx_val - 1] = None
-    else:
-        for i, (page, parsed) in enumerate(zip(pages, segment_results, strict=True), 1):
-            try:
-                _, single_res = _validate_single_segment_findings(
-                    i,
-                    page,
-                    parsed,
-                    total,
-                    pages,
-                    clients,
-                    file_analysis_metas,
-                    repo_target,
-                    analysis_suffix,
-                )
-                validated_results[i - 1] = single_res
-            except Exception as exc:
-                logger.error(
-                    "Findings validation error for segment %d (%s)",
-                    i,
-                    type(exc).__name__,
-                )
-                validated_results[i - 1] = None
-
-    print_info(f"[dim]  total {format_duration(time.monotonic() - t3)}[/dim]", prefix=False)
-    return validated_results
+def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:
+    """The segments' parsed results merged into one, the recompose fallback."""
+    valid = [r for r in results if r is not None]
+    if not valid:
+        return None
+    merged = valid[0]
+    for other in valid[1:]:
+        merged = merged.merge(other)
+    return merged
 
 
 def _execute_final_recompose(
@@ -1136,8 +1003,8 @@ def _execute_final_recompose(
     compose_suffix: str,
     total: int,
 ) -> ReviewResult | str:
-    """Execute Step 4: Recompose and synthesize multi-segment review findings."""
-    print_info(f"[dim]Step 4/4: Composing final review...{compose_suffix}[/dim]", prefix=False)
+    """Execute Step 3: Recompose and synthesize multi-segment review findings."""
+    print_info(f"[dim]Step 3/3: Composing final review...{compose_suffix}[/dim]", prefix=False)
     recompose_prompt = _build_recompose_prompt(title, metadata, responses, persona, segment_results)
     if is_dry_run():
         _debug_block(
@@ -1162,12 +1029,18 @@ def _execute_final_recompose(
         print_info(
             f"[dim]  ✓ {format_duration(time.monotonic() - t4)}{compose_suffix}[/dim]", prefix=False
         )
+        merged = _merge_segment_results(segment_results)
         if not raw.strip():
-            return _merge_segment_results(segment_results) or _fallback_join(non_empty)
-        parsed = parse_review_response(raw)
-        if parsed is not None:
-            return _reconcile_verified(parsed, segment_results)
-        return raw
+            return merged or _fallback_join(non_empty)
+        parsed = _parse_reply(raw)
+        if parsed is None:
+            return raw
+        if parsed.findings or merged is None:
+            return parsed
+        # A recompose that lists no finding keeps the segments' findings.
+        return parsed.model_copy(
+            update={"findings": merged.findings, "summary": parsed.summary or merged.summary}
+        )
     except Exception:
         return _merge_segment_results(segment_results) or _fallback_join(non_empty)
 
@@ -1185,10 +1058,9 @@ def _run_review(
     *,
     target_dir: Path,
 ) -> ReviewResult | str:
-    """Review `pages` as `persona`; `target_dir` is the directory the review reads, whose
-    project's judged claims the persona is shown (#1100)."""
+    """Review `pages` as `persona`; `target_dir` is the directory the review reads."""
     total = len(pages)
-    analysis_system = _persona_system_prompt(persona, agents_md, target_dir)
+    analysis_system = _persona_system_prompt(persona, agents_md)
     compose_system = persona.compose_prompt
 
     analysis_info = getattr(clients.analysis, "backend_info", "")
@@ -1212,10 +1084,7 @@ def _run_review(
     if not non_empty:
         return ""
 
-    segment_results = [parse_review_response(r) for r in responses]
-    segment_results = _execute_findings_validation(
-        pages, segment_results, clients, analysis_suffix, target_dir
-    )
+    segment_results = [_parse_reply(r) for r in responses]
 
     if total == 1:
         return segment_results[0] if segment_results[0] is not None else responses[0]
@@ -1296,7 +1165,7 @@ def _run_persona_loop(  # noqa: C901
     """Run full persona review loop using analysis metadata exclusively.
 
     `subject` is what the session reviews, written to its findings.json. `target_dir` is the
-    directory the review reads; each persona is shown its project's judged claims (#1100).
+    directory the review reads.
     """
     personas = _personas_to_run(all_personas, persona)
     session_dir = _review_session_dir(title) if not is_dry_run() else None
@@ -1309,7 +1178,7 @@ def _run_persona_loop(  # noqa: C901
     analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
     n_files = len(pages)
     print_info(
-        f"[dim]Step 1/4: Loading analysis metadata for {n_files} file(s)...{analysis_suffix}[/dim]",
+        f"[dim]Step 1/3: Loading analysis metadata for {n_files} file(s)...{analysis_suffix}[/dim]",
         prefix=False,
     )
 
@@ -1594,11 +1463,7 @@ def _make_review_clients(
     cache_enabled: bool | None = None,
     append_cache: bool | None = None,
 ) -> ReviewClients:
-    """Build LLM clients for the analysis, compose and verification review tasks.
-
-    Verification overrides apply on top of the analysis task, so `ai.tasks.verification` need only
-    name what differs, such as a stronger model on the same gateway.
-    """
+    """Build LLM clients for the analysis and compose review tasks."""
     api_key = get_ai_api_key(settings)
 
     def review_client(task_config: AIConfig) -> LLMClient:
@@ -1612,16 +1477,8 @@ def _make_review_clients(
             append_cache=append_cache,
         )
 
-    analysis_config = settings.ai.for_task("analysis")
-    analysis = review_client(analysis_config)
-    verification = (
-        review_client(analysis_config.for_task("verification"))
-        if settings.ai.tasks.verification.model_dump(exclude_none=True)
-        else analysis
-    )
     return ReviewClients(
-        analysis=analysis,
-        verification=verification,
+        analysis=review_client(settings.ai.for_task("analysis")),
         compose=review_client(settings.ai.for_task("compose")),
     )
 
@@ -2206,13 +2063,6 @@ def _run_orchestrator_review(
                 payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
             )
         candidates = sum(len(p.findings) for p in payloads)
-        with review_stage("verification"):
-            orchestrator.execute_finding_verification(
-                payloads,
-                stage_flags=stage_flags,
-                diff_text_by_file=diff_map,
-                metadata_by_path=metadata_by_path,
-            )
         with review_stage("reranking"):
             orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
         _record_profile_findings(payloads, candidates)
@@ -2270,21 +2120,23 @@ def _review_routed_files_only(
     return _report_review(orchestrator, payloads, [], persona, stage_flags)
 
 
-def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:
-    """Warn if review targets branch/pr diff intersecting with mitigated findings perimeters."""
+def _check_and_warn_perimeter_changes(
+    target_type: str,
+    changed_files: Sequence[str],
+    *,
+    base_revision: BaseRevision | None,
+    target_dir: Path,
+) -> None:
+    """Warn when a branch or PR review changes a file a review.toml suppression covers (#1150).
+
+    The suppressions are read where the diff starts, so the change cannot hide its own.
+    """
     if target_type not in {"branch", "pr"} or not changed_files:
         return
-    try:
-        from devops_cli.ai.review.mitigations import (
-            find_perimeter_changes,
-            format_perimeter_warning,
-        )
-
-        matches = find_perimeter_changes(changed_files)
-        if matches:
-            print_warning(format_perimeter_warning(matches), prefix=False)
-    except Exception as exc:
-        logger.debug("Failed checking perimeter changes: %s", exc)
+    config = load_review_config(base_revision, find_repo_root(target_dir))
+    covering = covering_suppressions(changed_files, load_review_suppressions(config))
+    if covering:
+        print_warning(format_covering_suppressions(covering), prefix=False)
 
 
 def _execute_review_workflow(
@@ -2334,12 +2186,13 @@ def _execute_review_workflow(
     if base_revision is not None and base_revision.changes:
         deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
         all_files = [f for f in all_files if f not in deleted]
-    _check_and_warn_perimeter_changes(target_type, all_files)
+    _check_and_warn_perimeter_changes(
+        target_type, all_files, base_revision=base_revision, target_dir=target_dir
+    )
     subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
         session_id=session_id,
         llm_client=clients.analysis,
-        verification_client=clients.verification,
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,

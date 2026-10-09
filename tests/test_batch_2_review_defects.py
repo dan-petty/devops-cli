@@ -12,20 +12,11 @@ from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.models import LLMResponse, is_reasoning_model
 from devops_cli.ai.response_repair import _parse_schema_model, repair_json_string
-from devops_cli.ai.review.construct_validator import is_absence_finding
 from devops_cli.ai.review.defects import _SCRIPT_DOWNLOAD, _pipe_downloaded_script
-from devops_cli.ai.review.mitigations import resolve_ledger_path
-from devops_cli.ai.review.review_environment import _reconcile_finding_from_criteria
 from devops_cli.ai.review.runner import _materialize_pr_head, format_pr_review_comment
-from devops_cli.ai.review.verification import (
-    _apply_single_finding_verification,
-    _match_verdict_by_positional_oracle,
-)
 from devops_cli.ai.review_schema import (
-    CriterionExecutionResult,
     Finding,
     ReviewResult,
-    SavedFinding,
     _parse_location,
     canonicalize_finding_location,
     reset_verification_state,
@@ -204,18 +195,6 @@ def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_absence_findings_identified_correctly() -> None:
-    """Findings describing missing features or absent defenses match absence markers."""
-    f1 = Finding(title="Missing timeout on outbound HTTP request", location="net.py:10")
-    f2 = Finding(title="Endpoint lacks @login_required check", location="auth.py:20")
-    f3 = Finding(title="SQL Injection via string formatting", location="db.py:30")
-    assert (
-        is_absence_finding(f1),
-        is_absence_finding(f2),
-        is_absence_finding(f3),
-    ) == (True, True, False)
-
-
 def test_parse_location_preserves_path_case() -> None:
     """Path case is preserved during location parsing and relocation."""
     parsed_case = _parse_location("Pkg/Handler.py:11", preserve_case=True)
@@ -249,87 +228,6 @@ def test_synthetic_script_download_preserves_curl_dash_o() -> None:
 # =============================================================================
 
 
-def test_degraded_mitigation_retains_reportable_true() -> None:
-    """Mitigation with placeholder mechanism degrades to UNVERIFIED with reportable=True."""
-    f = Finding(
-        title="Unbounded channel",
-        location="ch.py:5",
-        mitigating_mechanism="none",
-        perimeter_files=["n/a"],
-    )
-    res = _apply_single_finding_verification(
-        f,
-        {"status": "MITIGATED", "mitigating_mechanism": "none", "perimeter_files": ["n/a"]},
-        "2026-09-28T00:00:00Z",
-    )
-    assert (
-        res.status,
-        res.reportable,
-        res.mitigated,
-    ) == ("UNVERIFIED", True, False)
-
-
-def test_positional_oracle_rejects_incompatible_title() -> None:
-    """Positional oracle rejects binding when finding titles are completely incompatible."""
-    unverified = [
-        SavedFinding(
-            finding_id="f-1",
-            title="SQL Injection in auth",
-            location="auth.py:10",
-            status="UNVERIFIED",
-        )
-    ]
-    raw_verdict = {
-        "finding_id": "f-1",
-        "title": "Unused import os in test helper",
-        "status": "INVALIDATED",
-        "reason": "Harmless import",
-    }
-    matched = _match_verdict_by_positional_oracle(unresolved=unverified, bound={}, item=raw_verdict)
-    assert matched is None
-
-
-def test_conflicting_criteria_leaves_finding_unverified(tmp_path: Path) -> None:
-    """When both invalidation and verification criteria pass, finding remains UNVERIFIED."""
-    proves = "python -c 'from net import fetch; assert fetch.timeout is None'"
-    refutes = "python -c 'from net import fetch; assert fetch(1) == 1'"
-    f = SavedFinding(
-        title="Flaky timeout",
-        location="net.py:15",
-        status="UNVERIFIED",
-        verification_criteria=[proves],
-        invalidation_criteria=[refutes],
-    )
-    exec_res = [
-        CriterionExecutionResult(command=c, exit_code=0, passed=True, duration_seconds=0.1)
-        for c in (proves, refutes)
-    ]
-    reconciled = _reconcile_finding_from_criteria(
-        finding=f,
-        exec_results=exec_res,
-        matched_ver=[proves],
-        matched_inv=[refutes],
-        repo_root=tmp_path,
-    )
-    assert (
-        reconciled.status,
-        reconciled.verified_by,
-        reconciled.confidence_score,
-        reconciled.verification_note,
-    ) == ("UNVERIFIED", None, None, "criteria-non-discriminating")
-
-
-def test_null_location_treated_as_unchanged() -> None:
-    """Verifier returning location null or None leaves finding location unchanged."""
-    f = Finding(title="Race condition", location="thread.py:88")
-    verified = _apply_single_finding_verification(
-        f,
-        {"status": "VERIFIED", "location": None},
-        "2026-09-28T00:00:00Z",
-    )
-    assert verified.location == "thread.py:88"
-
-
 def test_reset_verification_state_clears_finding_id() -> None:
     """reset_verification_state clears persona-provided finding_id to prevent collision."""
     f = Finding(
@@ -343,15 +241,6 @@ def test_reset_verification_state_clears_finding_id() -> None:
         cleared.finding_id,
         cleared.status,
     ) == (None, "UNVERIFIED")
-
-
-def test_mitigations_ledger_resolves_under_data_dir() -> None:
-    """resolve_ledger_path resolves ledger file under the data directory."""
-    ledger = resolve_ledger_path()
-    assert (
-        ledger.name,
-        ".data" in str(ledger) or "test" in str(ledger),
-    ) == ("mitigated_findings.json", True)
 
 
 # =============================================================================

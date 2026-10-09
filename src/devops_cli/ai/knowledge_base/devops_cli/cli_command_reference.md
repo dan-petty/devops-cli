@@ -12,7 +12,7 @@ This document provides an overview of the main command groups implemented in `de
 | | `devops ai review path` | AI multi-persona path/file code review | `path`, `--persona`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
 | | `devops ai review pr` | Review GitHub pull request by number | `number`, `--repo`, `--post`, `--no-<stage>`, `--<stage>-only` |
 | | `devops ai review findings` | Inspect a session's findings, or with `--candidates` every finding it raised | `--session`, `--status`, `--severity`, `--unverified`, `--verified`, `--invalidated`, `--mitigated`, `--candidates`, `--details` |
-| | `devops ai review verify` | Record a person's or an agent's verdict on a finding or candidate | `--session`, `--index`, `--title`, `--candidate`, `--status` (required), `--adjudicator human\|agent`, `--reason`, `--perimeter`, `--regression-test` |
+| | `devops ai review verify` | Record a person's verdict on a finding or candidate | `--session`, `--index`, `--title`, `--candidate`, `--status` (required), `--reason` |
 | | `devops ai review benchmark` | Review the same files several times and report median time/tokens per stage | `targets`, `--runs`, `--pattern`, `--persona`, `--all` |
 | | `devops ai review export-feedback` | Export findings to a JSONL feedback dataset | `--output`, `--reviews-dir`, `--status` |
 | | `devops ai review stats` | Display review accuracy statistics | `--reviews-dir` |

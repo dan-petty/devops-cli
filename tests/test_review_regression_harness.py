@@ -1,21 +1,16 @@
-"""Review regression harness: real defects survive every deterministic layer; false alarms do not.
+"""Review regression harness: real defects survive every layer between a reply and the report.
 
 The golden set (`tests/golden/review_findings.json`) holds findings whose truth does not come
-from the verifier under test: defects injected into the synthetic corpus (#415) and
-reproductions written for the #509 audit. Each real defect is driven through the layers that
-run without a model:
+from the review under test: defects injected into the synthetic corpus (#415) and reproductions
+written for the #509 audit. Each real defect is driven through the layers that run without a
+model:
 
 1. parsing a persona reply that also carries a malformed field;
 2. resetting the verification state a persona may have written;
 3. consolidating duplicates;
-4. deterministic pre-verification against the files on disk, the hallucinations catalog
-   included;
-5. the report's own filter.
+4. the report's own filter.
 
-It must come out reported. A change that makes any layer discard a real finding fails here. Each
-known false alarm must still be invalidated by the deterministic layer, and a verifier verdict
-that points at evidence the golden files do not hold, or that its own reason contradicts, must
-leave its defect reported (#845).
+It must come out reported. A change that makes any layer discard a real finding fails here.
 """
 
 from __future__ import annotations
@@ -27,17 +22,10 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
-from devops_cli.ai.review.verdicts import assert_verdict_invariants
-from devops_cli.ai.review.verification import (
-    _apply_single_finding_verification,
-    _deterministic_pre_verification,
-)
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
-    Finding,
     SavedFinding,
     consolidate_duplicate_findings,
-    derive_recommendation,
     parse_review_response,
     reset_verification_state,
 )
@@ -80,16 +68,7 @@ def _through_the_pipeline(findings: list[dict[str, Any]], project: Path) -> list
         SavedFinding(**reset_verification_state(f).model_dump(), persona="devsecops")
         for f in parsed.findings
     ]
-    checked = [
-        SavedFinding(
-            **_deterministic_pre_verification(
-                Finding(**f.model_dump(exclude={"persona", "persona_title", "recommendation"})),
-                repo_root=project,
-            ).model_dump(),
-            persona=f.persona,
-        )
-        for f in consolidate_duplicate_findings(saved)
-    ]
+    checked = consolidate_duplicate_findings(saved)
     orchestrator = ReviewPipelineOrchestrator(session_id="harness", target_dir=project)
     payloads = [
         FileReviewPayload(file_path=f.location.split(":")[0], findings=[f]) for f in checked
@@ -99,7 +78,7 @@ def _through_the_pipeline(findings: list[dict[str, Any]], project: Path) -> list
 
 @pytest.mark.parametrize("case", _GOLDEN["real_defects"], ids=lambda c: c["id"])
 def test_a_real_defect_reaches_the_report(case: dict[str, Any], project: Path) -> None:
-    """Verify a real defect survives parsing, consolidation, pre-verification and the report."""
+    """Verify a real defect survives parsing, consolidation and the report."""
     reported = _through_the_pipeline([_finding(case)], project)
 
     assert [(f.title, f.status in _DISMISSED) for f in reported] == [(case["title"], False)]
@@ -111,66 +90,3 @@ def test_distinct_real_defects_stay_distinct(group: dict[str, Any], project: Pat
     reported = _through_the_pipeline([_finding(f) for f in group["findings"]], project)
 
     assert len(reported) == len(group["findings"])
-
-
-@pytest.mark.parametrize("case", _GOLDEN["known_hallucinations"], ids=lambda c: c["id"])
-def test_a_known_false_alarm_is_still_caught(case: dict[str, Any], project: Path) -> None:
-    """Verify the deterministic layer still invalidates the false alarms it exists for."""
-    finding = Finding(**_finding(case))
-
-    result = _deterministic_pre_verification(finding, repo_root=project)
-
-    assert (result.status, result.reportable) == ("INVALIDATED", False), result.invalidation_reason
-
-
-@pytest.mark.parametrize("case", _GOLDEN["misread_verdicts"], ids=lambda c: c["id"])
-def test_a_verdict_restating_the_defect_does_not_remove_it(case: dict[str, Any]) -> None:
-    """Verify a verifier reply that confirms the defect in its reason keeps the finding (#536)."""
-    finding = Finding(**case["finding"])
-
-    result = _apply_single_finding_verification(finding, case["verdict"], "2026-09-25T00:00:00Z")
-
-    assert (result.status in _DISMISSED, result.reportable) == (False, True)
-
-
-@pytest.mark.parametrize("case", _GOLDEN["fabricated_verdicts"], ids=lambda c: c["id"])
-def test_a_verdict_pointing_at_no_evidence_leaves_the_defect_reported(
-    case: dict[str, Any], project: Path
-) -> None:
-    """Verify a mitigation or confirmation the golden files do not back keeps the finding (#845)."""
-    finding = Finding(**case["finding"])
-
-    result = _apply_single_finding_verification(
-        finding, case["verdict"], "2026-10-03T00:00:00Z", repo_root=project
-    )
-    assert_verdict_invariants([result])
-
-    assert (
-        result.status,
-        result.reportable,
-        (result.verification_note or "").split(":", 1)[0],
-        derive_recommendation([result]),
-    ) == (case["status"], True, case["note"], case["recommendation"])
-
-
-@pytest.mark.parametrize("case", _GOLDEN["contradicting_verdicts"], ids=lambda c: c["id"])
-def test_a_verdict_its_own_reason_contradicts_is_not_applied(
-    case: dict[str, Any], project: Path
-) -> None:
-    """Verify a cached confirmation or mitigation whose reason denies the claim, or says a failed
-    criterion passed, leaves its finding unverified and reported (#845)."""
-    finding = Finding(**case["finding"])
-
-    result = _apply_single_finding_verification(
-        finding, case["verdict"], "2026-10-03T00:00:00Z", repo_root=project
-    )
-    assert_verdict_invariants([result])
-
-    assert (
-        result.status,
-        result.reportable,
-        result.verified_by,
-        result.citation_line,
-        (result.verification_note or "").split(":", 1)[0],
-        derive_recommendation([result]),
-    ) == (case["status"], True, None, None, case["note"], case["recommendation"])

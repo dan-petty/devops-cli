@@ -1,23 +1,13 @@
-"""Offline measurement of the deterministic suppression layer against recorded verdicts.
+"""Offline tally of the verdicts the feedback dataset records, for each labeller.
 
-This replays `_deterministic_pre_verification` over the feedback dataset and reports how
-its decisions compare with the verdict each finding was eventually recorded with. No model
-is called, so a run is deterministic, free, and reproducible.
+It used to replay the deterministic suppression layer, `_deterministic_pre_verification`, over
+the dataset and compare its decisions with the recorded verdicts. #1150 deleted that layer with
+the model verifier, so what is left counts the recorded INVALIDATED and VERIFIED verdicts of one
+persona's findings, for each labeller. No model is called, so a run is deterministic, free and
+reproducible.
 
-The command previously reported `accuracy_score` 1.0 and `false_positive_rate` 0.0 on
-every invocation. It counted the dataset's own labels and then assigned those two
-constants without evaluating anything, so it reported a flawless loop on 1311 cases while
-two calibration sessions were measuring false positive rates among high-severity findings
-near 40% and 85%. A tool whose purpose is to detect exactly that failure was reporting its
-absence by construction.
-
-Every label says who wrote it, and the counts are reported per labeller. A label a
-deterministic check wrote (`deterministic:*`) is the layer's own decision, so scoring the layer
-against it is circular: 28 of the 51 labels in this repository's dataset were such, and none was
-a person's. Those labels are counted as excluded unless `include_deterministic` asks for them.
-
-Benchmarking prompt *variations* requires a model in the loop and is tracked on the
-roadmap; this measures the layer that runs before any model is asked.
+Every label says who wrote it. A label a deterministic check wrote (`deterministic:*`) is a
+machine's, not a person's, and is counted as excluded unless `include_deterministic` asks for it.
 """
 
 from __future__ import annotations
@@ -37,72 +27,34 @@ from devops_cli.config.constants import (
     CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.repo import find_worktree_root, review_data_root
+from devops_cli.core.repo import review_data_root
 from devops_cli.exceptions import SecurityError
 
 _MAX_DATASET_BYTES = 50 * 1024 * 1024
 
 # What each labeller's counts hold, in the order they are reported.
-_LABELLER_FIELDS = ("invalidated", "caught", "verified", "contested")
-# What a contested record's detail shows.
-_CONTESTED_FIELDS = ("title", "location", "severity", "session_id")
+_LABELLER_FIELDS = ("invalidated", "verified")
+# The count each recorded verdict adds to.
+_COUNTED_LABELS = {CONST_STATUS_INVALIDATED: "invalidated", CONST_STATUS_VERIFIED: "verified"}
 
 
 class PromptEvalBenchmarkResult(BaseModel):
-    """How the deterministic layer's decisions compare with recorded verdicts."""
+    """The verdicts the feedback dataset records for one persona's findings."""
 
     persona: str
     total_cases: int
     labelled_invalidated: int
     labelled_verified: int
-    caught_invalidations: int
-    contested_verifications: int
     # Equal for evaluations of the same recorded verdicts.
     dataset_digest: str = ""
-    details: list[dict[str, Any]] = Field(default_factory=list)
-    # The counts above for each labeller: invalidated, caught, verified and contested.
+    # The counts above for each labeller: invalidated and verified.
     by_labeller: dict[str, dict[str, int]] = Field(default_factory=dict)
     # Records left out because a deterministic check wrote their label, by labeller.
     excluded_labels: dict[str, int] = Field(default_factory=dict)
 
-    @property
-    def catch_rate(self) -> float:
-        """Share of recorded invalidations the deterministic layer reaches on its own.
-
-        Each one is a finding the model verifier never has to be asked about, so this is
-        the figure that rises when a mechanical oracle replaces a round trip.
-        """
-        if not self.labelled_invalidated:
-            return 0.0
-        return self.caught_invalidations / self.labelled_invalidated
-
-    @property
-    def contested_rate(self) -> float:
-        """Share of recorded verifications the deterministic layer overrides.
-
-        This is the direction that buries real defects. It is reported separately rather
-        than folded into one accuracy figure, where a gain on the other side would hide it.
-        """
-        if not self.labelled_verified:
-            return 0.0
-        return self.contested_verifications / self.labelled_verified
-
     def to_dict(self) -> dict[str, Any]:
-        """Render the measurement for `--json`."""
-        return {
-            "persona": self.persona,
-            "total_cases": self.total_cases,
-            "labelled_invalidated": self.labelled_invalidated,
-            "labelled_verified": self.labelled_verified,
-            "caught_invalidations": self.caught_invalidations,
-            "contested_verifications": self.contested_verifications,
-            "catch_rate": round(self.catch_rate, 4),
-            "contested_rate": round(self.contested_rate, 4),
-            "dataset_digest": self.dataset_digest,
-            "details": self.details,
-            "by_labeller": self.by_labeller,
-            "excluded_labels": self.excluded_labels,
-        }
+        """Render the tally for `--json`."""
+        return self.model_dump()
 
 
 def _resolve_dataset_path(dataset_path: Path | None, data_root: Path) -> Path:
@@ -144,41 +96,9 @@ def _load_records(path: Path, persona: str) -> list[dict[str, Any]]:
     return records
 
 
-def _deterministic_verdict(record: dict[str, Any], repo_root: Path) -> str | None:
-    """Return the status the deterministic layer assigns, or None if it cannot build one."""
-    from devops_cli.ai.review.verification import _deterministic_pre_verification
-    from devops_cli.ai.review_schema import Finding
-
-    try:
-        finding = Finding(
-            title=str(record.get("title") or ""),
-            location=str(record.get("location") or ""),
-            description=str(record.get("description") or ""),
-            severity=str(record.get("severity") or "MEDIUM"),
-        )
-    except Exception:
-        return None
-    # A claim a person judged is left out: suppressing it would only repeat their own label.
-    replayed = _deterministic_pre_verification(finding, repo_root=repo_root, consult_judged=False)
-    return str(replayed.status)
-
-
 def _labeller(record: dict[str, Any]) -> str:
     """Who wrote a record's label: a person, an agent, a model or a check; unknown if unsaid."""
     return str(record.get("verified_by") or CONST_VERIFIED_BY_UNKNOWN)
-
-
-def _tally(record: dict[str, Any], suppressed: bool, counts: dict[str, int]) -> bool:
-    """Count one record's label and the layer's decision on it; True when it is contested."""
-    label = str(record.get("status") or "")
-    if label == CONST_STATUS_INVALIDATED:
-        counts["invalidated"] += 1
-        counts["caught"] += int(suppressed)
-    elif label == CONST_STATUS_VERIFIED:
-        counts["verified"] += 1
-        counts["contested"] += int(suppressed)
-        return suppressed
-    return False
 
 
 def evaluate_persona_prompts(
@@ -186,24 +106,17 @@ def evaluate_persona_prompts(
     dataset_path: Path | None = None,
     include_deterministic: bool = False,
 ) -> PromptEvalBenchmarkResult:
-    """Measure the deterministic layer against the verdicts the dataset recorded.
+    """Count the INVALIDATED and VERIFIED verdicts the dataset records for `persona`'s findings.
 
-    A record the layer invalidates that was recorded `INVALIDATED` is a round trip saved. A
-    record it invalidates that was recorded `VERIFIED` is contested: either the layer
-    over-suppresses, or that verdict was itself a false positive. Both counts are reported
-    rather than netted, because they are not interchangeable, and both are reported for each
-    labeller. A record a deterministic check labelled is excluded unless `include_deterministic`.
-
-    The dataset is the one `devops review export-feedback` appends to, a relative one under the
-    review data root (`review_data_root`, #972); the sources the recorded findings cite are read from the
-    worktree the command runs in, as a review of it would read them.
+    The counts are reported for each labeller, and a record a deterministic check labelled is
+    excluded unless `include_deterministic`. The dataset is the one `devops review
+    export-feedback` appends to, a relative one under the review data root (`review_data_root`,
+    #972).
     """
     records = _load_records(_resolve_dataset_path(dataset_path, review_data_root()), persona)
-    source_root = find_worktree_root()
 
     excluded: Counter[str] = Counter()
     by_labeller: defaultdict[str, Counter[str]] = defaultdict(Counter)
-    contested: list[dict[str, Any]] = []
     for record in records:
         labeller = _labeller(record)
         if (
@@ -212,10 +125,9 @@ def evaluate_persona_prompts(
         ):
             excluded[labeller] += 1
             continue
-        verdict = _deterministic_verdict(record, source_root)
         counts = by_labeller[labeller]
-        if _tally(record, verdict == CONST_STATUS_INVALIDATED, counts):
-            contested.append({key: record.get(key) for key in _CONTESTED_FIELDS})
+        if (label := _COUNTED_LABELS.get(str(record.get("status") or ""))) is not None:
+            counts[label] += 1
 
     totals: Counter[str] = sum(by_labeller.values(), Counter())
     return PromptEvalBenchmarkResult(
@@ -223,10 +135,7 @@ def evaluate_persona_prompts(
         total_cases=len(records) - excluded.total(),
         labelled_invalidated=totals["invalidated"],
         labelled_verified=totals["verified"],
-        caught_invalidations=totals["caught"],
-        contested_verifications=len(contested),
         dataset_digest=digest(records),
-        details=contested[:10],
         by_labeller={
             labeller: {field: counts[field] for field in _LABELLER_FIELDS}
             for labeller, counts in sorted(by_labeller.items())

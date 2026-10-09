@@ -28,10 +28,5 @@ def resolve_spend_stage(
         return None
     from devops_cli.config.settings import AITasksConfig
 
-    valid_stages = set(AITasksConfig.model_fields.keys()) | {
-        "review.file_review",
-        "review.verification",
-        "file_review",
-        "verification",
-    }
+    valid_stages = set(AITasksConfig.model_fields.keys()) | {"review.file_review", "file_review"}
     return raw_stage if raw_stage in valid_stages else None

@@ -129,7 +129,7 @@ A reviewer's claim that something in the code is wrong, with where it is and the
 _Avoid_: issue, alert, problem
 
 **Verdict**:
-The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check, the verifier model, an agent or a person.
+The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check or a person; sessions saved before #1150 also record the verifier model or an agent.
 _Avoid_: status, resolution
 
 **Review session**:
@@ -137,7 +137,7 @@ One review run: what was reviewed, every finding it raised and their verdicts.
 _Avoid_: review run, report
 
 **Known false positive**:
-A kind of finding reviewers keep raising wrongly, recorded once with how to recognize and disprove it.
+A kind of finding reviewers keep raising wrongly, recorded once as a `.devops/review.toml` suppression with its reason and an expiry.
 _Avoid_: common hallucination, hallucination entry
 
 ## Verification

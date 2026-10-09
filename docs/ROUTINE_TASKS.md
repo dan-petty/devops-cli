@@ -315,9 +315,8 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      ```bash
      devops ai review findings --session <session-id>
      ```
-  2. Perform deterministic AST verification and human verification:
-     - The verification pipeline automatically executes deterministic syntax assertions (`ast.parse`) and template placeholder mitigations.
-     - Reviewers and agents verify or invalidate remaining findings with specific rationale:
+  2. Record a person's verdict:
+     - No model verifies a finding; a person verifies or invalidates each with specific rationale:
      ```bash
      devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
@@ -326,7 +325,7 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      devops ai review export-feedback --status ALL
      ```
   4. Continuous Self-Improvement Loop:
-     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
+     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives; record each as a `[[suppressions]]` entry in `.devops/review.toml` with a reason and an expiry, or refine the persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`).
 
 ---
 

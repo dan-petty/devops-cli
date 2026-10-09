@@ -1,6 +1,6 @@
 """The review report's executive summary: its headline, its counts and its patterns.
 
-The headline names what verification confirmed (#948). It used to name the themes of the
+The headline names what a verdict confirmed (#948). It used to name the themes of the
 first-sorted findings, where a theme was a finding's first reference or its title, so a
 hallucinated CVE on an UNVERIFIED finding headlined session `20261001-224227`, and its counts
 mixed every status.
@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_STATUS_MITIGATED,
     CONST_STATUS_UNVERIFIED,
     CONST_STATUS_VERIFIED,
-    CONST_VERIFICATION_UNAVAILABLE,
 )
 from devops_cli.config.defaults import DEFAULT_REVIEW_HEADLINE_THEMES
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
@@ -33,18 +32,13 @@ _SEVERITY_LABELS: dict[str, str] = {
     "LOW": "Low",
     "INFO": "Informational",
 }
-# An UNVERIFIED finding the verifier never reached because verification itself failed.
-_UNAVAILABLE = "UNAVAILABLE"
-# How the headline counts each group: VERIFIED and UNVERIFIED together, the findings verification
-# never reached and the MITIGATED ones listed apart.
+# How the headline counts each group: VERIFIED and UNVERIFIED together, the MITIGATED ones
+# listed apart.
 _COUNTED_GROUPS: tuple[tuple[str, str], ...] = (
     (CONST_STATUS_VERIFIED, "verified"),
     (CONST_STATUS_UNVERIFIED, "unverified"),
 )
-_APART_GROUPS: tuple[tuple[str, str], ...] = (
-    (_UNAVAILABLE, "not verified because verification was unavailable"),
-    (CONST_STATUS_MITIGATED, "mitigated"),
-)
+_APART_GROUPS: tuple[tuple[str, str], ...] = ((CONST_STATUS_MITIGATED, "mitigated"),)
 
 
 def _severity(finding: SavedFinding) -> str:
@@ -55,13 +49,6 @@ def _severity(finding: SavedFinding) -> str:
 def _severity_rank(finding: SavedFinding) -> int:
     severity = _severity(finding)
     return CONST_SEVERITY_ORDER.index(severity) if severity in CONST_SEVERITY_ORDER else 99
-
-
-def _status_group(finding: SavedFinding) -> str:
-    unavailable = (finding.verification_note or "").startswith(CONST_VERIFICATION_UNAVAILABLE)
-    if finding.status == CONST_STATUS_UNVERIFIED and unavailable:
-        return _UNAVAILABLE
-    return finding.status
 
 
 def _join(parts: Sequence[str]) -> str:
@@ -90,14 +77,12 @@ def _group_counts(
 
 def status_counts(findings: Sequence[SavedFinding]) -> tuple[list[str], list[str]]:
     """The findings counted by status, each status with its severities: VERIFIED and
-    UNVERIFIED, then, listed apart, those verification never reached and the MITIGATED ones.
-
-    Counting them together reported 76 findings the verifier never saw and 28 MITIGATED ones
-    as defects.
+    UNVERIFIED, then, listed apart, the MITIGATED ones, which counted together were reported as
+    defects.
     """
     groups: dict[str, list[SavedFinding]] = collections.defaultdict(list)
     for finding in findings:
-        groups[_status_group(finding)].append(finding)
+        groups[finding.status].append(finding)
     return _group_counts(groups, _COUNTED_GROUPS), _group_counts(groups, _APART_GROUPS)
 
 

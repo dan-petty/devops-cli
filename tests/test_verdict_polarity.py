@@ -6,18 +6,10 @@ import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
-    run_pipeline_self_test,
 )
 from devops_cli.ai.review.profile import ReviewProfile, ReviewProfiler
-from devops_cli.ai.review.verification import (
-    _apply_single_finding_verification,
-    _check_verdict_polarity_hallucination,
-    _deterministic_pre_verification,
-)
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
@@ -236,126 +228,6 @@ def test_saved_finding_polarity_and_merge() -> None:
     assert (merged.observed_value, merged.expected_value) == ("bad_val", "good_val")
 
 
-def test_check_verdict_polarity_hallucination() -> None:
-    """Verify deterministic pre-verification invalidation on identical polarity values."""
-    f_valid = Finding(
-        severity="HIGH",
-        location="src/auth.py:10",
-        title="Valid finding",
-        description="Valid description",
-        fix="fix()",
-        observed_value="status=ERROR",
-        expected_value="status=OK",
-    )
-    f_none = Finding(
-        severity="HIGH",
-        location="src/auth.py:10",
-        title="None finding",
-        description="None description",
-        fix="fix()",
-    )
-    f_hallucinated = Finding.model_construct(
-        severity="HIGH",
-        location="src/auth.py:10",
-        title="Contradictory finding",
-        description="Contradictory description",
-        fix="fix()",
-        observed_value="ERROR",
-        expected_value="ERROR",
-    )
-
-    r_valid = _check_verdict_polarity_hallucination(f_valid)
-    r_none = _check_verdict_polarity_hallucination(f_none)
-    r_hallucinated = _check_verdict_polarity_hallucination(f_hallucinated)
-
-    assert (r_valid, r_none) == (None, None)
-    assert r_hallucinated is not None
-    assert (
-        r_hallucinated.verified,
-        r_hallucinated.reportable,
-        r_hallucinated.status,
-        "identical to expected value" in (r_hallucinated.invalidation_reason or ""),
-    ) == (False, False, "INVALIDATED", True)
-
-
-def test_deterministic_pre_verification_integration(tmp_path: Path) -> None:
-    """Verify deterministic pre-verification catches contradictory polarity."""
-    test_file = tmp_path / "app.py"
-    test_file.write_text("status = 'OK'\n", encoding="utf-8")
-
-    f_bad = Finding.model_construct(
-        severity="HIGH",
-        location="app.py:1",
-        title="Bad polarity",
-        description="Bad polarity",
-        fix="fix",
-        observed_value="same",
-        expected_value="same",
-    )
-    result = _deterministic_pre_verification(f_bad, target_dir=tmp_path)
-    assert (
-        result.status,
-        result.verified,
-        result.reportable,
-    ) == ("INVALIDATED", False, False)
-
-
-def test_apply_single_finding_verification_polarity() -> None:
-    """Verify LLM verification response parsing rejects identical polarity values."""
-    target_f1 = Finding(
-        severity="HIGH",
-        location="app.py:1",
-        title="Test Finding",
-        description="Desc",
-        fix="fix",
-    )
-    v_dict_bad = {
-        "finding_id": 1,
-        "status": "VERIFIED",
-        "verified": True,
-        "reportable": True,
-        "reason": "Passed inspection",
-        "observed_value": "IDENTICAL",
-        "expected_value": "IDENTICAL",
-    }
-    res_bad = _apply_single_finding_verification(
-        target_f1, v_dict_bad, now_iso="2026-09-25T12:00:00Z"
-    )
-    bad_res = (res_bad.status, res_bad.verified, res_bad.reportable)
-
-    target_f2 = Finding(
-        severity="HIGH",
-        location="app.py:2",
-        title="Test Finding 2",
-        description="Desc 2",
-        fix="fix 2",
-    )
-    v_dict_good = {
-        "finding_id": 2,
-        "status": "VERIFIED",
-        "verified": True,
-        "reportable": True,
-        "reason": "Passed inspection",
-        "observed_value": "VAL_A",
-        "expected_value": "VAL_B",
-    }
-    res_good = _apply_single_finding_verification(
-        target_f2, v_dict_good, now_iso="2026-09-25T12:00:00Z"
-    )
-    good_res = (
-        res_good.status,
-        res_good.verified,
-        res_good.reportable,
-        res_good.observed_value,
-        res_good.expected_value,
-    )
-
-    assert (bad_res, good_res) == (
-        ("INVALIDATED", False, False),
-        ("VERIFIED", True, True, "VAL_A", "VAL_B"),
-    )
-
-
 def test_compute_verdict_distributions_and_discriminating() -> None:
     """Verify compute_verdict_distributions and is_field_discriminating logic."""
     assert compute_verdict_distributions([]) == {
@@ -487,27 +359,6 @@ def test_render_console_summary_table_integration(tmp_path: Path) -> None:
             call_kwargs.get("title"),
             call_kwargs.get("console"),
         )
-
-
-def test_pipeline_self_test_success(tmp_path: Path) -> None:
-    """Verify run_pipeline_self_test and orchestrator.run_self_test succeed."""
-    pipeline = ReviewPipelineOrchestrator(target_dir=tmp_path, session_id="test-self")
-    actual = (
-        run_pipeline_self_test(tmp_path),
-        pipeline.run_self_test(),
-    )
-    expected = (True, True)
-    assert actual == expected
-
-
-def test_pipeline_self_test_failure_detection(tmp_path: Path) -> None:
-    """Verify run_pipeline_self_test fails if engineered finding is not invalidated."""
-    with patch(
-        "devops_cli.ai.review.verification._check_verdict_polarity_hallucination",
-        return_value=None,
-    ):
-        with pytest.raises(AssertionError, match="Pipeline self-test failed"):
-            run_pipeline_self_test(tmp_path)
 
 
 def test_review_profile_verdict_distributions(tmp_path: Path) -> None:

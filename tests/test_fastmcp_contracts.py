@@ -19,7 +19,6 @@ def test_fastmcp_tools_registration() -> None:
         "review_branch",
         "review_pr",
         "review_findings",
-        "verify_finding",
         "review_stats",
         "review_export_feedback",
         # Repositories & Workspace

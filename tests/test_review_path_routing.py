@@ -334,10 +334,9 @@ def _review_routed_branch(
 def test_a_secret_in_a_routed_file_keeps_its_severity(
     tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify a secret Gitleaks finds in a changelog fragment is reported at its severity, capped
-    only because nothing verified it. The document cap made it LOW, hidden from the terminal,
-    while the same secret in `src/` stayed HIGH: a review of routed files runs no verifier, so
-    its secret could never be the verified one the cap spares."""
+    """Verify a secret Gitleaks finds in a changelog fragment is reported at the severity
+    Gitleaks gave it. A document cap once made it LOW, hidden from the terminal, while the same
+    secret in `src/` stayed HIGH."""
 
     def gitleaks(paths: list[Path], **_: Any) -> ScanOutcome:
         return ScanOutcome(
@@ -358,7 +357,7 @@ def test_a_secret_in_a_routed_file_keeps_its_severity(
 
     assert [
         (f["title"], f["severity"], f["severity_raw"], f["status"]) for f in written["findings"]
-    ] == [("[GITLEAKS] Secret detected: OpenAI API Key", "HIGH", "CRITICAL", "UNVERIFIED")]
+    ] == [("[GITLEAKS] Secret detected: OpenAI API Key", "CRITICAL", None, "UNVERIFIED")]
 
 
 @pytest.mark.usefixtures("secret_scan")
