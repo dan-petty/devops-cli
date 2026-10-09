@@ -419,6 +419,7 @@ def test_durable_store_opens_under_data_dir(
 
     custom_data = tmp_path / "custom_data"
     custom_data.mkdir()
+    (Path.cwd() / ".data" / "durable_runs.db").unlink(missing_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
     reset_settings_cache()
 

@@ -40,7 +40,7 @@
             "text": "subprocess call with shell=True"
           },
           "partialFingerprints": {
-            "devopsCli/v1": "628a47241e8969b848c97efe8db7637c"
+            "devopsCli/v2": "19227d34cc30f79e188a26626d20c75af663231c02d2a0e6a79476f3abb760d2"
           },
           "properties": {
             "tool": "bandit",
@@ -67,7 +67,7 @@
             "text": "subprocess call with shell=True"
           },
           "partialFingerprints": {
-            "devopsCli/v1": "40482e72d0dcaade80accc33db82fc2f"
+            "devopsCli/v2": "22d8c3aa39d17d2f705b923594dff772493bfe6a04c4fbdca5fcf3f10a5455e2"
           },
           "properties": {
             "tool": "bandit",
@@ -128,7 +128,7 @@
             "text": "Avoid using pickle"
           },
           "partialFingerprints": {
-            "devopsCli/v1": "ab21f9c159aa64114de3a9d700a44d00"
+            "devopsCli/v2": "9a6565333c71882f8e028ee3fd8241570e070c48671b49bce17c7b9de6ce90c9"
           },
           "properties": {
             "tool": "semgrep",
@@ -187,7 +187,7 @@
             "text": "vulnerable package dependency"
           },
           "partialFingerprints": {
-            "devopsCli/v1": "b6e0f08ed374c5d6f6ecd6425d83c35d"
+            "devopsCli/v2": "7b2e0b7673b70b6c45c65db5e5acc709930bb6243003372ed59757ba32e426ab"
           },
           "properties": {
             "tool": "trivy",

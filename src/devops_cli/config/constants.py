@@ -3033,7 +3033,7 @@ CONST_SARIF_LEVELS: Final[frozenset[str]] = frozenset(
 CONST_SARIF_SECURITY_SEVERITY_PROPERTY: Final[str] = "security-severity"
 # Fingerprint key. SARIF requires a versioned name so a later change to the scheme does
 # not silently re-open every previously suppressed result.
-CONST_SARIF_FINGERPRINT_KEY: Final[str] = "devopsCli/v1"
+CONST_SARIF_FINGERPRINT_KEY: Final[str] = "devopsCli/v2"
 
 # ── Security Finding Taxonomy ────────────────────────────────────────────────
 CONST_SEVERITY_CRITICAL: Final[str] = "CRITICAL"

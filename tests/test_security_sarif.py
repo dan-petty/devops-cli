@@ -93,8 +93,14 @@ def make(
         ("src/app.py:42", ("src/app.py", 42, None)),
         ("src/app.py", ("src/app.py", None, None)),
         ("", ("", None, None)),
-        ("manifests/deploy.yml:Deployment/api", ("manifests/deploy.yml", None, "Deployment/api")),
-        ("registry.example.com/img:efficiency", ("registry.example.com/img", None, "efficiency")),
+        (
+            "manifests/deploy.yml:Deployment/api",
+            ("manifests/deploy.yml", None, "Deployment/api"),
+        ),
+        (
+            "registry.example.com/img:efficiency",
+            ("registry.example.com/img", None, "efficiency"),
+        ),
         ("/abs/path/file.py:7", ("/abs/path/file.py", 7, None)),
         (":1", ("", 1, None)),
         ("src/views.py:40-45", ("src/views.py", 40, None)),
@@ -174,7 +180,10 @@ def test_scanner_severity_vocabularies_map_onto_one_scale(raw: str, expected: st
 
 def test_an_unrecognised_severity_is_not_silently_demoted() -> None:
     """Demoting an unknown severity to INFO is how a real issue drops out of a report."""
-    assert (normalize_severity("catastrophic"), normalize_severity(None)) == ("MEDIUM", "MEDIUM")
+    assert (normalize_severity("catastrophic"), normalize_severity(None)) == (
+        "MEDIUM",
+        "MEDIUM",
+    )
 
 
 def test_severity_ranking_orders_most_severe_first() -> None:
@@ -310,17 +319,17 @@ def test_finding_fingerprints_are_pinned_to_literal_values() -> None:
         _PINNED_FINDINGS[3].fingerprint,
         f_canonical.fingerprint,
     ) == (
-        "628a47241e8969b848c97efe8db7637c",
-        "40482e72d0dcaade80accc33db82fc2f",
-        "ab21f9c159aa64114de3a9d700a44d00",
-        "b6e0f08ed374c5d6f6ecd6425d83c35d",
-        "628a47241e8969b848c97efe8db7637c",
+        "19227d34cc30f79e188a26626d20c75af663231c02d2a0e6a79476f3abb760d2",
+        "22d8c3aa39d17d2f705b923594dff772493bfe6a04c4fbdca5fcf3f10a5455e2",
+        "9a6565333c71882f8e028ee3fd8241570e070c48671b49bce17c7b9de6ce90c9",
+        "7b2e0b7673b70b6c45c65db5e5acc709930bb6243003372ed59757ba32e426ab",
+        "19227d34cc30f79e188a26626d20c75af663231c02d2a0e6a79476f3abb760d2",
     )
 
 
 def test_sarif_fingerprint_key_pinned() -> None:
     """Rule: an algorithm change bumps the key, updates the pins and adds a CHANGELOG line in the same commit."""
-    assert CONST_SARIF_FINGERPRINT_KEY == "devopsCli/v1"
+    assert CONST_SARIF_FINGERPRINT_KEY == "devopsCli/v2"
 
 
 def test_swapping_parts_or_changing_separator_or_canonicalisation_alters_fingerprint() -> None:
@@ -345,7 +354,7 @@ def test_swapping_parts_or_changing_separator_or_canonicalisation_alters_fingerp
 def test_a_finding_without_a_symbol_keeps_its_fingerprint() -> None:
     """Adding the symbol to the identity leaves every line-located fingerprint, and every
     suppression recorded against one, as it was."""
-    assert make().fingerprint == "628a47241e8969b848c97efe8db7637c"
+    assert make().fingerprint == "19227d34cc30f79e188a26626d20c75af663231c02d2a0e6a79476f3abb760d2"
 
 
 def test_a_fingerprint_distinguishes_two_objects_with_one_message() -> None:
@@ -437,7 +446,10 @@ def test_findings_at_different_lines_do_not_cluster() -> None:
 def test_findings_on_different_objects_do_not_cluster() -> None:
     """A report renders clusters, so two objects sharing a message would share one row."""
     clusters = correlate(
-        [make(line=None, symbol="Service/monitoring/a"), make(line=None, symbol="Service/b")]
+        [
+            make(line=None, symbol="Service/monitoring/a"),
+            make(line=None, symbol="Service/b"),
+        ]
     )
     assert len(clusters) == 2
 
@@ -571,7 +583,7 @@ def test_a_normalized_finding_serializes_with_its_fingerprint() -> None:
     assert (payload["tool"], payload["rule_id"], len(payload["fingerprint"])) == (
         "bandit",
         "B602",
-        32,
+        64,
     )
 
 
@@ -649,7 +661,10 @@ def test_a_non_positive_line_emits_no_region() -> None:
     """SARIF regions are one-based, so line 0 is not expressible."""
     result = to_sarif([make(line=0)])["runs"][0]["results"][0]
     physical = result["locations"][0]["physicalLocation"]
-    assert (physical["artifactLocation"]["uri"], "region" in physical) == ("src/app.py", False)
+    assert (physical["artifactLocation"]["uri"], "region" in physical) == (
+        "src/app.py",
+        False,
+    )
 
 
 def test_a_symbolic_locator_is_emitted_as_a_logical_location() -> None:
@@ -675,7 +690,14 @@ def test_a_document_round_trips_through_emission_and_ingestion() -> None:
     """Emission and ingestion are inverses over the normalized taxonomy."""
     original = [
         make(tool="bandit", rule_id="B602", severity="HIGH"),
-        make(tool="semgrep", rule_id="S1", severity="LOW", path="b.py", line=9, message="m"),
+        make(
+            tool="semgrep",
+            rule_id="S1",
+            severity="LOW",
+            path="b.py",
+            line=9,
+            message="m",
+        ),
     ]
     restored = from_sarif(to_sarif(original))
     assert [(f.tool, f.rule_id, f.severity, f.path, f.line, f.message) for f in restored] == [
@@ -740,7 +762,14 @@ def test_a_third_party_document_is_ingested_without_a_bespoke_parser() -> None:
         findings[0].path,
         findings[0].line,
         findings[0].fix,
-    ) == ("CodeQL", "py/clear-text-logging", "HIGH", "src/auth.py", 88, "Redact before logging.")
+    ) == (
+        "CodeQL",
+        "py/clear-text-logging",
+        "HIGH",
+        "src/auth.py",
+        88,
+        "Redact before logging.",
+    )
 
 
 def test_a_numeric_security_severity_outranks_the_coarser_level() -> None:
@@ -764,7 +793,13 @@ def test_a_numeric_security_severity_outranks_the_coarser_level() -> None:
 
 @pytest.mark.parametrize(
     ("score", "expected"),
-    [("9.0", "CRITICAL"), ("7.0", "HIGH"), ("4.0", "MEDIUM"), ("0.5", "LOW"), ("0.0", "INFO")],
+    [
+        ("9.0", "CRITICAL"),
+        ("7.0", "HIGH"),
+        ("4.0", "MEDIUM"),
+        ("0.5", "LOW"),
+        ("0.0", "INFO"),
+    ],
 )
 def test_security_severity_scores_band_as_github_documents(score: str, expected: str) -> None:
     """Banding differently from GitHub would rank the same document two ways."""
@@ -801,7 +836,10 @@ def test_a_result_with_no_level_defaults_as_the_specification_says() -> None:
 
 def test_a_run_with_no_results_contributes_nothing() -> None:
     """A clean tool is not an error."""
-    document = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "t"}}, "results": []}]}
+    document = {
+        "version": "2.1.0",
+        "runs": [{"tool": {"driver": {"name": "t"}}, "results": []}],
+    }
     assert from_sarif(document) == []
 
 
@@ -908,7 +946,10 @@ def test_a_fingerprint_suppression_matches_exactly_one_finding(tmp_path: Path) -
     """A fingerprint accepts one specific result, not a class of them."""
     target = make()
     policy = load_policy(
-        write_policy(tmp_path / "p.yml", f"suppressions:\n  - fingerprint: {target.fingerprint}\n")
+        write_policy(
+            tmp_path / "p.yml",
+            f"suppressions:\n  - fingerprint: {target.fingerprint}\n",
+        )
     )
     kept, suppressed = policy.apply([target, make(path="other.py")])
     assert ([f.path for f in kept], len(suppressed)) == (["other.py"], 1)
@@ -987,7 +1028,9 @@ def test_local_rules_are_matched_before_inherited_ones(tmp_path: Path) -> None:
     assert rule.reason == "local"
 
 
-def test_a_policy_extending_several_baselines_collects_all_of_them(tmp_path: Path) -> None:
+def test_a_policy_extending_several_baselines_collects_all_of_them(
+    tmp_path: Path,
+) -> None:
     """Composition is the point of inheritance."""
     write_policy(tmp_path / "a.yml", "suppressions:\n  - rule: A\n")
     write_policy(tmp_path / "b.yml", "suppressions:\n  - rule: B\n")
@@ -1012,7 +1055,9 @@ def test_a_cyclic_inheritance_chain_terminates(tmp_path: Path) -> None:
     assert sorted(rule.rule for rule in policy.rules) == ["A", "B"]
 
 
-def test_a_parent_is_resolved_relative_to_the_file_that_names_it(tmp_path: Path) -> None:
+def test_a_parent_is_resolved_relative_to_the_file_that_names_it(
+    tmp_path: Path,
+) -> None:
     """A shared baseline can sit outside the repository being scanned."""
     (tmp_path / "shared").mkdir()
     (tmp_path / "repo").mkdir()
@@ -1160,7 +1205,11 @@ def test_a_report_serializes_for_json_consumers(tmp_path: Path) -> None:
     """Machine consumers need the counts, the clusters and the fingerprints."""
     results = {"bandit": [Finding(severity="HIGH", location="a.py:1", title="[B1] issue")]}
     payload = build_report(results, tmp_path).as_dict()
-    assert (payload["total"], payload["tools"], payload["counts"]["HIGH"]) == (1, ["bandit"], 1)
+    assert (payload["total"], payload["tools"], payload["counts"]["HIGH"]) == (
+        1,
+        ["bandit"],
+        1,
+    )
 
 
 def test_a_report_can_be_built_from_ingested_sarif() -> None:
@@ -1179,7 +1228,8 @@ def test_the_report_command_renders_correlated_findings(tmp_path: Path) -> None:
     results = {"bandit": [Finding(severity="HIGH", location="a.py:4", title="[B602] shell true")]}
     with (
         patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners", return_value=["bandit"]
+            "devops_cli.security.registry.ScannerRegistry.list_scanners",
+            return_value=["bandit"],
         ),
         patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
     ):
@@ -1199,7 +1249,8 @@ def test_the_report_command_fails_the_build_on_a_severe_finding(tmp_path: Path) 
     findings = [Finding(severity="CRITICAL", location="a.py:4", title="[C1] severe")]
     with (
         patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners", return_value=["bandit"]
+            "devops_cli.security.registry.ScannerRegistry.list_scanners",
+            return_value=["bandit"],
         ),
         patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
     ):
@@ -1213,7 +1264,8 @@ def test_the_report_command_passes_when_nothing_meets_the_gate(tmp_path: Path) -
     findings = [Finding(severity="LOW", location="a.py:4", title="[L1] minor")]
     with (
         patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners", return_value=["bandit"]
+            "devops_cli.security.registry.ScannerRegistry.list_scanners",
+            return_value=["bandit"],
         ),
         patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
     ):
@@ -1228,7 +1280,8 @@ def test_the_report_command_writes_sarif(tmp_path: Path) -> None:
     destination = tmp_path / "out.sarif"
     with (
         patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners", return_value=["bandit"]
+            "devops_cli.security.registry.ScannerRegistry.list_scanners",
+            return_value=["bandit"],
         ),
         patch("devops_cli.security.registry.ScannerRegistry.get") as mock_get,
     ):
@@ -1293,7 +1346,8 @@ def test_an_unreadable_suppression_policy_stops_the_scan(tmp_path: Path) -> None
     """Continuing without the policy reports findings the operator believes are accepted."""
     destination = write_sarif([make()], tmp_path / "in.sarif")
     result = runner.invoke(
-        scan_app, ["sarif", str(destination), "--suppress", str(tmp_path / "absent.yml")]
+        scan_app,
+        ["sarif", str(destination), "--suppress", str(tmp_path / "absent.yml")],
     )
     assert result.exit_code == 2
 
@@ -1310,7 +1364,12 @@ def _document(results: list[Any], rules: list[Any] | None = None, tool: Any = No
         driver["rules"] = rules
     return {
         "version": "2.1.0",
-        "runs": [{"tool": tool if tool is not None else {"driver": driver}, "results": results}],
+        "runs": [
+            {
+                "tool": tool if tool is not None else {"driver": driver},
+                "results": results,
+            }
+        ],
     }
 
 
@@ -1332,7 +1391,13 @@ def test_an_out_of_range_rule_index_does_not_raise() -> None:
 def test_a_severity_declared_on_the_result_is_honoured() -> None:
     """Documents this tool emitted carry the original severity as a result property."""
     document = _document(
-        [{"ruleId": "r", "message": {"text": "m"}, "properties": {"severity": "CRITICAL"}}]
+        [
+            {
+                "ruleId": "r",
+                "message": {"text": "m"},
+                "properties": {"severity": "CRITICAL"},
+            }
+        ]
     )
     assert from_sarif(document)[0].severity == "CRITICAL"
 
@@ -1377,7 +1442,10 @@ def test_a_result_with_no_rule_id_at_all_still_gets_one() -> None:
         ("empty list", []),
         ("first entry not an object", ["nonsense"]),
         ("no physical location", [{}]),
-        ("artifact location not an object", [{"physicalLocation": {"artifactLocation": 1}}]),
+        (
+            "artifact location not an object",
+            [{"physicalLocation": {"artifactLocation": 1}}],
+        ),
         (
             "region without a start line",
             [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {}}}],
@@ -1420,7 +1488,10 @@ def test_a_run_that_is_not_an_object_is_skipped() -> None:
     """One bad run must not discard the others."""
     document = {
         "version": "2.1.0",
-        "runs": ["nonsense", {"tool": {"driver": {"name": "t"}}, "results": [{"ruleId": "kept"}]}],
+        "runs": [
+            "nonsense",
+            {"tool": {"driver": {"name": "t"}}, "results": [{"ruleId": "kept"}]},
+        ],
     }
     assert from_sarif(document)[0].rule_id == "kept"
 
@@ -1518,7 +1589,11 @@ def test_a_scanner_that_did_not_run_gets_no_run_only_a_notification() -> None:
     }
     document = to_sarif([], outcomes)
     invocation = document["runs"][0]["invocations"][0]
-    assert (_drivers(document), _notifications(document), invocation["executionSuccessful"]) == (
+    assert (
+        _drivers(document),
+        _notifications(document),
+        invocation["executionSuccessful"],
+    ) == (
         ["devops-cli"],
         [
             ("bandit", "unavailable", "warning"),
@@ -1541,7 +1616,12 @@ def test_built_in_pattern_findings_never_carry_the_real_tools_driver_name() -> N
         [r["ruleId"] for r in results],
         _notifications(document),
         document["runs"][0]["invocations"][0]["executionSuccessful"],
-    ) == (["devops-cli"], ["aws-access-key-id"], [("gitleaks", "built-in patterns", "note")], True)
+    ) == (
+        ["devops-cli"],
+        ["aws-access-key-id"],
+        [("gitleaks", "built-in patterns", "note")],
+        True,
+    )
     _assert_valid_sarif(document)
 
 
@@ -1575,7 +1655,9 @@ def test_a_gating_finding_keeps_its_security_severity_beside_outcomes() -> None:
         to_sarif([make(path="", line=None)]),
     ],
 )
-def test_every_emitted_document_conforms_to_the_sarif_schema(document: dict[str, Any]) -> None:
+def test_every_emitted_document_conforms_to_the_sarif_schema(
+    document: dict[str, Any],
+) -> None:
     """Code scanning rejects an upload that fails the OASIS schema."""
     _assert_valid_sarif(document)
 
