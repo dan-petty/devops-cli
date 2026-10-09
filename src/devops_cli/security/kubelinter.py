@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review_schema import DefectClass, Finding, defect_class
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
 from devops_cli.config.constants import CONST_REVIEW_SCAN_KUBELINTER_CONFIG
 from devops_cli.config.defaults import (
@@ -36,34 +36,53 @@ def _manifest_location(target_path: str) -> str:
 
 
 def _reported_object(report: dict[str, Any]) -> tuple[str, str, str]:
-    """The kind, name and namespace of the Kubernetes object a Kube-linter report is about."""
+    """The kind, name and namespace of the Kubernetes object a Kube-linter report is about.
+
+    The namespace is empty when the manifest names none; it is not guessed.
+    """
     obj_info = (report.get("Object") or {}).get("K8sObject") or {}
     kind = (obj_info.get("GroupVersionKind") or {}).get("Kind") or "Resource"
-    return kind, obj_info.get("Name") or "unnamed", obj_info.get("Namespace") or "default"
+    return kind, obj_info.get("Name") or "unnamed", obj_info.get("Namespace") or ""
 
 
-def _finding_from_report(report: dict[str, Any], manifest: str) -> Finding:
-    """One Kube-linter report as a Finding located at `manifest`, or at its object when empty."""
-    diag = report.get("Diagnostic") or {}
-    msg = diag.get("Message") or "Kube-linter static manifest diagnostic warning"
-    check_name = diag.get("Check") or "kube-linter-check"
+def _category(check: str, message: str) -> str:
+    """The class the check name or the message names, else a security misconfiguration.
+
+    kube-linter checks manifests for misconfiguration, so a check whose words name no class,
+    or only `security`, is one.
+    """
+    vague = {DefectClass.OTHER, DefectClass.SECURITY}
+    named = (defect_class(text) for text in (check, message))
+    return next((c for c in named if c not in vague), DefectClass.SECURITY_MISCONFIGURATION).value
+
+
+def _finding_from_report(report: dict[str, Any], target_path: str) -> Finding:
+    """One Kube-linter report as a Finding at its manifest and object.
+
+    kube-linter writes `Check` and `Remediation` beside `Diagnostic`, which holds `Message`.
+    The manifest is the report's `FilePath`, or `target_path` when it names none; the object
+    is `Kind/namespace/name`, or `Kind/name` without a namespace.
+    """
+    check = report["Check"]
+    message = report["Diagnostic"]["Message"]
     kind, name, namespace = _reported_object(report)
-    location_str = f"{manifest}:{kind}/{name}" if manifest else f"{kind}/{name} ({namespace})"
-
+    symbol = f"{kind}/{namespace}/{name}" if namespace else f"{kind}/{name}"
+    file_path = ((report.get("Object") or {}).get("Metadata") or {}).get("FilePath")
     return Finding(
         severity="MEDIUM",
-        location=location_str,
-        title=f"[{check_name}] K8s Security Lint Warning",
-        description=f"{msg} for {kind} '{name}' in namespace '{namespace}'.",
-        fix=f"Update K8s manifest spec for {kind} '{name}' to resolve {check_name}",
+        location=f"{_manifest_location(file_path or target_path)}:{symbol}",
+        title=f"[{check}] {message}",
+        description=f"{message} for {kind} '{name}'.",
+        fix=report.get("Remediation")
+        or f"Update K8s manifest spec for {kind} '{name}' to resolve {check}",
+        category=_category(check, message),
         confidence_score=None,
     )
 
 
 def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
     """Parse Kube-linter JSON output payload into Finding objects."""
-    manifest = _manifest_location(target_path)
-    return [_finding_from_report(report, manifest) for report in data.get("Reports") or []]
+    return [_finding_from_report(report, target_path) for report in data.get("Reports") or []]
 
 
 class KubelinterScanner(BaseSecurityScanner):

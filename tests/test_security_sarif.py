@@ -95,7 +95,8 @@ def make(
         ("manifests/deploy.yml:Deployment/api", ("manifests/deploy.yml", None, "Deployment/api")),
         ("registry.example.com/img:efficiency", ("registry.example.com/img", None, "efficiency")),
         ("/abs/path/file.py:7", ("/abs/path/file.py", 7, None)),
-        (":1", ("", None, "1")),
+        (":1", ("", 1, None)),
+        ("src/views.py:40-45", ("src/views.py", 40, None)),
         ("src/app.py:0", ("src/app.py", 0, None)),
     ],
 )
@@ -256,6 +257,51 @@ def test_a_fingerprint_ignores_whitespace_differences_in_the_message() -> None:
     )
 
 
+def test_a_finding_without_a_symbol_keeps_its_fingerprint() -> None:
+    """Adding the symbol to the identity leaves every line-located fingerprint, and every
+    suppression recorded against one, as it was."""
+    assert make().fingerprint == "628a47241e8969b848c97efe8db7637c"
+
+
+def test_a_fingerprint_distinguishes_two_objects_with_one_message() -> None:
+    """Two Services in one manifest failing one check are two findings: an object's name,
+    unlike a line, does not move when lines are added above it."""
+    assert (
+        make(line=None, symbol="Service/monitoring/a").fingerprint
+        != make(line=None, symbol="Service/monitoring/b").fingerprint
+    )
+
+
+def test_a_multi_line_result_keeps_its_fingerprint_when_it_moves() -> None:
+    """Semgrep writes `path:start-end`; the range is a line, not an object's name."""
+    moved = [
+        normalize_finding(
+            Finding(severity="HIGH", location=location, title="[py.exec] dynamic exec"),
+            tool="semgrep",
+        )
+        for location in ("src/views.py:40-45", "src/views.py:41-46")
+    ]
+    assert (moved[0].line, moved[0].symbol, moved[0].fingerprint) == (
+        40,
+        None,
+        moved[1].fingerprint,
+    )
+
+
+def test_two_popeye_issues_on_two_resources_of_one_sanitizer_are_kept() -> None:
+    """Popeye titles every issue of a sanitizer alike, so only the resource tells them apart."""
+    issues = [
+        Finding(
+            severity="MEDIUM",
+            location=f"k8s:pods/default/{name}",
+            title="[PODS] Cluster Sanitizer Finding",
+            description="No resources requests/limits defined",
+        )
+        for name in ("web-a", "web-b")
+    ]
+    assert len(build_report({"popeye": issues}, Path("k8s")).findings) == 2
+
+
 # =============================================================================
 # Deduplication and Correlation
 # =============================================================================
@@ -301,6 +347,14 @@ def test_clustering_does_not_merge_findings_into_one() -> None:
 def test_findings_at_different_lines_do_not_cluster() -> None:
     """Location is part of the correlation identity."""
     assert len(correlate([make(line=4), make(line=40)])) == 2
+
+
+def test_findings_on_different_objects_do_not_cluster() -> None:
+    """A report renders clusters, so two objects sharing a message would share one row."""
+    clusters = correlate(
+        [make(line=None, symbol="Service/monitoring/a"), make(line=None, symbol="Service/b")]
+    )
+    assert len(clusters) == 2
 
 
 def test_a_cluster_reports_the_most_severe_assessment_any_tool_made() -> None:

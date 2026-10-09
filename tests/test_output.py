@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
+from devops_cli.ai.review_schema import Finding
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.exceptions import SecurityError
 from devops_cli.output.console import (
@@ -52,6 +53,7 @@ from devops_cli.output.formatter import (
     format_code_span,
     format_duration,
     format_json,
+    format_k8s_lint_table,
     format_key_value_pairs,
     format_latency,
     format_link,
@@ -912,6 +914,23 @@ def test_format_link_and_badges_escape_markup() -> None:
 
     badge = format_status_badge("ok", label="[bold]Status: OK[/bold]")
     assert r"\[bold]Status: OK\[/bold]" in badge
+
+
+def test_the_kube_linter_table_names_each_check() -> None:
+    """A kube-linter title is `[<check>] <message>`; the table prints the check, not a tag."""
+    finding = Finding(
+        severity="MEDIUM",
+        location="k8s/cloudflared/deployment.yaml:Deployment/cloudflared/cloudflared",
+        title="[no-anti-affinity] object has 2 replicas but does not specify inter pod "
+        "anti-affinity",
+    )
+    buf = io.StringIO()
+
+    get_console(file=buf, color_system=None, width=300).print(
+        format_k8s_lint_table([finding], "deployment.yaml").render()
+    )
+
+    assert "[no-anti-affinity] object has 2 replicas" in buf.getvalue()
 
 
 def test_table_payload_render_honors_header_options() -> None:
