@@ -552,6 +552,20 @@ def test_gate_test_step_argv_is_unchanged() -> None:
     )
 
 
+def test_gate_deps_step_spec() -> None:
+    """Verify that the gate's deps step spec invokes deptry on src."""
+    spec = get_check_spec("deps")
+    assert (
+        spec.cmd,
+        spec.metric_step,
+        spec.span_name,
+    ) == (
+        ["uv", "run", "deptry", "src"],
+        "deps",
+        "ci.step.deps",
+    )
+
+
 def _validate_setup_uv_step(step: dict[str, object], source: str) -> None:
     with_args = step.get("with", {})
     assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"
@@ -1583,6 +1597,7 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
         ("lockfile", "lockfile"),
         ("outdated", "outdated"),
         ("devcontainer", "devcontainer"),
+        ("deps", "deps"),
     ],
 )
 def test_subcommand_dispatches_exact_table_row_cmd(

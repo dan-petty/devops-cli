@@ -862,6 +862,8 @@ class CIMessages:
     uv_lock: str = "uv lockfile freshness"
     uv_outdated: str = "uv tree --outdated"
     uv_audit: str = "uv audit"
+    deptry: str = "deptry"
+    deps: str = "deptry"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     docs_validation: str = "docs validation"

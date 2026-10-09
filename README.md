@@ -273,6 +273,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci lockfile [OPTIONS]` | Verify lockfile consistency and freshness via uv lock --check. |
 |  | `devops ci outdated [OPTIONS]` | Display outdated dependencies and packages via uv tree --outdated. |
 |  | `devops ci devcontainer [OPTIONS]` | Validate devcontainer manifest configuration syntax. |
+|  | `devops ci deps [OPTIONS]` | Validate dependency hygiene and imports via deptry. |
 |  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
