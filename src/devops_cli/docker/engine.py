@@ -18,10 +18,7 @@ from urllib.parse import urlsplit
 from devops_cli.config.constants import (
     CONST_DOCKER_BUILD_CACHE_TYPES,
     CONST_DOCKER_DF_BUILD_CACHE_KEY,
-    CONST_DOCKER_HOST_ENV_VAR,
-    CONST_DOCKER_NETWORK_HOST_SCHEMES,
     CONST_DOCKER_UNIX_ADAPTER_SCHEME,
-    CONST_DOCKER_UNIX_SOCKET_URL,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DOCKER_CACHE_TTL_SECONDS,
@@ -35,6 +32,7 @@ from devops_cli.models.docker import (
     BuildCacheReport,
     ContainerState,
     ContainerStatEntry,
+    DockerEndpoint,
 )
 
 logger = logging.getLogger(__name__)
@@ -230,63 +228,144 @@ class DockerEngineService:
     # -- Connection lifecycle -------------------------------------------------
 
     @staticmethod
-    def configured_host() -> str:
-        """Return the daemon endpoint `DOCKER_HOST` names, or the default socket, unvalidated."""
-        return os.environ.get(CONST_DOCKER_HOST_ENV_VAR, "").strip() or CONST_DOCKER_UNIX_SOCKET_URL
+    def _context_endpoint(name: str, env_tls: Any) -> tuple[str, str, dict[str, Any]]:
+        """Retrieve endpoint definition and TLS config for a named Docker context."""
+        from docker import ContextAPI  # type: ignore[import-untyped]
 
-    def resolve_host(self) -> str:
-        """Resolve the effective daemon endpoint, validating network hosts against SSRF."""
-        docker_host = self.configured_host()
-        if docker_host.startswith(CONST_DOCKER_NETWORK_HOST_SCHEMES):
-            self._validate_network_host(docker_host)
-        return docker_host
+        ctx = ContextAPI.get_context(name)
+        if ctx is None:
+            raise DockerDaemonUnavailableError(f'context "{name}": context not found', host=name)
+        params: dict[str, Any] = {}
+        tls = env_tls or ctx.TLSConfig
+        if tls is not None:
+            params["tls"] = tls
+        return name, str(ctx.Host or ""), params
+
+    @classmethod
+    def _gather_endpoint(cls) -> tuple[str, str, dict[str, Any]]:
+        """Gather the endpoint from the first winning source in priority order."""
+        import docker.utils  # type: ignore[import-untyped]
+        from docker import ContextAPI
+        from docker.context.api import get_current_context_name  # type: ignore[import-untyped]
+
+        env_params = docker.utils.kwargs_from_env(environment=os.environ)
+        env_tls = env_params.get("tls")
+
+        # 1. DOCKER_HOST from kwargs_from_env
+        if "base_url" in env_params:
+            params: dict[str, Any] = {}
+            if env_tls is not None:
+                params["tls"] = env_tls
+            return "DOCKER_HOST", str(env_params["base_url"]), params
+
+        # 2. DOCKER_CONTEXT from environment
+        docker_context = os.environ.get("DOCKER_CONTEXT")
+        if docker_context:
+            source, raw, params = cls._context_endpoint(docker_context, env_tls)
+            if docker_context == "default":
+                source = "/var/run/docker.sock"
+            return source, raw, params
+
+        # 3. currentContext in config.json when not "default"
+        current_name = get_current_context_name()
+        if current_name != "default":
+            return cls._context_endpoint(current_name, env_tls)
+
+        # 4. Default context
+        ctx = ContextAPI.DEFAULT_CONTEXT
+        params = {}
+        tls = env_tls or ctx.TLSConfig
+        if tls is not None:
+            params["tls"] = tls
+        return "/var/run/docker.sock", str(ctx.Host or "unix:///var/run/docker.sock"), params
+
+    @staticmethod
+    def _parse_endpoint(source: str, raw: str, params: dict[str, Any]) -> str:
+        """Normalise the raw daemon endpoint via docker-py's parse_host."""
+        import docker.constants  # type: ignore[import-untyped]
+        import docker.utils
+        from docker.errors import DockerException  # type: ignore[import-untyped]
+
+        try:
+            return str(
+                docker.utils.parse_host(
+                    raw,
+                    docker.constants.IS_WINDOWS_PLATFORM,
+                    tls=bool(params.get("tls")),
+                )
+            )
+        except (DockerException, ValueError) as exc:
+            raise DockerDaemonUnavailableError(f"{source}: {exc}", host=source) from exc
+
+    @staticmethod
+    def _check_endpoint_egress(source: str, base_url: str) -> None:
+        """Validate network endpoints against SSRF policies."""
+        from devops_cli.config.settings import load_settings
+        from devops_cli.core.validation import validate_service_url
+        from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+
+        scheme = urlsplit(base_url).scheme.lower()
+        if scheme in ("http", "https"):
+            settings = load_settings()
+            try:
+                validate_service_url(
+                    base_url, "Docker Host", allow=settings.ai.allow_private_network
+                )
+            except (SSRFBlockedError, InvalidURLError) as exc:
+                raise DockerDaemonUnavailableError(f"{source}: {exc}", host=source) from exc
+
+    def resolve_host(self) -> DockerEndpoint:
+        """Resolve the effective daemon endpoint, validating network hosts against SSRF.
+
+        This pre-flight check inspects the chosen endpoint before docker-py's dialler
+        (requests/urllib3) connects. Note that for endpoints given by hostname rather
+        than IP literal, the host's resolved IP address can change between this check's
+        DNS lookup and the subsequent dial.
+        """
+        source, raw, params = self._gather_endpoint()
+        base_url = self._parse_endpoint(source, raw, params)
+        self._check_endpoint_egress(source, base_url)
+        params["base_url"] = base_url
+        return DockerEndpoint(
+            source=source,
+            raw=raw,
+            base_url=base_url,
+            params=params,
+        )
 
     def unix_socket_path(self) -> Path | None:
-        """Return the unix socket `DOCKER_HOST` (or the default) names, or None for a network host.
+        """Return the unix socket path of the resolved endpoint, or None for a network host.
 
         docker-py's own `parse_host` and `UnixHTTPAdapter` derive the path from that endpoint.
-        A Docker context is not followed until #1108 extends `configured_host()`. Nothing
-        connects and no request is made, so a dry run may call this.
+        Nothing connects and no request is made, so a dry run may call this.
         """
-        from docker.errors import DockerException  # type: ignore[import-untyped]
         from docker.transport import UnixHTTPAdapter  # type: ignore[import-untyped]
-        from docker.utils import parse_host  # type: ignore[import-untyped]
 
-        docker_host = self.configured_host()
-        try:
-            base_url = str(parse_host(docker_host))
-        except (DockerException, ValueError) as exc:
-            raise DockerEngineError(f"Unsupported Docker daemon endpoint: {exc}") from exc
+        source, raw, params = self._gather_endpoint()
+        base_url = self._parse_endpoint(source, raw, params)
         if urlsplit(base_url).scheme != CONST_DOCKER_UNIX_ADAPTER_SCHEME:
             return None
         return Path(UnixHTTPAdapter(base_url).socket_path)
-
-    @staticmethod
-    def _validate_network_host(docker_host: str) -> None:
-        """Enforce egress guardrails on a TCP/HTTP Docker daemon endpoint."""
-        from devops_cli.config.settings import load_settings
-        from devops_cli.core.validation import validate_service_url
-
-        settings = load_settings()
-        http_url = docker_host.replace("tcp://", "http://", 1)
-        validate_service_url(http_url, "Docker Host", allow=settings.ai.allow_private_network)
 
     def client(self) -> Any:
         """Return the cached Engine API client, negotiating the daemon socket on first use."""
         if self._client is not None:
             return self._client
 
-        host = self.resolve_host()
+        endpoint = self.resolve_host()
         try:
-            import docker  # type: ignore[import-untyped]
+            import docker
 
-            self._client = docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
+            self._client = docker.DockerClient(
+                timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS),
+                **endpoint.params,
+            )
         except Exception as exc:
             raise DockerDaemonUnavailableError(
-                f"Cannot connect to the Docker daemon: {exc}", host=host
+                f"{endpoint.source}: {exc}", host=endpoint.source
             ) from exc
 
-        self._host = host
+        self._host = endpoint.base_url
         return self._client
 
     def close(self) -> None:

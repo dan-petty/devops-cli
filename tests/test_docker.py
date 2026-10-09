@@ -174,7 +174,7 @@ def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) ->
     from devops_cli.dry_run import set_dry_run
 
     # 1. An unreachable daemon is surfaced as a clean CLI exit rather than a traceback.
-    with patch("docker.from_env", side_effect=Exception("Daemon not running")):
+    with patch("docker.DockerClient", side_effect=Exception("Daemon not running")):
         with pytest.raises(typer.Exit):
             _engine()
 
@@ -203,8 +203,24 @@ def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) ->
         set_dry_run(False)
 
     # 4. Push invalid image name
-    res_bad_img = runner.invoke(docker_app, ["push", "Invalid Name!"])
-    assert res_bad_img.exit_code == 1
+    from http import HTTPStatus
+
+    from docker.errors import APIError
+
+    mock_bad_req = MagicMock(status_code=HTTPStatus.BAD_REQUEST)
+    mock_bad_client = MagicMock()
+    mock_bad_client.images.push.side_effect = APIError(
+        "invalid name", response=mock_bad_req, explanation="invalid reference format"
+    )
+    with docker_engine(mock_bad_client):
+        res_bad_img = runner.invoke(docker_app, ["push", "Invalid Name!"])
+        assert (
+            res_bad_img.exit_code,
+            "Invalid Docker image name format" in res_bad_img.output,
+        ) == (
+            1,
+            True,
+        )
 
     # 5. Push stream error
     mock_client = MagicMock()
@@ -277,3 +293,64 @@ def test_docker_push_status_and_build_output_print_as_written(
     assert (res_build.exit_code, res_push.exit_code) == (0, 0)
     assert [line in res_build.output for line in build_lines] == [True, True]
     assert (status in res_push.output, "\x07" in res_build.output) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "image_name",
+    [
+        "localhost:5000/app:1.0",
+        "example.com:443/a/b:c",
+        "[::1]:5000/app:1",
+    ],
+)
+def test_docker_push_accepts_registry_ports(image_name: str, docker_engine: Any) -> None:
+    """Registry endpoints with ports reach client.images.push without regex rejection."""
+    mock_client = MagicMock()
+    mock_client.images.push.return_value = [{"status": "Pushed"}]
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", image_name])
+
+    assert (res.exit_code, mock_client.images.push.call_args[0][0]) == (0, image_name)
+
+
+def test_docker_push_escapes_progress_text_without_markup_error(docker_engine: Any) -> None:
+    """An image reference with bracket markup prints literally in the progress line (#1108)."""
+    mock_client = MagicMock()
+    mock_client.images.push.return_value = [{"status": "Pushed"}]
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", "app:1[/x]"])
+
+    assert (res.exit_code, "app:1[/x]" in res.output) == (0, True)
+
+
+def test_docker_push_server_error_prints_daemon_explanation(docker_engine: Any) -> None:
+    """A 500 APIError prints the daemon explanation as plain text and exits 1 (#1108)."""
+    from http import HTTPStatus
+
+    from docker.errors import APIError
+
+    mock_resp = MagicMock(status_code=HTTPStatus.INTERNAL_SERVER_ERROR)
+    mock_client = MagicMock()
+    mock_client.images.push.side_effect = APIError(
+        "internal error", response=mock_resp, explanation="server crashed"
+    )
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", "registry/app:1"])
+
+    assert (res.exit_code, "server crashed" in res.output) == (1, True)
+
+
+def test_docker_push_invalid_repository_prints_error_and_exits_1(docker_engine: Any) -> None:
+    """InvalidRepository error from docker-py prints invalid-name error and exits 1 (#1108)."""
+    from docker.errors import InvalidRepository
+
+    mock_client = MagicMock()
+    mock_client.images.push.side_effect = InvalidRepository("invalid repo name")
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", "--", "-reg.example.com/app:1"])
+
+    assert (
+        res.exit_code,
+        "Invalid Docker image name format" in res.output,
+        "invalid repo name" in res.output,
+    ) == (1, True, True)
