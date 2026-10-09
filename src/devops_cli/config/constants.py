@@ -209,9 +209,9 @@ CONST_JSON_SCHEMA_BOUND_PHRASES: Final[dict[str, str]] = {
 # An undeclared parameter's name is the caller's own text, so a refusal echoes only a masked
 # prefix of it this long.
 CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
-# FastMCP logs a refused call's pydantic errors here, and each error carries the rejected value,
-# which the log keeps as this placeholder instead.
-CONST_FASTMCP_SERVER_LOGGER: Final[str] = "fastmcp.server.server"
+# FastMCP logs each tool call's and prompt request's arguments at DEBUG on this logger, and the
+# log keeps CONST_REDACTED_LOG_VALUE in their place (#899).
+CONST_FASTMCP_OPERATIONS_LOGGER: Final[str] = "fastmcp.server.mixins.mcp_operations"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
 # HTML chrome and non-content tags decomposed during untrusted page rendering (#896).
 CONST_WEB_FETCH_CHROME_TAGS: Final[frozenset[str]] = frozenset(
