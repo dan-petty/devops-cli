@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.32] - 2026-10-09
+
+### Added
+- Pull requests show changed-line coverage against their base branch (diff-cover), plus any added `pragma: no cover` lines, in the Tests & Coverage job summary. The report is advisory and sets no coverage threshold (#850).
+- pytest-randomly 5.0.0 joins the dev dependency group. `addopts` blocks it with `-p no:randomly`, so `pytest`, `devops ci` and every other run keep file order, and `uv run pytest --co -q` collects the same order as before (#852).
+- `devops ci test --repeat N --seed S` runs the selected test files N times, one run after another on one process (`-n 0`), each shuffled by pytest-randomly with seeds S to S+N-1. S defaults to a seed derived from HEAD's commit hash. The first failing run stops the command and prints its seed with the command that reproduces it. `--repeat` refuses a run that no test file narrows, since shuffling the whole suite waits for thread-leak isolation (#852).
+- The advisory **Changed-Test Independence** pull-request job in `ci.yml` runs `devops ci test --repeat 3` over the pull request's added or modified test files, and skips its toolchain and test steps when no test file changed (#852).
+- `devops ci mutate [PATHS] [--changed] [--base REF]` mutation-tests functions with mutmut 3.8 on demand (#853). With `--changed` it maps the functions the working tree changed since its merge base with `--base` (default `main`), untracked files git does not ignore included, to mutmut's names, and a `--base` naming no commit is an error; PATHS alone select every function in those files. mutmut runs the tests covering each function in its own process, with xdist off, and the command shows each mutant no test killed, with its diff, then the killed, survived, timeout and no-tests counts. It prints no score, exits 0 whatever survives, and is neither a `devops ci` stage nor a `ci.yml` step. The first run mutates the whole source tree into the git-ignored `mutants/` and runs the test suite once, serially; later runs reuse it, and `rm -rf mutants` resets it.
+- An architectural invariant fails on any `# pragma: no mutate` under `src`, so no line exempts itself from mutation (#853).
+
+### Changed
+- The settings parser refuses scheme-less URLs for `argocd.url`, `grafana.url`, `ai.ollama_urls`, and `OLLAMA_BASE_URL` with a prescriptive `ConfigurationError` instead of prefixing `http://`.
+- The network probe refuses targets lacking a host name or carrying invalid ports with a `ValidationError`.
+- The embedding benchmark refuses unrecognised endpoints under a gateway provider, requiring `--provider` to benchmark external endpoints.
+- Sandbox whitelist parsing refuses entries containing empty port suffixes (`example.com:`, `example.com:/path`).
+- Failed repository clones wrap `gitlib.GitCommandError` into `GitOperationError` and report masked stderr from git and OpenSSH without exposing credentials.
+- Pinned GitHub host keys are seeded across all clone operations, including HTTPS clones.
+- The release no longer pins, bumps or pre-publishes the Service image's tag; Argo CD Image Updater rolls the Service onto `service:latest` (#1486). A release pull request's CI now builds, smoke-tests and scans the Service image without pushing it. On the merge to `main`, `release.yml` builds the image, scans it, pushes it by digest and attests its provenance, then tags it `vX.Y.Z` and `latest`, and Image Updater moves Application `devops` onto the new digest within one poll, with no git commit.
+
+### Removed
+- In-process `known_hosts` parser and runtime `ssh-keyscan` invocation, delegating host key validation to OpenSSH.
+- The release cut's bump of the Service image's `newTag` and its rewrite of the Argo CD git sources' `targetRevision` (#1486).
+- `devops release check`'s checks of the Service image pin and of the Argo CD `targetRevision`s (#1486).
+- The `images:` pin in `k8s/devops/kustomization.yaml` (#1486).
+- Service image publishing from `release/vX.Y.Z` in `release.yml`, with its publication plan and the step that pointed `latest` at an image the release branch published (#1486).
+
+### Fixed
+- The `devops review` command tests no longer start the Logfire SDK's token-check thread, which printed the "Logfire API is unreachable" warning on every run and made the dry-run socket-recorder test flaky. The tests read the per-test config instead of a `MagicMock` settings object, and a background thread that dies with an exception now fails the test run (#965).
+- The ollama tier DaemonSets no longer run ollama as root: every tier runs it as UID and GID 10001 with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem, with `/tmp` on an emptyDir (#1060). `HOME` is `/home/ollama`, so the key and models stay on the hostPath `/var/lib/ollama` and nothing is downloaded again. A root initContainer, `own-model-directory`, holding `CAP_CHOWN` alone, gives that directory to UID 10001 at every start, because `fsGroup` does not apply to hostPath volumes; it is the one `run-as-non-root` exception kube-linter reports, recorded in the manifest and `k8s/README.md`. `test_every_ollama_tier_runs_unprivileged` pins these settings for all 9 tiers.
+- Kubernetes service, node, LoadBalancer, and telemetry collector URL builders bracket IPv6 host addresses using `httpx2.URL`, preventing URL parser failures.
+- `configure-urls` handles IPv6 cluster endpoints and falls back safely to loopback when endpoints are unreachable, including port-80 LoadBalancers.
+- Kubernetes Service proxy addressing validates namespace, service, and port identifiers and refuses dot segments (`..`, `.`, `%2e%2e`), preventing path traversal and credential leakage beyond the Service boundary.
+- Target resolution for Kubernetes API proxies preserves server path prefixes, raw URI encodings, and cleanly separates connection base URLs and path prefixes.
+- Sandbox network probe targets using `https://` are probed over HTTPS with paths appended via `append_path`, preserving path queries and IPv6 bracketing.
+- URL, endpoint, and authority reads across benchmark runners, docs ingester, telemetry exporters, vulnerability lookups, and pricing now use sending client parsers (`httpx2.URL` and `read_url_or_authority`), preventing scheme sniffing and port mismatch bugs.
+- Benchmark key trust boundaries compare canonical URL origins through `httpx2.Origin`, preventing trust boundary leaks and ensuring consistent host evaluation.
+- The documentation crawler normalizes link resolution and origin checks using `httpx2.URL.origin`, preventing scheme downgrades and SSRF boundary escapes.
+- OTLP telemetry client preserves explicit collector schemes and endpoints, preventing invalid gRPC port conversions and TLS configuration errors.
+- Vault broker URI parsing respects scheme case-insensitivity and preserves fragment separation.
+- Prometheus keeps every series node-exporter serves (no allow list; its collector flags decide what is collected), so Node Exporter Full and the Kubernetes node dashboard show data again (#1129).
+- The `alloy-singleton` collector runs as one Deployment pod through the chart's `singleton` preset instead of a DaemonSet per node, so Kubernetes events are watched and shipped once (#1129).
+- Alloy writes the cluster name to Prometheus once, as `cluster`, without the duplicate `k8s_cluster_name` label (#1129).
+- `kube_hpa_labels` is removed from the kube-state-metrics allow list, since kube-state-metrics v2 never serves it (#1129).
+- CI jobs name their runner image, `ubuntu-24.04`, instead of `ubuntu-latest`, and uv in `ci.yml` and `release.yml` uses only its own CPython builds (`UV_MANAGED_PYTHON`). GitHub moves `ubuntu-latest` to Ubuntu 26.04 from 2026-10-19, where uv would have used the image's own Python 3.14 instead of the 3.14.7 that `.python-version` pins. The move to `ubuntu-26.04` waits for the workflow linter to accept the label (#1501) (#1494).
+- CI's and the release's Service image scans run Trivy 0.75.0, the version `tools.lock` pins for `devops install-tools`, instead of 0.70.0, and a workflow contract test fails whenever an `aquasecurity/trivy-action` step's `version` differs from the lock (#1499).
+
+### Security
+- The host sandbox no longer declares a noexec `/tmp` that bubblewrap never applied (#798). Bubblewrap has no noexec option for a tmpfs, so the host policy now declares only the 64 MiB size, and the container sandboxes keep their `size=64m,noexec` policy. A host sandbox whose policy declares a tmpfs option bubblewrap cannot apply, such as `noexec` or `size=50%`, now fails at construction with an error naming the option, instead of dropping it. SECURITY.md now says that the host sandbox's `/tmp` allows execution.
+- The output-cap test now runs a writer that ignores SIGPIPE and checks that the sandbox kills it at the cap within 1 s, well before its timeout (#798).
+- GitHub clones append GitHub's published host keys directly to `~/.ssh/known_hosts`, ensuring junk known_hosts lines no longer skip pinning and failed keyscans no longer skip host-key verification silently.
+
 ## [0.2.31] - 2026-10-09
 
 ### Added
