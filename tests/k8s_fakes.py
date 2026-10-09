@@ -9,7 +9,19 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from kubernetes import client  # type: ignore[import-untyped]
+
+class _LazyKubernetesClient:
+    """Lazily load kubernetes.client so importing test fixtures does not cost ~600ms."""
+
+    def __getattr__(self, name: str) -> Any:
+        from kubernetes import client as k8s_client
+
+        val = getattr(k8s_client, name)
+        globals()["client"] = k8s_client
+        return val
+
+
+client: Any = _LazyKubernetesClient()
 
 NOW = datetime.datetime(2026, 10, 1, 12, 0, tzinfo=datetime.UTC)
 

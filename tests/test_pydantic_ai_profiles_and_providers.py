@@ -46,13 +46,6 @@ from devops_cli.ai.providers import (
 from devops_cli.ai.providers import (
     BaseLLMProvider,
     CopilotProvider,
-    NativeAnthropicProvider,
-    NativeDeepSeekProvider,
-    NativeGoogleProvider,
-    NativeOllamaProvider,
-    NativeOpenAIProvider,
-    NativeOpenRouterProvider,
-    Provider,
     create_pydantic_ai_provider,
     get_provider,
     infer_provider,
@@ -193,20 +186,42 @@ class TestPydanticAIProviders:
 
     def test_native_provider_classes_and_subclasses(self) -> None:
         """Verify native Provider ABC and concrete provider classes."""
-        assert issubclass(NativeOllamaProvider, Provider)
-        assert issubclass(NativeOpenAIProvider, Provider)
-        assert issubclass(NativeAnthropicProvider, Provider)
-        assert issubclass(NativeGoogleProvider, Provider)
-        assert issubclass(NativeDeepSeekProvider, Provider)
-        assert issubclass(NativeOpenRouterProvider, Provider)
+        from devops_cli.ai.providers import (
+            NativeAnthropicProvider,
+            NativeDeepSeekProvider,
+            NativeGoogleProvider,
+            NativeOllamaProvider,
+            NativeOpenAIProvider,
+            NativeOpenRouterProvider,
+            Provider,
+        )
+
+        assert (
+            issubclass(NativeOllamaProvider, Provider),
+            issubclass(NativeOpenAIProvider, Provider),
+            issubclass(NativeAnthropicProvider, Provider),
+            issubclass(NativeGoogleProvider, Provider),
+            issubclass(NativeDeepSeekProvider, Provider),
+            issubclass(NativeOpenRouterProvider, Provider),
+        ) == (True, True, True, True, True, True)
 
     def test_infer_provider_and_class(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify infer_provider_class and infer_provider work natively."""
-        assert infer_provider_class("ollama") is NativeOllamaProvider
-        assert infer_provider_class("openai") is NativeOpenAIProvider
-        assert infer_provider_class("anthropic") is NativeAnthropicProvider
-        assert infer_provider_class("google") is NativeGoogleProvider
-        assert infer_provider_class("deepseek") is NativeDeepSeekProvider
+        from devops_cli.ai.providers import (
+            NativeAnthropicProvider,
+            NativeDeepSeekProvider,
+            NativeGoogleProvider,
+            NativeOllamaProvider,
+            NativeOpenAIProvider,
+        )
+
+        assert (
+            infer_provider_class("ollama") is NativeOllamaProvider,
+            infer_provider_class("openai") is NativeOpenAIProvider,
+            infer_provider_class("anthropic") is NativeAnthropicProvider,
+            infer_provider_class("google") is NativeGoogleProvider,
+            infer_provider_class("deepseek") is NativeDeepSeekProvider,
+        ) == (True, True, True, True, True)
 
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
         ollama_inst = infer_provider("ollama")
@@ -215,15 +230,25 @@ class TestPydanticAIProviders:
     @pytest.mark.usefixtures("public_dns")
     def test_create_pydantic_ai_provider_factory(self) -> None:
         """Test unified create_pydantic_ai_provider factory."""
+        from devops_cli.ai.providers import (
+            NativeAnthropicProvider,
+            NativeOllamaProvider,
+            NativeOpenAIProvider,
+        )
+
         ollama_p = create_pydantic_ai_provider("ollama", base_url="http://localhost:11434")
-        assert isinstance(ollama_p, NativeOllamaProvider)
-        assert ollama_p.base_url == "http://localhost:11434"
+        assert (isinstance(ollama_p, NativeOllamaProvider), ollama_p.base_url) == (
+            True,
+            "http://localhost:11434",
+        )
 
         openai_p = create_pydantic_ai_provider(
             "openai", api_key="sk-test-key", base_url="https://api.openai.com/v1"
         )
-        assert isinstance(openai_p, NativeOpenAIProvider)
-        assert str(openai_p.base_url).rstrip("/") == "https://api.openai.com/v1"
+        assert (
+            isinstance(openai_p, NativeOpenAIProvider),
+            str(openai_p.base_url).rstrip("/"),
+        ) == (True, "https://api.openai.com/v1")
 
         anthropic_p = create_pydantic_ai_provider("anthropic", api_key="sk-ant-test")
         assert isinstance(anthropic_p, NativeAnthropicProvider)

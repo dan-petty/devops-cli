@@ -18,7 +18,6 @@ from typing import Any, cast
 import httpx
 import httpx2
 import pytest
-from qdrant_client import QdrantClient as NativeQdrantClient
 
 from devops_cli.ai.rag import embeddings as embeddings_module
 from devops_cli.ai.rag import qdrant as qdrant_module
@@ -388,6 +387,8 @@ def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(
             raise failures.pop(0)("transport failed", request=request)
         point = {"id": 7, "version": 0, "score": 0.9, "payload": {"file_path": "a.py"}}
         return httpx.Response(200, json={"result": {"points": [point]}, "status": "ok", "time": 0})
+
+    from qdrant_client import QdrantClient as NativeQdrantClient
 
     monkeypatch.setattr(
         qdrant_module,

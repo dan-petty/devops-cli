@@ -25,8 +25,9 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.memory import AgentMemory
-from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, Tool, ToolCall
+from devops_cli.ai.agents.tools import AgentTool, Tool, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.review_schema import extract_json_block
