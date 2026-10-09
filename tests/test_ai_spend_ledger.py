@@ -254,7 +254,7 @@ def test_spend_ledger_record_and_aggregate_by_stage(tmp_path: Path) -> None:
         prompt_tokens=300,
         completion_tokens=50,
         cost_usd=0.0001,
-        stage="review.verification",
+        stage="compose",
     )
     ledger.record_request(
         provider="ollama",
@@ -273,8 +273,8 @@ def test_spend_ledger_record_and_aggregate_by_stage(tmp_path: Path) -> None:
         len(report.stages),
         stages["review.file_review"].request_count,
         stages["review.file_review"].total_tokens,
-        stages["review.verification"].request_count,
-        stages["review.verification"].total_tokens,
+        stages["compose"].request_count,
+        stages["compose"].total_tokens,
         stages["unattributed"].request_count,
         stages["unattributed"].total_tokens,
     ) == (
@@ -329,18 +329,18 @@ def test_ai_config_task_name_via_for_task() -> None:
 
     base_config = AIConfig()
     chat_config = base_config.for_task("chat")
-    verification_config = base_config.for_task("verification")
+    compose_config = base_config.for_task("compose")
     unknown_config = base_config.for_task("unregistered_stage_or_task")
 
     assert (
         base_config.task_name,
         chat_config.task_name,
-        verification_config.task_name,
+        compose_config.task_name,
         unknown_config.task_name,
     ) == (
         None,
         "chat",
-        "verification",
+        "compose",
         None,
     )
 

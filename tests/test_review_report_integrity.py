@@ -9,7 +9,6 @@ literal that said "0 critical findings" while three analyzers had failed.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -17,9 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review.verification import _apply_single_finding_verification
 from devops_cli.ai.review_schema import (
-    FileReviewPayload,
     Finding,
     SavedFinding,
     sort_findings,
@@ -148,19 +145,13 @@ def test_an_unverified_advisory_never_reaches_the_headline(tmp_path: Path) -> No
     ) == (False, False, False, [], True)
 
 
-def test_counts_are_split_by_status_with_unavailable_and_mitigated_apart(tmp_path: Path) -> None:
-    """Verify the headline counts VERIFIED and UNVERIFIED findings apart, and lists the findings
-    verification never reached and the MITIGATED ones on their own, each with its severities."""
+def test_counts_are_split_by_status_with_mitigated_apart(tmp_path: Path) -> None:
+    """Verify the headline counts VERIFIED and UNVERIFIED findings apart, and lists the MITIGATED
+    ones on their own, each with its severities."""
     findings = [
         _verified(title="Verified high", location="a.py:1", severity="HIGH"),
         _verified(title="Verified medium", location="b.py:1", severity="MEDIUM"),
         SavedFinding(title="Unverified low", location="c.py:1", severity="LOW"),
-        SavedFinding(
-            title="Never reached",
-            location="d.py:1",
-            severity="HIGH",
-            verification_note="verification-unavailable: TimeoutError",
-        ),
         SavedFinding(
             title="Mitigated critical",
             location="e.py:1",
@@ -178,10 +169,9 @@ def test_counts_are_split_by_status_with_unavailable_and_mitigated_apart(tmp_pat
     assert (
         "2 verified (1 High, 1 Medium)" in summary,
         "1 unverified (1 Low)" in summary,
-        "1 not verified because verification was unavailable (1 High)" in summary,
         "1 mitigated (1 Critical)" in summary,
         "(1 Critical, 2 High" in summary,
-    ) == (True, True, True, True, False)
+    ) == (True, True, True, False)
 
 
 @pytest.fixture
@@ -234,78 +224,6 @@ def test_the_analyzer_line_comes_from_the_scan(tmp_path: Path) -> None:
         "**Static Security Analysis**: 1 analyzer(s) ran (Bandit). Static analyzers reported "
         "1 critical finding(s). Built-in patterns only: Gitleaks. Failed: Semgrep." in summary,
     ) == (False, True)
-
-
-def test_the_verifier_may_only_lower_a_severity() -> None:
-    """Verify a verdict that raises a severity leaves it, and one that lowers it keeps the
-    persona's value as `severity_raw`."""
-    raised = _apply_single_finding_verification(
-        Finding(title="Unbounded read of the upload body", location="app.py:3", severity="MEDIUM"),
-        {"verified": True, "severity": "CRITICAL", "reason": "The body is read whole."},
-        _NOW,
-    )
-    lowered = _apply_single_finding_verification(
-        Finding(title="Token printed on failure", location="app.py:9", severity="HIGH"),
-        {"verified": True, "severity": "LOW", "reason": "Only a prefix is printed."},
-        _NOW,
-    )
-
-    assert (
-        (raised.severity, raised.severity_raw),
-        (lowered.severity, lowered.severity_raw),
-    ) == (("MEDIUM", None), ("LOW", "HIGH"))
-
-
-def test_a_lowered_severity_reaches_the_reviewed_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify the pipeline keeps the severity the verifier lowered; its copy-back dropped it."""
-    monkeypatch.setattr("devops_cli.ai.review.pipeline._collect_linked_snippets", lambda *_: [])
-    monkeypatch.setattr(
-        "devops_cli.ai.review.verification._collect_rag_verification_blocks", lambda _: []
-    )
-    (tmp_path / "app.py").write_text("token = read()\nprint(token[:4])\n", encoding="utf-8")
-    verifier = MagicMock()
-    verifier.chat.return_value = json.dumps(
-        [{"finding_id": 1, "verified": True, "severity": "LOW", "reason": "Prints a prefix."}]
-    )
-    payload = FileReviewPayload(
-        file_path="app.py",
-        findings=[SavedFinding(title="Token printed", location="app.py:2", severity="HIGH")],
-    )
-    _orchestrator(tmp_path, verification_client=verifier)._verify_single_file_payload(
-        1, 1, payload, "server"
-    )
-
-    [finding] = payload.findings
-    assert (finding.status, finding.severity, finding.severity_raw) == ("VERIFIED", "LOW", "HIGH")
-
-
-def test_the_report_calibrates_severities_before_it_writes_them(tmp_path: Path) -> None:
-    """Verify findings.json and candidates.json carry the calibrated severity and the raw one:
-    an UNVERIFIED CRITICAL is HIGH at most, and a finding in a test is LOW at most."""
-    orchestrator = _orchestrator(tmp_path)
-    payload = FileReviewPayload(
-        file_path="app.py",
-        findings=[
-            SavedFinding(title="Shell injection in run", location="app.py:4", severity="CRITICAL"),
-            _verified(
-                title="Assertion compares a value with itself",
-                location="tests/test_app.py:8",
-                severity="HIGH",
-            ),
-        ],
-    )
-    orchestrator.generate_consolidated_report([payload])
-
-    written = [
-        sorted(
-            (f["severity"], f["severity_raw"])
-            for f in json.loads((orchestrator.session_dir / name).read_text())["findings"]
-        )
-        for name in ("findings.json", "candidates.json")
-    ]
-    assert written == [[("HIGH", "CRITICAL"), ("LOW", "HIGH")]] * 2
 
 
 def test_the_terminal_summary_counts_by_status_too(
@@ -363,33 +281,3 @@ def test_the_headline_names_the_first_three_recurring_classes(tmp_path: Path) ->
         in headline,
         "**Race condition**: 2 verified finding(s)" in bad_patterns,
     ) == (True, True)
-
-
-def test_a_checkout_under_a_tests_directory_is_not_a_test(tmp_path: Path) -> None:
-    """Verify the test cap reads a scanner's absolute path from the repository root: a checkout
-    under a directory named `tests` made every finding a test finding, capped at LOW."""
-    root = tmp_path / "tests" / "myrepo"
-    (root / ".git").mkdir(parents=True)
-    orchestrator = _orchestrator(root)
-    payload = FileReviewPayload(
-        file_path="src/app.py",
-        findings=[
-            _verified(
-                title="[B602] subprocess call with shell=True identified, security issue.",
-                location=f"{root}/src/app.py:12",
-                severity="HIGH",
-            ),
-            _verified(
-                title="Mock hides a failed upload",
-                location=f"{root}/tests/test_app.py:3",
-                severity="HIGH",
-            ),
-        ],
-    )
-    orchestrator.generate_consolidated_report([payload])
-
-    written = json.loads((orchestrator.session_dir / "findings.json").read_text())["findings"]
-    assert sorted((f["location"].removeprefix(f"{root}/"), f["severity"]) for f in written) == [
-        ("src/app.py:12", "HIGH"),
-        ("tests/test_app.py:3", "LOW"),
-    ]

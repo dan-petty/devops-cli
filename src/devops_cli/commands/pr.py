@@ -1417,20 +1417,23 @@ def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead
 
 
 def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
-    """Warn if PR changed files intersect with the mitigated findings perimeter ledger."""
-    try:
-        from devops_cli.ai.review.mitigations import (
-            find_perimeter_changes,
-            format_perimeter_warning,
-        )
+    """Warn when the PR changes a file a review.toml suppression of this repository covers."""
+    from devops_cli.ai.review.path_classes import load_review_config
+    from devops_cli.core.repo import find_repo_root
+    from devops_cli.review.suppression import (
+        covering_suppressions,
+        format_covering_suppressions,
+        load_review_suppressions,
+    )
 
-        if not changed.files:
-            return
-        matches = find_perimeter_changes([entry.filename for entry in changed.files])
-        if matches:
-            print_warning(format_perimeter_warning(matches))
-    except Exception as exc:
-        logger.debug("Failed checking PR perimeter changes: %s", exc)
+    if not changed.files:
+        return
+    config = load_review_config(repo_root=find_repo_root())
+    covering = covering_suppressions(
+        [entry.filename for entry in changed.files], load_review_suppressions(config)
+    )
+    if covering:
+        print_warning(format_covering_suppressions(covering))
 
 
 def _repo_full_name(side: dict[str, Any]) -> str:

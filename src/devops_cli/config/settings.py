@@ -448,9 +448,6 @@ class AITasksConfig(BaseModel):
     chat: AITaskOverride = AITaskOverride()
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
-    # Review verification: layered on `analysis`, so only what differs needs setting. Unset,
-    # reviews verify with the analysis model.
-    verification: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
     embedding: AITaskOverride = Field(
         default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
@@ -488,7 +485,7 @@ class AIConfig(BaseModel):
         description=(
             "Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one "
             f"task's. Unset, a request waits {DEFAULT_HTTP_TIMEOUT_SECONDS:g} s, and a review's "
-            f"analysis, verification and compose requests {DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
+            f"analysis and compose requests {DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
         ),
     )
     tasks: AITasksConfig = AITasksConfig()

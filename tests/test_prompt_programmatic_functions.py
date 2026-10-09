@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from devops_cli.ai.review.verification import (
-    _apply_single_finding_verification,
-    _deterministic_pre_verification,
-)
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
@@ -197,65 +191,3 @@ class TestRecommendationDerivation:
 
 class TestPreservationOfValidFindings:
     """Verify that heuristic checks do not invalidate valid findings or validate invalid findings."""
-
-    def test_valid_findings_in_test_files_are_not_invalidated(self, tmp_path: Path) -> None:
-        """Genuine secret leak or vulnerability in test code must NOT be heuristically invalidated."""
-        tests_dir = tmp_path / "tests"
-        tests_dir.mkdir()
-        test_file = tests_dir / "test_api.py"
-        test_file.write_text('REAL_AWS_SECRET = "AKIAIOSFODNN7EXAMPLE"\n', encoding="utf-8")
-
-        f = Finding(
-            severity="CRITICAL",
-            location=f"tests/{test_file.name}:1",
-            title="Hardcoded AWS Secret Key leaked in test file",
-            description="Actual production secret committed to repository.",
-        )
-        res = _deterministic_pre_verification(f, repo_root=tmp_path)
-        assert res.status != "INVALIDATED"
-        assert res.status == "UNVERIFIED"
-
-    def test_valid_findings_in_kustomizations_are_not_invalidated(self, tmp_path: Path) -> None:
-        """Namespace misconfiguration in kustomization must NOT be heuristically invalidated."""
-        k8s_dir = tmp_path / "k8s"
-        k8s_dir.mkdir()
-        kust_file = k8s_dir / "kustomization.yaml"
-        kust_file.write_text("namespace: invalid-prod-namespace\n", encoding="utf-8")
-
-        f = Finding(
-            severity="HIGH",
-            location=f"k8s/{kust_file.name}:1",
-            title="Invalid namespace declaration in Kustomization",
-            description="The specified namespace violates cluster naming policy.",
-        )
-        res = _deterministic_pre_verification(f, repo_root=tmp_path)
-        assert res.status != "INVALIDATED"
-
-    def test_valid_findings_in_terraform_outputs_are_not_invalidated(self, tmp_path: Path) -> None:
-        """Command injection in outputs.tf must NOT be heuristically invalidated."""
-        tf_file = tmp_path / "outputs.tf"
-        tf_file.write_text(
-            'output "exec" {\n  value = "sh -c \'${var.user_input}\'"\n}\n',
-            encoding="utf-8",
-        )
-        f = Finding(
-            severity="CRITICAL",
-            location=f"{tf_file.name}:2",
-            title="Command injection in Terraform output expression",
-            description="Unsanitized user variable interpolated into shell execution.",
-        )
-        res = _deterministic_pre_verification(f, repo_root=tmp_path)
-        assert res.status != "INVALIDATED"
-
-    def test_unverified_finding_does_not_default_to_verified(self) -> None:
-        """Verification payload omitting 'verified' must NOT default to VERIFIED."""
-        f = Finding(
-            severity="HIGH",
-            location="src/app.py:10",
-            title="Unchecked input",
-            description="Missing validation",
-        )
-        # LLM returns empty dictionary or omits 'verified'. The finding is neither confirmed
-        # nor refuted, so it stays unverified and reported, as with no verdict at all (#513).
-        updated = _apply_single_finding_verification(f, {}, now_iso="2026-09-03T00:00:00Z")
-        assert (updated.verified, updated.status, updated.reportable) == (False, "UNVERIFIED", True)

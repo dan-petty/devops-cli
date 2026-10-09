@@ -32,11 +32,11 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
 - **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `{% raw %}${{ secrets.* }}{% endraw %}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
-- **Mitigation**: Use `devops ai review verify <session> --index <n> --status INVALIDATED --reason "..."`, with the number `devops ai review findings` shows, to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
+- **Mitigation**: A person records the verdict with `devops ai review verify <session> --index <n> --status INVALIDATED --reason "..."`, with the number `devops ai review findings` shows; it labels that session and nothing else, since there is no learned catalog. A false positive that recurs becomes a `[[suppressions]]` entry in `.devops/review.toml` with a rule, a path, a reason and an expiry, or a change to the tool's configuration or the prompt that let it through. `devops ai review export-feedback` appends the verdicts to `.data/feedback_dataset.jsonl`.
 
 ### 8. Python 3.14 PEP 758 Multi-Exception Syntax & Pydantic Mutable Default Invariants
 - **Context**: Under Python 3.14+ (PEP 758), `except` and `except*` expressions allow brackets to be omitted when catching multiple exceptions without an `as` clause (e.g., `except Err1, Err2:`), which modern formatters like Ruff format by default. LLM reviewers frequently hallucinate that bracketless multi-exception syntax is legacy Python 2 or a syntax error. Additionally, Pydantic models must use `Field(default_factory=list|dict)` rather than mutable collections (`[]`, `{}`) for field defaults.
-- **Mitigation**: Deterministic syntax verification (`_check_syntax_error_hallucination`) and common hallucination scrutiny recognize PEP 758 syntax as fully valid Python 3.14+ grammar and invalidate false syntax claims. Pydantic models enforce `Field(default_factory=...)`.
+- **Mitigation**: The tools that parse Python run at the project's own version and accept PEP 758 syntax as valid Python 3.14+ grammar (#873, #1143); a persona's claim otherwise stays unverified until a person judges it. Pydantic models enforce `Field(default_factory=...)`.
 
 ---
 
@@ -50,5 +50,5 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **4. Optional SDK Dependencies** | Low (setup error) | Low | **Keep Env Guard**: `uv sync` ensures full SDK availability. |
 | **5. Local Workstation Design Policy** | Low (architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace bounds secure file access; SSH mounts serve local model. |
 | **6. GitHub SSH Host Key Pinning** | Low (OpenSSH enforces pinned keys natively) | Low | **Automated Pinning**: GitHub published keys are seeded to `~/.ssh/known_hosts` on clone. |
-| **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Verification Feedback**: Use `devops ai review verify` and `export-feedback` to tune prompts. |
+| **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Suppressions**: Record a recurring false positive as a `.devops/review.toml` suppression with a reason and an expiry. |
 | **8. Multi-Exception Syntax & Model Defaults** | Low (LLM hallucination on PEP 758) | Low | **PEP 758 Awareness**: Permit `except A, B:` without brackets in Python 3.14+; enforce `Field(default_factory=...)`. |

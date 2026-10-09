@@ -8,7 +8,7 @@ Compare raw LLM API endpoints and manual review scripts with the unified, multi-
 
 | Action / Goal | Original / Manual Workflow | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
-| **Review Target Path / Files** | Manual diff pasting into ChatGPT / Claude | `devops ai review path <path> [--all]` | 6-stage pipeline orchestrator, AST metadata extraction, Trivy/Bandit finding injection, criteria-based LLM verification, and threat reputation lookups. |
+| **Review Target Path / Files** | Manual diff pasting into ChatGPT / Claude | `devops ai review path <path> [--all]` | Staged pipeline orchestrator, AST metadata extraction, Trivy/Bandit finding admission, and threat reputation lookups; a persona's finding stays unverified until a person judges it. |
 | **Review Git Branch Diffs** | `git diff main...feat \| llm -s "review"` | `devops ai review branch <branch>` | Multi-persona analysis across `devsecops`, `architect`, `qa`, `auditor`, and `pm` with boundary tag prompt isolation. |
 | **Review GitHub PR** | Manual GitHub web UI inspection | `devops ai review pr <pr_number>` | Automatically downloads PR diffs, paginates large changes, checks CI status, and stages structured review reports in `.data/reviews/`. |
 | **Inspect Review Findings** | Manual JSON parsing | `devops ai review findings <session>` | Formatted terminal summary of findings sorted by severity and confidence score, filtering out invalidated false positives. |

@@ -12,14 +12,8 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from unittest.mock import MagicMock
-
-from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
     Finding,
-    ReviewResult,
     canonicalize_finding_location,
     sanitize_finding_text,
 )
@@ -82,60 +76,3 @@ def test_finding_clean_title_strips_scratchpad_markers() -> None:
         description="details",
     )
     assert "We need to review" not in f.title or len(f.title) <= 100
-
-
-def test_verification_index_alignment_with_pre_invalidated_findings(tmp_path: Path) -> None:
-    """Ensure LLM verification items align properly when earlier findings are deterministically invalidated."""
-    py_file = tmp_path / "valid.py"
-    py_file.write_text("def test():\n    return True\n", encoding="utf-8")
-
-    f1_hallucinated = Finding(
-        severity="CRITICAL",
-        location="valid.py:1-2",
-        title="SyntaxError: Invalid syntax in test",
-        description="Syntax error in test",
-    )
-    f2_real = Finding(
-        severity="HIGH",
-        location="valid.py:2",
-        title="Missing type annotations",
-        description="Return type is unannotated or test",
-    )
-
-    result = ReviewResult(findings=[f1_hallucinated, f2_real])
-
-    mock_client = MagicMock()
-    # Mock LLM verification output returning 1 element for the unresolved finding
-    # or returning an array matching unresolved findings
-    mock_client.chat.return_value = json.dumps(
-        [
-            {
-                # The verdict names the finding it describes. Position cannot: the
-                # response covers only the unresolved findings, so index 0 here is the
-                # second finding in the result, and binding by index put verdicts on
-                # the wrong findings.
-                "title": "Missing type annotations",
-                "location": "valid.py:2",
-                "verified": True,
-                "status": "VERIFIED",
-                "reportable": True,
-                "confidence_score": 0.95,
-                "reason": "Missing type annotation verified",
-            }
-        ]
-    )
-
-    validated_result, _, _ = _validate_segment_findings(
-        result=result,
-        all_segments=["def test():\n    return True\n"],
-        client=mock_client,
-        repo_root=tmp_path,
-    )
-
-    findings = validated_result.findings
-    assert len(findings) == 2
-    # First finding must be invalidated deterministically
-    assert findings[0].status == "INVALIDATED"
-    # Second finding must receive the LLM verification response
-    assert findings[1].status == "VERIFIED"
-    assert findings[1].reportable is True

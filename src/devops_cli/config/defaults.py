@@ -13,7 +13,6 @@ from devops_cli.config.constants import (
     CONST_CONFIG_DIR,
     CONST_DOCS_DIR_PATH,
     CONST_FEEDBACK_DATASET_NAME,
-    CONST_HALLUCINATIONS_FILE_NAME,
     CONST_INDEX_CACHE_FILENAME,
     CONST_LLM_CACHE_DIR_NAME,
     CONST_LOGS_DIR_NAME,
@@ -43,7 +42,6 @@ DEFAULT_RAG_DATA_DIR = DEFAULT_DATA_DIR / CONST_RAG_DIR_NAME
 DEFAULT_SAMPLES_DATA_DIR = DEFAULT_DATA_DIR / CONST_SAMPLES_DIR_NAME
 DEFAULT_RUNS_DATA_DIR = DEFAULT_DATA_DIR / CONST_RUNS_DIR_NAME
 DEFAULT_RAG_INDEX_CACHE_PATH = DEFAULT_RAG_DATA_DIR / CONST_INDEX_CACHE_FILENAME
-DEFAULT_HALLUCINATIONS_FILE_PATH = DEFAULT_DATA_DIR / CONST_HALLUCINATIONS_FILE_NAME
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR / "sandbox"
 DEFAULT_SANDBOX_INSTANCES_FILE = DEFAULT_SANDBOX_DATA_DIR / "instances.json"
 DEFAULT_SANDBOX_INCIDENTS_DIR = DEFAULT_SANDBOX_DATA_DIR / "incidents"
@@ -408,15 +406,11 @@ DEFAULT_REVIEW_PERSONA: str = "devsecops"
 DEFAULT_REVIEW_MAX_DIFF_CHARS: int = 128000
 # Smallest review page, so a tiny context window cannot split a diff into hundreds of calls.
 DEFAULT_REVIEW_MIN_DIFF_CHARS: int = 8000
-# Reply caps, so a runaway generation cannot stall a review: a persona's findings list, and a
-# verification verdict sized to the findings it covers (base plus a share per finding).
+# The reply cap of a persona's findings list, so a runaway generation cannot stall a review.
 DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS: int = 8192
-DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS: int = 2048
-DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING: int = 384
-DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS: int = 8192
 # Runs per review benchmark; findings vary between identical runs, so medians need several.
 DEFAULT_REVIEW_BENCHMARK_RUNS: int = 3
-# `.devops/review.md` is read in full up to this many characters, for personas and verifier.
+# `.devops/review.md` is read in full up to this many characters, for the personas.
 DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS: int = 8000
 # Seed for synthetic defect corpora; the same seed and files give the same injections.
 DEFAULT_REVIEW_CORPUS_SEED: int = 1
@@ -426,16 +420,7 @@ DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200
 DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH: int = 300
 # Recurring defect classes a review's headline names; the Key Bad Patterns section lists them all.
 DEFAULT_REVIEW_HEADLINE_THEMES: int = 3
-DEFAULT_LOCATION_CONTEXT_LINES: int = 12
-DEFAULT_DIFF_CONTEXT_LINES: int = 12
-DEFAULT_MAX_RELATED_FILES: int = 3
-DEFAULT_RELATED_FILE_MAX_CHARS: int = 1500
 DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS: Final[float] = 5.0
-# python and python3 criteria import the reviewed code, which takes most of their time. Replaying
-# the 1,115 python criteria that hit the 5 s limit in 14 saved review sessions through the sandbox,
-# with the repository's .venv first on PATH and four at a time, gave p50 6.2 s, p95 15.4 s and
-# p99 22.5 s; 99.6% finished within 30 s (#847).
-DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS: Final[float] = 30.0
 DEFAULT_CRITERIA_MAX_OUTPUT_BYTES: Final[int] = 4096
 DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
@@ -937,9 +922,6 @@ DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
 # very large values are different shapes of the same problem.
 DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS: int = 1000
 DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES: int = 8 * 1024 * 1024
-# Budget for the type-check probe that invalidates impossible None-dereference findings.
-# Bounded because it runs during verification, where a hung probe stalls the whole review.
-DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS: float = 120.0
 # How long the log consumer waits for a line before re-checking whether it should stop.
 # Short enough that quitting feels immediate on a silent stream.
 DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1
@@ -956,14 +938,9 @@ DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
 # short enough that an endpoint restarting does not leave the pool holding dead sockets.
 DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 
-# How many recorded false positives are shown to a persona before it reviews. The ledger
-# holds hundreds; the recurrence is concentrated in a handful, so the tail costs tokens on
-# every segment and prevents almost nothing.
-DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
-DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
-# The most lines of a finding's location a session records as its cited excerpt, and a person's
-# verdict hashes into the claim it suppresses (#950). A finding's range is a few lines; a model
-# that cites a whole file should not copy it into every session file and dataset record.
+# The most lines of a finding's location a session records as its cited excerpt (#950). A
+# finding's range is a few lines; a model that cites a whole file should not copy it into every
+# session file and dataset record.
 DEFAULT_CITED_EXCERPT_MAX_LINES: Final[int] = 40
 
 # How long a finished background command waits for its reader threads to bank the rest of

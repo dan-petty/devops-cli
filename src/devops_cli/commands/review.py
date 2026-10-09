@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -71,7 +70,6 @@ from devops_cli.ai.review.defects import (
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.ai.review.history import HistoryFinding, load_review_history
-from devops_cli.ai.review.judged_claims import project_of
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -113,7 +111,6 @@ from devops_cli.ai.review.template_sweep import (
     save_sweep_run,
     sweep_templates,
 )
-from devops_cli.ai.review.verdicts import Adjudicator
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
@@ -254,14 +251,6 @@ def path(
         bool,
         typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
     ] = False,
-    no_verification: Annotated[
-        bool,
-        typer.Option("--no-verification", help=HELP.review.no_verification),
-    ] = False,
-    verification_only: Annotated[
-        bool,
-        typer.Option("--verification-only", help=HELP.review.verification_only),
-    ] = False,
     no_reranking: Annotated[
         bool,
         typer.Option("--no-reranking", help=HELP.review.no_reranking),
@@ -327,8 +316,6 @@ def path(
         static_scan_only=static_scan_only,
         no_persona_review=no_persona_review,
         persona_review_only=persona_review_only,
-        no_verification=no_verification,
-        verification_only=verification_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
         no_reporting=no_reporting,
@@ -489,14 +476,6 @@ def branch(
         bool,
         typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
     ] = False,
-    no_verification: Annotated[
-        bool,
-        typer.Option("--no-verification", help=HELP.review.no_verification),
-    ] = False,
-    verification_only: Annotated[
-        bool,
-        typer.Option("--verification-only", help=HELP.review.verification_only),
-    ] = False,
     no_reranking: Annotated[
         bool,
         typer.Option("--no-reranking", help=HELP.review.no_reranking),
@@ -554,8 +533,6 @@ def branch(
         static_scan_only=static_scan_only,
         no_persona_review=no_persona_review,
         persona_review_only=persona_review_only,
-        no_verification=no_verification,
-        verification_only=verification_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
         no_reporting=no_reporting,
@@ -813,14 +790,6 @@ def pr(
         bool,
         typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
     ] = False,
-    no_verification: Annotated[
-        bool,
-        typer.Option("--no-verification", help=HELP.review.no_verification),
-    ] = False,
-    verification_only: Annotated[
-        bool,
-        typer.Option("--verification-only", help=HELP.review.verification_only),
-    ] = False,
     no_reranking: Annotated[
         bool,
         typer.Option("--no-reranking", help=HELP.review.no_reranking),
@@ -878,8 +847,6 @@ def pr(
         static_scan_only=static_scan_only,
         no_persona_review=no_persona_review,
         persona_review_only=persona_review_only,
-        no_verification=no_verification,
-        verification_only=verification_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
         no_reporting=no_reporting,
@@ -895,14 +862,10 @@ def pr(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    # The review reads the PR head's files, not the local checkout's version of them. The head
-    # is named after the checkout the review runs in, which its project resolves to, so the
-    # review is shown and suppresses the claims people judged there (#950).
+    # The review reads the PR head's files, not the local checkout's version of them.
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
-        head_dir = Path(head_parent) / project_of(Path.cwd())
-        # A review run from the file-system root names no project, and keeps the directory itself.
-        head_dir.mkdir(exist_ok=True)
+        head_dir = Path(head_parent)
         pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, head_dir=head_dir
         )
@@ -1161,7 +1124,7 @@ def _judge_reported(
 ) -> str:
     """Record the verdict on a finding in findings.json, named by number or title, and on the
     candidates in candidates.json it reports."""
-    with adjudicating(session_dir) as changes:
+    with adjudicating(session_dir):
         findings_file, payload = _read_session_file(session_dir, CONST_REVIEW_FINDINGS_FILENAME)
         _require_findings(payload)
         files = [(findings_file, payload)]
@@ -1174,20 +1137,20 @@ def _judge_reported(
         number = (
             index if index is not None else number_by_title(payload.findings, title_pattern or "")
         )
-        judge_reported(payload, candidates, number, verdict, changes)
+        judge_reported(payload, candidates, number, verdict)
         write_session_files(files)
     return MESSAGES.review.updated_finding_status.format(index=number, status=verdict.status)
 
 
 def _judge_candidate(session_dir: Path, number: int, verdict: Verdict) -> str:
     """Record the verdict on a candidate, moving it into findings.json when it is reported."""
-    with adjudicating(session_dir) as changes:
+    with adjudicating(session_dir):
         candidates_file, candidates = _read_session_file(
             session_dir, CONST_REVIEW_CANDIDATES_FILENAME
         )
         _require_findings(candidates)
         findings_file, reported = _read_session_file(session_dir, CONST_REVIEW_FINDINGS_FILENAME)
-        moved = judge_candidate(candidates, reported, number, verdict, changes)
+        moved = judge_candidate(candidates, reported, number, verdict)
         write_session_files([(candidates_file, candidates), (findings_file, reported)])
     done = MESSAGES.review.updated_candidate_status.format(index=number, status=verdict.status)
     if not moved:
@@ -1223,24 +1186,12 @@ def verify_finding(
         str,
         typer.Option("--status", help=HELP.review.status_target),
     ],
-    adjudicator: Annotated[
-        Adjudicator,
-        typer.Option("--adjudicator", help=HELP.review.adjudicator),
-    ] = Adjudicator.HUMAN,
     reason: Annotated[
         str,
         typer.Option("--reason", "-r", help=HELP.review.reason),
     ] = "",
-    perimeter: Annotated[
-        list[str] | None,
-        typer.Option("--perimeter", "-p", help=HELP.review.perimeter),
-    ] = None,
-    regression_test: Annotated[
-        str | None,
-        typer.Option("--regression-test", help=HELP.review.regression_test),
-    ] = None,
 ) -> None:
-    """Record a person's or an agent's verdict on a review finding or candidate.
+    """Record a person's verdict on a review finding or candidate.
 
     Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
     substring of exactly one title, and `--candidate` the number `review findings --candidates`
@@ -1253,14 +1204,9 @@ def verify_finding(
     reports another candidate of the same persona, title, location and description, give the
     verdict to the copy with `--index`. Verdicts given on one session at once take turns.
 
-    `--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
-    agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
-    person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
-    (INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
-    what the finding's earlier verdicts recorded there that it no longer stands behind: the
-    catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
-    claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
-    stays, and one nothing else recorded is removed.
+    The verdict is a label on the session's files and ranks review history; later reviews do not
+    learn from it. To stop a false positive coming back, add a `[[suppressions]]` entry with a
+    reason and an expiry to `.devops/review.toml`.
     """
     new_status = status.upper().strip()
     if new_status not in _VERDICT_STATUSES:
@@ -1271,7 +1217,7 @@ def verify_finding(
         raise typer.Exit(1)
 
     session_dir = _require_session_dir(session or session_opt)
-    verdict = Verdict(new_status, adjudicator, reason, tuple(perimeter or ()), regression_test)
+    verdict = Verdict(new_status, reason)
     try:
         done = (
             _judge_candidate(session_dir, candidate, verdict)
@@ -2572,83 +2518,6 @@ def templates_check(
 
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_success("Defect template well-formedness sweep passed across all evaluated samples.")
-
-
-hallucinations_app = new_typer(help=HELP.review.hallucinations, no_args_is_help=True)
-app.add_typer(hallucinations_app, name="hallucinations")
-
-
-@hallucinations_app.command("list")
-def hallucinations_list(
-    learned_only: Annotated[
-        bool,
-        typer.Option("--learned", help=HELP.review.hallucinations_learned_only),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> None:
-    """List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."""
-    from devops_cli.ai.review.common_hallucinations import load_common_hallucinations
-
-    entries = load_common_hallucinations(include_builtin=not learned_only)
-    entries.sort(key=lambda e: (e.source == "builtin", -e.occurrence_count, e.id))
-    if json_output:
-        write_stdout(json.dumps([e.model_dump(mode="json") for e in entries], indent=2) + "\n")
-        return
-    print_table(
-        title=f"Hallucinations Catalog ({len(entries)} entries)",
-        columns=[
-            ("Id", "cyan"),
-            ("Source", ""),
-            ("Category", ""),
-            ("Seen", "right"),
-            ("Last Seen", "dim"),
-            ("Name", ""),
-        ],
-        rows=[
-            [
-                e.id,
-                e.source,
-                str(e.category),
-                str(e.occurrence_count),
-                e.last_seen[:10],
-                escape_text(e.name[:70]),
-            ]
-            for e in entries
-        ],
-    )
-
-
-@hallucinations_app.command("remove")
-def hallucinations_remove(
-    ids: Annotated[
-        list[str] | None,
-        typer.Argument(help=HELP.review.hallucination_ids),
-    ] = None,
-    all_learned: Annotated[
-        bool,
-        typer.Option("--all-learned", help=HELP.review.hallucinations_all_learned),
-    ] = False,
-) -> None:
-    """Remove learned catalog entries; builtin entries cannot be removed."""
-    from devops_cli.ai.review.common_hallucinations import (
-        _builtin_ids,
-        remove_learned_hallucinations,
-    )
-
-    if not ids and not all_learned:
-        print_error("Name the learned entries to remove, or pass --all-learned.")
-        raise typer.Exit(1)
-    if builtin := sorted(set(ids or ()) & _builtin_ids()):
-        print_error(f"Builtin entries ship with the tool and cannot be removed: {builtin}")
-        raise typer.Exit(1)
-    removed = remove_learned_hallucinations(None if all_learned else ids)
-    missing = sorted(set(ids or ()) - set(removed))
-    if missing:
-        print_warning(f"No learned entry with id: {missing}")
-    print_success(f"Removed {len(removed)} learned entr{'y' if len(removed) == 1 else 'ies'}.")
 
 
 # =============================================================================

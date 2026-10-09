@@ -12,13 +12,8 @@ import pytest
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import completion_cap, limit_completion_tokens
 from devops_cli.ai.review.pipeline import _execute_page_review_steps
-from devops_cli.ai.review.verification import _validate_segment_findings
-from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.config.defaults import (
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
-    DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS,
-    DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS,
-    DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
 )
 from devops_cli.config.settings import AIConfig
 from tests.llm_stream_fakes import route_llm_clients
@@ -56,16 +51,6 @@ def _client(max_tokens: int | None = None) -> LLMClient:
     )
 
 
-def _finding(title: str) -> Finding:
-    return Finding(
-        severity="HIGH",
-        location="src/app.py:3-4",
-        title=title,
-        description="Input reaches a shell command.",
-        fix="Quote it.",
-    )
-
-
 def test_call_cap_limits_the_reply_and_config_still_applies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -78,28 +63,6 @@ def test_call_cap_limits_the_reply_and_config_still_applies(
     _client().chat("s", "u", use_cache=False)
 
     assert [p.get("max_tokens") for p in payloads] == [500, 300, None]
-
-
-def test_verification_reply_is_capped_by_the_number_of_findings() -> None:
-    """Verify a verification call runs under a cap sized to the verdicts it must return."""
-    seen: list[int | None] = []
-    client = MagicMock()
-
-    def chat(**kwargs: Any) -> str:
-        seen.append(completion_cap.get())
-        return "[]"
-
-    client.chat.side_effect = chat
-    findings = [_finding(f"Finding {n}") for n in range(3)]
-
-    _validate_segment_findings(ReviewResult(findings=findings), ["code"], client)
-
-    expected = min(
-        DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS,
-        DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS
-        + 3 * DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
-    )
-    assert (seen, completion_cap.get()) == ([expected], None)
 
 
 def test_persona_review_replies_are_capped() -> None:

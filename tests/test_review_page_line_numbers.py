@@ -23,7 +23,6 @@ from devops_cli.ai.review.chunker import (
 )
 from devops_cli.ai.review.classification import FileContextType, build_context_review_prompt
 from devops_cli.ai.review.pipeline import _page_imports
-from devops_cli.ai.review.verification import _extract_location_context
 from devops_cli.ai.task_loader import load_task_prompt
 
 _DEFECT = "    path.parent.mkdir(mode=0o777, parents=True, exist_ok=True)"
@@ -161,43 +160,6 @@ def test_diff_pages_number_lines_and_keep_them_when_split() -> None:
     assert "248\t+line 248" in "".join(resplit)
 
 
-def test_the_verifier_excerpt_is_found_by_line_number_in_a_later_part() -> None:
-    """Verify the excerpt for a finding at line 248 is line 248, whichever part holds it.
-
-    Excerpts counted lines from the top of the first part naming the file, so a finding in a
-    later part was shown other code or none.
-    """
-    parts = _split_source_file_blocks(Path("known_hosts.py"), "py", _source(), max_chars=4000)
-    segment = "\n".join(parts)
-
-    excerpt = _extract_location_context(segment, "known_hosts.py:248", context_lines=1)
-
-    assert excerpt.splitlines() == [
-        "247\tvalue_247 = compute(247)",
-        f"248\t{_DEFECT}",
-        "249\tvalue_249 = compute(249)",
-    ]
-
-
-def test_the_verifier_excerpt_still_counts_unnumbered_code() -> None:
-    """Verify code without numbers is still counted from its first line."""
-    segment = "### File: src/app.py\n```python\nl1\nl2\nl3\nl4\n```\n"
-
-    assert _extract_location_context(segment, "src/app.py:2-3", context_lines=0) == "l2\nl3"
-
-
-def test_the_verifier_excerpt_does_not_mix_files_sharing_a_name() -> None:
-    """Verify a location naming one path is not filled with another file's lines."""
-    segment = (
-        "### File: a/__init__.py\n```py\n1\tfrom a import x\n```\n"
-        "### File: b/__init__.py\n```py\n1\tfrom b import y\n```\n"
-    )
-
-    assert _extract_location_context(segment, "b/__init__.py:1", context_lines=0) == (
-        "1\tfrom b import y"
-    )
-
-
 def test_imports_are_read_through_the_number_column() -> None:
     """Verify contract grounding still finds imports on numbered source and diff pages."""
     source_page = _split_source_file_blocks(Path("m.py"), "py", "import os\nfrom a import b\n")[0]
@@ -223,7 +185,6 @@ def test_persona_prompts_ask_for_the_shown_line_numbers() -> None:
 
     assert all(re.search(r"line number.*never copy them", p, re.S) for p in prompts)
     assert "never copy them" in protocol
-    assert "number in the file" in load_task_prompt("verify_finding_system.md")
 
 
 def test_extract_added_diff_lines_raw_and_numbered() -> None:

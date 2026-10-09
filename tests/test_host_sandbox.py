@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.ai.review.review_environment import execute_criterion_command
 from devops_cli.config.constants import CONST_ALLOWED_CRITERIA_BINARIES
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
@@ -78,13 +77,8 @@ def test_host_sandbox_reads_repo(tmp_path: Path) -> None:
     data_file = tmp_path / "hello.txt"
     data_file.write_text("sandbox-content", encoding="utf-8")
 
-    result = execute_criterion_command("cat hello.txt", cwd=tmp_path)
-    assert (
-        result.executable,
-        result.passed,
-        result.exit_code,
-        "sandbox-content" in result.stdout,
-    ) == (True, True, 0, True)
+    result = HostSandbox().execute(["cat", "hello.txt"], cwd=tmp_path)
+    assert (result.passed, result.exit_code, "sandbox-content" in result.stdout) == (True, 0, True)
 
 
 @pytest.mark.bwrap
@@ -156,17 +150,12 @@ def test_host_sandbox_fails_closed_when_bwrap_missing(tmp_path: Path) -> None:
     missing_sandbox = HostSandbox(bwrap_binary="/nonexistent/bwrap")
     assert missing_sandbox.is_available() is False
 
-    result = execute_criterion_command(
-        "python -c 'print(1)'",
-        cwd=tmp_path,
-        sandbox=missing_sandbox,
+    result = missing_sandbox.execute(["python", "-c", "print(1)"], cwd=tmp_path)
+    assert (result.passed, result.exit_code, "not available" in str(result.error)) == (
+        False,
+        -1,
+        True,
     )
-    assert (
-        result.executable,
-        result.passed,
-        result.exit_code,
-        "not available" in str(result.error),
-    ) == (True, False, -1, True)
 
 
 def test_host_sandbox_build_args_structure(tmp_path: Path) -> None:
@@ -397,22 +386,21 @@ def test_host_sandbox_runs_the_repo_environment_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.bwrap
-def test_python_criterion_imports_the_repo_test_dependencies(tmp_path: Path) -> None:
-    """Live test: a criterion importing pytest runs under the repository's interpreter (#847).
+def test_python_in_the_sandbox_imports_the_repo_test_dependencies(tmp_path: Path) -> None:
+    """Live test: `python` in the sandbox is the repository's interpreter (#847).
 
     In review session 20261002-214641 the invalidation criterion for
     `tests/test_security_bandit.py:142-154`, which imports that test module and so pytest, failed
     with `No module named 'pytest'` under the system Python.
     """
     project = _project_with_its_own_environment(tmp_path)
-    result = execute_criterion_command("python -c 'import reviewed_dependency'", cwd=project)
-    assert (
-        result.executable,
-        result.exit_code,
-        result.passed,
-        result.timed_out,
-        result.stderr,
-    ) == (True, 0, True, False, "")
+    result = HostSandbox().execute(["python", "-c", "import reviewed_dependency"], cwd=project)
+    assert (result.exit_code, result.passed, result.timed_out, result.stderr) == (
+        0,
+        True,
+        False,
+        "",
+    )
 
 
 def test_sandbox_path_without_a_virtualenv_is_the_system_path(tmp_path: Path) -> None:

@@ -18,7 +18,6 @@ def test_review_stage_flags_defaults() -> None:
     assert flags.pre_analysis is True
     assert flags.static_scan is True
     assert flags.persona_review is True
-    assert flags.verification is True
     assert flags.reranking is True
     assert flags.reporting is True
     assert flags.any_enabled() is True
@@ -26,7 +25,6 @@ def test_review_stage_flags_defaults() -> None:
         "pre_analysis": True,
         "static_scan": True,
         "persona_review": True,
-        "verification": True,
         "reranking": True,
         "reporting": True,
     }
@@ -42,13 +40,12 @@ def test_resolve_stage_flags_no_flags() -> None:
     """Verify --no-<stage> disables individual stages."""
     flags = resolve_stage_flags(
         no_pre_analysis=True,
-        no_verification=True,
+        no_reranking=True,
     )
     assert flags.pre_analysis is False
     assert flags.static_scan is True
     assert flags.persona_review is True
-    assert flags.verification is False
-    assert flags.reranking is True
+    assert flags.reranking is False
     assert flags.reporting is True
 
 
@@ -58,7 +55,6 @@ def test_resolve_stage_flags_only_flags() -> None:
     assert flags.pre_analysis is False
     assert flags.static_scan is True
     assert flags.persona_review is False
-    assert flags.verification is False
     assert flags.reranking is False
     assert flags.reporting is False
 
@@ -72,7 +68,6 @@ def test_resolve_stage_flags_multiple_only_flags() -> None:
     assert flags.pre_analysis is False
     assert flags.static_scan is True
     assert flags.persona_review is True
-    assert flags.verification is False
     assert flags.reranking is False
     assert flags.reporting is False
 
@@ -99,14 +94,14 @@ def test_review_cli_stage_flags_propagation() -> None:
     ):
         result = runner.invoke(
             review_app,
-            ["path", "--no-verification", "--static-scan-only"],
+            ["path", "--no-reranking", "--static-scan-only"],
         )
         assert result.exit_code == 0
         mock_exec.assert_called_once()
         call_kwargs = mock_exec.call_args[1]
         passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
         assert passed_flags.static_scan is True
-        assert passed_flags.verification is False
+        assert passed_flags.reranking is False
         assert passed_flags.persona_review is False
 
 
@@ -150,21 +145,14 @@ def test_orchestrator_stage_bypasses(tmp_path) -> None:
     )
     assert payloads[0].findings == []
 
-    # 4. Skip verification
-    flags_no_verify = ReviewStageFlags(verification=False)
-    orchestrator.execute_finding_verification(
-        payloads,
-        stage_flags=flags_no_verify,
-    )
-
-    # 5. Skip reranking
+    # 4. Skip reranking
     flags_no_rerank = ReviewStageFlags(reranking=False)
     orchestrator.execute_finding_reranking(
         payloads,
         stage_flags=flags_no_rerank,
     )
 
-    # 6. Skip reporting
+    # 5. Skip reporting
     flags_no_report = ReviewStageFlags(reporting=False)
     report_dict, report_md = orchestrator.generate_consolidated_report(
         payloads,

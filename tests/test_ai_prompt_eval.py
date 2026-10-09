@@ -1,4 +1,8 @@
-"""Test suite for measuring the deterministic suppression layer against recorded verdicts."""
+"""Test suite for the tally of the verdicts the feedback dataset records (#1150).
+
+The deterministic suppression layer the command replayed was deleted with the model verifier,
+so it counts the recorded verdicts, for each labeller, and replays nothing.
+"""
 
 from __future__ import annotations
 
@@ -41,58 +45,30 @@ def _record(title: str, status: str, location: str = "src/devops_cli/core/repo.p
 # =============================================================================
 
 
-def test_the_result_reports_the_layers_decisions_not_the_datasets_labels() -> None:
-    """The command reported accuracy 1.0 and a 0.0 false positive rate on every run.
-
-    It counted the dataset's own labels and assigned those two constants without
-    evaluating anything, so a loop measured at a 40-85% false positive rate in two
-    calibration sessions was reported as flawless on 1311 cases.
-    """
+def test_the_result_reports_no_figure_it_did_not_measure() -> None:
+    """The command once reported accuracy 1.0 and a 0.0 false positive rate on every run, and
+    then a catch rate of a layer that no longer exists: it reports the recorded counts alone."""
     fields = set(PromptEvalBenchmarkResult.model_fields)
-    assert {"accuracy_score", "false_positive_rate"} & fields == set()
+    assert {
+        "accuracy_score",
+        "false_positive_rate",
+        "caught_invalidations",
+        "contested_verifications",
+    } & fields == set()
 
 
-def test_an_invalidation_the_layer_reaches_is_counted_as_caught(tmp_path: Path) -> None:
-    """Each one is a finding the model verifier never has to be asked about."""
-    dataset = _dataset(
-        tmp_path, [_record("Path.resolve() raises FileNotFoundError", "INVALIDATED")]
-    )
-    result = evaluate_persona_prompts("devsecops", dataset_path=dataset)
-    assert (result.labelled_invalidated, result.caught_invalidations) == (1, 1)
-
-
-def test_an_invalidation_the_layer_misses_lowers_the_catch_rate(tmp_path: Path) -> None:
-    """A rate that could not fall would measure nothing."""
-    dataset = _dataset(tmp_path, [_record("A defect no mechanical check decides", "INVALIDATED")])
-    result = evaluate_persona_prompts("devsecops", dataset_path=dataset)
-    assert (result.caught_invalidations, result.catch_rate) == (0, 0.0)
-
-
-def test_a_suppressed_verification_is_reported_as_contested(tmp_path: Path) -> None:
-    """This is the direction that buries real defects, so it is never netted away."""
-    dataset = _dataset(tmp_path, [_record("Path.resolve() raises FileNotFoundError", "VERIFIED")])
-    result = evaluate_persona_prompts("devsecops", dataset_path=dataset)
-    assert (result.labelled_verified, result.contested_verifications) == (1, 1)
-
-
-def test_a_verification_the_layer_leaves_alone_is_not_contested(tmp_path: Path) -> None:
-    """Most verified findings must pass through untouched, or the layer is unusable."""
-    dataset = _dataset(tmp_path, [_record("A genuine unbounded write", "VERIFIED")])
-    result = evaluate_persona_prompts("devsecops", dataset_path=dataset)
-    assert result.contested_verifications == 0
-
-
-def test_the_two_rates_are_reported_separately(tmp_path: Path) -> None:
-    """One accuracy figure would let a gain on either side hide a loss on the other."""
+def test_recorded_verdicts_are_counted_by_status(tmp_path: Path) -> None:
+    """INVALIDATED and VERIFIED verdicts are counted; an UNVERIFIED record is a case of neither."""
     dataset = _dataset(
         tmp_path,
         [
             _record("Path.resolve() raises FileNotFoundError", "INVALIDATED"),
-            _record("Path.resolve() raises FileNotFoundError", "VERIFIED"),
+            _record("A genuine unbounded write", "VERIFIED"),
+            _record("Not yet judged", "UNVERIFIED"),
         ],
     )
-    result = evaluate_persona_prompts("devsecops", dataset_path=dataset).to_dict()
-    assert (result["catch_rate"], result["contested_rate"]) == (1.0, 1.0)
+    result = evaluate_persona_prompts("devsecops", dataset_path=dataset)
+    assert (result.total_cases, result.labelled_invalidated, result.labelled_verified) == (3, 1, 1)
 
 
 # =============================================================================
@@ -151,20 +127,20 @@ def test_a_symlinked_dataset_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_dry_run_reports_its_plan_without_measuring() -> None:
-    """A preview must not spend minutes replaying the layer over the whole dataset."""
+    """A preview reads no dataset."""
     result = runner.invoke(ai_app, ["prompt-eval", "--dry-run"])
     assert (result.exit_code, "BENCHMARK_DRY_RUN" in result.output) == (0, True)
 
 
-def test_the_json_output_carries_both_rates(tmp_path: Path) -> None:
-    """A consumer needs the two directions separately, as the table reports them."""
+def test_the_json_output_carries_the_counts(tmp_path: Path) -> None:
+    """A consumer reads the same counts the table reports."""
     dataset = _dataset(tmp_path, [_record("A finding", "VERIFIED")])
     result = runner.invoke(ai_app, ["prompt-eval", "--json", "--dataset", str(dataset)])
     payload = json.loads(result.stdout)
-    assert (result.exit_code, "catch_rate" in payload, "contested_rate" in payload) == (
+    assert (result.exit_code, payload["labelled_verified"], payload["by_labeller"]) == (
         0,
-        True,
-        True,
+        1,
+        {"unknown": {"invalidated": 0, "verified": 1}},
     )
 
 
@@ -184,8 +160,8 @@ def _labelled(title: str, status: str, verified_by: str) -> dict[str, Any]:
 
 
 def test_a_deterministic_label_is_counted_as_excluded(tmp_path: Path) -> None:
-    """Scoring the deterministic layer against labels it wrote is circular: 28 of the 51 labels
-    in this repository's dataset were `deterministic:*`, and none was a person's."""
+    """A `deterministic:*` label is a machine's, not a person's: 28 of the 51 labels in this
+    repository's dataset were such, and none was a person's."""
     dataset = _dataset(
         tmp_path,
         [_labelled("Path.resolve() raises FileNotFoundError", "INVALIDATED", "deterministic:x")],
@@ -200,7 +176,7 @@ def test_a_deterministic_label_is_counted_as_excluded(tmp_path: Path) -> None:
     )
 
 
-def test_the_measurement_is_reported_per_labeller(tmp_path: Path) -> None:
+def test_the_counts_are_reported_per_labeller(tmp_path: Path) -> None:
     """A person's labels, an agent's and a model's are not interchangeable ground truth."""
     dataset = _dataset(
         tmp_path,
@@ -215,9 +191,9 @@ def test_the_measurement_is_reported_per_labeller(tmp_path: Path) -> None:
     result = evaluate_persona_prompts("devsecops", dataset_path=dataset).to_dict()
 
     assert result["by_labeller"] == {
-        "human": {"invalidated": 1, "caught": 1, "verified": 0, "contested": 0},
-        "llm": {"invalidated": 1, "caught": 0, "verified": 1, "contested": 1},
-        "unknown": {"invalidated": 1, "caught": 0, "verified": 0, "contested": 0},
+        "human": {"invalidated": 1, "verified": 0},
+        "llm": {"invalidated": 1, "verified": 1},
+        "unknown": {"invalidated": 1, "verified": 0},
     }
 
 
@@ -234,28 +210,3 @@ def test_deterministic_labels_are_counted_when_asked_for(tmp_path: Path) -> None
     payload = json.loads(result.stdout)
 
     assert (result.exit_code, payload["total_cases"], payload["excluded_labels"]) == (0, 1, {})
-
-
-def test_a_claim_a_person_judged_is_not_counted_as_caught(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Replaying a finding through the layer must not count the suppression of the claim a person
-    judged as the layer catching it: that only repeats the person's own label."""
-    from devops_cli.ai.review.common_hallucinations import record_judged_claim
-    from devops_cli.ai.review.verification import record_cited_code
-    from devops_cli.ai.review_schema import SavedFinding
-
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    (checkout / "pyproject.toml").write_text("[project]\nname = 'target'\n", encoding="utf-8")
-    (checkout / "runner.py").write_text("def run(code):\n    exec(code, {})\n", encoding="utf-8")
-    monkeypatch.chdir(checkout)
-    judged = _labelled("`exec` runs a compiled snippet", "INVALIDATED", "human")
-    judged["location"] = "runner.py:2"
-    finding = SavedFinding(**judged)
-    record_cited_code([finding], checkout)
-    record_judged_claim(finding, "The test runs a snippet it wrote itself")
-
-    result = evaluate_persona_prompts("devsecops", dataset_path=_dataset(tmp_path, [judged]))
-
-    assert (result.labelled_invalidated, result.caught_invalidations) == (1, 0)

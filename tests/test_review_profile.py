@@ -40,7 +40,6 @@ from devops_cli.ai.review.runner import (
     _run_orchestrator_review,
     _write_review_profile,
 )
-from devops_cli.ai.review.verification import _VALIDATION_SYSTEM
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_request_spend
 from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
@@ -98,7 +97,7 @@ def test_profiler_attributes_calls_to_stages_across_worker_threads(tmp_path: Pat
     with profiling() as profiler:
         with review_stage("persona_review"):
             asyncio.run(persona_calls())
-        with review_stage("verification"):
+        with review_stage("reranking"):
             _call(ledger, VLLM, completion=40)
         profiler.set_findings(candidates=10, verified=4, reported=3)
         profile = profiler.build(session_id="s1", target="playbooks")
@@ -110,7 +109,7 @@ def test_profiler_attributes_calls_to_stages_across_worker_threads(tmp_path: Pat
     ) == (
         [
             ("persona_review", 2, 20, {VLLM: 1, OLLAMA: 1}),
-            ("verification", 1, 40, {VLLM: 1}),
+            ("reranking", 1, 40, {VLLM: 1}),
         ],
         (3, 10, 3),
         True,
@@ -150,7 +149,7 @@ def test_profile_counts_replies_by_finish_reason_and_cut_replies_by_backend(
         with review_stage("persona_review"):
             for reason in ("stop", "stop", "length"):
                 _observed(profiler, "b1", reason)
-        with review_stage("verification"):
+        with review_stage("reranking"):
             _observed(profiler, None, None)
         profiler.build(session_id="s", target="t").write(tmp_path)
 
@@ -158,7 +157,7 @@ def test_profile_counts_replies_by_finish_reason_and_cut_replies_by_backend(
     stages = loaded.stages if loaded else []
     assert [(s.name, s.finish_reasons, s.truncated) for s in stages] == [
         ("persona_review", {"stop": 2, "length": 1}, {"b1": 1}),
-        ("verification", {"unknown": 1}, {}),
+        ("reranking", {"unknown": 1}, {}),
     ]
 
 
@@ -239,7 +238,7 @@ def test_orchestrated_review_profiles_each_stage_and_its_findings() -> None:
         [s.name for s in profile.stages],
         (profile.candidate_findings, profile.verified_findings, profile.reported_findings),
     ) == (
-        ["payloads", "persona_review", "verification", "reranking", "report"],
+        ["payloads", "persona_review", "reranking", "report"],
         (2, 1, 1),
     )
 
@@ -527,27 +526,14 @@ _PERSONA_REPLY = (
     )
     + "\n```"
 )
-_VERDICT = json.dumps(
-    [
-        {
-            "finding_id": 1,
-            "status": "VERIFIED",
-            "verified": True,
-            "citation_line": 3,
-            "reason": "Line 3 holds value_2.",
-        }
-    ]
-)
 
 
 def _review_in_two_pages(client: LLMClient, target: Path) -> None:
-    """Review one file in two pages with one persona, then verify its finding, stage by stage.
+    """Review one file in two pages with one persona, stage by stage.
 
     No static scanner runs, and the file is no Python source, so no check starts a process.
     """
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="s", llm_client=client, verification_client=client, target_dir=target
-    )
+    orchestrator = ReviewPipelineOrchestrator(session_id="s", llm_client=client, target_dir=target)
     flags = ReviewStageFlags(static_scan=False)
     meta = {_REVIEWED: FileAnalysisMeta(path=_REVIEWED, key_symbols=[], dependencies=[])}
     payloads = orchestrator.init_per_file_payloads([_REVIEWED], meta, stage_flags=flags)
@@ -556,21 +542,17 @@ def _review_in_two_pages(client: LLMClient, target: Path) -> None:
         orchestrator.execute_multi_persona_review(
             payloads, diff_text_by_file=diffs, personas=["devsecops"], stage_flags=flags
         )
-    with review_stage("verification"):
-        orchestrator.execute_finding_verification(
-            payloads, stage_flags=flags, diff_text_by_file=diffs
-        )
 
 
 @pytest.mark.usefixtures("fixed_prompt_digest")
-def test_a_profiled_review_counts_cached_persona_pages_and_verifier_replies_apart(
+def test_a_profiled_review_counts_cached_persona_pages_apart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
 ) -> None:
-    """Verify a reply the response cache answers, to a persona page or to the verifier, is a
-    cached call of its stage and its spend stage, and no LLM call (#816).
+    """Verify a reply the response cache answers to a persona page is a cached call of its stage
+    and its spend stage, and no LLM call (#816).
 
-    A first review records each request's cache key; the cache then keeps page 1's reply and
-    the verifier's, so the profiled review sends only page 2 to the model.
+    A first review records each request's cache key; the cache then keeps page 1's reply, so the
+    profiled review sends only page 2 to the model.
     """
     target = tmp_path / "repo"
     target.mkdir()
@@ -595,15 +577,14 @@ def test_a_profiled_review_counts_cached_persona_pages_and_verifier_replies_apar
                 {"enable_thinking": options["enable_thinking"]},
             )
         )
-        return LLMResponse(_VERDICT if system == _VALIDATION_SYSTEM else _PERSONA_REPLY)
+        return LLMResponse(_PERSONA_REPLY)
 
     monkeypatch.setattr(LLMClient, "_ollama_messages", model)
     client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
     _review_in_two_pages(client, target)
-    # The first review sent page 1, page 2 and then the verifier's request.
+    # The first review sent page 1 and page 2.
     client.cache.clear()
-    for key, reply in ((keys[0], _PERSONA_REPLY), (keys[2], _VERDICT)):
-        client.cache.set(key, "ollama", "llama3:8b", "", "", reply)
+    client.cache.set(keys[0], "ollama", "llama3:8b", "", "", _PERSONA_REPLY)
     spend_ledger.reset()
 
     with profiling() as profiler:
@@ -618,7 +599,7 @@ def test_a_profiled_review_counts_cached_persona_pages_and_verifier_replies_apar
         [(s.name, s.llm_calls, s.cached_calls) for s in profile.stages] if profile else [],
         sorted(rows),
     ) == (
-        4,
-        [("persona_review", 1, 1), ("verification", 0, 1)],
-        [("review.file_review", 0), ("review.file_review", 1), ("review.verification", 1)],
+        3,
+        [("persona_review", 1, 1)],
+        [("review.file_review", 0), ("review.file_review", 1)],
     )

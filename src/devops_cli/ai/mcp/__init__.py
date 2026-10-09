@@ -104,7 +104,6 @@ from devops_cli.ai.mcp.server import (
     vault_set,
     vault_status,
     vault_sync,
-    verify_finding,
     workspace_list,
 )
 from devops_cli.ai.mcp.toolset import (
@@ -256,6 +255,5 @@ __all__ = [
     "vault_set",
     "vault_status",
     "vault_sync",
-    "verify_finding",
     "workspace_list",
 ]

@@ -19,7 +19,6 @@ from devops_cli.ai.review.runner import (
     _calculate_parallel_review_workers,
     _collect_file_blocks,
     _collect_files,
-    _execute_findings_validation,
     _execute_review_segments,
     _get_reviews_base_dir,
     _git_repo_root,
@@ -545,7 +544,7 @@ def test_make_review_clients() -> None:
 
 
 def test_review_clients_wait_a_configured_task_timeout() -> None:
-    """Verify a configured analysis, verification or compose timeout replaces the review default."""
+    """Verify a configured analysis or compose timeout replaces the review default."""
     from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
     from devops_cli.config.settings import AITaskOverride, Settings
 
@@ -553,18 +552,14 @@ def test_review_clients_wait_a_configured_task_timeout() -> None:
     st.ai.tasks.analysis = AITaskOverride(timeout=30.0)
     st.ai.tasks.compose = AITaskOverride(timeout=45.0)
     configured = _make_review_clients(st)
-    st.ai.tasks.verification = AITaskOverride(model="devops-reasoning", timeout=60.0)
-    verifier = _make_review_clients(st).verification
     defaults = _make_review_clients(Settings())
 
     assert (
         configured.analysis._request_timeout().read,
-        configured.verification._request_timeout().read,
         configured.compose._request_timeout().read,
-        verifier._request_timeout().read,
         defaults.analysis._request_timeout().read,
         defaults.compose._request_timeout().read,
-    ) == (30.0, 30.0, 45.0, 60.0, DEFAULT_REVIEW_TIMEOUT_SECONDS, DEFAULT_REVIEW_TIMEOUT_SECONDS)
+    ) == (30.0, 45.0, DEFAULT_REVIEW_TIMEOUT_SECONDS, DEFAULT_REVIEW_TIMEOUT_SECONDS)
 
 
 def test_get_current_git_branch() -> None:
@@ -818,38 +813,6 @@ def test_execute_review_segments_parallel_and_error_handling() -> None:
             results[1],
             "Review for segment 3/3" in results[2],
         ) == (3, True, True, "", True)
-
-
-def test_execute_findings_validation_parallel_and_error_handling() -> None:
-    """Verify _execute_findings_validation runs in parallel and isolates validation errors."""
-    clients = MagicMock()
-    clients.analysis._config.ollama_max_parallel = 2
-    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
-
-    pages = ["diff --git a/one.py b/one.py", "diff --git a/two.py b/two.py"]
-    res1 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="APPROVE", findings=[])
-    res2 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="REQUEST CHANGES", findings=[])
-
-    def _mock_val(index, page, parsed, total, all_pages, cl, metas, repo, suffix):
-        if index == 2:
-            raise RuntimeError("Validation crash")
-        return (index, parsed)
-
-    with (
-        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
-        patch(
-            "devops_cli.ai.review.runner._validate_single_segment_findings",
-            side_effect=_mock_val,
-        ),
-    ):
-        validated = _execute_findings_validation(
-            pages=pages,
-            segment_results=[res1, res2],
-            clients=clients,
-            analysis_suffix="",
-            target_dir=Path("."),
-        )
-        assert (len(validated), validated[0], validated[1]) == (2, res1, None)
 
 
 def test_run_persona_loop_parallel_and_error_handling(tmp_path: Path) -> None:

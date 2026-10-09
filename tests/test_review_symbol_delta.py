@@ -1,14 +1,12 @@
 """Branch and PR reviews compute their own base-vs-head symbol delta and use only it (#593).
 
-Pre-analysis records each changed Python file's delta from the review's own base. Verification
-reads the session's metadata, not the newest cached analysis, and moves a finding that cites a
-removed symbol to the file's diff hunk. The summary counts the reviewed files only.
+Pre-analysis records each changed Python file's delta from the review's own base, not the newest
+cached analysis.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -25,7 +23,7 @@ from devops_cli.ai.review.runner import (
     _execute_review_workflow,
     _prepare_branch_content,
 )
-from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 from devops_cli.models.git import ChangedFile
 
@@ -49,7 +47,7 @@ class _NoModel:
 
     def chat(self, **kwargs: Any) -> str:
         self.calls.append(kwargs)
-        pytest.fail("verification asked the model")
+        pytest.fail("the review asked the model")
 
 
 @pytest.fixture
@@ -68,7 +66,6 @@ def _orchestrator(repo: Path, model: _NoModel) -> ReviewPipelineOrchestrator:
     return ReviewPipelineOrchestrator(
         session_id="session",
         llm_client=model,  # type: ignore[arg-type]
-        verification_client=model,  # type: ignore[arg-type]
         target_dir=repo,
         session_dir=repo.parent / "session",
         concurrency=1,
@@ -90,31 +87,6 @@ def _mod_base() -> BaseRevision:
 
 def _delta(meta: FileAnalysisMeta) -> tuple[list[str], list[str], list[str]]:
     return meta.symbols_added, meta.symbols_removed, meta.symbols_retained
-
-
-def _finding(location: str, symbol: str) -> SavedFinding:
-    """A finding about a symbol, worded with no absence marker: those are checked first."""
-    return SavedFinding(
-        location=location,
-        title=f"Removal of `{symbol}` breaks its callers",
-        description=f"Callers of `{symbol}` raise NameError at import.",
-        persona="architect",
-    )
-
-
-def _verify(
-    orchestrator: ReviewPipelineOrchestrator,
-    metadata: dict[str, FileAnalysisMeta],
-    findings: dict[str, list[SavedFinding]],
-) -> list[FileReviewPayload]:
-    payloads = [
-        FileReviewPayload(file_path=path, metadata=metadata[path], findings=file_findings)
-        for path, file_findings in findings.items()
-    ]
-    orchestrator.execute_finding_verification(
-        payloads, diff_text_by_file={"mod.py": _MOD_DIFF}, metadata_by_path=metadata
-    )
-    return payloads
 
 
 def _report_summary(
@@ -307,92 +279,12 @@ def test_a_working_tree_review_reads_head(review_repo: Path) -> None:
     )
 
 
-def test_verification_exempts_only_a_real_removal_and_the_summary_counts_it(
-    review_repo: Path,
-) -> None:
-    """Verify a finding citing the removed `legacy_helper` stays UNVERIFIED, noted and moved to
-    the diff hunk, while one citing `ghost_fn`, in neither base nor head, is INVALIDATED, and the
-    model is never asked. The summary counts this review's delta and its one exemption."""
-    model = _NoModel()
-    orchestrator = _orchestrator(review_repo, model)
-    metadata = _pre_analysis(orchestrator, review_repo, _mod_base())
-
-    payloads = _verify(
-        orchestrator,
-        metadata,
-        {"mod.py": [_finding("mod.py:1", "legacy_helper"), _finding("mod.py:1", "ghost_fn")]},
-    )
-    findings_json, summary_rows = _report_summary(orchestrator, payloads)
-
-    legacy, ghost = payloads[0].findings
-    assert (
-        model.calls,
-        (legacy.status, legacy.verification_note, legacy.location, legacy.relocated_from),
-        ghost.status,
-        findings_json["symbol_delta_summary"],
-        findings_json["removed_symbol_findings_count"],
-        summary_rows.get("Symbol Delta"),
-    ) == (
-        [],
-        ("UNVERIFIED", "cites removed symbol", "mod.py:1-2", "mod.py:1"),
-        "INVALIDATED",
-        {"added": 0, "removed": 1, "retained": 1},
-        1,
-        "+0 / -1 / =1",
-    )
-
-
-def test_only_the_sessions_own_delta_counts(review_repo: Path, tmp_path: Path) -> None:
-    """Verify neither a delta cached for a file the diff left alone nor a newer analysis saved
-    by another run exempts a finding: `other.py` is reused from the cache with no symbol lists,
-    `foo` is invalidated, and the newer file listing `ghost_fn` as removed changes nothing."""
-    model = _NoModel()
-    orchestrator = _orchestrator(review_repo, model)
-    analysis_dir = tmp_path / "analysis"
-    _write_cached_analysis(
-        analysis_dir / "branch-old-metadata.json", {"other.py": ["foo"]}, review_repo
-    )
-    metadata = _pre_analysis(orchestrator, review_repo, _mod_base())
-    newer = _write_cached_analysis(
-        analysis_dir / "branch-concurrent-metadata.json",
-        {"mod.py": ["ghost_fn"], "other.py": ["foo"]},
-        review_repo,
-    )
-    os.utime(newer, (4_000_000_000, 4_000_000_000))
-
-    payloads = _verify(
-        orchestrator,
-        metadata,
-        {
-            "mod.py": [_finding("mod.py:1", "legacy_helper"), _finding("mod.py:1", "ghost_fn")],
-            "other.py": [_finding("other.py:1", "foo")],
-        },
-    )
-
-    statuses = [(f.location, f.status, f.verification_note) for p in payloads for f in p.findings]
-    assert (
-        metadata["other.py"].pseudocode,
-        _delta(metadata["other.py"]),
-        statuses,
-        model.calls,
-    ) == (
-        ["cached outline"],
-        ([], [], []),
-        [
-            ("mod.py:1-2", "UNVERIFIED", "cites removed symbol"),
-            ("mod.py:1", "INVALIDATED", None),
-            ("other.py:1", "INVALIDATED", None),
-        ],
-        [],
-    )
-
-
-def test_a_review_hands_its_base_and_diff_to_pre_analysis_and_verification(
+def test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review(
     tmp_path: Path,
 ) -> None:
-    """Verify the review workflow gives pre-analysis the base revision it was handed, and gives
-    verification the diff map persona review got and the metadata pre-analysis returned.
-    Without them a real review would compute no delta and exempt nothing."""
+    """Verify the review workflow gives pre-analysis the base revision it was handed, and
+    persona review the diff map of the pages. Without the base a real review would compute no
+    delta."""
     base = _mod_base()
     metadata = {"mod.py": FileAnalysisMeta(path="mod.py", symbols_removed=["legacy_helper"])}
     orchestrator = MagicMock(session_id="wiring", session_dir=tmp_path)
@@ -421,13 +313,10 @@ def test_a_review_hands_its_base_and_diff_to_pre_analysis_and_verification(
         )
 
     persona_review = orchestrator.execute_multi_persona_review.call_args.kwargs
-    verification = orchestrator.execute_finding_verification.call_args.kwargs
     assert (
         orchestrator.run_pre_analysis_refresh.call_args.kwargs["base_revision"] is base,
-        verification["diff_text_by_file"],
-        verification["diff_text_by_file"] == persona_review["diff_text_by_file"],
-        verification["metadata_by_path"] is metadata,
-    ) == (True, {"mod.py": _MOD_DIFF}, True, True)
+        persona_review["diff_text_by_file"],
+    ) == (True, {"mod.py": _MOD_DIFF})
 
 
 @pytest.mark.parametrize(

@@ -21,13 +21,9 @@ class ReviewMessages:
     generating_metadata: str = "Generating segment metadata..."
     stage_metadata: str = "Analyzing metadata across {count} file(s)..."
     stage_segment: str = "Reviewing {count} file(s)..."
-    stage_validate: str = "Validating findings for {count} file(s)..."
     stage_compose: str = "Composing final review..."
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed}"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
-    segment_validate_progress: str = (
-        "  ✓ segment {index}/{total} in {elapsed}: {verified}/{findings} finding(s) verified"
-    )
     total_elapsed: str = "  total {elapsed}"
     collecting_files: str = "Collecting {pattern} files under {target}..."
     no_files_found: str = "No files found."
@@ -92,15 +88,14 @@ class ReviewMessages:
     session_write_failed: str = (
         "Cannot write the session's files, so the verdict was not recorded: {error}"
     )
-    agent_over_person: str = (
-        "A person gave this finding its verdict, and an agent cannot change it; "
-        "only --adjudicator human can."
+    suppressions_cover_changes: str = (
+        "[bold yellow]{count} review.toml suppression(s) cover files this change touches; "
+        "check that each reason still holds:[/bold yellow]"
     )
-    verdict_teaches_nothing: str = (
-        "The verdict is recorded, but later reviews will not suppress this finding: its review "
-        "recorded no code at its location, as sessions saved by earlier versions do not, or its "
-        "title and description name no identifier of that code."
+    suppression_covers_change: str = (
+        "  • [cyan]{rule}[/cyan] on [cyan]{path}[/cyan] (expires {expiry}): {reason}"
     )
+    suppression_never_expires: str = "never"
     sessions_counted: str = (
         "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
         "{target_only} target-only, {unkeyed} unkeyed)"

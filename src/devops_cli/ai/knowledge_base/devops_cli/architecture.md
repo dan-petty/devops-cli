@@ -39,7 +39,7 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
 
 ---
 
-## 2. Multi-Persona Code Review Engine & 6-Stage Pipeline
+## 2. Multi-Persona Code Review Engine & Stage Pipeline
 
 The multi-persona code review pipeline orchestrates specialized AI reviewer personas and static analysis tools across target diffs and workspaces:
 
@@ -67,12 +67,6 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Cross-Referencing Verification & Multi-Agent Debate (MAD)         │
-    │   (Step-by-step evidence tracing against visible source & AST)   │
-    └───────────────────────────────────┬───────────────────────────────┘
-                                        │
-                                        ▼
-    ┌───────────────────────────────────────────────────────────────────┐
     │ Finding Re-Ranking & Severity Deduplication                       │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
@@ -88,7 +82,6 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 - `--no-pre-analysis` / `--pre-analysis-only`: Pre-analysis control.
 - `--no-static-scan` / `--static-scan-only`: Static security scan control.
 - `--no-persona-review` / `--persona-review-only`: Persona review control.
-- `--no-verification` / `--verification-only`: Verification control.
 - `--no-reranking` / `--reranking-only`: Re-ranking control.
 - `--no-reporting` / `--reporting-only`: Consolidated reporting control.
 

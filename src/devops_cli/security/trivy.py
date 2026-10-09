@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_TRIVY, build_trivy_scan_cmd
 from devops_cli.config.constants import CONST_REVIEW_SCAN_TRIVY_CONFIG
 from devops_cli.config.defaults import (
@@ -90,6 +90,8 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     description="Plaintext secret or token identified in workspace file.",
                     fix="Remove hardcoded secret and store in OS Keyring or environment variables",
                     confidence_score=None,
+                    # A secret result is a secret's exposure, whatever words its rule uses.
+                    category=DefectClass.SECRET_EXPOSURE.value,
                 )
             )
 

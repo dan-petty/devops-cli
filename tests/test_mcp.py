@@ -21,7 +21,6 @@ from devops_cli.ai.mcp.server import (
     review_path,
     review_pr,
     review_stats,
-    verify_finding,
 )
 from devops_cli.commands.mcp import app
 from devops_cli.exceptions import ValidationError
@@ -55,7 +54,6 @@ class TestMcpServer:
             "review_branch",
             "review_pr",
             "review_findings",
-            "verify_finding",
             "review_stats",
             "review_export_feedback",
             "repos_list",
@@ -589,7 +587,6 @@ def test_mcp_helpers_and_error_branches() -> None:
         assert review_branch("feat/new", "main", "devsecops") == "Review Output"
         assert review_pr(42, post=True, persona="qa") == "Review Output"
         assert review_findings("20260826-session", status="verified") == "Review Output"
-        assert verify_finding("20260826-session", 1, "VALIDATED", "Fixed in PR") == "Review Output"
         assert review_stats() == "Review Output"
 
 
@@ -601,7 +598,6 @@ def test_mcp_integer_bounds_validation() -> None:
         pr_list,
         pr_monitor,
         review_pr,
-        verify_finding,
     )
 
     # Helper directly
@@ -634,9 +630,6 @@ def test_mcp_integer_bounds_validation() -> None:
         review_pr(0)
     with pytest.raises(ValidationError, match="number"):
         review_pr(-1)
-
-    with pytest.raises(ValidationError, match="index"):
-        verify_finding("session-1", -1, "verified")
 
     with pytest.raises(ValidationError, match="limit"):
         pr_list(limit=0)

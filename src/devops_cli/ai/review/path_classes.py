@@ -50,6 +50,21 @@ def _read_config_content(base_revision: BaseRevision | None, repo_root: Path | N
     return None
 
 
+def load_review_config(
+    base_revision: BaseRevision | None = None, repo_root: Path | None = None
+) -> dict[str, Any]:
+    """The parsed .devops/review.toml at the base revision or repo root; empty when there is none
+    or it does not parse."""
+    content = _read_config_content(base_revision, repo_root)
+    if not content:
+        return {}
+    try:
+        return tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        logger.warning("Failed parsing %s: %s", CONST_REVIEW_CONFIG_FILE, exc)
+        return {}
+
+
 def _parse_toml_classes(content: str) -> dict[str, tuple[str, ...]]:
     """Parse TOML content extracting path classes."""
     try:

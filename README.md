@@ -16,7 +16,7 @@
 
 - **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: HTTP clients built by the `devops_cli.http.client` factory check the address they dial, at the connect and on every redirect, against their egress level (public, loopback or private), so a rebinding DNS answer cannot slip past a check made earlier; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Cloud metadata endpoints are refused at every level.
-- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context. A persona's finding is reported unverified until a person judges it with `devops review verify`.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle commands (`devops devcontainer post-create` / `post-start`, both runnable together via `devops devcontainer run-lifecycle`) implement the post-create and post-start hooks.
 - **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
@@ -97,15 +97,16 @@ from devops_cli.ai.review import ReviewPipelineOrchestrator
 
 # Initialize unified LLM client and orchestrator
 client = LLMClient()
-orchestrator = ReviewPipelineOrchestrator(session_id="custom-session", llm_client=client)
+orchestrator = ReviewPipelineOrchestrator(
+    session_id="custom-session", llm_client=client, target_dir=Path.cwd()
+)
 
-# Execute 6-stage review pipeline programmatically
+# Run the review stages programmatically
 metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
 payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
 orchestrator.execute_multi_persona_review(
     payloads, diff_text_by_file={}, personas=["devsecops", "architect"]
 )
-orchestrator.execute_finding_verification(payloads)
 orchestrator.execute_finding_reranking(payloads)
 summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ```
@@ -307,7 +308,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
 |  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-|  | `devops ai prompt-eval [OPTIONS]` | Measure the deterministic suppression layer against recorded review verdicts. |
+|  | `devops ai prompt-eval [OPTIONS]` | Count the review verdicts the feedback dataset records for one persona's findings. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
@@ -330,7 +331,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
-|  | `devops review verify [OPTIONS] <session>` | Record a person's or an agent's verdict on a review finding or candidate. |
+|  | `devops review verify [OPTIONS] <session>` | Record a person's verdict on a review finding or candidate. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
@@ -338,7 +339,6 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
-|  | `devops review hallucinations COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |

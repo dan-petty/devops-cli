@@ -117,8 +117,7 @@ ai:
   allow_private_network: false
 
   # Seconds each LLM request waits for its reply; tasks.<task>.timeout sets one task's.
-  # Unset, a request waits 3600 s and a review's analysis, verification and compose
-  # requests 1200 s.
+  # Unset, a request waits 3600 s and a review's analysis and compose requests 1200 s.
   # timeout: 1200
 
   # RAG (Retrieval-Augmented Generation) settings

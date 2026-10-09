@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, ClassVar
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
 from devops_cli.config.constants import CONST_REVIEW_SCAN_GITLEAKS_CONFIG
 from devops_cli.config.defaults import (
@@ -45,6 +45,8 @@ def _parse_single_gitleaks_item(item: dict[str, Any]) -> Finding:
         description=f"Gitleaks detected secret rule pattern '{rule_id}' at {loc}: {desc}",
         fix="Remove plaintext credentials from source control and store securely in OS Keyring.",
         confidence_score=None,
+        # Every Gitleaks finding is a secret's exposure, whatever words its rule uses.
+        category=DefectClass.SECRET_EXPOSURE.value,
     )
 
 

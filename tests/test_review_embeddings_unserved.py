@@ -1,4 +1,4 @@
-"""Verification against a gateway that serves no embedding model (reported 2026-10-02)."""
+"""Persona review against a gateway that serves no embedding model (reported 2026-10-02)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,7 @@ from devops_cli.ai.rag.models import RAGContext
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.review.pipeline import _resolve_rag_and_contract_context
 from devops_cli.ai.review.pool import ReviewWorkerPool
-from devops_cli.ai.review.verification import _collect_rag_verification_blocks
-from devops_cli.ai.review_schema import FileReviewPayload, Finding
+from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.config import settings as settings_mod
 from devops_cli.config.settings import AITaskOverride, Settings
 
@@ -58,19 +57,6 @@ def embedding_posts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     investigator.clear_investigation_cache()
 
 
-def _findings(n: int, start: int = 0) -> list[Finding]:
-    return [
-        Finding(
-            severity="HIGH",
-            location=f"src/mod{i}.py:1",
-            title=f"Finding {i}",
-            description=f"Description of finding {i}",
-            fix="none",
-        )
-        for i in range(start, start + n)
-    ]
-
-
 def _embedding_requests(posts: list[str]) -> list[str]:
     return [url for url in posts if url.endswith("/embeddings")]
 
@@ -81,6 +67,11 @@ def _resolve_file_context(index: int) -> tuple[str, str]:
     return _resolve_rag_and_contract_context(
         path, ".py", f"symbol{index}", "", FileReviewPayload(file_path=path), False
     )
+
+
+def _resolve_files(n: int, start: int = 0) -> list[tuple[str, str]]:
+    """The per-file lookups of `n` files, one after another."""
+    return [_resolve_file_context(index) for index in range(start, start + n)]
 
 
 def _hold_replies_until_lookups_start(monkeypatch: pytest.MonkeyPatch, lookups: int) -> list[str]:
@@ -107,19 +98,20 @@ def _hold_replies_until_lookups_start(monkeypatch: pytest.MonkeyPatch, lookups: 
     return started
 
 
-def test_verification_asks_for_an_unserved_embedding_model_once(
+def test_a_review_asks_for_an_unserved_embedding_model_once(
     embedding_posts: list[str], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Five findings make at most one embedding request, and no context comes from a fallback.
+    """Five files' lookups make at most one embedding request, and no context comes from a
+    fallback.
 
     The run-wide stop logs exactly one warning, naming the model, the gateway's answer and how
     to fix it.
     """
     with caplog.at_level(logging.WARNING):
-        blocks = _collect_rag_verification_blocks(_findings(5))
+        contexts = _resolve_files(5)
 
     embeds = [url for url in embedding_posts if url.endswith("/embeddings")]
-    assert (len(embeds) <= 1, blocks) == (True, [])
+    assert (len(embeds) <= 1, contexts) == (True, [("", "")] * 5)
     warnings = [
         (record.name, record.levelname, record.getMessage())
         for record in caplog.records
@@ -141,11 +133,11 @@ def test_verification_asks_for_an_unserved_embedding_model_once(
 def test_after_the_stop_a_second_batch_sends_no_request(
     embedding_posts: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Once RAG stops, later findings neither build a retriever nor ask for an embedding.
+    """Once RAG stops, later files neither build a retriever nor ask for an embedding.
 
     The first batch sends exactly one request, the one that stops RAG.
     """
-    _collect_rag_verification_blocks(_findings(5))
+    _resolve_files(5)
     sent = len(_embedding_requests(embedding_posts))
     built: list[tuple[Any, ...]] = []
     build = investigator._get_or_create_retriever
@@ -153,13 +145,13 @@ def test_after_the_stop_a_second_batch_sends_no_request(
         investigator, "_get_or_create_retriever", lambda *a: built.append(a) or build(*a)
     )
 
-    blocks = _collect_rag_verification_blocks(_findings(5, start=5))
+    contexts = _resolve_files(5, start=5)
 
-    assert (sent, len(_embedding_requests(embedding_posts)) - sent, built, blocks) == (
+    assert (sent, len(_embedding_requests(embedding_posts)) - sent, built, contexts) == (
         1,
         0,
         [],
-        [],
+        [("", "")] * 5,
     )
 
 
@@ -229,8 +221,8 @@ def test_once_the_model_answers_lookups_stop_taking_turns(
 
 def test_clearing_the_investigation_cache_lifts_the_stop(embedding_posts: list[str]) -> None:
     """`clear_investigation_cache()` turns RAG back on, so the next lookup asks again."""
-    _collect_rag_verification_blocks(_findings(1))
+    _resolve_files(1)
     investigator.clear_investigation_cache()
-    _collect_rag_verification_blocks(_findings(1, start=1))
+    _resolve_files(1, start=1)
 
     assert len(_embedding_requests(embedding_posts)) == 2

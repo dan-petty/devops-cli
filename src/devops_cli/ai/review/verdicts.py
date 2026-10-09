@@ -4,88 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, Literal
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
-from devops_cli.config.constants import CONST_VERIFIED_BY_AGENT, CONST_VERIFIED_BY_HUMAN
 
+# The labels a finding's status is settled under: a person's verdict, a vulnerability scan's
+# match and a dry run's placeholder (#1150). `Finding.verified_by` is plain text, so a session
+# saved before #1150 under another label still reads.
 VerifiedBy = Literal[
-    "criteria",
-    "llm",
-    "debate",
     "human",
-    "agent",
-    "deterministic:syntax_error",
-    "deterministic:missing_symbol",
-    "deterministic:missing_header",
-    "deterministic:pathlib_resolve",
-    "deterministic:scanned_clean_dependency",
-    "deterministic:placeholder_advisory",
-    "deterministic:unbacked_advisory",
-    "deterministic:unsupported_runtime",
-    "deterministic:operational_protocol",
-    "deterministic:test_fixture_credential",
-    "deterministic:uninitialized_variable",
-    "deterministic:conversational_monologue",
-    "deterministic:benign_compliment",
-    "deterministic:masked_placeholder_syntax_error",
-    "deterministic:none_dereference",
-    "deterministic:catalog_hallucination",
-    "deterministic:person_verdict",
-    "deterministic:verdict_polarity",
-    "deterministic:construct_location",
-    "deterministic:line_boundaries",
-    "deterministic:dry_run",
     "deterministic:vulnerable_dependency",
+    "deterministic:dry_run",
 ]
 
 
-class Adjudicator(StrEnum):
-    """Who gives a verdict through `devops review verify`: a person, or an agent.
-
-    Only a person's verdict is ground truth. Review history ranks sessions by it, and only it
-    teaches the learned catalog or records a mitigation in the ledger.
-    """
-
-    HUMAN = CONST_VERIFIED_BY_HUMAN
-    AGENT = CONST_VERIFIED_BY_AGENT
-
-
 _VALID_STATUSES: frozenset[str] = frozenset({"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"})
-
-# Every field verification owns on a finding: the verdict `apply_verdict` writes, the criteria
-# evidence it rests on, and what the verifier rewrites (the severity it rates on the reviewer's
-# bands and the band the reviewer gave, the location it re-anchors, the values it quotes, and the
-# advisories it strips with their note). The pipeline copies each of them
-# from the verified copy back onto the saved finding; the hand-kept list it had dropped the
-# verifier's severity.
-VERDICT_FIELDS: tuple[str, ...] = (
-    "status",
-    "verified",
-    "reportable",
-    "mitigated",
-    "verified_by",
-    "verified_at",
-    "invalidation_reason",
-    "verification_note",
-    "confidence_score",
-    "citation_line",
-    "mitigating_mechanism",
-    "perimeter_files",
-    "regression_test",
-    "verified_criteria_matched",
-    "invalidated_criteria_matched",
-    "criteria_execution_results",
-    "severity",
-    "severity_raw",
-    "references",
-    "reference_note",
-    "location",
-    "relocated_from",
-    "observed_value",
-    "expected_value",
-)
 
 
 def _check_invalidated_invariants(f: Finding | SavedFinding) -> None:
@@ -161,8 +94,6 @@ def _build_verdict_updates(
     citation_line: int | None,
     mitigating_mechanism: str | None,
     verification_note: str | None,
-    perimeter_files: list[str] | None = None,
-    regression_test: str | None = None,
 ) -> dict[str, Any]:
     """Compute structural update dictionary for the given status."""
     if status == "INVALIDATED":
@@ -215,8 +146,6 @@ def _build_verdict_updates(
         "invalidation_reason": reason,
         "citation_line": citation_line,
         "mitigating_mechanism": mitigating_mechanism,
-        "perimeter_files": perimeter_files or [],
-        "regression_test": regression_test,
         "verification_note": verification_note,
     }
 
@@ -229,8 +158,6 @@ def apply_verdict[T: (Finding, SavedFinding)](
     *,
     citation_line: int | None = None,
     mitigating_mechanism: str | None = None,
-    perimeter_files: list[str] | None = None,
-    regression_test: str | None = None,
     verification_note: str | None = None,
     confidence_score: float | None = None,
     verified_at: str | None = None,
@@ -250,8 +177,6 @@ def apply_verdict[T: (Finding, SavedFinding)](
         citation_line=citation_line,
         mitigating_mechanism=mitigating_mechanism,
         verification_note=verification_note,
-        perimeter_files=perimeter_files,
-        regression_test=regression_test,
     )
 
     if confidence_score is not None:

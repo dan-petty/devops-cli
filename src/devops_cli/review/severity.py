@@ -7,6 +7,7 @@ and path-class severity caps from `.devops/review.toml`.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from devops_cli.config.constants import (
     CONST_SEVERITY_ALIASES,
@@ -111,3 +112,12 @@ def derive_severity(
     """
     base_sev, source_desc = _determine_base_severity(security_severity, rule_severity, sarif_level)
     return _apply_severity_cap(base_sev, source_desc, path_class, severity_caps)
+
+
+def load_severity_caps(review_config: Mapping[str, Any]) -> dict[str, str]:
+    """The `[severity_caps]` table of a parsed review.toml: the most severe a finding in each
+    path class is admitted as (#1301)."""
+    raw = review_config.get("severity_caps")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(path_class): str(cap) for path_class, cap in raw.items()}
