@@ -119,20 +119,33 @@ def test_cli_test_sandbox_dry_run(tmp_path: Path) -> None:
     """Test devops test sandbox CLI subcommand with dry-run."""
     res = runner.invoke(
         cli_test_app,
-        ["sandbox", "--dry-run", "--image", "alpine:latest", "echo", "test"],
+        [
+            "sandbox",
+            "--dry-run",
+            "--workspace",
+            str(tmp_path),
+            "--image",
+            "alpine:latest",
+            "echo",
+            "test",
+        ],
     )
-    assert res.exit_code == 0
-    assert "echo" in res.output
-    assert "alpine:latest" in res.output
+    assert (res.exit_code, "echo" in res.output, "alpine:latest" in res.output) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_cli_test_sandbox_whitelist_url_with_path() -> None:
+def test_cli_test_sandbox_whitelist_url_with_path(tmp_path: Path) -> None:
     """Test devops test sandbox accepts valid whitelist URLs with paths."""
     res = runner.invoke(
         cli_test_app,
         [
             "sandbox",
             "--dry-run",
+            "--workspace",
+            str(tmp_path),
             "--network-mode",
             "public_whitelist",
             "--public-whitelist",
@@ -141,18 +154,16 @@ def test_cli_test_sandbox_whitelist_url_with_path() -> None:
             "test",
         ],
     )
-    assert res.exit_code == 0
-    assert "echo" in res.output
+    assert (res.exit_code, "echo" in res.output) == (0, True)
 
 
 def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
     """Test devops docker sandbox CLI subcommand with dry-run."""
     res = runner.invoke(
         docker_app,
-        ["sandbox", "--dry-run", "pytest", "tests/unit"],
+        ["sandbox", "--dry-run", "--workspace", str(tmp_path), "pytest", "tests/unit"],
     )
-    assert res.exit_code == 0
-    assert "pytest" in res.output
+    assert (res.exit_code, "pytest" in res.output) == (0, True)
 
 
 def test_sandbox_runner_env_and_hardening_propagation(tmp_path: Path, docker_engine: Any) -> None:

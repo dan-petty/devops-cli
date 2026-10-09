@@ -285,6 +285,34 @@ _SANDBOX_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
 }
 
 
+def _run_docker_sandbox_dry_run(workspace: Path, tmp_path: Path) -> None:
+    """Run `devops docker sandbox --dry-run`."""
+    from devops_cli.commands.docker import app as docker_app
+
+    CliRunner().invoke(
+        docker_app,
+        ["sandbox", "--dry-run", "--workspace", str(workspace), "true"],
+        catch_exceptions=False,
+    )
+
+
+def _run_test_sandbox_dry_run(workspace: Path, tmp_path: Path) -> None:
+    """Run `devops test sandbox --dry-run`."""
+    from devops_cli.commands.test_cmd import app as test_app
+
+    CliRunner().invoke(
+        test_app,
+        ["sandbox", "--dry-run", "--workspace", str(workspace), "true"],
+        catch_exceptions=False,
+    )
+
+
+_SANDBOX_DRY_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
+    "docker-sandbox": (_run_docker_sandbox_dry_run, DockerSandboxError),
+    "test-sandbox": (_run_test_sandbox_dry_run, DockerSandboxError),
+}
+
+
 def _engine_dir(tmp_path: Path) -> Path:
     return tmp_path / "d" / "engine"
 
@@ -505,6 +533,63 @@ def test_sandbox_deploy_dry_run_looks_up_no_engine_host(
         res = CliRunner().invoke(sandbox_app, ["deploy", "--workspace", str(tmp_path), "--dry-run"])
 
     assert (res.exit_code, lookup.called) == (0, False)
+
+
+@pytest.mark.parametrize("runner_name", sorted(_SANDBOX_DRY_RUNNERS))
+@pytest.mark.parametrize("case", sorted(_REFUSED_WORKSPACES))
+def test_sandbox_dry_runs_refuse_invalid_workspaces(
+    runner_name: str,
+    case: str,
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """Both devops docker sandbox --dry-run and devops test sandbox --dry-run refuse invalid
+    workspaces before making any engine calls (#1383)."""
+    run, refusal = _SANDBOX_DRY_RUNNERS[runner_name]
+    runtime_dir = tmp_path_factory.mktemp("rt")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+    workspace, protected, env = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    client = MagicMock()
+
+    with docker_engine(client), pytest.raises(refusal) as refused:
+        run(workspace, tmp_path)
+
+    message = str(refused.value)
+    assert (str(workspace) in message, str(protected) in message, client.mock_calls) == (
+        True,
+        True,
+        [],
+    )
+
+
+@pytest.mark.parametrize("subcommand", ["docker-sandbox", "test-sandbox"])
+def test_docker_and_test_sandbox_dry_runs_make_no_request(
+    subcommand: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """A dry run with tcp DOCKER_HOST and private networks disallowed records no host lookup and no client call (#1383)."""
+    from devops_cli.commands.docker import app as docker_app
+    from devops_cli.commands.test_cmd import app as test_app
+
+    app = docker_app if subcommand == "docker-sandbox" else test_app
+    args = ["sandbox", "--dry-run", "--workspace", str(tmp_path), "true"]
+    monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    client = MagicMock()
+
+    with (
+        docker_engine(client),
+        patch("devops_cli.core.validation._resolve_host_ips") as lookup,
+    ):
+        res = CliRunner().invoke(app, args, catch_exceptions=False)
+
+    assert (res.exit_code, lookup.called, client.mock_calls) == (0, False, [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
