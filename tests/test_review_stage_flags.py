@@ -90,7 +90,6 @@ def test_resolve_stage_flags_conflicting_no_and_only() -> None:
 def test_review_cli_stage_flags_propagation() -> None:
     """Verify CLI review commands pass resolved stage flags to workflow."""
     with (
-        patch("devops_cli.commands.review.load_settings"),
         patch("devops_cli.commands.review._make_review_clients"),
         patch(
             "devops_cli.commands.review._prepare_path_content",

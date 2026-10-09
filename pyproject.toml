@@ -150,6 +150,12 @@ addopts = "-n logical -p no:logfire -p no:pytest_logfire"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
 ]
+# Logfire's token check warns from a background thread, so the warning fails a test only
+# through pytest's unhandled-thread warning; both are errors so no test starts it (#965).
+filterwarnings = [
+    "error:Logfire API is unreachable:UserWarning",
+    "error::pytest.PytestUnhandledThreadExceptionWarning",
+]
 
 
 [tool.coverage.run]
