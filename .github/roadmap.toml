@@ -27,7 +27,11 @@ release_credit_per_delivered_item = 1
 # Upper cap on release credit, and target item count per release cycle
 release_item_target = 50
 
+# Temporary bridge (owner, 2026-10-09): the running Service trims or descopes any release over
+# release_cap. Until it runs #1514 (a start fills to 12, with 4 slots up to 16), 16 keeps the
+# items already placed in planned releases. Remove this line once the Service runs #1514.
+release_cap = 16
+
 # Keys left out take these defaults:
-# release_cap = 12          # Ready items a starting release is filled to
 # discovery_threshold = 24  # backlog size below which discovery looks for candidates
 # stall_days = 14           # days without activity before an in-progress item stalls

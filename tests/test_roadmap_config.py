@@ -94,6 +94,7 @@ def test_this_repositorys_file_names_board_2_and_declares_quota_keys() -> None:
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=2,
         planning_horizon=3,
+        release_cap=16,  # temporary bridge until the Service runs #1514's slots
         open_issue_limit=200,
         throttle_start_fraction=0.8,
         overage_step_fraction=0.25,
