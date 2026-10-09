@@ -123,7 +123,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`roadmap_run`](#roadmap-run) | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
-| [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
+| [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.  Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP. `allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318, in the sandbox_namespace, public_whitelist and local_whitelist modes. |
 | [`sandbox_status`](#sandbox-status) | Inspect status of deployed sandbox containers. |
 | [`sandbox_stop`](#sandbox-stop) | Gracefully stop and remove a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
@@ -1510,6 +1510,10 @@ Execute a command inside an active sandbox container.
 
 Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
 
+Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP.
+`allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318,
+in the sandbox_namespace, public_whitelist and local_whitelist modes.
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
@@ -1519,6 +1523,7 @@ Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolatio
 | `namespace` | `string` | No | `sandbox` | - |
 | `public_whitelist` | `array` | No | - | - |
 | `local_whitelist` | `array` | No | - | - |
+| `allow_collector` | `boolean` | No | `False` | - |
 
 ### `sandbox_status`
 

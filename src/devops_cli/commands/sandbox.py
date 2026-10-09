@@ -1030,13 +1030,38 @@ def network_policy(
     public_whitelist: Annotated[
         str | None,
         typer.Option(
-            "--public-whitelist", help="Comma-separated public domains/IPs allowed for egress"
+            "--public-whitelist",
+            help=(
+                "Comma-separated public destinations allowed for egress, each opening one TCP "
+                "port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or "
+                "https, gets 443 and http 80; any other scheme needs a port. Names are resolved "
+                "when the policy is generated, so regenerate it when a name's addresses change."
+            ),
         ),
     ] = None,
     local_whitelist: Annotated[
         str | None,
-        typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
+        typer.Option(
+            "--local-whitelist",
+            help=(
+                "Comma-separated local or private destinations allowed for egress, with the "
+                "same forms and ports as --public-whitelist: scheme://host:port, host:port or "
+                "[v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other "
+                "scheme needs a port. Names are resolved when the policy is generated, so "
+                "regenerate it when a name's addresses change."
+            ),
+        ),
     ] = None,
+    allow_collector: Annotated[
+        bool,
+        typer.Option(
+            "--allow-collector",
+            help=(
+                "Add one egress rule to the OTel collector's pods in the otel namespace on TCP "
+                "4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes)"
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
     pub_list = (
@@ -1057,7 +1082,9 @@ def network_policy(
             local_whitelist=loc_list,
             sandbox_namespace=namespace,
         )
-        policy_dict = net_cfg.to_k8s_network_policy(name=name, namespace=namespace)
+        policy_dict = net_cfg.to_k8s_network_policy(
+            name=name, namespace=namespace, allow_collector=allow_collector
+        )
         yaml_str = yaml.dump(policy_dict, sort_keys=False)
         write_stdout(yaml_str)
     except (ValueError, SandboxValidationError) as exc:

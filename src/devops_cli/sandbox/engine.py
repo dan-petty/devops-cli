@@ -46,7 +46,7 @@ from devops_cli.sandbox.models import (
 )
 from devops_cli.sandbox.ports import allocate_ports
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import get_tracer, record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,11 @@ class WorkloadSandboxEngine:
         ws_resolved: Path,
         port_bindings: list[PortBinding],
     ) -> dict[str, Any]:
-        """Construct Docker container creation options with strict security containment."""
+        """Construct Docker container creation options with strict security containment.
+
+        The environment is a copy of the config's that carries the active trace context, so a
+        workload that traces is parented to the deploy span.
+        """
         mount_mode = "ro" if config.read_only else "rw"
         volumes = {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}}
         ports_map = {
@@ -275,7 +279,7 @@ class WorkloadSandboxEngine:
             "user": _resolve_user_string(config.rootless),
             "mem_limit": config.memory_limit,
             "nano_cpus": nano_cpus,
-            "environment": config.env,
+            "environment": dict(config.env),
             "detach": True,
             **config.policy.to_docker_security_kwargs(read_only=config.read_only),
         }
@@ -301,6 +305,7 @@ class WorkloadSandboxEngine:
             }
         else:
             kwargs["network_mode"] = "bridge"
+        get_tracer().inject_trace_env(kwargs["environment"])
         return kwargs
 
     def deploy(
@@ -488,9 +493,13 @@ class WorkloadSandboxEngine:
             )
 
         start_time = time.monotonic()
-        exit_code, stdout = get_engine().exec_in_container(
-            inst.container_id, command, workdir=workdir
-        )
+        with trace_span("sandbox.exec", attributes={"instance_id": inst.instance_id}):
+            exit_code, stdout = get_engine().exec_in_container(
+                inst.container_id,
+                command,
+                workdir=workdir,
+                environment=get_tracer().inject_trace_env({}) or None,
+            )
         return SandboxExecResult(
             instance_id=inst.instance_id,
             command=command,

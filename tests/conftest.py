@@ -311,6 +311,23 @@ def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger
     return ledger
 
 
+@pytest.fixture
+def tracer() -> Iterator[Any]:
+    """An enabled tracer with a clean span buffer and no trace context inherited from the run."""
+    from devops_cli.config.constants import CONST_TRACEPARENT_ENV_VAR, CONST_TRACEPARENT_HEADER
+    from devops_cli.telemetry.tracer import clear_span_buffer, get_tracer, reset_tracer
+
+    environment = dict(os.environ)
+    environment.pop(CONST_TRACEPARENT_ENV_VAR, None)
+    environment.pop(CONST_TRACEPARENT_HEADER, None)
+    with patch.dict(os.environ, environment, clear=True):
+        reset_tracer()
+        clear_span_buffer()
+        yield get_tracer()
+        clear_span_buffer()
+        reset_tracer()
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""

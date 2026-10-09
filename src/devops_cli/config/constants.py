@@ -1183,6 +1183,7 @@ CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+CONST_OTEL_OTLP_GRPC_PORT = 4317
 # Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
 CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
     {"counter", "gauge", "histogram", "summary", "untyped"}
@@ -1212,6 +1213,12 @@ CONST_PYTHON_TEMPLATE_STRING_PREFIXES: Final[frozenset[str]] = frozenset({"f", "
 CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
+# The labels the opentelemetry-collector chart gives the `otel-collector` release's pods. Both
+# are needed: Jaeger runs in the same namespace and listens on the same OTLP ports.
+CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
+    "app.kubernetes.io/name": "opentelemetry-collector",
+    "app.kubernetes.io/instance": "otel-collector",
+}
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
 # The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml) and its password secret.
 CONST_RUNS_INDEX_NAMESPACE = "llm"
@@ -2179,6 +2186,16 @@ CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: Final[str] = "local_whitelist"
 CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
 
 CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
+# The TCP port a whitelist entry that names none opens, by URL scheme ("" for no scheme). Any
+# other scheme has no default, so its entry must name a port.
+CONST_SANDBOX_WHITELIST_DEFAULT_PORTS: Final[dict[str, int]] = {"": 443, "https": 443, "http": 80}
+# The network modes whose NetworkPolicy can take the opt-in egress rule to the OTel collector:
+# isolated has no egress to add it to, and bridge already allows all of it.
+CONST_SANDBOX_COLLECTOR_LANE_MODES: Final[tuple[str, ...]] = (
+    CONST_SANDBOX_NETWORK_NAMESPACE,
+    CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+)
 CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
 
 # Exit status reported when a sandbox workload exceeds its wall-clock budget,
@@ -2475,6 +2492,9 @@ CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}
 )
+# The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
+# decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
+CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30

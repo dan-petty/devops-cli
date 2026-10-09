@@ -236,7 +236,8 @@ devops sandbox network-policy [OPTIONS]
 | `--network-mode`, `-m` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--name`, `-n` | `string` | `app-sandbox` | Name prefix for the NetworkPolicy resource |
 | `--namespace` | `string` | `sandbox` | Target Kubernetes namespace |
-| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
-| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
+| `--public-whitelist` | `string` | - | Comma-separated public destinations allowed for egress, each opening one TCP port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `--local-whitelist` | `string` | - | Comma-separated local or private destinations allowed for egress, with the same forms and ports as --public-whitelist: scheme://host:port, host:port or [v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `--allow-collector` | `boolean` | - | Add one egress rule to the OTel collector's pods in the otel namespace on TCP 4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes) |
 
 ---
