@@ -76,9 +76,19 @@ def _tokenize_command(raw_args: str) -> tuple[ArgvToken, ...]:
         parts = shlex.split(cleaned, comments=True)
     except ValueError:
         parts = cleaned.split()
-    return tuple(
-        ArgvPlaceholder(expression=part) if is_placeholder(part) else part for part in parts
-    )
+    return tuple(_argv_token(part) for part in parts)
+
+
+def _argv_token(part: str) -> ArgvToken:
+    """The token a document's word stands for.
+
+    An option written inside a synopsis optional group (`[-v`, `[--json]`) is that option, so
+    the check validates it.
+    """
+    option = part.removeprefix("[").removesuffix("]")
+    if option.startswith("-"):
+        return option
+    return ArgvPlaceholder(expression=part) if is_placeholder(part) else part
 
 
 def _extract_fenced_references(lines: Sequence[str], path: str) -> list[DevopsArgvReference]:
