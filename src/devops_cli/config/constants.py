@@ -3189,8 +3189,9 @@ CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
-# open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and
-# `docs/ROADMAP.md` with `devops roadmap render`.
+# open pull request conflict. The cut commit writes both: `CHANGELOG.md`'s section for the
+# version from `changelog.d/`, and `docs/ROADMAP.md` with `devops roadmap render`. Once the cut
+# has written that section, a critical fix edits it in its own pull request (#1450).
 CONST_RELEASE_SHARED_FILES: Final[tuple[str, ...]] = (
     CONST_CHANGELOG_FILENAME,
     CONST_ROADMAP_DOCUMENT_PATH,
@@ -3203,8 +3204,11 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 )
 # The `pulls/{n}/files` statuses under which the file is in the pull request's head and was
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
-# only) and unchanged.
-CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# only) and unchanged. `modified` is an edit in place under the same name.
+CONST_PR_FILE_MODIFIED_STATUS: Final[str] = "modified"
+CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
+    {"added", CONST_PR_FILE_MODIFIED_STATUS, "renamed"}
+)
 # The statuses under which a pull request adds, modifies, renames or removes the file.
 CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
 # `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`

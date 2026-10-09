@@ -27,4 +27,4 @@ Closes #<issue>
 Task file: `docs/agent/tasks/task-<issue>-<slug>.md`
 
 Changelog fragment: `changelog.d/<issue>.md`
-<!-- The entry goes there. Do not edit `CHANGELOG.md` or `docs/ROADMAP.md`: the cut writes both, and `devops pr check-readiness` blocks a pull request into a release branch that changes either. -->
+<!-- The entry goes there. Do not edit `CHANGELOG.md` or `docs/ROADMAP.md`: the cut writes both, and `devops pr check-readiness` blocks a pull request into a release branch that changes either. A critical fix after the cut edits the version's `CHANGELOG.md` section instead, with no fragment. -->

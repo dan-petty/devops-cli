@@ -963,7 +963,10 @@ class ReleaseCommandHelp:
     notes: str = "Extract release notes from CHANGELOG.md for a version."
     target_version: str = "Target semantic version (e.g., 0.1.8)."
     sync_docs: str = "Regenerate CLI reference docs and sync README matrix."
-    ensure_changelog: str = "Ensure CHANGELOG.md contains release header with current date."
+    ensure_changelog: str = (
+        "Ensure CHANGELOG.md contains release header with current date. --create-pr always "
+        "collects changelog.d/ into it, whatever this flag says."
+    )
     auto_pr: str = "Create release branch, commit changes, and open a GitHub Release PR."
     prefix: str = "Conventional commit prefix (feat or fix)."
     breaking: str = "Flag release as containing breaking changes (!)."
@@ -1047,10 +1050,12 @@ class RoadmapCommandHelp:
         "the items of that Release its pull requests deliver, except one a person reopened, and "
         "naming the rest, which hold no cut. Once the release has no open item, one item closed "
         "as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in "
-        "the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role "
-        "bypass on release ruleset 23059172), and opens the release pull request into the "
-        "default branch. Lists completed items with no changelog fragment. Writes only with "
-        "--confirm."
+        "the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's "
+        "section for the version and deletes the fragments, pushes to release/vX.Y.Z "
+        "(requiring Write role bypass on release ruleset 23059172), and opens the release pull "
+        "request into the default branch. The cut fails before it pushes when the branch holds "
+        "neither a fragment nor that section. Lists completed items with no changelog fragment. "
+        "Writes only with --confirm."
     )
     close_confirm: str = (
         "Close the issues and make the cut. Without it, close prints its plan only."

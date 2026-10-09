@@ -41,7 +41,7 @@ devops release prepare [OPTIONS] <version>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. --create-pr always collects changelog.d/ into it, whatever this flag says. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |

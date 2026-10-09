@@ -639,7 +639,13 @@ class PRMessages:
     )
     grounding_release_files_changed: str = (
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
-        "never conflict on them. Add its changelog entry as {fragment} instead."
+        "never conflict on them."
+    )
+    # Not after the cut, when a critical fix's entry goes in the version's CHANGELOG.md section.
+    grounding_release_files_fragment: str = " Add its changelog entry as {fragment} instead."
+    grounding_changelog_unread: str = (
+        "PR #{number} changes CHANGELOG.md, but {base}'s CHANGELOG.md could not be read to see "
+        "whether the cut wrote its section ({error})."
     )
     grounding_item_not_in_release: str = (
         "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
@@ -1611,17 +1617,20 @@ class RoadmapMessages:
     close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
     close_cut_files: str = "The cut commit changes {files}."
     close_cut_fragments: str = (
-        "Changelog fragments on the release branch, left uncollected: {fragments}."
+        "Changelog fragments the cut collects into CHANGELOG.md's [{version}] section and "
+        "deletes: {fragments}."
     )
     close_cut_missing: str = (
-        "Closed as completed with no changelog fragment (a person adds it on the release pull "
-        "request): {items}."
+        "Closed as completed with no changelog fragment: {items}. Before the cut, add "
+        "changelog.d/<issue>.md in a pull request into the release branch; after it, edit the "
+        "version's section of CHANGELOG.md in a pull request."
     )
     close_none: str = "none"
     close_dry_run_note: str = (
-        "A cut commits {files} on release/<release> and opens it ready for review. --plan "
-        "reads GitHub and lists each issue the run closes with its comment, the fragments on "
-        "the release branch, left uncollected, and the completed items with none."
+        "A cut commits {files} on release/<release> and opens it ready for review: it collects "
+        "the release branch's changelog fragments into CHANGELOG.md's section for the release "
+        "and deletes them. --plan reads GitHub and lists each issue the run closes with its "
+        "comment, the fragments the cut collects, and the completed items with none."
     )
     close_preview: str = "Nothing was written; pass --confirm to close these and make the cut."
     close_applied: str = "Closed {count} issue(s)."

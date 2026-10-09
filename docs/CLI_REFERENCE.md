@@ -5692,7 +5692,7 @@ devops release prepare [OPTIONS] <version>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. --create-pr always collects changelog.d/ into it, whatever this flag says. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
@@ -5906,7 +5906,7 @@ devops roadmap intake [OPTIONS]
 
 ### `devops roadmap close`
 
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm.**
 
 ```bash
 devops roadmap close [OPTIONS]
@@ -6213,9 +6213,11 @@ Validate PR merge readiness: conflicts, draft state, checks, review threads and 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
 and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
-the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
+the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
+changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
+release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
+docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -7293,9 +7295,11 @@ Validate PR merge readiness: conflicts, draft state, checks, review threads and 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
 and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
-the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
+the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
+changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
+release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
+docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
