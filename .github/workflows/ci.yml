@@ -19,13 +19,19 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # uv runs only its own CPython builds, never the runner image's Python: setup-uv exports
+  # UV_PYTHON=3.14, which a runner's own 3.14 would otherwise satisfy (#1494). Never also set
+  # UV_PYTHON_PREFERENCE; uv refuses to run with both.
+  UV_MANAGED_PYTHON: "1"
+
 jobs:
   # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
   # errors surface in roughly a minute instead of queuing behind the full suite.
   static:
     name: Static Analysis
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 15
     permissions:
       contents: read
@@ -45,7 +51,7 @@ jobs:
   test:
     name: Tests & Coverage
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
@@ -69,7 +75,7 @@ jobs:
   devcontainer:
     name: DevContainer Image
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
@@ -164,7 +170,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.base_ref == 'main')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
@@ -256,7 +262,7 @@ jobs:
   dependency-freshness:
     name: Dependency Freshness
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 15
     permissions:
       contents: read

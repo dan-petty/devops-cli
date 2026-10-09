@@ -31,7 +31,7 @@ concurrency:
 jobs:
   cleanup:
     name: Prune PR DevContainer Images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 10
     permissions:
       packages: write
