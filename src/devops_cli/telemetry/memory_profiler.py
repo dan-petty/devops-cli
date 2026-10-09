@@ -244,10 +244,8 @@ class MemoryProfiler:
 
 async def _exercise_http_pool(iterations: int) -> None:
     """Perform deterministic async HTTP connection pool requests against in-memory transport."""
-    try:
-        import httpx2 as httpx
-    except ImportError:
-        import httpx  # type: ignore[no-redef]
+    import httpx2
+
     from devops_cli.http.broker import HttpClientBroker
     from devops_cli.http.egress import EgressLevel
 
@@ -264,7 +262,7 @@ async def _exercise_http_pool(iterations: int) -> None:
     broker = HttpClientBroker()
     try:
         client = await broker.get_async_client(EgressLevel.PRIVATE)
-        client._transport = httpx.ASGITransport(app=cast(Any, _dummy_app))
+        client._transport = httpx2.ASGITransport(app=cast(Any, _dummy_app))
 
         for _ in range(iterations):
             resp = await broker.arequest(

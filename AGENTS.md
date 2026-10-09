@@ -212,7 +212,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 | Operation | Command | Purpose |
 | :--- | :--- | :--- |
 | **Dependency Sync** | `uv sync` | Synchronize virtual environment with lockfile. |
-| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs). |
+| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs, deps). |
 | **Targeted Test** | `uv run pytest tests/test_<feature>.py` | Fast, isolated unit test execution for debugging. |
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
