@@ -259,7 +259,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config output [OPTIONS]` | Output environment variables available for devops-cli configuration. |
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
-|  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
+|  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited. |
 | **ci** | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |

@@ -13,9 +13,10 @@ def test_find_plaintext_config_leaks_detects_secrets(tmp_path: Path) -> None:
     leak_file = tmp_path / "config.yaml"
     leak_file.write_text("grafana:\n  token: FAKE-1234567890abcdef\nai:\n  provider: openai\n")
 
-    leaks = _detect_keyring_secret_leaks([leak_file])
+    leaks, unaudited = _detect_keyring_secret_leaks([leak_file])
     assert len(leaks) == 1
     assert "config.yaml:grafana.token" in leaks[0]
+    assert unaudited == []
 
 
 def test_find_plaintext_config_leaks_clean_file(tmp_path: Path) -> None:
@@ -23,8 +24,8 @@ def test_find_plaintext_config_leaks_clean_file(tmp_path: Path) -> None:
     clean_file = tmp_path / "config.yaml"
     clean_file.write_text("github:\n  owner: dan-petty\nai:\n  provider: openai\n")
 
-    leaks = _detect_keyring_secret_leaks([clean_file])
-    assert leaks == []
+    leaks, unaudited = _detect_keyring_secret_leaks([clean_file])
+    assert (leaks, unaudited) == ([], [])
 
 
 def test_zero_plaintext_in_workspace_configs() -> None:
@@ -34,8 +35,10 @@ def test_zero_plaintext_in_workspace_configs() -> None:
         Path(".devops/config.yaml"),
         Path(".data/config.yaml"),
     ]
-    leaks = _detect_keyring_secret_leaks(scanned_files)
-    assert leaks == [], f"Found plaintext secrets in configuration files: {leaks}"
+    leaks, unaudited = _detect_keyring_secret_leaks(scanned_files)
+    assert (leaks, unaudited) == ([], []), (
+        f"Found plaintext secrets in {leaks}, or could not audit {unaudited}"
+    )
 
 
 def test_exception_sanitization_masks_sensitive_tokens() -> None:
