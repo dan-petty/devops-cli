@@ -153,6 +153,19 @@ This document provides foundational context, architectural principles, and opera
 
 All work follows a test-first progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
 
+### Feasibility Check (Before Any Code or Tests)
+- **Confirm Premise Against the Real System**: Before writing code or tests, always perform a **feasibility check**: confirm the item's premise against the real system (upstream documentation, library source, live cluster state, or CLI runtime). Record in the task file's `**Feasibility**` field how the premise was verified.
+- **Stop Rather Than Add Compensating Code (Handing Items Back)**:
+  - When an item cannot be built as specified, or requires an architectural refactor beyond its scope, the agent **MUST WRITE NO COMPENSATING CODE** (e.g. no dummy mocks pretending to work, no swallowed exceptions, no unworkable configuration workarounds):
+    1. Comment on the issue with the concrete evidence and a proposed re-scope or refactoring item;
+    2. Return the item to `New` on the roadmap board so refinement picks it up (`devops roadmap return <issue-number> --comment "<evidence>" --confirm`, which supports `--dry-run` and plan preview);
+    3. Stop.
+- **Signals to Stop Rather than Add Code**:
+  - Swallowing an error (e.g. `except Exception: pass`, unread `check=False`);
+  - Product code that detects tests or alters production behavior when running under pytest;
+  - A second fix on top of a fix in the same area within one release;
+  - A review loop that keeps finding new defects in the same feature.
+
 ### Test-First Development Cycle (TDD as Living Contract)
 1. **Define Specification via Tests First**: Before writing or changing implementation code in `src/`, author comprehensive unit and integration tests defining intended behavior, arguments, return structures, edge cases, and exception handling. Tests serve as the authoritative, executable specification.
 2. **Submodule-Aligned Test Organization (No Arbitrary One-Off Files)**:

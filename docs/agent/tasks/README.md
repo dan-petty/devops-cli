@@ -43,6 +43,7 @@ Each task file should follow this standard format:
 **Milestone**: v<version>
 **Priority**: <priority/p0-critical | priority/p1-high | priority/p2-medium | priority/p3-low>
 **Scope**: <scope/*>
+**Feasibility**: <How the premise was confirmed against the real system (upstream docs, library source, cluster)>
 
 ## Description
 <Concise technical description of the deliverable and architectural goals>

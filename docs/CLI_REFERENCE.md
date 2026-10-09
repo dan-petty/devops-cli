@@ -5960,6 +5960,31 @@ devops roadmap run [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
 | `--confirm` | `boolean` | - | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
+### `devops roadmap return`
+
+**Return an item to New on the roadmap board with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope.**
+
+```bash
+devops roadmap return [OPTIONS] <item>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<item>` | `integer` | Yes | The issue or item number to return to New. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--comment`, `-c` | `string` | `` | Evidence comment explaining why the item cannot be built as specified. |
+| `--comment-file` | `path` | - | Path to file containing the evidence comment. |
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--confirm` | `boolean` | - | Make the writes to GitHub (post comment and set Status to New). |
+
 ---
 
 ## devops pr

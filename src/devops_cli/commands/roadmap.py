@@ -573,3 +573,59 @@ def run_cmd(
         msg = f"Roadmap jobs failed: {', '.join(exc.failed_jobs)}" if exc.failed_jobs else str(exc)
         print_error(msg)
         raise typer.Exit(1) from exc
+
+
+def _resolve_comment(comment: str, comment_file: Path | None) -> str:
+    """Extract comment text from inline option or file, raising if invalid or missing."""
+    clean = comment.strip()
+    if comment_file is not None:
+        if not comment_file.is_file():
+            print_error(f"Comment file not found: {comment_file}")
+            raise typer.Exit(1)
+        clean = comment_file.read_text(encoding="utf-8").strip()
+    if not clean:
+        print_error("An evidence comment is required (--comment or --comment-file).")
+        raise typer.Exit(1)
+    return clean
+
+
+@app.command("return", help=HELP.roadmap.return_item)
+def return_cmd(
+    item: Annotated[int, typer.Argument(help=HELP.roadmap.return_item_arg)],
+    comment: Annotated[str, typer.Option("--comment", "-c", help=HELP.roadmap.return_comment)] = "",
+    comment_file: Annotated[
+        Path | None, typer.Option("--comment-file", help=HELP.roadmap.return_comment_file)
+    ] = None,
+    repo: RepoOption = None,
+    ref: RefOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.return_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.return_confirm)] = False,
+) -> None:
+    """Return an item to New on the roadmap board with an evidence comment."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    clean_comment = _resolve_comment(comment, comment_file)
+    target = _target(repo)
+
+    from devops_cli.roadmap.return_item import (
+        apply_return,
+        dry_run_return,
+        plan_return,
+        render_return_plan,
+    )
+
+    if dry_run or is_dry_run():
+        reads, writes = dry_run_return(target, item)
+        render_dry_run("return", target, reads, writes)
+        return
+
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        with _exit_on_failure("Could not return roadmap item"):
+            _, _cfg, store = _open_roadmap(target, ref, CONST_ROADMAP_REFINE_BOARD_FILTER)
+            opened.append(store)
+            plan = plan_return(store, item, clean_comment, target)
+            if not confirm:
+                write_stdout(render_return_plan(plan) + "\n\nPlan only: pass --confirm to apply.\n")
+                return
+            apply_return(store, plan)
+            print_success(f"Returned item #{item} to New and posted evidence comment.")
