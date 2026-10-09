@@ -1177,87 +1177,16 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         else:
             actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
 
-    # 7. Git daemon background service
-    auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
-    if auto_git_daemon:
-        actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
-
-    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
+    # 7. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
     # and any gh token that fell back to plain text while the keyring was unavailable
     actions.extend(_start_session_bus(dry_run=dry_run))
     actions.extend(_gh_plaintext_token_warnings())
 
-    # 9. Align kubectl with the configured context -- last, because the minikube supervisor
+    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
     # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
     # any earlier is undone immediately, which is exactly how a container configured for one
     # cluster ends up pointing at another on every rebuild.
     actions.extend(_apply_configured_k8s_context(dry_run=dry_run))
-
-    return actions
-
-
-def _git_daemon_pid_file() -> Path:
-    """Return platform-safe path to git daemon pid file."""
-    import tempfile
-
-    return Path(tempfile.gettempdir()) / "git-daemon.pid"
-
-
-def _is_git_daemon_running() -> bool:
-    """Check whether something accepts connections on the git daemon port, 127.0.0.1:9418.
-
-    The pid file is not consulted. `git daemon` never removes it and `/tmp` outlives
-    container rebuilds, so after a restart the pid it names can belong to any process.
-    """
-    import socket
-
-    try:
-        with socket.create_connection(("127.0.0.1", 9418), timeout=0.2):
-            return True
-    except OSError:
-        return False
-
-
-def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
-    """Ensure background git daemon is running serving workspace repositories."""
-    actions: list[str] = []
-    if _is_git_daemon_running():
-        actions.append("Git daemon is already running on port 9418")
-        return actions
-
-    if not shutil.which("git"):
-        return actions
-
-    raw_paths = os.getenv("DEVOPS_GIT_DAEMON_PATHS")
-    if raw_paths:
-        export_dirs = [Path(p.strip()) for p in raw_paths.split(",") if p.strip()]
-    else:
-        export_dirs = [workspace_dir / "k8s", workspace_dir / "repos"]
-
-    for d in export_dirs:
-        if not dry_run:
-            d.mkdir(parents=True, exist_ok=True)
-
-    pid_file = _git_daemon_pid_file()
-    cmd = [
-        "git",
-        "daemon",
-        "--reuseaddr",
-        "--detach",
-        f"--pid-file={pid_file}",
-        "--export-all",
-        *[str(d) for d in export_dirs],
-    ]
-
-    paths_str = ", ".join(str(d) for d in export_dirs)
-    if not dry_run:
-        res = run_subprocess(cmd, check=False, quiet=True)
-        if res.returncode == 0:
-            actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
-        else:
-            actions.append(f"Failed to start Git daemon (exit {res.returncode}): {res.stderr}")
-    else:
-        actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
 
     return actions
 

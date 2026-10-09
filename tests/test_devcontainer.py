@@ -26,7 +26,6 @@ def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate devcontainer tests from spawning real background system daemons."""
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
     monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-    monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
     monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
 
 
@@ -155,7 +154,6 @@ class TestDevcontainerCli:
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
@@ -385,7 +383,6 @@ class TestDevcontainerCli:
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
         ws = tmp_path / "test-local-dev"
         ws.mkdir()
@@ -431,7 +428,6 @@ class TestDevcontainerCli:
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
         ws = tmp_path / "isolated-proj"
         ws.mkdir()
@@ -710,16 +706,17 @@ class TestDevcontainerCli:
         assert data["action"] == "validate_devcontainer_manifest"
         assert data["dry_run"] is True
 
-    def test_post_start_autostarts_git_daemon(
+    def test_post_start_never_starts_git_daemon(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start must start git daemon if not running."""
+        """devops devcontainer post-start does not spawn a git daemon stub (#1122)."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true")
+        monkeypatch.delenv("DEVOPS_GIT_DAEMON_AUTOSTART", raising=False)
+        monkeypatch.delenv("DEVOPS_GIT_DAEMON_PATHS", raising=False)
 
         calls: list[list[str]] = []
 
@@ -730,43 +727,14 @@ class TestDevcontainerCli:
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr(
-            "devops_cli.commands.devcontainer._is_git_daemon_running", lambda: False
-        )
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
 
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
-        assert result.exit_code == 0
-        assert "Started background Git daemon on port 9418" in result.output
-        assert any(c[:2] == ["git", "daemon"] for c in calls)
-
-    def test_post_start_skips_when_git_daemon_already_running(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """devops devcontainer post-start must skip when git daemon is running."""
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true")
-
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("devops_cli.commands.devcontainer._is_git_daemon_running", lambda: True)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
-
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
-        assert result.exit_code == 0
-        assert "Git daemon is already running on port 9418" in result.output
-        assert not any(c[:2] == ["git", "daemon"] for c in calls)
+        assert (
+            result.exit_code,
+            any(c[:2] == ["git", "daemon"] for c in calls),
+            "Git daemon" in result.output,
+        ) == (0, False, False)
 
     def test_post_start_autodeploy_k8s_stack(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -913,7 +881,6 @@ class TestDevcontainerCli:
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
         # Test dry-run permission setup
         dry_actions = _setup_volume_mount_permissions(tmp_path, dry_run=True)
@@ -1241,45 +1208,33 @@ def _record_subprocess_calls(
     return calls
 
 
-def test_a_live_pid_in_a_stale_git_daemon_pid_file_is_not_a_running_daemon(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Only a listener on 127.0.0.1:9418 counts as a running git daemon (#961).
+@pytest.mark.parametrize("minikube", [True, False], ids=["minikube", "no-minikube"])
+def test_devcontainer_template_contains_no_git_daemon(minikube: bool) -> None:
+    """The devcontainer template omits DEVOPS_GIT_DAEMON_AUTOSTART and port 9418 (#1122)."""
+    import json
 
-    `git daemon --detach --pid-file` never removes its pid file, and `/tmp` is a volume that
-    outlives container rebuilds, so after a restart the recorded pid can belong to any
-    process. A live pid used to read as a running daemon, and post-start skipped the start.
-    """
-    import os
-    import socket
+    from devops_cli.core.templating import render_json_template
 
-    from devops_cli.commands.devcontainer import _is_git_daemon_running
+    rendered = render_json_template(
+        "devcontainer.json.j2",
+        project_name="test-app",
+        python_version="3.14",
+        image=None,
+        published=False,
+        home_volume="test-app-home",
+        minikube=minikube,
+    )
+    data = json.loads(rendered)
+    container_env = data.get("containerEnv", {})
+    forward_ports = data.get("forwardPorts", [])
+    ports_attributes = data.get("portsAttributes", {})
 
-    pid_file = tmp_path / "git-daemon.pid"
-    pid_file.write_text(str(os.getpid()), encoding="utf-8")
-    probed: list[tuple[str, int]] = []
-
-    def refuse(address: tuple[str, int], timeout: float) -> socket.socket:
-        probed.append(address)
-        raise ConnectionRefusedError(address)
-
-    monkeypatch.setattr("devops_cli.commands.devcontainer._git_daemon_pid_file", lambda: pid_file)
-    monkeypatch.setattr(socket, "create_connection", refuse)
-
-    assert (_is_git_daemon_running(), probed) == (False, [("127.0.0.1", 9418)])
-
-
-def test_a_listener_on_the_git_daemon_port_is_a_running_daemon(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """With nothing recorded, an accepted connection on 127.0.0.1:9418 is the daemon."""
-    import socket
-
-    from devops_cli.commands.devcontainer import _is_git_daemon_running
-
-    monkeypatch.setattr(socket, "create_connection", lambda address, timeout: MagicMock())
-
-    assert _is_git_daemon_running() is True
+    assert (
+        "DEVOPS_GIT_DAEMON_AUTOSTART" in container_env,
+        9418 in forward_ports,
+        "9418" in ports_attributes,
+        "9418" in rendered,
+    ) == (False, False, False, False)
 
 
 def test_post_start_starts_the_session_bus_named_by_the_container_env(
