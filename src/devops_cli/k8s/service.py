@@ -358,14 +358,20 @@ class KubernetesService:
             if ingress and port:
                 lb_host = ingress[0].ip or ingress[0].hostname
                 if lb_host:
-                    return f"http://{lb_host}:{port}"
+                    import httpx2
+
+                    return str(httpx2.URL(scheme="http", host=lb_host, port=int(port)))
 
             if node_port:
+                import httpx2
+
                 nodes = self.list_nodes(context=context)
                 for node in nodes:
                     for addr in node.status.addresses or []:
                         if addr.type in ("InternalIP", "ExternalIP") and addr.address:
-                            return f"http://{addr.address}:{node_port}"
+                            return str(
+                                httpx2.URL(scheme="http", host=addr.address, port=int(node_port))
+                            )
         except Exception as exc:
             logger.debug("Failed to resolve service endpoint for %s: %s", service, exc)
 

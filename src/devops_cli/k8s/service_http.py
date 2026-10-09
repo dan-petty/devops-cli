@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 from devops_cli.config.defaults import DEFAULT_K8S_PROXY_TIMEOUT_SECONDS
 from devops_cli.core.validation import validate_url_egress
@@ -32,8 +31,10 @@ def _transport_key(url: str) -> str:
     The path is deliberately excluded. Every path on one host shares a connection, so
     keying on it would create a client per endpoint and reinstate the churn.
     """
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}"
+    import httpx2
+
+    origin = httpx2.URL(url).origin
+    return str(httpx2.URL(scheme=origin.scheme, host=origin.host, port=origin.port))
 
 
 def get_json(
@@ -45,6 +46,12 @@ def get_json(
     purpose: str = "cluster service",
 ) -> Any:
     """Fetch JSON from a plain URL or a `k8s://` Service reference."""
+    from devops_cli.http.urls import append_path
+    from devops_cli.k8s.service_proxy import _has_dot_segments
+
+    if path is not None and _has_dot_segments(path):
+        raise ServiceAddressError(f"Path '{path}' contains dot segments.")
+
     if is_service_url(url):
         ref = parse_service_url(url)
         target = resolve_proxy_target(ref, path, context)
@@ -63,7 +70,7 @@ def get_json(
     # A direct URL is validated for egress. The endpoint is operator-configured and
     # ordinarily private, which is the case SSRF protection is not aimed at; the connect still
     # refuses a cloud metadata address, as it does for the API server proxy above.
-    full_url = f"{url.rstrip('/')}/{path.lstrip('/')}" if path else url
+    full_url = str(append_path(url, path)) if path else url
     validate_url_egress(full_url, purpose=purpose, allow_private=True)
     client = get_shared_client(f"direct:{_transport_key(full_url)}", EgressLevel.PRIVATE)
     response = client.get(full_url, timeout=timeout)
