@@ -26,9 +26,9 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Context**: Designed specifically for local DevOps workstations. Uses high timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`) for CPU/GPU Ollama, bind-mounts host `~/.ssh` into `.devcontainer` for key rotation and SSH agent usage, and uses OS keyring for secret isolation. Direct bind mounts of host SSH configuration serve developer convenience in local dev environments.
 - **Mitigation**: Defer to Environment & Modernization Policy in `AGENTS.md`. High workstation timeouts and host SSH mounts are accepted design trade-offs for local devcontainers.
 
-### 6. SSH Host Key Scanning (ssh-keyscan) Fingerprint Verification
-- **Context**: `_ensure_known_host()` uses `ssh-keyscan` to automatically retrieve public SSH host keys during initial clone operations. Without pre-configured host fingerprints, initial trust-on-first-use occurs over the network.
-- **Mitigation**: Pre-populate `~/.ssh/known_hosts` with trusted host fingerprints (e.g. GitHub/GitLab public keys) on developer workstations or build images.
+### 6. GitHub SSH Host Key Pinning & OpenSSH Native Verification
+- **Context**: GitHub's published OpenSSH host keys (`CONST_GITHUB_KNOWN_HOSTS_LINES`) are written directly to `~/.ssh/known_hosts` on clone operations, allowing OpenSSH to natively verify host keys against pinned values rather than performing dynamic network scans.
+- **Mitigation**: Pinned keys are automatically seeded into `~/.ssh/known_hosts` once per process. For third-party or custom git hosts, pre-populate `~/.ssh/known_hosts` on developer workstations or container build images.
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
 - **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `{% raw %}${{ secrets.* }}{% endraw %}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
@@ -49,6 +49,6 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **3. Large Workspace Iteration** | Low (performance edge case) | Low | **Keep Path Guards**: `iter_workspace_repos()` and `.gitignore` bounds filtering. |
 | **4. Optional SDK Dependencies** | Low (setup error) | Low | **Keep Env Guard**: `uv sync` ensures full SDK availability. |
 | **5. Local Workstation Design Policy** | Low (architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace bounds secure file access; SSH mounts serve local model. |
-| **6. SSH Host Key Scanning (TOFU)** | Medium (network MITM on initial clone) | Low | **Pre-seed Known Hosts**: Pre-populate `known_hosts` for critical git hosts. |
+| **6. GitHub SSH Host Key Pinning** | Low (OpenSSH enforces pinned keys natively) | Low | **Automated Pinning**: GitHub published keys are seeded to `~/.ssh/known_hosts` on clone. |
 | **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Verification Feedback**: Use `devops ai review verify` and `export-feedback` to tune prompts. |
 | **8. Multi-Exception Syntax & Model Defaults** | Low (LLM hallucination on PEP 758) | Low | **PEP 758 Awareness**: Permit `except A, B:` without brackets in Python 3.14+; enforce `Field(default_factory=...)`. |

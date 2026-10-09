@@ -9,6 +9,7 @@ Functionality:
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Generator
 from datetime import datetime
@@ -25,24 +26,17 @@ from devops_cli.config.constants import (
     CONST_GITHUB_HOST,
     CONST_GITHUB_HTTP_PREFIX,
     CONST_GITHUB_HTTPS_PREFIX,
+    CONST_GITHUB_KNOWN_HOSTS_LINES,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PERM_DIR,
+    CONST_PERM_PRIVATE_KEY,
     CONST_SAFE_GIT_REF_PATTERN,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
-from devops_cli.crypto.host_keys import (
-    HostKey,
-    HostKeyVerificationError,
-    is_pinned_host,
-    parse_host_keys,
-    select_verified_key,
-)
-from devops_cli.crypto.known_hosts import append_entry, format_entry, has_trusted_host_key
 from devops_cli.exceptions import (
     BranchAlreadyExistsError,
     GitOperationError,
@@ -80,96 +74,44 @@ def iter_workspace_repos(root: Path) -> Generator[Path]:
                 yield repo_dir
 
 
-def _is_host_in_known_hosts(hostname: str, known_hosts: Path) -> bool:
-    """Check whether *hostname* already has a trusted key on file.
+def _read_existing_lines(path: Path) -> tuple[set[str], bool]:
+    """Read existing lines and check whether trailing newline is missing."""
+    if not path.is_file():
+        return set(), False
+    content = path.read_text(encoding="utf-8", errors="replace")
+    needs_newline = bool(content and not content.endswith("\n"))
+    return set(content.splitlines()), needs_newline
 
-    Parsed in-process rather than through `ssh-keygen -F`: that required the OpenSSH client
-    to be installed and cost a process spawn per check. A key carrying an `@revoked` marker
-    does not count as trusted, so a withdrawn key is re-verified rather than relied upon.
+
+@functools.cache
+def _ensure_known_host(known_hosts: Path | None = None) -> None:
+    """Ensure GitHub's published host keys are present in known_hosts.
+
+    Compares lines verbatim with pathlib/os only, appending any missing keys.
+    Runs once per process via caching. An unwritable directory logs a warning
+    and allows execution to continue.
     """
-    return has_trusted_host_key(known_hosts, hostname)
-
-
-def _scan_host_key(hostname: str) -> str | None:
-    """Scan the ed25519 host key for *hostname* via ssh-keyscan."""
-    result = run_subprocess(
-        ["ssh-keyscan", "-t", "ed25519", hostname],
-        capture_output=True,
-        text=True,
-        check=False,
-        quiet=True,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    )
-    if result.returncode != 0 or not result.stdout.strip() or hostname not in result.stdout:
-        logger.debug(
-            "Failed scanning SSH host key for %s (exit code %s)", hostname, result.returncode
-        )
-        return None
-    return result.stdout
-
-
-def _append_known_host_entry(known_hosts: Path, entry: str) -> None:
-    """Safely append a host key entry to known_hosts with secure file permissions."""
-    append_entry(known_hosts, entry)
-
-
-def _verified_host_key(hostname: str, scan_output: str) -> HostKey:
-    """Select the scanned key whose fingerprint matches what the host's operator publishes.
-
-    Raises :class:`GitOperationError` when none does. `ssh-keyscan` reports whatever the
-    network returns and verifies nothing, so without this step an intercepted first
-    connection pins the interceptor's key permanently and silently.
-    """
+    path = known_hosts or (Path.home() / ".ssh" / "known_hosts")
     try:
-        return select_verified_key(parse_host_keys(scan_output), hostname)
-    except HostKeyVerificationError as exc:
-        raise GitOperationError(str(exc)) from exc
+        path.parent.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
+        try:
+            path.parent.chmod(CONST_PERM_DIR)
+        except OSError:
+            pass
 
-
-def _ensure_known_host(
-    hostname: str = CONST_GITHUB_HOST,
-    *,
-    allow_unverified: bool = False,
-    known_hosts: Path | None = None,
-) -> None:
-    """Add *hostname* to ~/.ssh/known_hosts, verifying the key before trusting it.
-
-    Verification fails closed. A key that cannot be checked against published fingerprints
-    is not written, because accepting it anyway is indistinguishable from having no check:
-    that was the previous behaviour, and it meant anyone able to intercept the first
-    connection had their key trusted for every clone afterwards.
-
-    `allow_unverified` restores trust-on-first-use for hosts that publish no fingerprints,
-    and is refused for hosts that do -- there, an unverifiable key is a signal, not a gap.
-    """
-    known_hosts_file = known_hosts or (Path.home() / ".ssh" / "known_hosts")
-    known_hosts_file.parent.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
-    if _is_host_in_known_hosts(hostname, known_hosts_file):
-        return
-
-    scan_output = _scan_host_key(hostname)
-    if not scan_output:
-        return
-
-    if allow_unverified and not is_pinned_host(hostname):
-        keys = parse_host_keys(scan_output)
-        if not keys:
+        existing_lines, needs_newline = _read_existing_lines(path)
+        missing = [line for line in CONST_GITHUB_KNOWN_HOSTS_LINES if line not in existing_lines]
+        if not missing:
             return
-        logger.warning(
-            "Trusting unverified host key for '%s' (%s); no published fingerprints are "
-            "pinned for this host.",
-            hostname,
-            keys[0].fingerprint,
-        )
-        _append_known_host_entry(
-            known_hosts_file, format_entry(hostname, keys[0].key_type, keys[0].key_data)
-        )
-        return
 
-    key = _verified_host_key(hostname, scan_output)
-    # Written under the hostname that was requested, not the one the scan claimed, so a
-    # response naming a different host cannot pin a key under that name.
-    _append_known_host_entry(known_hosts_file, format_entry(hostname, key.key_type, key.key_data))
+        with path.open("a", encoding="utf-8") as handle:
+            if needs_newline:
+                handle.write("\n")
+            for line in missing:
+                handle.write(f"{line}\n")
+        path.chmod(CONST_PERM_PRIVATE_KEY)
+    except OSError as exc:
+        logger.warning("Could not update known_hosts '%s': %s", path, exc)
 
 
 def _validate_clone_dest(dest: Path) -> None:
@@ -190,18 +132,23 @@ def _validate_clone_dest(dest: Path) -> None:
 
 
 def _prepare_clone_url(url: str) -> str:
-    """Normalize clone url and ensure host key is known for SSH clones."""
-    normalized_url = _normalize_clone_url(url)
-    if normalized_url.startswith((CONST_GITHUB_SSH_PREFIX, CONST_GITHUB_SSH_URL_PREFIX)):
-        _ensure_known_host()
-    return normalized_url
+    """Normalize clone url and ensure GitHub host keys are known."""
+    _ensure_known_host()
+    return _normalize_clone_url(url)
 
 
 def clone_repo(url: str, dest: Path) -> None:
     """Clone a repository to *dest*."""
     _validate_clone_dest(dest)
     normalized_url = _prepare_clone_url(url)
-    gitlib.Repo.clone_from(normalized_url, str(dest))
+    try:
+        gitlib.Repo.clone_from(normalized_url, str(dest))
+    except gitlib.GitCommandError as exc:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        msg = mask_secrets(stderr.strip() or str(exc))
+        raise GitOperationError(msg) from exc
 
 
 def fetch_all(repo_dir: Path) -> None:
