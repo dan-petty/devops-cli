@@ -389,6 +389,13 @@ def isolate_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolate_ssh_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests off the developer's own SSH agent, whose directory the sandbox workspace check
+    refuses to mount (#1384). A test that needs `SSH_AUTH_SOCK` sets it."""
+    monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))

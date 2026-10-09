@@ -16,6 +16,8 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_RUNTIME_ROOT,
     CONST_SANDBOX_SENSITIVE_SUBPATHS,
+    CONST_SSH_AUTH_SOCK_ENV_VAR,
+    CONST_X11_SOCKET_DIR,
     CONST_XDG_RUNTIME_DIR_ENV_VAR,
 )
 from devops_cli.config.defaults import DEFAULT_SANDBOX_EXCLUDE_HOME
@@ -175,11 +177,37 @@ def _check_workspace_socket_dirs(resolved: Path) -> None:
             )
 
 
+def _user_socket_dirs() -> list[Path]:
+    """Return the X11 socket directory and the SSH agent socket's directory, as named and resolved."""
+    agent_socket = Path(os.environ.get(CONST_SSH_AUTH_SOCK_ENV_VAR, ""))
+    agent_dirs = (
+        [agent_socket.parent, agent_socket.resolve().parent] if agent_socket.is_absolute() else []
+    )
+    named = [CONST_X11_SOCKET_DIR, *agent_dirs]
+    return [*named, *(directory.resolve() for directory in named)]
+
+
+def _check_workspace_user_socket_dirs(resolved: Path) -> None:
+    """Refuse a workspace that is or holds the user's SSH agent or X11 socket directory.
+
+    Only "is or holds": VS Code's SSH-auth socket sits directly in /tmp, so a workspace under the
+    agent's directory stays allowed.
+    """
+    for socket_dir in _user_socket_dirs():
+        if socket_dir.is_relative_to(resolved):
+            raise SandboxValidationError(
+                f"Sandbox workspace {resolved} is or holds {socket_dir}, where the user's SSH agent or X11 sockets live; mounting it is forbidden.",
+                path=str(resolved),
+            )
+
+
 def validate_sandbox_workspace(workspace: Path, *, exclude_home_dir: bool) -> Path:
     """Resolve a sandbox workspace, refusing any directory a sandbox must never mount.
 
     `devops docker sandbox`, `devops test sandbox`, `devops sandbox deploy` and the MCP tools in
-    front of them run this one check before any engine call.
+    front of them run this one check before any engine call. Besides the engine and session socket
+    directories, it refuses a workspace that is or holds the SSH agent socket's directory or
+    /tmp/.X11-unix.
     """
     _check_workspace_traversal_and_symlink(workspace)
     resolved = workspace.resolve()
@@ -187,6 +215,7 @@ def validate_sandbox_workspace(workspace: Path, *, exclude_home_dir: bool) -> Pa
     _check_workspace_home(resolved, exclude_home_dir)
     _check_workspace_sensitive_paths(resolved)
     _check_workspace_socket_dirs(resolved)
+    _check_workspace_user_socket_dirs(resolved)
     return resolved
 
 

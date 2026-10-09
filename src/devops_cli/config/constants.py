@@ -2166,6 +2166,10 @@ CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
 # subprocess working directories and every other `CONST_FORBIDDEN_SYSTEM_DIRS` caller do not.
 CONST_SANDBOX_RUNTIME_ROOT: Final[Path] = Path("/run")
 CONST_XDG_RUNTIME_DIR_ENV_VAR: Final[str] = "XDG_RUNTIME_DIR"
+# The user's SSH agent socket directory and the X11 socket directory. A sandbox workspace never
+# is or holds either (#1384); a workspace under one is still mounted.
+CONST_SSH_AUTH_SOCK_ENV_VAR: Final[str] = "SSH_AUTH_SOCK"
+CONST_X11_SOCKET_DIR: Final[Path] = Path("/tmp/.X11-unix")  # nosec B108
 
 # Multi-tier sandbox networking mode constants
 CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
