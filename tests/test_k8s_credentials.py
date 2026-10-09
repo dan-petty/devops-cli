@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app as k8s_app
@@ -42,7 +43,9 @@ def test_fetch_argocd_password_success(mock_keyring: MagicMock, mock_subproc: Ma
 @patch("devops_cli.k8s.credentials.run_subprocess")
 def test_fetch_argocd_password_not_found(mock_subproc: MagicMock) -> None:
     mock_subproc.return_value = MagicMock(
-        returncode=1, stdout="", stderr="Error from server (NotFound): secrets not found"
+        returncode=1,
+        stdout="",
+        stderr="Error from server (NotFound): secrets not found",
     )
 
     pw = fetch_argocd_password(namespace="argocd", save_to_keyring=True)
@@ -78,7 +81,10 @@ def test_sync_k8s_credentials_summary(mock_keyring_get: MagicMock, mock_argocd: 
 
 def test_cli_k8s_sync_secrets_dry_run() -> None:
     res = runner.invoke(k8s_app, ["sync-secrets", "--dry-run"])
-    assert (res.exit_code, "sync_secrets" in res.output or "argocd" in res.output) == (0, True)
+    assert (res.exit_code, "sync_secrets" in res.output or "argocd" in res.output) == (
+        0,
+        True,
+    )
 
 
 @patch("devops_cli.k8s.credentials._keyring_set")
@@ -96,6 +102,57 @@ def test_mint_argocd_token_failure(mock_post: MagicMock) -> None:
     token_401 = mint_argocd_token("http://example.com:8080", "bad-pass")
     token_empty = mint_argocd_token("", "pass")
     assert (token_401, token_empty) == (None, None)
+
+
+@patch("httpx2.Client.post")
+def test_mint_tokens_url_validation(mock_post: MagicMock) -> None:
+    """Ensure scheme-less service URLs fail with ConfigurationError and HTTPS is normalized."""
+    from devops_cli.exceptions.config import ConfigurationError
+
+    with pytest.raises(ConfigurationError) as exc_argo:
+        mint_argocd_token("example.com", "admin-pass")
+    service_calls_1 = [
+        c[0][0] for c in mock_post.call_args_list if not c[0][0].endswith("/v1/traces")
+    ]
+    assert ("argocd.url" in str(exc_argo.value), len(service_calls_1)) == (True, 0)
+
+    mock_post.reset_mock()
+    mock_post.return_value = MagicMock(status_code=200, json=lambda: {"token": "argo-jwt-123"})
+    mint_argocd_token("HTTPS://example.com:8080", "admin-pass", save_to_keyring=False)
+    service_calls_2 = [
+        c[0][0] for c in mock_post.call_args_list if not c[0][0].endswith("/v1/traces")
+    ]
+    assert (
+        len(service_calls_2) > 0,
+        service_calls_2[0].startswith("https://example.com:8080/"),
+    ) == (True, True)
+
+    mock_post.reset_mock()
+    with pytest.raises(ConfigurationError) as exc_grafana:
+        mint_grafana_token("example.com", "admin-pass")
+    service_calls_3 = [
+        c[0][0] for c in mock_post.call_args_list if not c[0][0].endswith("/v1/traces")
+    ]
+    assert ("grafana.url" in str(exc_grafana.value), len(service_calls_3)) == (True, 0)
+
+    mock_post.reset_mock()
+
+    def fake_post(url: str, **kwargs: object) -> MagicMock:
+        if url.endswith("/api/serviceaccounts"):
+            return MagicMock(status_code=201, json=lambda: {"id": 10})
+        if "/tokens" in url:
+            return MagicMock(status_code=200, json=lambda: {"key": "glsa-token-xyz"})
+        return MagicMock(status_code=200, json=lambda: {})
+
+    mock_post.side_effect = fake_post
+    mint_grafana_token("HTTPS://example.com:3000", "admin-pass", save_to_keyring=False)
+    service_calls_4 = [
+        c[0][0] for c in mock_post.call_args_list if not c[0][0].endswith("/v1/traces")
+    ]
+    assert (
+        len(service_calls_4) > 0,
+        service_calls_4[0].startswith("https://example.com:3000/"),
+    ) == (True, True)
 
 
 @patch("devops_cli.k8s.credentials._keyring_set")
@@ -142,12 +199,19 @@ def test_mint_grafana_token_revokes_prior_tokens(
     mock_post.side_effect = fake_post
     mock_get.return_value = MagicMock(
         status_code=200,
-        json=lambda: [{"id": 1, "name": "devops-cli-old-1"}, {"id": 2, "name": "devops-cli-old-2"}],
+        json=lambda: [
+            {"id": 1, "name": "devops-cli-old-1"},
+            {"id": 2, "name": "devops-cli-old-2"},
+        ],
     )
     mock_delete.return_value = MagicMock(status_code=200)
 
     token = mint_grafana_token("http://example.com:3000", "admin-pass", save_to_keyring=True)
-    assert (token, mock_delete.call_count, mock_keyring.called) == ("glsa-new-token", 2, True)
+    assert (token, mock_delete.call_count, mock_keyring.called) == (
+        "glsa-new-token",
+        2,
+        True,
+    )
 
 
 @patch("devops_cli.k8s.credentials._keyring_set", side_effect=Exception("Keyring locked"))
@@ -201,7 +265,10 @@ def test_get_or_mint_grafana_auth() -> None:
     with (
         patch("devops_cli.config.settings.get_grafana_token", return_value=None),
         patch("devops_cli.config.settings.get_grafana_password", return_value="admin-pw"),
-        patch("devops_cli.k8s.credentials.mint_grafana_token", return_value="minted-graf-tok"),
+        patch(
+            "devops_cli.k8s.credentials.mint_grafana_token",
+            return_value="minted-graf-tok",
+        ),
     ):
         tok, basic = get_or_mint_grafana_auth(settings)
         assert (tok, basic) == ("minted-graf-tok", None)

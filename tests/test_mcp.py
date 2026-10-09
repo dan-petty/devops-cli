@@ -496,6 +496,7 @@ def test_k8s_pods_lists_the_pods_of_the_namespace_it_names() -> None:
     [
         ("openai", "x@https://example.com", "model"),
         ("openai", "bge-m3,x@https://example.com", "model"),
+        ("openai", "x@", "model"),
         ("ollama", "https://example.com/bge-m3", "model"),
         ("example", "bge-m3", "provider"),
     ],
@@ -512,6 +513,20 @@ def test_benchmark_tools_reject_endpoint_override(provider: str, model: str, fie
         benchmark_embeddings(provider=provider, model=model)
 
     assert (refused.value.details["field"], dispatcher.called) == (field, False)
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["bge-m3,nomic-embed-text", "hf.co/org/model:Q4"],
+)
+def test_benchmark_tools_accept_valid_models(model: str) -> None:
+    """Verify valid multi-model and registry model strings are accepted and dispatched."""
+    from devops_cli.ai.mcp.server import benchmark_embeddings
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as dispatcher:
+        res = benchmark_embeddings(provider="ollama", model=model)
+
+    assert (res, dispatcher.called) == ("output", True)
 
 
 def test_ai_architecture_tool_is_removed() -> None:

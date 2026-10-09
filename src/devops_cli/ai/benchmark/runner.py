@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
@@ -19,6 +18,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER, CONST_AI_PROVIDER_API_BASES
 from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
+from devops_cli.http.urls import get_url_origin
 from devops_cli.models.benchmark import (
     BenchmarkReport,
     BenchmarkTask,
@@ -53,16 +53,6 @@ def _get_benchmarks_base_dir() -> Path:
     return d
 
 
-def _url_origin(url: str) -> tuple[str, str, int] | None:
-    """The scheme, host and port a URL reaches, or None for one that names no host."""
-    parts = urlsplit(url.strip())
-    try:
-        port = parts.port or (443 if parts.scheme == "https" else 80)
-    except ValueError:
-        return None
-    return (parts.scheme, parts.hostname, port) if parts.hostname is not None else None
-
-
 def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
     """The configured AI key when `client_config` sends it to an endpoint the configuration names.
 
@@ -80,7 +70,7 @@ def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
             configured.gateway_url,
             CONST_AI_PROVIDER_API_BASES.get(configured.provider.lower()),
         )
-        if url and (origin := _url_origin(url))
+        if url and (origin := get_url_origin(url))
     }
     provider = client_config.provider.lower()
     endpoint = (
@@ -88,7 +78,7 @@ def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
         if provider == CONST_AI_GATEWAY_PROVIDER
         else client_config.api_base_url or CONST_AI_PROVIDER_API_BASES.get(provider)
     )
-    if endpoint and _url_origin(endpoint) in trusted:
+    if endpoint and get_url_origin(endpoint) in trusted:
         return get_ai_api_key(settings) or ""
     return ""
 
@@ -209,14 +199,13 @@ class BenchmarkRunner:
         server_url: str | None = None,
     ) -> LLMClient:
         """Instantiate an LLMClient for a given model override and server endpoint."""
+        from devops_cli.ai.benchmark.model_spec import parse_model_spec
         from devops_cli.core.validation import validate_url
 
         endpoint = server_url
-        clean_model = model_name
-        if "@" in model_name:
-            clean_model, _, explicit_endpoint = model_name.partition("@")
-            if explicit_endpoint:
-                endpoint = explicit_endpoint
+        clean_model, explicit_endpoint = parse_model_spec(model_name)
+        if explicit_endpoint:
+            endpoint = explicit_endpoint
 
         if not endpoint and self.servers:
             m_idx = self.models.index(model_name) if model_name in self.models else 0

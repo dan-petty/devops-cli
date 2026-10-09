@@ -10,7 +10,7 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import ClassVar
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import urldefrag
 
 import httpx2
 
@@ -237,11 +237,10 @@ class DocsIngester:
         """Ingest remote documentation page over HTTP/HTTPS with strict SSRF validation."""
         validate_service_url(url, "Docs Ingestion", allow=False)
 
-        parsed_origin = urlparse(url)
-        origin_netloc = parsed_origin.netloc
-        base_slug = (
-            parsed_origin.path.strip("/").replace("/", "_") or parsed_origin.netloc
-        ) or "remote_doc"
+        parsed_url = httpx2.URL(url)
+        start_origin = parsed_url.origin
+        ingest_root = resolve_store_path(Path("docs_ingest"))
+        base_slug = _compute_base_slug(parsed_url, ingest_root)
         target_dir = resolve_store_path(
             Path("docs_ingest") / base_slug,
             explicit=output_dir,
@@ -282,7 +281,7 @@ class DocsIngester:
                     markdown_text = raw_text
 
                 page_slug = (
-                    urlparse(clean_url).path.strip("/").replace("/", "_") or base_slug
+                    httpx2.URL(clean_url).path.strip("/").replace("/", "_") or base_slug
                 ) or "page"
                 chunks = _chunk_markdown_content(
                     markdown_text, source=mask_uri_credentials(clean_url), slug=page_slug
@@ -290,7 +289,7 @@ class DocsIngester:
                 all_chunks.extend(chunks)
 
                 if max_pages > 1 and len(visited) < max_pages:
-                    _collect_child_links(links, clean_url, origin_netloc, visited, queue)
+                    _collect_child_links(links, clean_url, start_origin, visited, queue)
 
         chunk_files = _save_chunks(all_chunks, target_dir)
 
@@ -304,24 +303,34 @@ class DocsIngester:
         )
 
 
+def _compute_base_slug(parsed_url: httpx2.URL, ingest_root: Path) -> str:
+    """Compute safe base directory slug from URL path, falling back to host."""
+    path_slug = parsed_url.path.strip("/").replace("/", "_")
+    if path_slug and (ingest_root / path_slug).resolve().parent == ingest_root.resolve():
+        return path_slug
+    return parsed_url.host or "remote_doc"
+
+
 def _collect_child_links(
     links: list[str],
     current_url: str,
-    origin_netloc: str,
+    start_origin: httpx2.Origin,
     visited: set[str],
     queue: list[str],
 ) -> None:
     """Filter and enqueue candidate links on the same origin domain."""
+    base_url = httpx2.URL(current_url)
     for link in links:
-        resolved = urljoin(current_url, link)
-        p_res = urlparse(resolved)
-        is_same_origin = p_res.netloc == origin_netloc and p_res.scheme in ("http", "https")
-        if not is_same_origin:
+        try:
+            resolved = base_url.join(link)
+            if resolved.origin != start_origin:
+                continue
+        except httpx2.InvalidURL, ValueError:
             continue
-        if p_res.path.lower().endswith(
+        if resolved.path.lower().endswith(
             (".png", ".jpg", ".jpeg", ".gif", ".svg", ".zip", ".tar", ".gz", ".pdf")
         ):
             continue
-        clean_res = urldefrag(resolved).url
+        clean_res = urldefrag(str(resolved)).url
         if clean_res not in visited and clean_res not in queue:
             queue.append(clean_res)

@@ -73,17 +73,14 @@ def _is_configured_ai_server_host(host: str) -> bool:
         settings.ai.portkey_url,
         *settings.ai.ollama_urls,
     )
+    from devops_cli.http.urls import extract_domain_target
+
     for cand in candidates:
         if not cand:
             continue
-        clean_cand = cand.strip().lower()
-        cand_target = clean_cand if "://" in clean_cand else f"http://{clean_cand}"
-        try:
-            cand_parsed = urlsplit(cand_target)
-            if cand_parsed.hostname and cand_parsed.hostname == host:
-                return True
-        except Exception:
-            continue
+        cand_host = extract_domain_target(cand.strip().lower())
+        if cand_host and cand_host == host:
+            return True
     return False
 
 
@@ -105,15 +102,13 @@ def _is_single_server_local(server: str) -> bool:
     clean = server.strip().lower()
     if not clean:
         return False
-    if clean in CONST_LOCAL_TRANSPORT_LABELS or clean.startswith("http+unix://"):
+    if clean in CONST_LOCAL_TRANSPORT_LABELS or urlsplit(clean).scheme == "http+unix":
         return True
-    target = clean if "://" in clean else f"http://{clean}"
-    try:
-        parsed = urlsplit(target)
-        if parsed.hostname and _is_local_host(parsed.hostname):
-            return True
-    except Exception:
-        pass
+    from devops_cli.http.urls import extract_domain_target
+
+    host = extract_domain_target(clean)
+    if host and _is_local_host(host):
+        return True
     return False
 
 

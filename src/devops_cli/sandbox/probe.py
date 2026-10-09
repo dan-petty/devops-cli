@@ -336,12 +336,15 @@ def probe_grpc(
 
 def _resolve_probe_target(
     target_or_instance: SandboxInstance | str,
-) -> tuple[str | None, str, list[tuple[str, int]]]:
+) -> tuple[str | None, str, list[httpx2.Origin]]:
     """Resolve target instance ID, display name, and network endpoints."""
     if isinstance(target_or_instance, SandboxInstance):
         instance_id = target_or_instance.instance_id
         target_display = target_or_instance.name or target_or_instance.instance_id
-        endpoints = [("127.0.0.1", b.host_port) for b in target_or_instance.port_bindings]
+        endpoints = [
+            httpx2.Origin(httpx2.URL(scheme="http", host="127.0.0.1", port=b.host_port))
+            for b in target_or_instance.port_bindings
+        ]
         return instance_id, target_display, endpoints
 
     target_display = str(target_or_instance)
@@ -397,10 +400,10 @@ def run_sandbox_probes(
         ctx = get_current_span_context()
         active_trace_id = ctx.get("trace_id") if ctx else None
 
-        for host, port in target_endpoints:
+        for origin in target_endpoints:
             _dispatch_probes_for_port(
-                host=host,
-                port=port,
+                host=origin.host,
+                port=origin.port or 80,
                 protocols=selected_protocols,
                 http_paths=http_paths or _DEFAULT_HTTP_PATHS,
                 expected_statuses=expected_statuses,
@@ -427,17 +430,31 @@ def run_sandbox_probes(
     )
 
 
-def _parse_target_endpoint(target_str: str) -> tuple[str, int]:
-    """Parse raw host:port or URL string into host and port."""
-    if "://" in target_str:
-        parsed = urllib.parse.urlparse(target_str)
-        host = parsed.hostname or "127.0.0.1"
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        return host, port
-    if ":" in target_str:
-        parts = target_str.split(":", 1)
-        return parts[0], int(parts[1])
-    return target_str, 80
+def _parse_target_endpoint(target_str: str) -> httpx2.Origin:
+    """Parse raw host:port or URL string into an httpx2.Origin."""
+    from devops_cli.exceptions import ValidationError
+    from devops_cli.http.urls import get_url_origin, read_url_or_authority
+
+    parsed = read_url_or_authority(target_str)
+    if parsed is None or not parsed.hostname:
+        raise ValidationError(f"Target '{target_str}' names no valid host.", field="target")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValidationError(
+            f"Target '{target_str}' has invalid port: {exc}", field="target"
+        ) from exc
+
+    if parsed.scheme:
+        origin = get_url_origin(target_str)
+        if origin is None:
+            raise ValidationError(
+                f"Target '{target_str}' is not a valid URL or host:port.", field="target"
+            )
+        return origin
+
+    port = port or 80
+    return httpx2.Origin(httpx2.URL(scheme="http", host=parsed.hostname, port=port))
 
 
 def _dispatch_probes_for_port(

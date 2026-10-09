@@ -168,12 +168,19 @@ def test_cli_benchmark_document_option(tmp_path: Path) -> None:
     """Ensure --document option processes custom document file."""
     doc_file = tmp_path / "test_doc.md"
     doc_file.write_text(
-        "# Test Title\nThis is a test document for embedding retrieval.\n", encoding="utf-8"
+        "# Test Title\nThis is a test document for embedding retrieval.\n",
+        encoding="utf-8",
     )
 
     result = runner.invoke(
         app,
-        ["--models", "nomic-embed-text:latest", "--document", str(doc_file), "--dry-run"],
+        [
+            "--models",
+            "nomic-embed-text:latest",
+            "--document",
+            str(doc_file),
+            "--dry-run",
+        ],
     )
     assert result.exit_code == 0
     assert "test_doc.md" in result.stdout
@@ -207,7 +214,8 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
 
     # 4. CI/CD domain (must not trigger on words containing 'pr', 'ci', or 'cd' like 'practice')
     cicd_cat = InMemoryDocumentTokenizer._infer_category(
-        "GitHub Actions Workflows", "Run actionlint and pre-commit checks on pull request branch."
+        "GitHub Actions Workflows",
+        "Run actionlint and pre-commit checks on pull request branch.",
     )
     assert cicd_cat == "ci_cd"
 
@@ -219,7 +227,8 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
 
     # 5. Infrastructure fallback
     infra_cat = InMemoryDocumentTokenizer._infer_category(
-        "OpenTofu State", "Provision S3 backend with DynamoDB locking and Jaeger tracing."
+        "OpenTofu State",
+        "Provision S3 backend with DynamoDB locking and Jaeger tracing.",
     )
     assert infra_cat == "infrastructure"
 
@@ -242,7 +251,10 @@ def test_embedding_engine_resolution_and_live_eval(tmp_path: Path) -> None:
     # 2. evaluate_model with mocked embeddings
     mock_vec = [0.1] * 384
     with (
-        patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine.embed_query", return_value=mock_vec),
+        patch(
+            "devops_cli.ai.rag.embeddings.EmbeddingsEngine.embed_query",
+            return_value=mock_vec,
+        ),
         patch(
             "devops_cli.ai.rag.embeddings.EmbeddingsEngine.embed_texts",
             return_value=[mock_vec, mock_vec],
@@ -261,9 +273,35 @@ def test_embedding_engine_resolution_and_live_eval(tmp_path: Path) -> None:
             ["target passage text for evaluation", "distractor text"],
             server_url="http://localhost:11434",
         )
-        assert res.model == "test-embed"
-        assert res.dimension == 384
-        assert res.recall_at_1 >= 0.0
+        assert (res.model, res.dimension, res.recall_at_1 >= 0.0) == ("test-embed", 384, True)
+
+
+def test_embedding_engine_provider_resolution() -> None:
+    """Verify provider selection for explicit endpoints: origin match or gateway refusal."""
+    from devops_cli.exceptions import ValidationError
+
+    runner = EmbeddingBenchmarkRunner(
+        models=["m"],
+        is_dry_run=False,
+    )
+    runner.settings.ai.provider = "gateway"
+    runner.settings.ai.gateway_url = "https://example.com:4000/v1"
+    runner.settings.ai.ollama_urls = ["http://example.com:11434", "example.com:11434"]
+    runner.provider = "gateway"
+
+    with pytest.raises(ValidationError) as exc_info:
+        runner._engine_for_model("m@https://example.com:8080")
+    assert "--provider" in str(exc_info.value)
+
+    engine_ollama = runner._engine_for_model("m@http://example.com:11434")
+    engine_gw = runner._engine_for_model("m@https://example.com:4000/v1")
+    assert (engine_ollama.ai_config.provider, engine_gw.ai_config.provider) == (
+        "ollama",
+        "gateway",
+    )
+
+    with pytest.raises(ValidationError):
+        runner._engine_for_model("m@https://ollama.example.com")
 
 
 def test_compute_ndcg_and_report_rendering() -> None:
@@ -362,7 +400,10 @@ def test_compute_ndcg_and_report_rendering() -> None:
 )
 @pytest.mark.usefixtures("mock_keyring")
 def test_override_endpoint_gets_no_key(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, server: str, authorization: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    stub_web: StubWeb,
+    server: str,
+    authorization: str | None,
 ) -> None:
     """Verify the AI key goes only to the configured api_base_url: an endpoint the model names
     gets no Authorization header, and the engine takes no OPENAI_API_KEY in its place (#954)."""
@@ -395,7 +436,9 @@ def _unreachable(texts: list[str], *, is_query: bool = False) -> list[list[float
     raise EmbeddingsError("Embedding model dead-model failed: ConnectError: connection refused")
 
 
-def test_unreachable_server_is_reported_failed(capsys: pytest.CaptureFixture[str]) -> None:
+def test_unreachable_server_is_reported_failed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Verify a model whose embeddings fail is reported failed with the reason and no latency,
     ranked after every scored model and left out of the server summary and the recommendations,
     where a p50 of 0.0 made it the lowest-latency model (#954)."""
@@ -421,7 +464,13 @@ def test_unreachable_server_is_reported_failed(capsys: pytest.CaptureFixture[str
     dead = next(result for result in report.models if result.model == "dead-model")
     assert (
         [result.model for result in report.models],
-        (dead.failed, dead.error, dead.latency_ms_p50, dead.latency_ms_p95, dead.overall_score),
+        (
+            dead.failed,
+            dead.error,
+            dead.latency_ms_p50,
+            dead.latency_ms_p95,
+            dead.overall_score,
+        ),
         [rec for rec in report.recommendations if "dead-model" in rec],
         [(srv.models_evaluated_count, srv.fastest_model) for srv in report.server_benchmarks],
         "✗ dead-model" in capsys.readouterr().out,
@@ -493,13 +542,18 @@ def test_refused_endpoint_is_reported_failed() -> None:
     ]
 
 
-def test_report_shows_a_failed_run_without_metrics(capsys: pytest.CaptureFixture[str]) -> None:
+def test_report_shows_a_failed_run_without_metrics(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Verify the leaderboards give a failed run no medal and no metrics, and the Markdown report
     says why it failed (#954)."""
     from devops_cli.models.benchmark import EmbeddingServerSummary
 
     scored = EmbeddingBenchmarkResult(
-        model="live-model", server="http://localhost:11434", dimension=3, overall_score=70.0
+        model="live-model",
+        server="http://localhost:11434",
+        dimension=3,
+        overall_score=70.0,
     )
     failed = EmbeddingBenchmarkResult(
         model="dead-model",

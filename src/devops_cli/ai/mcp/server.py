@@ -35,7 +35,6 @@ from devops_cli.config.constants import (
     CONST_MCP_LAZY_DOMAINS,
     CONST_MCP_MAX_COMMAND_OUTPUT_CHARS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
-    CONST_MODEL_ENDPOINT_MARKERS,
     CONST_VERIFIED_BY_AGENT,
 )
 from devops_cli.config.defaults import (
@@ -2295,8 +2294,21 @@ def _validate_mcp_benchmark_target(provider: str, model: str) -> None:
             ERRORS.mcp.unknown_provider.format(choices=", ".join(CONST_AI_PROVIDER_IDS)),
             field="provider",
         )
-    if any(marker in model for marker in CONST_MODEL_ENDPOINT_MARKERS):
-        raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
+    import httpx2
+
+    from devops_cli.ai.benchmark.model_spec import parse_model_list, parse_model_spec
+
+    entries = parse_model_list(model)
+    for entry in entries:
+        _clean_model, endpoint = parse_model_spec(entry)
+        if endpoint is not None:
+            raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
+        try:
+            is_abs = httpx2.URL(entry).is_absolute_url
+        except ValueError, httpx2.InvalidURL:
+            is_abs = True
+        if is_abs:
+            raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
 
 
 @mcp.tool()

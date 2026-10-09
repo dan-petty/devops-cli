@@ -42,6 +42,28 @@ runner = CliRunner()
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def test_build_scrape_url_variations() -> None:
+    """Test _build_scrape_url with hostnames starting with http, IPv6, scheme normalisation, and path prefixes."""
+    from devops_cli.sandbox.metrics import _build_scrape_url
+
+    assert (
+        _build_scrape_url("httpbin.example.com:8080", "metrics"),
+        _build_scrape_url("HTTP://example.com", "metrics"),
+        _build_scrape_url("[::1]:8080", "metrics"),
+        _build_scrape_url("http://example.com:9100/prefix", "metrics"),
+        _build_scrape_url("http://example.com:9100/prefix", "/metrics"),
+    ) == (
+        "http://httpbin.example.com:8080/metrics",
+        "http://example.com/metrics",
+        "http://[::1]:8080/metrics",
+        "http://example.com:9100/prefix/metrics",
+        "http://example.com:9100/prefix/metrics",
+    )
+
+    with pytest.raises(ValueError, match="scheme"):
+        _build_scrape_url("ftp://example.com", "metrics")
+
+
 def test_cgroup_v2_metrics_model() -> None:
     """Test CgroupV2Metrics model instantiation and calculations."""
     metrics = CgroupV2Metrics(

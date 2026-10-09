@@ -219,6 +219,15 @@ def test_benchmark_runner_concurrent_execution() -> None:
         ("gateway", None, "m@https://example.com:8443", "sk-test-configured"),
         ("openai", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", "sk-test-configured"),
         ("claude", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", ""),
+        ("openai", "https://example.com/v1", "m@https://example.com\\@192.0.2.1/v1", ""),
+        ("openai", "https://example.com/v1", "m@https://example.com:443/v1", "sk-test-configured"),
+        (
+            "openai",
+            "https://xn--bcher-kva.example.com/v1",
+            "m@https://bücher.example.com/v1",
+            "sk-test-configured",
+        ),
+        ("openai", "localhost:8000/v1", "m@https://example.com/v1", ""),
     ],
     ids=[
         "named-endpoint",
@@ -226,6 +235,10 @@ def test_benchmark_runner_concurrent_execution() -> None:
         "gateway-sends-to-gateway-url",
         "configured-provider-api",
         "another-provider-api",
+        "backslash-userinfo-host-mismatch",
+        "default-https-port-matches",
+        "idn-punycode-origin-matches",
+        "schemeless-api-base-url-fails-closed",
     ],
 )
 @pytest.mark.usefixtures("mock_keyring")
@@ -248,6 +261,45 @@ def test_benchmark_client_gets_key_only_for_configured_endpoint(
     b_runner = BenchmarkRunner(models=[model], tasks=[BENCHMARK_TASKS[0]], settings=settings)
 
     assert b_runner._client_for_model(model)._api_key == key
+
+
+def test_key_for_endpoint_direct_unparseable_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _key_for_endpoint fails closed and raises nothing for unparseable URLs."""
+    from devops_cli.ai.benchmark.runner import _key_for_endpoint
+    from devops_cli.config.settings import AIConfig, load_settings
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-test-configured")
+    settings = load_settings()
+    settings.ai.provider = "openai"
+
+    cfg_malformed = AIConfig(
+        provider="openai", model="m", api_base_url="https://example.com:abc/v1"
+    )
+    assert _key_for_endpoint(settings, cfg_malformed) == ""
+
+    settings.ai.api_base_url = "localhost:8000/v1"
+    cfg_valid = AIConfig(provider="openai", model="m", api_base_url="https://example.com/v1")
+    assert _key_for_endpoint(settings, cfg_valid) == ""
+
+    settings.ai.provider = "gateway"
+    settings.ai.gateway_url = "localhost:8000/v1"
+    cfg_gateway = AIConfig(provider="gateway", model="m")
+    assert _key_for_endpoint(settings, cfg_gateway) == ""
+
+
+def test_parse_model_spec() -> None:
+    """Verify parse_model_spec splits model@endpoint and preserves userinfo."""
+    from devops_cli.ai.benchmark.model_spec import parse_model_spec
+
+    assert (
+        parse_model_spec("m@https://user:password@example.com/v1"),
+        parse_model_spec("m"),
+        parse_model_spec("m@"),
+    ) == (
+        ("m", "https://user:password@example.com/v1"),
+        ("m", None),
+        ("m", ""),
+    )
 
 
 def test_benchmark_filtering_invalid_defaults_and_judge_weighting() -> None:

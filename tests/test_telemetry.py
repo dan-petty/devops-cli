@@ -425,40 +425,74 @@ def test_telemetry_keyboard_interrupt_handling(monkeypatch: pytest.MonkeyPatch) 
 
 def test_telemetry_grpc_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test OTelTelemetryClient initialized with gRPC endpoint and protocol."""
-    client = OTelTelemetryClient(endpoint="localhost:4317", protocol="grpc", enabled=True)
-    assert client.protocol == "grpc"
+    c1 = OTelTelemetryClient(endpoint="http://example.com:43170")
+    assert c1.protocol == "http/json"
 
-    # Test lazy gRPC exporter initialization
     from unittest.mock import MagicMock
 
-    mock_exporter = MagicMock()
+    exporter_calls: list[dict[str, Any]] = []
+
+    def mock_exporter_factory(**kw: Any) -> MagicMock:
+        exporter_calls.append(kw)
+        return MagicMock()
+
     monkeypatch.setattr(
         "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter",
-        lambda **kw: mock_exporter,
+        mock_exporter_factory,
     )
 
-    exp = client._get_grpc_exporter()
-    assert exp is mock_exporter
-    # Should reuse cached exporter
-    assert client._get_grpc_exporter() is mock_exporter
-
-    client.shutdown()
-    mock_exporter.shutdown.assert_called_once()
+    cases = [
+        ("grpc://example.com:4317", True),
+        ("http://example.com:4317", True),
+        ("example.com:4317", True),
+        ("https://example.com:4317", False),
+        ("HTTPS://example.com:4317", False),
+    ]
+    for ep, expected_insecure in cases:
+        client = OTelTelemetryClient(endpoint=ep, protocol="grpc", enabled=True)
+        exporter_calls.clear()
+        client._get_grpc_exporter()
+        assert (exporter_calls[0]["endpoint"], exporter_calls[0]["insecure"]) == (
+            ep,
+            expected_insecure,
+        )
 
 
 def test_telemetry_grpc_connection_mock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test test_connection probe on gRPC endpoint."""
+    """Test test_connection probe on gRPC endpoint dials expected host and port."""
     from unittest.mock import MagicMock
 
-    client = OTelTelemetryClient(endpoint="localhost:4317", protocol="grpc", enabled=True)
-    mock_socket = MagicMock()
-    monkeypatch.setattr("socket.create_connection", lambda *a, **kw: mock_socket)
+    dialled: list[tuple[str, int]] = []
 
-    ok, msg, latency = client.test_connection(timeout=1.0)
-    assert ok is True
-    assert "gRPC connection OK" in msg
-    assert latency >= 0
-    mock_socket.close.assert_called_once()
+    def mock_create_connection(address: tuple[str, int], timeout: float = 1.0) -> MagicMock:
+        dialled.append(address)
+        return MagicMock()
+
+    monkeypatch.setattr("socket.create_connection", mock_create_connection)
+
+    c1 = OTelTelemetryClient(endpoint="grpc://[::1]:4317", enabled=True)
+    ok1, msg1, _ = c1.test_connection(timeout=1.0)
+
+    c2 = OTelTelemetryClient(endpoint="HTTP://example.com:4317", enabled=True)
+    ok2, msg2, _ = c2.test_connection(timeout=1.0)
+
+    assert (
+        c1.protocol,
+        ok1,
+        "gRPC connection OK" in msg1,
+        c2.protocol,
+        ok2,
+        "gRPC connection OK" in msg2,
+        dialled,
+    ) == (
+        "grpc",
+        True,
+        True,
+        "grpc",
+        True,
+        True,
+        [("::1", 4317), ("example.com", 4317)],
+    )
 
 
 def test_telemetry_grpc_connection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
