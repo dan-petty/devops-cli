@@ -393,7 +393,17 @@ def _clean_and_decompose_html(raw_html: str) -> tuple[BeautifulSoup, list[str]]:
 
 
 def _apply_blank_line_cut(text: str, budget: int | None) -> tuple[str, bool]:
-    """Truncate text within budget at the latest blank line, appending DEFAULT_TRUNCATION_SUFFIX."""
+    """Truncate text within budget at the latest blank line, appending DEFAULT_TRUNCATION_SUFFIX.
+
+    A cut inside a fenced code block keeps the block's own closing line, so the
+    truncation note and the boundary tag stay outside the code; that line may
+    exceed the budget by its length. A cut on the block's opening line drops the
+    block.
+    """
+    from markdown_it import MarkdownIt
+
+    # CommonMark's line endings, so markdown-it's line numbers index text.split("\n").
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     if budget is None or len(text) <= budget:
         return text, False
 
@@ -404,7 +414,17 @@ def _apply_blank_line_cut(text: str, budget: int | None) -> tuple[str, bool]:
     if cut_idx == -1:
         cut_idx = target
 
-    return text[:cut_idx].rstrip() + DEFAULT_TRUNCATION_SUFFIX, True
+    kept = text[:cut_idx].rstrip()
+    cut_line = text.count("\n", 0, cut_idx)
+    lines = text.split("\n")
+    for token in MarkdownIt("commonmark").parse(text):
+        if token.type == "fence" and token.map and token.map[0] <= cut_line < token.map[1] - 1:
+            if cut_line == token.map[0]:
+                kept = "\n".join(lines[: token.map[0]]).rstrip()
+            else:
+                kept += "\n" + lines[token.map[1] - 1]
+            break
+    return kept + DEFAULT_TRUNCATION_SUFFIX, True
 
 
 def render_untrusted_page(
