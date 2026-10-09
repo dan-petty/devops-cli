@@ -6,6 +6,8 @@
 **Priority**: P2-Medium (set by intake on 2026-10-08)
 **Scope**: type/bug, scope/k8s, scope/ci, scope/release
 
+> **Superseded by #1486.** Release-branch publishing, the plan step and the promote step are gone: `release.yml` builds, attests and tags the Service image only on `main`, and Image Updater rolls it out.
+
 ## Description
 
 The release cut sets `newTag: vX.Y.Z` for `ghcr.io/dan-petty/devops-cli/service` in `k8s/devops/kustomization.yaml`. Argo CD's `devops` Application tracks `main` and syncs about two minutes after the release merges, but `release.yml` published the image only at the end of its run on `main` (23:43:28 to 23:50:20 for v0.2.28). roadmap-service uses the Recreate strategy, so its pod was stopped and its replacement backed off on the missing image for several minutes, and for as long as the release run stayed red (v0.2.27).

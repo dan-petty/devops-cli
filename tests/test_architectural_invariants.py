@@ -567,30 +567,6 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     )
 
 
-def test_release_service_image_inputs_are_what_the_image_is_built_from() -> None:
-    """release.yml's SERVICE_IMAGE_INPUTS names every COPY source, the build definition and itself.
-
-    The release branch labels the Service image with the hash of these paths, and main's run
-    points `latest` at that image only when its own tree hashes the same (#1451). A COPY source
-    left out would let main promote an image built from other code; a path the image is not
-    built from (CHANGELOG.md, docs) would republish on every push and fail a merge whose image
-    is right.
-    """
-    import yaml
-
-    repo_root = Path(__file__).resolve().parents[1]
-    workflow = yaml.safe_load(
-        (repo_root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    )
-    declared = set(workflow["jobs"]["service-image"]["env"]["SERVICE_IMAGE_INPUTS"].split())
-    expected = _dockerfile_build_context_sources(repo_root / "Dockerfile") | {
-        "Dockerfile",
-        ".dockerignore",
-        ".github/workflows/release.yml",
-    }
-    assert declared == expected
-
-
 def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:
     """Find commands in workflow run steps that mutate the runner environment (#832)."""
     import yaml

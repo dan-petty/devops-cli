@@ -39,9 +39,6 @@ CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
-# The in-cluster runtime's kustomization pins the service image to the release's tag (#741).
-CONST_SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
-CONST_SERVICE_IMAGE_KUSTOMIZATION = Path("k8s/devops/kustomization.yaml")
 CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
     "feat": "Added",
     "fix": "Fixed & Hardened",

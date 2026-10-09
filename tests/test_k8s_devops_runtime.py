@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from packaging.version import Version
 
-from devops_cli import __version__
 from devops_cli.config import options as opt
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.config.settings import Settings
@@ -225,11 +223,10 @@ def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
     )
 
 
-def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_the_root() -> None:
-    """The tag is a release tag no newer than the version in development.
+def test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_the_root() -> None:
+    """Git names the service image untagged; Image Updater sets its digest on Application devops.
 
-    `devops release check` holds it equal to the version at the cut; between cuts it keeps
-    naming the last published image, so opening a cycle needs no tag that does not exist yet.
+    A release writes nothing here (#1486), so the kustomization carries no `images:` entry.
     """
     kustomization = _doc("kustomization.yaml")
     on_disk = [
@@ -247,22 +244,11 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
     ).stdout.split()
     manifests = sorted([*tracked, "roadmap-service"])
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
-    (image,) = kustomization["images"]
-    tag = str(image["newTag"])
     assert (
         sorted(kustomization["resources"]),
-        sorted(image),
-        image["name"],
-        tag.startswith("v") and str(Version(tag[1:])) == tag[1:],
-        Version(tag[1:]) <= Version(__version__),
+        "images" in kustomization,
         [r for r in root["resources"] if r.startswith("devops")],
-    ) == (manifests, ["name", "newTag"], "ghcr.io/dan-petty/devops-cli/service", True, True, [])
-
-
-def test_the_kustomization_survives_the_release_bump_rewrite() -> None:
-    """`devops release prepare` rewrites it with `yaml.safe_dump`, which keeps no comment."""
-    text = (DEVOPS_DIR / "kustomization.yaml").read_text(encoding="utf-8")
-    assert yaml.safe_dump(yaml.safe_load(text), sort_keys=False) == text
+    ) == (manifests, False, [])
 
 
 def test_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing(
@@ -270,8 +256,8 @@ def test_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_
 ) -> None:
     """Application devops renders the CronJob and roadmap-service on Image Updater's digest (#1485).
 
-    Argo CD adds the Application's `spec.source.kustomize.images` to the kustomization it builds,
-    as this overlay does, and that entry outranks the `newTag` pin in k8s/devops. A tag of
+    Git names the image untagged, and Argo CD adds the Application's `spec.source.kustomize.images`
+    entry, which sets the digest, to the kustomization it builds, as this overlay does. A tag of
     `latest` would default the pull policy to Always, so both containers set IfNotPresent.
     """
     service = "ghcr.io/dan-petty/devops-cli/service"

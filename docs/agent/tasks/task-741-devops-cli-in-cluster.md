@@ -6,6 +6,8 @@
 **Priority**: priority/p1-high
 **Scope**: type/feature, scope/k8s, priority/p1-high
 
+> **Superseded in part by #1486.** The service-image pin in `k8s/devops/kustomization.yaml`, its bump in the cut and its check in `devops release check` were removed; Image Updater sets the image's digest.
+
 ## Description
 devops-cli runs in the homelab cluster as Jobs made from a suspended CronJob in namespace `devops`, so agents drive it with kubectl and never handle keys, and model calls reach the gateway without the tunnel's edge timeout. Every Secret the stacks read comes from the workstation keyring through one table (`src/devops_cli/k8s/cluster_secrets.py`) and one command, `devops k8s push-secrets`, which `devops k8s deploy-stack` runs before applying anything. It replaces the hand-run `--from-literal` steps and deploy-stack's client-side Qdrant Secret apply, which leaked the key into the last-applied annotation.
 
