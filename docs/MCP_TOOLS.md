@@ -29,7 +29,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_spend_report`](#ai-spend-report) | Report approximate AI spend per backend service, model, or provider over time. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
-| [`ai_vllm_scale`](#ai-vllm-scale) | Inspect or configure vLLM Tensor Parallelism serving parameters. |
 | [`argo_fleet_sync`](#argo-fleet-sync) | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
@@ -421,17 +420,6 @@ Synthesize isolated pytest unit test suite for a target Python file.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_file` | `string` | Yes | - | - |
-
-### `ai_vllm_scale`
-
-Inspect or configure vLLM Tensor Parallelism serving parameters.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `replicas` | `integer` | No | `1` | - |
-| `tensor_parallel_size` | `integer` | No | `2` | - |
 
 ### `argo_fleet_sync`
 

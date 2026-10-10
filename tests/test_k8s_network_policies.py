@@ -21,10 +21,6 @@ K8S_DIR = REPO_ROOT / "k8s"
 # only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
 # or leaves its file; the guard below fails until then.
 UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
-    ("llm", "vllm-profiles-perimeter"): (
-        "k8s/llm/profiles/networkpolicy.yaml",
-        "#820, which deletes it with the vLLM leftovers",
-    ),
     ("llm", "portkey-perimeter"): (
         "k8s/llm/portkey/networkpolicy.yaml",
         "Argo CD's llm Application; deploy-stack does not deploy Portkey",

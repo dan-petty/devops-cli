@@ -2914,29 +2914,6 @@ def ai_gateway_failover(
 
 
 @mcp.tool()
-def ai_vllm_scale(
-    replicas: int = 1,
-    tensor_parallel_size: int = 2,
-) -> str:
-    """Inspect or configure vLLM Tensor Parallelism serving parameters."""
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "ai",
-        "gateway",
-        "scale",
-        "--replicas",
-        str(replicas),
-        "--tensor-parallel-size",
-        str(tensor_parallel_size),
-        "--format",
-        "json",
-    ]
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
 def ai_backend_probe(
     backend: str,
     backend_url: str = "",

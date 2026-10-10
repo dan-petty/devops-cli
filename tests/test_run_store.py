@@ -360,11 +360,11 @@ def test_a_gateway_tune_is_kept_with_its_pool(monkeypatch: pytest.MonkeyPatch) -
         deployments=[
             DeploymentTune(
                 deployment_id="d1",
-                backend="vllm",
-                model="hosted_vllm/qwen",
-                api_base="http://vllm.example:8000/v1",
+                backend="ollama",
+                model="ollama/qwen",
+                api_base="http://ollama.example:11434/v1",
                 current_weight=5,
-                engine="vllm",
+                engine="ollama",
                 gpus=[GpuInfo(name="RTX 3090", memory_mib=24576)],
             )
         ],
@@ -386,10 +386,10 @@ def test_a_gateway_tune_is_kept_with_its_pool(monkeypatch: pytest.MonkeyPatch) -
         {"model_group": "devops-review"},
         [
             {
-                "backend": "vllm",
-                "model": "hosted_vllm/qwen",
+                "backend": "ollama",
+                "model": "ollama/qwen",
                 "weight": 5,
-                "engine": "vllm",
+                "engine": "ollama",
                 "gpus": ["RTX 3090"],
             }
         ],

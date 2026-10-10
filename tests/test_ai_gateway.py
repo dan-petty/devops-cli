@@ -23,11 +23,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_CLUSTER_URL,
-    DEFAULT_VLLM_CLUSTER_URL,
-    DEFAULT_VLLM_MODEL,
-    DEFAULT_VLLM_SERVED_MODEL_NAME,
-    DEFAULT_VLLM_SINGLE_CLUSTER_URL,
-    DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
@@ -69,13 +64,11 @@ class TestGatewayRouter:
             status.gateway_url,
             status.circuit_breaker_tripped,
             status.backend_counts["ollama"],
-            status.backend_counts["vllm"],
         ) == (
             True,
             "http://example.com/v1",
             False,
-            2,
-            2,
+            4,
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -183,16 +176,16 @@ class TestGatewayRouter:
             "simulated",
         )
 
-    def test_default_routes_target_vllm_profiles(self) -> None:
-        """Verify reasoning and coder aliases route to the dual- and single-GPU vLLM profiles."""
+    def test_default_routes_target_profiles(self) -> None:
+        """Verify reasoning and coder aliases route to the designated Ollama profiles."""
         routes = {
             r.virtual_model: (r.target_model, r.backend_type, r.backend_url)
             for r in GatewayRouter().list_routes()
         }
 
         assert (routes["devops-reasoning"], routes["devops-coder"]) == (
-            (DEFAULT_VLLM_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_CLUSTER_URL),
-            (DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_SINGLE_CLUSTER_URL),
+            ("qwen3-coder:30b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL),
+            ("qwen2.5-coder:14b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL),
         )
 
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
@@ -201,68 +194,26 @@ class TestGatewayRouter:
         with pytest.raises(ValueError, match="Unknown virtual model 'unknown-model'"):
             router.trigger_failover("unknown-model")
 
-    def test_scale_vllm_parameters(self) -> None:
-        """Verify vLLM scale configurations calculate correct VRAM aggregates with replica multiplication."""
-        router = GatewayRouter()
-        default_scale = router.scale_vllm()
-        custom_scale = router.scale_vllm(replicas=2, tensor_parallel_size=4)
-
-        assert (
-            default_scale["model"],
-            default_scale["served_model_name"],
-            default_scale["replicas"],
-            default_scale["tensor_parallel_size"],
-            default_scale["total_vram_gb"],
-            custom_scale["replicas"],
-            custom_scale["tensor_parallel_size"],
-            custom_scale["total_vram_gb"],
-            custom_scale["vram_per_replica_gb"],
-        ) == (
-            DEFAULT_VLLM_MODEL,
-            DEFAULT_VLLM_SERVED_MODEL_NAME,
-            1,
-            2,
-            48,
-            2,
-            4,
-            192,
-            96,
-        )
-
     @pytest.mark.usefixtures("public_dns")
-    def test_probe_backend_vllm_and_ollama(self) -> None:
-        """Verify probe_backend supports vLLM and Ollama inference endpoints."""
+    def test_probe_backend_ollama(self) -> None:
+        """Verify probe_backend supports Ollama inference endpoints."""
         config = AIConfig(
-            vllm_url="http://example.com:8000/v1",
             ollama_urls=["http://example.com:11434"],
         )
         router = GatewayRouter(config)
-        mock_vllm = MagicMock(
-            status_code=200,
-            json=lambda: {"data": [{"id": DEFAULT_VLLM_SERVED_MODEL_NAME}]},
-        )
         mock_ollama = MagicMock(
             status_code=200,
             json=lambda: {"models": [{"name": "qwen2.5-coder:14b"}]},
         )
 
-        with patch.object(httpx2.Client, "get", return_value=mock_vllm):
-            res_vllm = router.probe_backend("vllm")
-
         with patch.object(httpx2.Client, "get", return_value=mock_ollama):
             res_ollama = router.probe_backend("ollama")
 
         assert (
-            res_vllm["backend"],
-            res_vllm["healthy"],
-            res_vllm["model_count"],
             res_ollama["backend"],
             res_ollama["healthy"],
             res_ollama["model_count"],
         ) == (
-            "vllm",
-            True,
-            1,
             "ollama",
             True,
             1,
@@ -358,48 +309,25 @@ class TestAIGatewayCLI:
             1,
         )
 
-    def test_scale_command_execution(self) -> None:
-        """Verify 'devops ai gateway scale' outputs scale parameters in table and JSON."""
-        res_table = runner.invoke(gateway_cli_app, ["scale", "--replicas", "2"])
-        res_json = runner.invoke(
-            gateway_cli_app,
-            ["scale", "--replicas", "2", "--tensor-parallel-size", "4", "--format", "json"],
-        )
-
-        parsed = json.loads(res_json.output)
-        assert (
-            res_table.exit_code,
-            res_json.exit_code,
-            "vLLM Scale Parameters" in res_table.output,
-            parsed["replicas"],
-            parsed["tensor_parallel_size"],
-        ) == (
-            0,
-            0,
-            True,
-            2,
-            4,
-        )
-
     def test_probe_backend_command(self) -> None:
         """Verify 'devops ai gateway probe-backend' prints backend health status."""
-        mock_vllm = MagicMock(
+        mock_ollama = MagicMock(
             status_code=200,
-            json=lambda: {"data": [{"id": DEFAULT_VLLM_SERVED_MODEL_NAME}]},
+            json=lambda: {"models": [{"name": "qwen2.5-coder:14b"}]},
         )
 
-        with patch.object(httpx2.Client, "get", return_value=mock_vllm):
+        with patch.object(httpx2.Client, "get", return_value=mock_ollama):
             res_table = runner.invoke(
                 gateway_cli_app,
-                ["probe-backend", "vllm", "--backend-url", "http://example.com:8000/v1"],
+                ["probe-backend", "ollama", "--backend-url", "http://example.com:11434"],
             )
             res_json = runner.invoke(
                 gateway_cli_app,
                 [
                     "probe-backend",
-                    "vllm",
+                    "ollama",
                     "--backend-url",
-                    "http://example.com:8000/v1",
+                    "http://example.com:11434",
                     "--format",
                     "json",
                 ],
@@ -417,7 +345,7 @@ class TestAIGatewayCLI:
             0,
             True,
             True,
-            "vllm",
+            "ollama",
         )
 
 
@@ -431,7 +359,6 @@ class TestFastMCPGatewayTools:
             ai_gateway_failover,
             ai_gateway_routes,
             ai_gateway_status,
-            ai_vllm_scale,
             get_ai_gateway_resource,
         )
 
@@ -439,11 +366,10 @@ class TestFastMCPGatewayTools:
             ai_gateway_status()
             ai_gateway_routes()
             ai_gateway_failover("devops-coder", simulate=True)
-            ai_vllm_scale(replicas=2, tensor_parallel_size=2)
-            ai_backend_probe("vllm")
+            ai_backend_probe("ollama")
             get_ai_gateway_resource()
 
-        assert mock_run.call_count == 6
+        assert mock_run.call_count == 5
 
 
 class TestRouterAndClientGatewayIntegration:
@@ -470,33 +396,6 @@ class TestRouterAndClientGatewayIntegration:
             "gateway response",
             "gateway",
             "example.com",
-        )
-
-    def test_scale_vllm_kubectl_apply_success_and_failure(self) -> None:
-        """Verify scale_vllm applies kubectl scale command when apply=True."""
-        router = GatewayRouter()
-        mock_proc_ok = MagicMock(returncode=0, stdout="deployment.apps/vllm scaled", stderr="")
-        mock_proc_err = MagicMock(
-            returncode=1, stdout="", stderr="Error from server: connection refused"
-        )
-
-        with patch("subprocess.run", return_value=mock_proc_ok) as mock_sub:
-            res_ok = router.scale_vllm(replicas=3, apply=True)
-            called_cmd = mock_sub.call_args[0][0]
-
-        with patch("subprocess.run", return_value=mock_proc_err):
-            res_err = router.scale_vllm(replicas=3, apply=True)
-
-        assert (
-            res_ok["status"],
-            "--replicas=3" in called_cmd,
-            res_err["status"],
-            "connection refused" in res_err["details"]["error"],
-        ) == (
-            "scaled",
-            True,
-            "error",
-            True,
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -544,7 +443,7 @@ def _model_info(status: int = 200) -> tuple[list[dict[str, str]], Any]:
             "model_name": "devops-review",
             "litellm_params": {
                 "model": "openai/qwen2.5-coder-32b-instruct",
-                "api_base": "http://vllm.example.com:8000/v1",
+                "api_base": "http://remote.example.com:8000/v1",
             },
             "model_info": {"id": "a"},
         },

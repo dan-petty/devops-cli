@@ -1,4 +1,4 @@
-"""Manifest syntax, security perimeter, and zero-leakage validation for LLM Gateway and vLLM."""
+"""Manifest syntax, security perimeter, and zero-leakage validation for LLM Gateway."""
 
 from __future__ import annotations
 
@@ -557,33 +557,6 @@ class TestK8sLLMGatewayManifests:
             dep["spec"]["template"]["metadata"]["labels"]["llm.devops.io/provider"],
         )
 
-    def test_vllm_profiles_network_policy_secures_perimeter(self) -> None:
-        """Verify vLLM profiles admit only the gateway and monitoring, and egress is isolated."""
-        netpol = _load_kind(NETWORKPOLICY_MANIFEST, "NetworkPolicy")
-        ingress = netpol["spec"]["ingress"]
-        egress_namespaces = sorted(
-            peer["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
-            for rule in netpol["spec"]["egress"]
-            for peer in rule["to"]
-            if "namespaceSelector" in peer
-        )
-
-        assert (
-            netpol["spec"]["podSelector"]["matchLabels"]["llm.devops.io/provider"],
-            ingress[0]["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-            ingress[0]["ports"][0]["port"],
-            ingress[1]["from"][0]["namespaceSelector"]["matchLabels"][
-                "kubernetes.io/metadata.name"
-            ],
-            egress_namespaces,
-        ) == (
-            "vllm",
-            "llm-gateway",
-            8000,
-            "monitoring",
-            ["kube-system"],
-        )
-
     def test_llm_kustomization_includes_profiles(self) -> None:
         """Verify the llm kustomization includes the profiles package and all its resources."""
         resources = yaml.safe_load(LLM_KUSTOMIZATION.read_text(encoding="utf-8"))["resources"]
@@ -599,12 +572,11 @@ class TestK8sLLMGatewayManifests:
             [
                 "services.yaml",
                 "ollama-profiles.yaml",
-                "networkpolicy.yaml",
             ],
         )
 
-    def test_llm_namespace_default_perimeter_excludes_gateway_and_vllm(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, vLLM, portkey, and the run index
+    def test_llm_namespace_default_perimeter_excludes_gateway_and_workloads(self) -> None:
+        """Verify llm-default-perimeter excludes gateway, portkey, and the run index
         to avoid additive policy leakage."""
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
@@ -617,7 +589,7 @@ class TestK8sLLMGatewayManifests:
             sorted(name_expr["values"]),
         ) == (
             "NotIn",
-            ["llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
+            ["llm-gateway", "portkey", "valkey-runs"],
         )
 
     def test_llm_manifests_have_a_deploy_path(self) -> None:
@@ -699,13 +671,6 @@ class TestK8sLLMGatewayManifests:
         ) == ([], [])
 
 
-# The gateway policy's vLLM rule matches no deployed pod; #820 deletes the rule and this constant.
-_VLLM_SELECTORS: tuple[dict[str, str], ...] = (
-    {"app.kubernetes.io/name": "vllm"},
-    {"app.kubernetes.io/name": "vllm-single"},
-    {"llm.devops.io/provider": "vllm"},
-)
-_VLLM_PORTS = frozenset({("TCP", 8000, None)})
 _DNS_PEER = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}
 _DNS_PORTS = frozenset({("UDP", 53, None), ("TCP", 53, None)})
 _OLLAMA_PEER = {"podSelector": {"matchLabels": {"llm.devops.io/provider": "ollama"}}}
@@ -798,8 +763,6 @@ def _peer_violation(
     labels = _pod_labels(peer)
     if not labels:
         return f"{peer} is not a same-namespace podSelector with matchLabels alone"
-    if labels in _VLLM_SELECTORS:
-        return None if ports == _VLLM_PORTS else f"vLLM selector {labels} admits other ports"
     allowed = {
         ("TCP", target, None) for selector, target in backends if labels.items() <= selector.items()
     }
@@ -824,9 +787,9 @@ def _egress_violations(
     """Return every way the gateway policy lets the gateway reach more than it needs (#795).
 
     The policy must select the gateway's pods and enforce Egress. Each rule needs a non-empty
-    `to` and `ports`. A peer is the kube-system DNS peer on UDP and TCP 53, one of the vLLM
-    selectors on TCP 8000, or a same-namespace podSelector whose labels are a subset of some
-    backend Service's selector, on those backends' targetPorts alone. No ipBlock passes.
+    `to` and `ports`. A peer is the kube-system DNS peer on UDP and TCP 53, or a same-namespace
+    podSelector whose labels are a subset of some backend Service's selector, on those
+    backends' targetPorts alone. No ipBlock passes.
     """
     spec = policy["spec"]
     selected = (spec.get("podSelector") or {}).get("matchLabels") or {}
@@ -861,7 +824,7 @@ def gateway_egress() -> tuple[dict[str, Any], list[BackendTarget], dict[str, str
 def test_gateway_egress_admits_nothing_else(
     gateway_egress: tuple[dict[str, Any], list[BackendTarget], dict[str, str]],
 ) -> None:
-    """The gateway reaches its backends, DNS and the vLLM rule #820 removes, and nothing else.
+    """The gateway reaches its backends and DNS, and nothing else.
 
     The policy carried an ipBlock rule for every private address on 11434 and 8000, which
     kube-router matches against pod addresses, so every pod on those ports was reachable (#795).

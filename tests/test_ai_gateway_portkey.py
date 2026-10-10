@@ -18,7 +18,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
-from devops_cli.config.defaults import DEFAULT_VLLM_CLUSTER_URL, DEFAULT_VLLM_SERVED_MODEL_NAME
+from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_URL
 from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
@@ -29,7 +29,7 @@ class TestPortkeyGatewayRouter:
     """Test suite for GatewayRouter configured with Portkey provider."""
 
     def test_portkey_default_routes_initialization(self) -> None:
-        """Verify GatewayRouter initializes Portkey routes with vLLM coder target."""
+        """Verify GatewayRouter initializes Portkey routes with coder target."""
         config = AIConfig(gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY)
         router = GatewayRouter(config)
         routes = router.list_routes()
@@ -44,26 +44,26 @@ class TestPortkeyGatewayRouter:
         ) == (
             4,
             CONST_AI_GATEWAY_VIRTUAL_MODELS,
-            "vllm",
+            "ollama",
             True,
         )
 
-    def test_portkey_reasoning_targets_vllm_served_model(self) -> None:
-        """Verify Portkey default routes and ConfigMap address vLLM by its served model name."""
+    def test_portkey_coder_targets_ollama_served_model(self) -> None:
+        """Verify Portkey default routes and ConfigMap address Ollama coder by its served model name."""
         router = GatewayRouter(AIConfig(gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY))
-        reasoning = next(r for r in router.list_routes() if r.virtual_model == "devops-reasoning")
+        coder = next(r for r in router.list_routes() if r.virtual_model == "devops-coder")
         docs = yaml.safe_load_all((PORTKEY_DIR / "configmap.yaml").read_text(encoding="utf-8"))
         cm = next(d for d in docs if d and d.get("kind") == "ConfigMap")
         targets = {t["virtual_key"]: t for t in json.loads(cm["data"]["config.json"])["targets"]}
 
         assert (
-            reasoning.target_model,
-            reasoning.backend_url,
-            targets["vllm-backend"]["override_params"]["model"],
+            coder.target_model,
+            coder.backend_url,
+            targets["ollama-coder"]["override_params"]["model"],
         ) == (
-            DEFAULT_VLLM_SERVED_MODEL_NAME,
-            DEFAULT_VLLM_CLUSTER_URL,
-            DEFAULT_VLLM_SERVED_MODEL_NAME,
+            "qwen2.5-coder:14b",
+            DEFAULT_OLLAMA_CLUSTER_URL,
+            "qwen2.5-coder:14b",
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -84,14 +84,12 @@ class TestPortkeyGatewayRouter:
             status.healthy,
             status.gateway_url,
             status.circuit_breaker_tripped,
-            status.backend_counts.get("vllm"),
             status.backend_counts.get("ollama"),
         ) == (
             True,
             "http://example.com:8787",
             False,
-            2,
-            2,
+            4,
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -159,7 +157,7 @@ class TestPortkeyCLI:
             0,
             True,
             4,
-            "vllm",
+            "ollama",
         )
 
     def test_status_with_portkey_provider(self) -> None:
@@ -252,7 +250,6 @@ class TestK8sPortkeyManifests:
             "portkey-perimeter",
             [
                 ("app.kubernetes.io/name", "valkey"),
-                ("app.kubernetes.io/name", "vllm"),
                 ("llm.devops.io/provider", "ollama"),
             ],
         )

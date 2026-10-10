@@ -50,7 +50,7 @@ def test_spend_ledger_record_and_aggregate_by_server(tmp_path: Path) -> None:
         duration_seconds=2.4,
     )
     ledger.record_request(
-        provider="vllm",
+        provider="openai",
         server="example.com:8080",
         model="deepseek-chat",
         prompt_tokens=5000,
@@ -407,7 +407,7 @@ def test_spend_ledger_counterfactual_and_hardware_payoff(tmp_path: Path) -> None
         duration_seconds=1.5,
     )
     ledger.record_request(
-        provider="vllm",
+        provider="openai",
         server="example.com:8080",
         model="deepseek-chat",
         prompt_tokens=5000,

@@ -1008,7 +1008,7 @@ def _schema_keywords(schema: dict) -> set[str]:
         ("sandbox_stop", {"timeout": "10"}),
         ("sandbox_stop", {"timeout": 10.0}),
         ("sandbox_stop", {"all_instances": "true"}),
-        ("ai_vllm_scale", {"replicas": 2.0}),
+        ("ai_ast_graph", {"max_files": 2.0}),
     ],
 )
 async def test_a_coerced_argument_is_refused_before_the_handler_runs(
@@ -1020,7 +1020,7 @@ async def test_a_coerced_argument_is_refused_before_the_handler_runs(
     hallucinated call reviewed PR 1 and commented on it. `sandbox_stop` is withheld from the
     listing, which is all the SDK's own strict check ever looks at, so it must refuse too.
     An integral float on an integer that is not a PR number, such as `sandbox_stop`'s
-    `timeout` or the advertised `ai_vllm_scale`'s `replicas`, ran its handler the same way.
+    `timeout` or the advertised `ai_ast_graph`'s `max_files`, ran its handler the same way.
     """
     is_error, _ = await _call(tool, arguments)
     assert (is_error, handler_runner.call_count) == (True, 0)

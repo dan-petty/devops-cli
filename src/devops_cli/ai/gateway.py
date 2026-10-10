@@ -1,7 +1,7 @@
 """High-throughput LLM Gateway & Distributed Inference Router.
 
-Fronts heterogeneous Ollama cluster nodes and dedicated vLLM Tensor-Parallel (TP=2)
-serving instances with virtual model tiering, least-latency routing, and circuit-breaking.
+Fronts heterogeneous Ollama cluster nodes with virtual model tiering, least-latency routing,
+and circuit-breaking.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -32,11 +31,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_PORTKEY_GATEWAY_URL,
-    DEFAULT_VLLM_CLUSTER_URL,
-    DEFAULT_VLLM_MODEL,
-    DEFAULT_VLLM_SERVED_MODEL_NAME,
-    DEFAULT_VLLM_SINGLE_CLUSTER_URL,
-    DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.validation import validate_url_egress
@@ -54,15 +48,15 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
     {
         "virtual_model": "devops-coder",
-        "target_model": DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
-        "backend_type": "vllm",
-        "backend_url": DEFAULT_VLLM_SINGLE_CLUSTER_URL,
+        "target_model": "qwen2.5-coder:14b",
+        "backend_type": "ollama",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-reasoning",
-        "target_model": DEFAULT_VLLM_SERVED_MODEL_NAME,
-        "backend_type": "vllm",
-        "backend_url": DEFAULT_VLLM_CLUSTER_URL,
+        "target_model": "qwen3-coder:30b",
+        "backend_type": "ollama",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-embedding",
@@ -87,7 +81,7 @@ class GatewayRoute(BaseModel):
 
     virtual_model: str
     target_model: str
-    backend_type: str  # ollama | vllm | cloud | failover:*
+    backend_type: str  # ollama | cloud | failover:*
     backend_url: str
     healthy: bool = True
     latency_ms: float = 0.0
@@ -306,27 +300,6 @@ def _probe_gateway_http(
         return (False, 0, str(exc)[:256])
 
 
-def _execute_kubectl_scale(
-    deployment: str, replicas: int, namespace: str
-) -> tuple[str, dict[str, Any]]:
-    """Execute kubectl scale deployment command with bounded timeout."""
-    cmd = [
-        "kubectl",
-        "scale",
-        "deployment",
-        deployment,
-        f"--namespace={namespace}",
-        f"--replicas={replicas}",
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0, check=False)
-        if proc.returncode == 0:
-            return "scaled", {"output": proc.stdout.strip()[:256]}
-        return "error", {"error": (proc.stderr.strip() or proc.stdout.strip())[:256]}
-    except (subprocess.SubprocessError, OSError) as exc:
-        return "error", {"error": str(exc)[:256]}
-
-
 class GatewayRouter:
     """Manages OpenAI-compatible AI Gateway routing, health probing, and failovers."""
 
@@ -473,53 +446,13 @@ class GatewayRouter:
                 "status": "failover_active" if not simulate else "simulated",
             }
 
-    def scale_vllm(
-        self,
-        replicas: int | None = None,
-        tensor_parallel_size: int | None = None,
-        apply: bool = False,
-        namespace: str = "llm",
-    ) -> dict[str, Any]:
-        """Inspect or scale vLLM Tensor Parallel serving parameters."""
-        effective_replicas = replicas if replicas is not None else 1
-        effective_tp = tensor_parallel_size if tensor_parallel_size is not None else 2
-        total_vram_gb = effective_replicas * effective_tp * 24
-
-        with trace_span(
-            "ai.gateway.scale_vllm",
-            {
-                "replicas": effective_replicas,
-                "tensor_parallel_size": effective_tp,
-                "apply": apply,
-            },
-        ):
-            record_metric("ai.gateway.vllm_replicas", effective_replicas)
-            if replicas is not None and apply:
-                status, details = _execute_kubectl_scale("vllm", effective_replicas, namespace)
-            else:
-                status = "inspected" if replicas is None else "simulated"
-                details = {}
-
-            return {
-                "backend": "vllm",
-                "model": DEFAULT_VLLM_MODEL,
-                "served_model_name": DEFAULT_VLLM_SERVED_MODEL_NAME,
-                "replicas": effective_replicas,
-                "tensor_parallel_size": effective_tp,
-                "vram_per_gpu_gb": 24,
-                "vram_per_replica_gb": effective_tp * 24,
-                "total_vram_gb": total_vram_gb,
-                "status": status,
-                "details": details,
-            }
-
     def probe_backend(
         self,
         backend_type: str,
         backend_url: str | None = None,
         timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
-        """Probe an individual inference backend (vllm, ollama) directly."""
+        """Probe an individual inference backend (e.g. ollama) directly."""
         clean_type = backend_type.lower()
         if clean_type not in CONST_AI_BACKENDS:
             raise ValidationError(
@@ -577,7 +510,9 @@ def _resolve_backend_url(config: AIConfig, clean_type: str, backend_url: str | N
         return backend_url
     if clean_type == "ollama":
         return config.get_ollama_urls[0]
-    return config.vllm_url
+    raise ValidationError(
+        f"No default URL configured for backend '{clean_type}'", field="backend_type"
+    )
 
 
 def _probe_backend_http(

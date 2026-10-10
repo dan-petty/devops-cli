@@ -102,7 +102,7 @@ def _sample_run(
     default_setup = {
         "models": {"analysis": "gateway/qwen-review"},
         "page_chars": 4000,
-        "pool": [{"backend": "vllm-a", "weight": 5}],
+        "pool": [{"backend": "node-a", "weight": 5}],
     }
     default_subject = {"target": "repo", "corpus_digest": "abcdef1234567890"}
     default_results = {
@@ -114,7 +114,7 @@ def _sample_run(
         "stages": [
             {
                 "name": "analysis",
-                "backend_busy_share": {"vllm-a": 0.75, "vllm-b": 0.25},
+                "backend_busy_share": {"node-a": 0.75, "node-b": 0.25},
             }
         ],
     }
@@ -197,7 +197,7 @@ def test_extract_metrics_and_backend_shares() -> None:
         1200.0,
         0.85,
         4.0,
-        {"vllm-a": 0.75, "vllm-b": 0.25},
+        {"node-a": 0.75, "node-b": 0.25},
     )
 
 
@@ -208,7 +208,7 @@ def test_compare_runs_metrics_and_shares() -> None:
             "median_wall_seconds": 10.0,
             "total_prompt_tokens": 1000,
             "recall": 0.80,
-            "stages": [{"backend_busy_share": {"vllm-a": 0.80}}],
+            "stages": [{"backend_busy_share": {"node-a": 0.80}}],
         }
     )
     current = _sample_run(
@@ -216,14 +216,14 @@ def test_compare_runs_metrics_and_shares() -> None:
             "median_wall_seconds": 12.0,
             "total_prompt_tokens": 1100,
             "recall": 0.84,
-            "stages": [{"backend_busy_share": {"vllm-a": 0.60}}],
+            "stages": [{"backend_busy_share": {"node-a": 0.60}}],
         }
     )
 
     comparison = compare_runs(base, current)
     wall_diff = comparison.metrics["wall_seconds"]
     recall_diff = comparison.metrics["recall"]
-    backend_diff = comparison.backend_shares["vllm-a"]
+    backend_diff = comparison.backend_shares["node-a"]
 
     assert (
         comparison.same_fingerprint,

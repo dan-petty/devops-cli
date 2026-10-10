@@ -51,7 +51,7 @@ from devops_cli.tools_lock import tools_lock_digest
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
-VLLM = "http://vllm.example.com:8000/v1"
+REMOTE = "http://remote.example.com:8000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
 
 
@@ -77,11 +77,11 @@ def test_every_llm_call_reaches_the_observers(tmp_path: Path) -> None:
     seen: list[dict[str, Any]] = []
 
     with observe_llm_calls(seen.append):
-        _call(ledger, VLLM, completion=7)
+        _call(ledger, REMOTE, completion=7)
     _call(ledger, OLLAMA)
 
     assert [(c["served_by"], c["prompt_tokens"], c["completion_tokens"]) for c in seen] == [
-        (VLLM, 100, 7)
+        (REMOTE, 100, 7)
     ]
 
 
@@ -91,14 +91,14 @@ def test_profiler_attributes_calls_to_stages_across_worker_threads(tmp_path: Pat
 
     async def persona_calls() -> None:
         await asyncio.gather(
-            asyncio.to_thread(_call, ledger, VLLM), asyncio.to_thread(_call, ledger, OLLAMA)
+            asyncio.to_thread(_call, ledger, REMOTE), asyncio.to_thread(_call, ledger, OLLAMA)
         )
 
     with profiling() as profiler:
         with review_stage("persona_review"):
             asyncio.run(persona_calls())
         with review_stage("reranking"):
-            _call(ledger, VLLM, completion=40)
+            _call(ledger, REMOTE, completion=40)
         profiler.set_findings(candidates=10, verified=4, reported=3)
         profile = profiler.build(session_id="s1", target="playbooks")
 
@@ -108,8 +108,8 @@ def test_profiler_attributes_calls_to_stages_across_worker_threads(tmp_path: Pat
         active_profiler() is None,
     ) == (
         [
-            ("persona_review", 2, 20, {VLLM: 1, OLLAMA: 1}),
-            ("reranking", 1, 40, {VLLM: 1}),
+            ("persona_review", 2, 20, {REMOTE: 1, OLLAMA: 1}),
+            ("reranking", 1, 40, {REMOTE: 1}),
         ],
         (3, 10, 3),
         True,
@@ -122,7 +122,7 @@ def test_cached_replies_are_counted_apart_from_backend_calls(tmp_path: Path) -> 
 
     with profiling() as profiler:
         with review_stage("persona_review"):
-            _call(ledger, VLLM)
+            _call(ledger, REMOTE)
             _call(ledger, None, cached=True)
         profile = profiler.build(session_id="s", target="t")
 
@@ -182,7 +182,7 @@ def test_the_profile_summary_says_how_many_replies_hit_the_cap(
     with profiling() as profiler:
         with review_stage("persona_review"):
             for reason in reasons:
-                _observed(profiler, VLLM, reason)
+                _observed(profiler, REMOTE, reason)
         _write_review_profile(profiler, orchestrator, "playbooks", 2)
 
     assert lines == [f"[dim]Profile: 1s, {summary} -> {tmp_path / 'profile.json'}[/dim]"]
@@ -385,9 +385,9 @@ def test_backend_labels_drop_the_cluster_dns_suffix() -> None:
     """Verify in-cluster backends are labelled by pod or service, other backends by host."""
     assert [
         _backend_host("http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434"),
-        _backend_host("http://vllm-16gib.llm.svc.cluster.local:8000/v1"),
-        _backend_host(VLLM),
-    ] == ["ollama-0", "vllm-16gib", "vllm.example.com"]
+        _backend_host("http://ollama-16gib.llm.svc.cluster.local:11434"),
+        _backend_host(REMOTE),
+    ] == ["ollama-0", "ollama-16gib", "remote.example.com"]
 
 
 def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:

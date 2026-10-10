@@ -33,7 +33,7 @@ from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
 
-VLLM = "http://vllm.llm.svc.cluster.local:8000/v1"
+REMOTE_OPENAI = "http://remote.example.com:8000/v1"
 OLLAMA_0 = "http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434"
 
 
@@ -49,7 +49,12 @@ def _deployment(
 
 MODEL_INFO = [
     _deployment(
-        "devops-review", "a", "openai/qwen2.5-coder-32b-instruct", VLLM, max_input=12288, weight=5
+        "devops-review",
+        "a",
+        "openai/qwen2.5-coder-32b-instruct",
+        REMOTE_OPENAI,
+        max_input=12288,
+        weight=5,
     ),
     _deployment("devops-review", "b", "ollama_chat/gpt-oss:20b", OLLAMA_0, weight=1),
     _deployment("devops-chat", "c", "ollama_chat/qwen2.5-coder:7b", OLLAMA_0),
@@ -60,13 +65,13 @@ class TestBench:
     """The standard-library sweep that runs inside the gateway pod."""
 
     def test_each_backend_is_called_through_its_openai_compatible_chat_api(self) -> None:
-        """Verify vLLM keeps its /v1 base and Ollama gains one, with the provider prefix dropped."""
+        """Verify an OpenAI-compatible base keeps its /v1 base and Ollama gains one, with the provider prefix dropped."""
         assert (
-            bench.chat_target("openai/qwen2.5-coder-32b-instruct", VLLM),
+            bench.chat_target("openai/qwen2.5-coder-32b-instruct", REMOTE_OPENAI),
             bench.chat_target("ollama_chat/gpt-oss:20b", OLLAMA_0),
             bench.chat_target("ollama/bge-m3", "http://ollama.example.com:11434/"),
         ) == (
-            (f"{VLLM}/chat/completions", "qwen2.5-coder-32b-instruct"),
+            (f"{REMOTE_OPENAI}/chat/completions", "qwen2.5-coder-32b-instruct"),
             (f"{OLLAMA_0}/v1/chat/completions", "gpt-oss:20b"),
             ("http://ollama.example.com:11434/v1/chat/completions", "bge-m3"),
         )
@@ -134,20 +139,20 @@ class TestBench:
             'vllm:cache_config_info{block_size="16",num_gpu_blocks="6413"} 1.0\n'
         )
         pages = {
-            "http://vllm.example.com:8000/metrics": (200, metrics),
-            "http://ollama.example.com:11434/metrics": (404, ""),
-            "http://ollama.example.com:11434/api/version": (200, '{"version": "0.32.14"}'),
-            "http://other.example.com:9000/metrics": (404, ""),
-            "http://other.example.com:9000/api/version": (404, ""),
+            "http://example.com:8000/metrics": (200, metrics),
+            "http://example.com:11434/metrics": (404, ""),
+            "http://example.com:11434/api/version": (200, '{"version": "0.32.14"}'),
+            "http://example.com:9000/metrics": (404, ""),
+            "http://example.com:9000/api/version": (404, ""),
         }
 
         def get(url: str, timeout: float) -> tuple[int, str]:
             return pages[url]
 
         assert (
-            bench.engine_info("http://vllm.example.com:8000/v1", get),
-            bench.engine_info("http://ollama.example.com:11434", get),
-            bench.engine_info("http://other.example.com:9000/v1", get),
+            bench.engine_info("http://example.com:8000/v1", get),
+            bench.engine_info("http://example.com:11434", get),
+            bench.engine_info("http://example.com:9000/v1", get),
         ) == (
             {"engine": "vllm", "kv_cache_tokens": 6413 * 16},
             {"engine": "ollama", "kv_cache_tokens": None},
@@ -170,7 +175,7 @@ class TestBench:
             return {"usage": {"completion_tokens": 1}}
 
         results = bench.measure(
-            [{"deployment_id": "a", "model": "openai/m", "api_base": VLLM}],
+            [{"deployment_id": "a", "model": "openai/m", "api_base": REMOTE_OPENAI}],
             levels=[1, 3],
             rounds=2,
             prompt="p",
@@ -199,7 +204,7 @@ class TestTune:
             {
                 "deployment_id": "a",
                 "model": "openai/qwen2.5-coder-32b-instruct",
-                "api_base": VLLM,
+                "api_base": REMOTE_OPENAI,
                 "weight": 5,
                 "max_input_tokens": 12288,
             },
@@ -295,7 +300,9 @@ class TestTune:
         def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             calls.append(cmd)
             out = (
-                json.dumps({"spec": {"selector": {"app": "vllm"}}}) if "svc" in cmd else "vllm-7c9"
+                json.dumps({"spec": {"selector": {"app": "ollama-16gib"}}})
+                if "svc" in cmd
+                else "ollama-16gib-7c9"
             )
             return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 
@@ -303,14 +310,14 @@ class TestTune:
 
         assert (
             backend_pods(OLLAMA_0, None),
-            backend_pods(VLLM, "lab"),
+            backend_pods("http://ollama-16gib.llm.svc.cluster.local:11434", "lab"),
             backend_pods("http://ollama.example.com:11434", None),
             [c[3:6] for c in calls],
         ) == (
             ("llm", ["ollama-0"]),
-            ("llm", ["vllm-7c9"]),
+            ("llm", ["ollama-16gib-7c9"]),
             (None, []),
-            [["get", "svc", "vllm"], ["get", "pods", "-n"]],
+            [["get", "svc", "ollama-16gib"], ["get", "pods", "-n"]],
         )
 
     def test_gpu_inventory_parses_nvidia_smi(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -387,7 +394,7 @@ class TestTune:
         """Verify prompts exceeding Linux 131,072-byte argv limit are delivered via stdin."""
         large_prompt = "x" * 150_000
         spec = {
-            "deployments": [{"deployment_id": "a", "model": "m", "api_base": VLLM}],
+            "deployments": [{"deployment_id": "a", "model": "m", "api_base": REMOTE_OPENAI}],
             "levels": [1],
             "rounds": 1,
             "prompt": large_prompt,
@@ -464,7 +471,7 @@ class TestTune:
         monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
 
         report = tune_pool(
-            gateway_url=VLLM,
+            gateway_url=REMOTE_OPENAI,
             allow_private=True,
             api_key=None,
             model_group="devops-review",
@@ -475,8 +482,8 @@ class TestTune:
             request_timeout=10.0,
             namespace="llm",
             deployment="llm-gateway",
-            overrides={"vllm": 10},
-            concurrency_overrides={"vllm": 32, "b": 4},
+            overrides={"remote": 10},
+            concurrency_overrides={"remote": 32, "b": 4},
         )
 
         concurrencies = {d.deployment_id: d.recommended_concurrency for d in report.deployments}
@@ -654,7 +661,7 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
         0,
         "devops-review",
         [
-            ("vllm", "vllm", 4, 800.0, 100.0, 8.0, 16, 936.0),
+            ("remote", "vllm", 4, 800.0, 100.0, 8.0, 16, 936.0),
             ("ollama-0", "ollama", 1, 100.0, 200.0, 0.5, 1, 936.0),
         ],
     )

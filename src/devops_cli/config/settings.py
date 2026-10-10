@@ -92,7 +92,6 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
-    DEFAULT_VLLM_URL,
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
@@ -474,7 +473,6 @@ class AIConfig(BaseModel):
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
-    vllm_url: str = DEFAULT_VLLM_URL
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES

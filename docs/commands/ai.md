@@ -1564,23 +1564,6 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
-### `devops ai gateway scale`
-
-**Inspect or scale vLLM inference backend serving configuration.**
-
-```bash
-devops ai gateway scale [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
-| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
-| `--format`, `-f` | `string` | `table` | Output format: table or json. |
-
 ### `devops ai gateway probe-backend`
 
 **Directly probe health and latency of an inference backend.**
@@ -1593,7 +1576,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<backend>` | `string` | Yes | Backend to probe: vllm or ollama. |
+| `<backend>` | `string` | Yes | Backend to probe (e.g. ollama). |
 
 **Options:**
 
@@ -1638,8 +1621,7 @@ devops ai gateway tune [OPTIONS]
 
 Report how busy each LLM backend and GPU was over a window, from Prometheus.
 
-Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
-Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+Mean in flight is the gateway's call seconds per second on each deployment.
 
 ```bash
 devops ai gateway load [OPTIONS]

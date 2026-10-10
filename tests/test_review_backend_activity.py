@@ -1,8 +1,8 @@
 """Backend activity in review profiles and benchmarks (#557).
 
 Profiles counted calls per backend, not how long each backend was busy or how many calls it had
-in flight at once, so #545's imbalance was measured with a script sampling `nvidia-smi` and the
-vLLM queues, and a benchmark could not show whether a routing change spread the load.
+in flight at once, so #545's imbalance was measured with a script sampling `nvidia-smi` and
+queue lengths, and a benchmark could not show whether a routing change spread the load.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from devops_cli.main import app
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
-VLLM = "http://vllm.example.com:8000/v1"
+REMOTE = "http://remote.example.com:8000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
 
 
@@ -56,7 +56,7 @@ def test_profiles_record_each_backends_activity_per_stage(
 ) -> None:
     """Verify each call, observed as it finishes, is placed on its backend's timeline by stage."""
     finished = iter([10.0, 11.0, 20.0, 30.0])
-    calls = [(VLLM, 4.0), (VLLM, 2.0), (OLLAMA, 1.0), (None, 0.5)]
+    calls = [(REMOTE, 4.0), (REMOTE, 2.0), (OLLAMA, 1.0), (None, 0.5)]
 
     with profiling() as profiler, review_stage("persona_review"):
         monkeypatch.setattr(profile_module.time, "monotonic", lambda: next(finished, 40.0))
@@ -69,19 +69,19 @@ def test_profiles_record_each_backends_activity_per_stage(
     assert {
         backend: (a.calls, a.busy_seconds, a.call_seconds, a.peak_concurrency)
         for backend, a in stage.activity.items()
-    } == {VLLM: (2, 5.0, 6.0, 2), OLLAMA: (1, 1.0, 1.0, 1)}
+    } == {REMOTE: (2, 5.0, 6.0, 2), OLLAMA: (1, 1.0, 1.0, 1)}
 
 
-def _run(persona_wall: float, vllm_busy: float, vllm_peak: int) -> ReviewProfile:
+def _run(persona_wall: float, remote_busy: float, remote_peak: int) -> ReviewProfile:
     activity = {
-        VLLM: BackendActivity(calls=4, busy_seconds=vllm_busy, peak_concurrency=vllm_peak),
+        REMOTE: BackendActivity(calls=4, busy_seconds=remote_busy, peak_concurrency=remote_peak),
         OLLAMA: BackendActivity(calls=1, busy_seconds=10.0, peak_concurrency=1),
     }
     stage = StageProfile(
         name="persona_review",
         wall_seconds=persona_wall,
         llm_calls=5,
-        backends={VLLM: 4, OLLAMA: 1},
+        backends={REMOTE: 4, OLLAMA: 1},
         activity=activity,
     )
     return ReviewProfile(
@@ -95,8 +95,8 @@ def test_benchmarks_show_each_backends_median_busy_share_and_peak() -> None:
     stage = summary.stages[0]
 
     assert (stage.backend_busy_share, stage.backend_peak_concurrency) == (
-        {OLLAMA: 0.1, VLLM: 0.5},
-        {OLLAMA: 1, VLLM: 4},
+        {OLLAMA: 0.1, REMOTE: 0.5},
+        {OLLAMA: 1, REMOTE: 4},
     )
 
 
@@ -105,10 +105,10 @@ def test_busy_share_is_capped_and_absent_without_activity() -> None:
     stage = StageProfile(
         name="reranking",
         wall_seconds=10.0,
-        activity={VLLM: BackendActivity(calls=1, busy_seconds=10.2)},
+        activity={REMOTE: BackendActivity(calls=1, busy_seconds=10.2)},
     )
 
-    assert (stage.busy_share(VLLM), stage.busy_share(OLLAMA)) == (1.0, 0.0)
+    assert (stage.busy_share(REMOTE), stage.busy_share(OLLAMA)) == (1.0, 0.0)
 
 
 def test_benchmark_table_shows_busy_share_and_peak(
@@ -130,7 +130,7 @@ def test_benchmark_table_shows_busy_share_and_peak(
 
     assert (
         result.exit_code,
-        "vllm.example.com 60% ×4, ollama-0.example.com 10% ×1" in result.output,
+        "remote.example.com 60% ×4, ollama-0.example.com 10% ×1" in result.output,
     ) == (0, True)
 
 
