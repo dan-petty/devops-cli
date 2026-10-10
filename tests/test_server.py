@@ -316,7 +316,7 @@ def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_uvicorn.call_args.kwargs["host"],
             mock_uvicorn.call_args.kwargs["port"],
             mock_uvicorn.call_args.kwargs["log_config"],
-        ) == (0, True, "0.0.0.0", 8787, service_log_config("info"))
+        ) == (0, True, "::1", 8787, service_log_config("info"))
 
 
 def test_serve_service_mode_leaves_logging_to_the_server(
