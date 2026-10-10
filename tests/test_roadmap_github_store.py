@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from copy import deepcopy
@@ -33,7 +34,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
-from devops_cli.roadmap.board_read import GRAPHQL_BUDGET_OPERATION
+from devops_cli.roadmap.board_read import BOARD_CARD_OPERATION, GRAPHQL_BUDGET_OPERATION
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import (
     GitHubRoadmapStore,
@@ -59,6 +60,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     JobMark,
     PullRequestState,
+    RefineRecordKey,
     RoadmapStore,
 )
 from tests.roadmap_board_fake import (
@@ -659,6 +661,110 @@ def test_a_mark_another_process_wrote_after_the_listing_was_read_is_kept() -> No
         "Admitted": "43",
         "Nudged": "2026-10-08T00:00:00+00:00",
     }
+
+
+def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
+    """The Service's release and model lanes each open a store for the repository, so
+    reprioritize's and refine's mark writes on one card can overlap: the later write joins the
+    record the earlier one wrote, never the one both read before either wrote (#1532)."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card={})
+    armed, read, written = threading.Event(), threading.Event(), threading.Event()
+
+    def held_after_its_card_read(
+        args: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        answer = github(args, **kwargs)
+        if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
+            read.set()
+            # Held between its card read and its write: the model lane's write lands here
+            # unless the store keeps it out until this one writes, when the wait runs out.
+            written.wait(timeout=0.3)
+        return answer
+
+    release_lane = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=held_after_its_card_read
+    )
+    model_lane = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (reprioritized,) = release_lane.items()
+    (refined,) = model_lane.items()
+
+    def refine() -> None:
+        read.wait(timeout=5)
+        model_lane.set_marks(refined, {RefineRecordKey.BODY_HASH: "b1"})
+        written.set()
+
+    refining = threading.Thread(target=refine)
+    armed.set()
+    refining.start()
+    release_lane.set_marks(reprioritized, {JobMark.PENDING: "{}"})
+    refining.join(timeout=5)
+    assert json.loads((github.card(7) or {})["job record"]) == {
+        "Pending": "{}",
+        "refine.body_hash": "b1",
+    }
+
+
+def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> None:
+    """Reprioritize in the release lane and intake in the model lane can both set one item's
+    Release: the later write checks the milestone after the earlier one set it, so it raises
+    rather than replace a Release it never saw (ADR 0002, #1532)."""
+    github = GitHubFake(
+        REPO,
+        milestones=[
+            {"title": "v0.2.25", "number": 1, "state": "open"},
+            {"title": "v0.2.26", "number": 2, "state": "open"},
+        ],
+    )
+    github.seed_issue(7, card={})
+    armed, read, checked = threading.Event(), threading.Event(), threading.Event()
+
+    def held_after_its_card_read(
+        args: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        answer = github(args, **kwargs)
+        if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
+            read.set()
+            # Held between its card read and its writes: the model lane's milestone check runs
+            # here unless the store keeps it out until this one writes, when the wait runs out.
+            checked.wait(timeout=0.3)
+        return answer
+
+    def noting_the_milestone_check(
+        args: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        answer = github(args, **kwargs)
+        if armed.is_set() and args == ["api", f"repos/{REPO}/issues/7"]:
+            checked.set()
+        return answer
+
+    release_lane = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=held_after_its_card_read
+    )
+    model_lane = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=noting_the_milestone_check
+    )
+    (reprioritized,) = release_lane.items()
+    (placed,) = model_lane.items()
+    raised: list[RoadmapCardChangedError] = []
+
+    def intake() -> None:
+        read.wait(timeout=5)
+        try:
+            model_lane.set_field(placed, ItemField.RELEASE, "v0.2.26")
+        except RoadmapCardChangedError as error:
+            raised.append(error)
+
+    placing = threading.Thread(target=intake)
+    armed.set()
+    placing.start()
+    release_lane.set_field(reprioritized, ItemField.RELEASE, "v0.2.25")
+    placing.join(timeout=5)
+    assert (
+        (github.issues[7]["milestone"] or {}).get("title"),
+        json.loads((github.card(7) or {})["job record"]),
+        [error.details["now"] for error in raised],
+    ) == ("v0.2.25", {"Release": "v0.2.25"}, ["v0.2.25"])
 
 
 def _person_edits_after_the_read(

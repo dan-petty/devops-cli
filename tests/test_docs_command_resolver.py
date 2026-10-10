@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from devops_cli.docs.command_resolver import (
+from devops_cli.core.command_resolver import (
     ArgvPlaceholder,
     ArgvToken,
     CommandReferenceDefect,

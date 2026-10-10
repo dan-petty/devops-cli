@@ -25,6 +25,7 @@ devops repos clone-org [OPTIONS] <org>
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--private` / `--no-private` | `boolean` | `True` | - |
 | `--forks` / `--no-forks` | `boolean` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -47,6 +48,7 @@ devops repos clone [OPTIONS] <url>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -63,6 +65,7 @@ devops repos list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

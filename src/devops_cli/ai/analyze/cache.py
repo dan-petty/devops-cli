@@ -61,11 +61,13 @@ def save_analysis_metadata(
     files: list[FileAnalysisMeta],
     repo_root: Path,
     enhanced: bool = True,
+    dry_run: bool = False,
 ) -> Path:
     """Save or update an analysis metadata file in `analysis_directory`."""
     sanitized_ref = sanitize_reference(target_reference, repo_root)
     analysis_dir = analysis_directory(repo_root)
-    if not is_dry_run():
+    active_dry_run = dry_run or is_dry_run()
+    if not active_dry_run:
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
     if not out_file.is_relative_to(analysis_dir):
@@ -127,7 +129,7 @@ def save_analysis_metadata(
 
     payload = AnalysisMetadata(project=proj_meta, files=files)
 
-    if is_dry_run():
+    if active_dry_run:
         from devops_cli.output import print_dry_run_result
 
         print_info(MESSAGES.analyze.would_save_metadata.format(path=out_file), prefix=False)

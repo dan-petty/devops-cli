@@ -8,13 +8,15 @@ and are marked as 'suppressed by this change'.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import PurePosixPath
 from typing import Any
 
 from devops_cli.config.constants import CONST_INLINE_SUPPRESSION_MARKERS
+from devops_cli.lang import MESSAGES
+from devops_cli.output.markup import escape_text
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,15 @@ class ReviewSuppression:
         except ValueError:
             return False
 
+    def covers(self, path: str) -> bool:
+        """Whether this suppression's `path` glob matches `path`, at any depth; one without a path
+        covers none. `**` spans any number of directories, as `full_match` reads it."""
+        if not (self.path and self.path.strip()):
+            return False
+        posix_path = PurePosixPath(path.replace("\\", "/").lstrip("/"))
+        pattern = self.path.strip().replace("\\", "/").lstrip("/")
+        return posix_path.full_match(f"**/{pattern}")
+
     def matches(self, *, rule_id: str, path: str, fingerprint: str) -> bool:
         """Return True if this suppression rule matches the target finding."""
         if self.is_expired:
@@ -50,12 +61,7 @@ class ReviewSuppression:
         if self.rule and self.rule.strip():
             rule_match = self.rule.strip().lower() == rule_id.strip().lower()
 
-        path_match = True
-        if self.path and self.path.strip():
-            clean_path = path.replace("\\", "/").lstrip("/")
-            pattern = self.path.strip().replace("\\", "/").lstrip("/")
-            posix_path = PurePosixPath(clean_path)
-            path_match = posix_path.match(pattern) or posix_path.match(f"*/{pattern}")
+        path_match = self.covers(path) if self.path and self.path.strip() else True
 
         if self.rule or self.path:
             return rule_match and path_match
@@ -86,6 +92,38 @@ def load_review_suppressions(review_config: dict[str, Any]) -> list[ReviewSuppre
             )
         )
     return suppressions
+
+
+def covering_suppressions(
+    changed_files: Iterable[str], suppressions: Iterable[ReviewSuppression]
+) -> list[ReviewSuppression]:
+    """The unexpired suppressions whose `path` covers a changed file (#1150).
+
+    A suppression's reason holds for the code its path names, so a change there may undo it:
+    each one listed is for a person to re-check.
+    """
+    changed = [f for f in changed_files if f.strip()]
+    return [
+        supp
+        for supp in suppressions
+        if not supp.is_expired and any(supp.covers(f) for f in changed)
+    ]
+
+
+def format_covering_suppressions(covering: Sequence[ReviewSuppression]) -> str:
+    """The warning naming each suppression a change touches: its rule, path, reason and expiry,
+    escaped, since review.toml text is no Rich markup."""
+    lines = [MESSAGES.review.suppressions_cover_changes.format(count=len(covering))]
+    lines.extend(
+        MESSAGES.review.suppression_covers_change.format(
+            rule=escape_text(supp.rule or supp.fingerprint or "-"),
+            path=escape_text(supp.path or ""),
+            reason=escape_text(supp.reason),
+            expiry=escape_text(supp.expiry or MESSAGES.review.suppression_never_expires),
+        )
+        for supp in covering
+    )
+    return "\n".join(lines)
 
 
 def has_inline_marker(line_text: str, tool: str) -> bool:

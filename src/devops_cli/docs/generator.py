@@ -27,7 +27,7 @@ from devops_cli.config.env import (
     EnvVarSpec,
     get_all_env_var_specs,
 )
-from devops_cli.docs.command_resolver import module_click_command
+from devops_cli.core.command_resolver import module_click_command
 from devops_cli.output import write_text_file
 from devops_cli.telemetry import trace_span
 
@@ -764,9 +764,9 @@ class DocGenerator:
             "file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under "
             "`~/.local/share/devops-cli` rather than under that repository, so its default data "
             "directory is `~/.local/share/devops-cli/.data`. What a review keeps -- its sessions, "
-            "the hallucination catalog, the mitigations ledger, the feedback dataset, runs, "
-            "samples, library contracts and AI spend -- every other command started outside "
-            "devops-cli's own repository reads and writes there too. devops-cli's own repository "
+            "the feedback dataset, runs, samples, library contracts and AI spend -- every other "
+            "command started outside devops-cli's own repository reads and writes there too. "
+            "devops-cli's own repository "
             "is the one whose checkout holds the source of the devops-cli that runs, as an "
             "editable install's does; its code already runs, so a review started there, or in "
             "any worktree of it, reads its project configuration and keeps all data under its "

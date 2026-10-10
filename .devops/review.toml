@@ -24,3 +24,40 @@ rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-
 path = "src/devops_cli/security/vault_lease.py"
 reason = "The call logs the ServiceAccount token file's path and the OSError (path and errno), never the token; verified 2026-10-08. The rule stays enabled elsewhere (#1024)."
 expiry = "2027-04-08"
+
+# The Semgrep false positives a person judged in the learned catalog, which #1150 deleted.
+[[suppressions]]
+rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure"
+path = "src/devops_cli/security/secrets.py"
+reason = "Logs the credential's logical name, a bool and the provider name, never a secret value (#1150)."
+expiry = "2027-04-09"
+
+[[suppressions]]
+rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure"
+path = "src/devops_cli/config/settings.py"
+reason = "Logs a constant hint and the exception's type name only (#1150)."
+expiry = "2027-04-09"
+
+[[suppressions]]
+rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure"
+path = "src/devops_cli/github/secrets.py"
+reason = "Logs the repo name and a parse error on a listing that holds only secret names; quotes no response content (#1150)."
+expiry = "2027-04-09"
+
+[[suppressions]]
+rule = "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure"
+path = "src/devops_cli/server/service.py"
+reason = "Logs only the repository slug, for a repository that has no secret; no secret value reaches the call (#1150)."
+expiry = "2027-04-09"
+
+[[suppressions]]
+rule = "python.lang.security.audit.non-literal-import.non-literal-import"
+path = "src/devops_cli/telemetry/memory_profiler.py"
+reason = "The module name comes only from the operator's own --target argument, checked against an identifier pattern; not reachable from MCP (#1150)."
+expiry = "2027-04-09"
+
+[[suppressions]]
+rule = "python.lang.security.audit.non-literal-import.non-literal-import"
+path = "src/devops_cli/commands/release.py"
+reason = "import_module only receives a module path from the hardcoded _LAZY_OBJECT_MAPPING literal, and only after an `in` check on the name; that mapping is never changed, so no user or attacker input reaches the import (#1150)."
+expiry = "2027-04-09"

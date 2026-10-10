@@ -85,6 +85,7 @@ devops devcontainer list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

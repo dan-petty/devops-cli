@@ -33,8 +33,8 @@ from devops_cli.config.constants import (
     CONST_DEVOPS_ARGV_PREFIXES,
     CONST_DEVOPS_ARGV_QUOTED_COMMAND,
 )
+from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.core.repo import find_repo_root
-from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.lang import MESSAGES
 
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)

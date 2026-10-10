@@ -307,8 +307,7 @@ def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     While a review runs from a repository other than devops-cli's own, a relative path resolves
     under the user-level data root instead (`reads_untrusted_trees`, #972). The repository the
     command starts in may be the tree under review, and its `.data` holds whatever that tree's
-    author committed: a learned catalog that suppresses findings, review history, contracts and
-    cached replies. An absolute path is one the user named, and stands.
+    author committed: review history, contracts and cached replies. An absolute path is one the user named, and stands.
     """
     if path.is_absolute():
         return path
@@ -329,8 +328,8 @@ def resolve_review_data_path(path: Path) -> Path:
     `review_data_root`, whichever command reads or writes it (#972).
 
     A review resolves every relative data path there (`resolve_data_path`). Other commands read
-    and write what it keeps -- its sessions, history and baselines, the hallucination catalog, the
-    mitigations ledger, the feedback dataset, runs, samples, library contracts and AI spend -- so
+    and write what it keeps -- its sessions, history and baselines, the feedback dataset, runs,
+    samples, library contracts and AI spend -- so
     they resolve each there too, or a review's data would be in one place and theirs in another.
     """
     return path if path.is_absolute() else (review_data_root() / path).resolve()

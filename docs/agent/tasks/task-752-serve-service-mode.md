@@ -7,7 +7,7 @@
 **Scope**: type/feature, scope/cli, priority/p1-high
 
 ## Description
-Adds a dedicated production service mode to `devops serve` (`devops serve --service`) for continuous in-cluster operation. The service receives, authenticates, and coalesces GitHub webhooks via `POST /webhooks/github`, runs an internal polling tick to schedule periodic repository syncs, and dispatches background tasks to a single-concurrency queue per managed repository.
+Adds a dedicated production service mode to `devops serve` (`devops serve --service`) for continuous in-cluster operation. The service receives, authenticates, and coalesces GitHub webhooks via `POST /webhooks/github`, runs an internal polling tick to schedule periodic repository syncs, and dispatches background tasks to a single-concurrency queue per lane of each managed repository: one lane until #1532 split it into a release lane and a model lane.
 
 Exposes `/healthz` (liveness monitoring background task health), `/readyz` (readiness and drain state), `/metrics` (Prometheus metrics registered on `GLOBAL_METRICS`), and formats all logs as single-line JSON without external dependencies. Dead webhook code (`WebhookEventDispatcher`, `WebhookEvent`, `GitHubWebhookVerificationError`) is completely removed.
 
@@ -36,7 +36,7 @@ Exposes `/healthz` (liveness monitoring background task health), `/readyz` (read
 - [x] `src/devops_cli/config/settings.py`: Added `ServiceConfig` (`repos`, `machine_account`, `poll_interval_seconds`, `drain_timeout_seconds`) to `Settings`.
 - [x] `src/devops_cli/config/options.py` & `src/devops_cli/config/env.py`: Added `service.webhook_secrets` and `ENV_SERVICE_WEBHOOK_SECRETS`.
 - [x] `src/devops_cli/server/json_logs.py`: Added JSON log formatter.
-- [x] `src/devops_cli/server/service.py`: Added `TriggerBatch`, per-repo queue workers, polling tick, probes, service metrics, and `create_service_app`.
+- [x] `src/devops_cli/server/service.py`: Added `TriggerBatch`, per-repo queue workers (one per lane since #1532), polling tick, probes, service metrics, and `create_service_app`.
 - [x] `src/devops_cli/server/routes/webhooks.py`: Added `POST /webhooks/github` route with size checks, HMAC verification, replay deduplication, and machine-account filtering.
 - [x] `src/devops_cli/commands/serve.py`: Added `--service` option, worker/reload guards, config validation, and JSON logging setup.
 - [x] Cleaned up dead webhook files: deleted `src/devops_cli/github/graphql.py`, `tests/test_github_graphql.py`, removed `GitHubWebhookVerificationError`, `WebhookEvent`, `WebhookEventDispatcher` from exceptions, github module, and `docs/ERRORS.md`.

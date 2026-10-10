@@ -1,4 +1,4 @@
-"""Unit tests for ReviewPipelineOrchestrator 6-stage code review pipeline."""
+"""Unit tests for the ReviewPipelineOrchestrator code review stages."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def _create_mock_review_llm() -> MagicMock:
 
 
 def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test 6-stage review pipeline initialization and execution."""
+    """Test the staged review pipeline's initialization and execution."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     mock_llm = _create_mock_review_llm()
     orchestrator = ReviewPipelineOrchestrator(
@@ -76,15 +76,11 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert payloads[0].ai_scratchpad["stage"] == "reviewed"
     assert len(payloads[0].findings) == 1
 
-    # Stage 4: Cross-referencing verification
-    orchestrator.execute_finding_verification(payloads)
-    assert payloads[0].ai_scratchpad["stage"] == "verified"
-
-    # Stage 5: AI validation & re-ranking
+    # Stage 4: re-ranking
     orchestrator.execute_finding_reranking(payloads)
     assert payloads[0].ai_scratchpad["stage"] == "reranked"
 
-    # Stage 6: Consolidated report generation
+    # Stage 5: Consolidated report generation
     data_out, report_md = orchestrator.generate_consolidated_report(payloads)
     assert isinstance(data_out, dict)
     assert "Code Review Report" in report_md
@@ -172,52 +168,6 @@ def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> No
     assert payloads[0].metadata.primary_purpose == "Agents module init"
     assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
     assert payloads[0].metadata.quality_score == 0.9
-
-
-def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> None:
-    """_deterministic_pre_verification invalidates false syntax errors on valid python files."""
-    from devops_cli.ai.review.verification import _deterministic_pre_verification
-    from devops_cli.ai.review_schema import Finding
-
-    valid_py = tmp_path / "valid.py"
-    valid_py.write_text(
-        "def test():\n    try:\n        pass\n    except (OSError, ValueError):\n        pass\n",
-        encoding="utf-8",
-    )
-
-    finding = Finding(
-        severity="CRITICAL",
-        location="valid.py:1-5",
-        title="Syntax error in except clause",
-        description="Except clause uses invalid syntax",
-        fix="Use tuple",
-    )
-    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
-    assert result.verified is False
-    assert result.status == "INVALIDATED"
-    assert "Syntax validation passed" in str(result.invalidation_reason)
-
-
-def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Path) -> None:
-    """A line past the end of the file is dropped from the location; the finding is kept.
-
-    Pages carry no line numbers (#499), so the line is the model's own count (#513).
-    """
-    from devops_cli.ai.review.verification import _deterministic_pre_verification
-    from devops_cli.ai.review_schema import Finding
-
-    test_file = tmp_path / "main.py"
-    test_file.write_text("print('test')\n", encoding="utf-8")
-
-    finding = Finding(
-        severity="HIGH",
-        location="main.py:250",
-        title="Out of bounds statement",
-        description="Line 250 references undefined variable",
-        fix="Fix line 250",
-    )
-    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
-    assert (result.location, result.status, result.reportable) == ("main.py", "UNVERIFIED", True)
 
 
 def test_consolidated_report_findings_sorted_by_severity_and_confidence(
@@ -1147,7 +1097,7 @@ def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) ->
 
 
 def test_orchestrator_parallel_worker_pool_execution(tmp_path: Path) -> None:
-    """Verify ReviewPipelineOrchestrator executes reviews and verification via ReviewWorkerPool."""
+    """Verify ReviewPipelineOrchestrator executes reviews via ReviewWorkerPool."""
     mock_llm = _create_mock_review_llm()
     orchestrator = ReviewPipelineOrchestrator(
         session_id="pool-test-session",
@@ -1172,11 +1122,7 @@ def test_orchestrator_parallel_worker_pool_execution(tmp_path: Path) -> None:
     assert all(p.ai_scratchpad["stage"] == "reviewed" for p in payloads)
     assert all(len(p.findings) == 1 for p in payloads)
 
-    # 2. Test parallel verification via ReviewWorkerPool
-    orchestrator.execute_finding_verification(payloads)
-    assert all(p.ai_scratchpad["stage"] == "verified" for p in payloads)
-
-    # 3. Test sequential fallback (parallel=False)
+    # 2. Test sequential fallback (parallel=False)
     seq_orchestrator = ReviewPipelineOrchestrator(
         session_id="seq-test-session",
         llm_client=mock_llm,
@@ -1192,8 +1138,6 @@ def test_orchestrator_parallel_worker_pool_execution(tmp_path: Path) -> None:
         seq_payloads, diff_text_by_file=diff_map, personas=["devsecops"]
     )
     assert seq_payloads[0].ai_scratchpad["stage"] == "reviewed"
-    seq_orchestrator.execute_finding_verification(seq_payloads)
-    assert seq_payloads[0].ai_scratchpad["stage"] == "verified"
 
 
 def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
@@ -1267,32 +1211,6 @@ def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:
             payloads[1].ai_scratchpad["stage"],
             "src/two.py" in orchestrator.errored_files,
         ) == ("reviewed", "failed", True)
-
-    payloads[0].findings = [
-        SavedFinding(
-            id="f1",
-            file="src/one.py",
-            line=1,
-            severity="HIGH",
-            category="security",
-            description="test",
-            persona="devsecops",
-        )
-    ]
-
-    def _mock_safe_verify(
-        idx: int, total: int, payload: FileReviewPayload, *args: object, **kwargs: object
-    ) -> None:
-        if payload.file_path == "src/one.py":
-            raise RuntimeError("Fatal verification error")
-        payload.ai_scratchpad["stage"] = "verified"
-
-    with patch.object(orchestrator, "_safe_verify_file_payload", side_effect=_mock_safe_verify):
-        orchestrator.execute_finding_verification(payloads)
-        assert (
-            payloads[0].ai_scratchpad["stage"],
-            "src/one.py" in orchestrator.errored_files,
-        ) == ("failed", True)
 
 
 def test_review_page_chars_fit_the_context_window() -> None:

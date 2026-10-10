@@ -29,9 +29,14 @@ from devops_cli.output import (
 logger = logging.getLogger(__name__)
 
 
-def contexts() -> None:
+def contexts(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List kubeconfig contexts and mark the active one."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s contexts",
             action="list_kube_config_contexts",
@@ -69,13 +74,17 @@ def _sync_configured_k8s_context(name: str) -> None:
 
 def switch_context(
     name: Annotated[str, typer.Argument(help=HELP.k8s.context_target)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Switch active kubeconfig context and ensure cluster is running."""
     runtime._validate_kubeconfig_context_name(name, "context name")
     is_minikube = name.strip().lower() == "minikube"
     should_autostart = is_minikube and runtime.should_autostart_minikube(name)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s switch-context",
             target=name,
@@ -114,9 +123,14 @@ def switch_context(
     print_success(msg, prefix=False)
 
 
-def status() -> None:
+def status(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Show node and pod summary for the current context."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s status",
             action="query_k8s_status",

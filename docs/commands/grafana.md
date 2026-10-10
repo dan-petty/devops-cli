@@ -51,8 +51,14 @@ devops grafana dashboards COMMAND [ARGS]...
 **List all dashboards.**
 
 ```bash
-devops grafana dashboards list
+devops grafana dashboards list [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards export`
 
@@ -93,6 +99,7 @@ devops grafana dashboards import [OPTIONS] <file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--folder-id` | `integer` | `0` | Target Grafana folder ID for dashboard import. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards sync`
 
@@ -112,6 +119,7 @@ devops grafana dashboards sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards lint`
 
@@ -138,5 +146,6 @@ devops grafana dashboards lint [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

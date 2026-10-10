@@ -54,7 +54,7 @@ flowchart TD
 
 ## 2. Multi-Persona Code Review Pipeline
 
-The Agentic Code Review engine splits code analysis across specialized domain personas with structured reasoning context and deterministic verification.
+The Agentic Code Review engine splits code analysis across specialized domain personas with structured reasoning context; static scanners' findings are admitted against the code, and a person gives the verdicts.
 
 ```mermaid
 sequenceDiagram
@@ -63,7 +63,6 @@ sequenceDiagram
     participant Orch as ReviewPipelineOrchestrator
     participant Meta as Metadata Analyzer
     participant LLM as Multi-Persona LLMs
-    participant Verify as Finding Verification Stage
     participant Store as .data/reviews/ Storage
 
     Dev->>Orch: devops ai review branch <name>
@@ -73,8 +72,6 @@ sequenceDiagram
         Orch->>LLM: Multi-turn prompt + diff + ScratchpadBuffer
         LLM-->>Orch: Structured JSON findings (ReviewResult)
     end
-    Orch->>Verify: Cross-reference findings against live code AST
-    Verify-->>Orch: Verified / Unverified / Mitigated status
     Orch->>Orch: Dynamic Finding Reranking
     Orch->>Store: Save session JSON & Markdown summary
     Orch-->>Dev: Render Rich Review Table & Recommendations
@@ -184,8 +181,8 @@ All external binaries run through `run_subprocess` / `run_subprocess_async` (`de
 - Deterministic mock isolation protocols for fast offline unit testing, dry-run reporting, environment isolation, and OpenTelemetry spans.
 
 ### 4. Multi-Stage Workflow Architecture
-The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payload init, persona review, verification, re-ranking, reporting), and `ai/review/stages/` holds `adversarial_debate.py` and `reporting.py`:
-- Partitioned into single-responsibility stage modules under `stages/` (e.g. `adversarial_debate.py`, `reporting.py`).
+The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payload init, persona review, re-ranking, reporting), and `ai/review/stages/` holds `reporting.py`:
+- Partitioned into single-responsibility stage modules under `stages/` (e.g. `reporting.py`).
 - Standardized stage lifecycle hooks (`before_stage`, `after_stage`, `on_stage_error`).
 - Scratchpad buffer reasoning state handover between stages.
 

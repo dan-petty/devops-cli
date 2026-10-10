@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import logging
 import socket
-from pathlib import Path
 
 import pytest
 
-from devops_cli.ai.review.verification import _deterministic_pre_verification
-from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.k8s.cluster_context import apply as k8s_apply
 from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 from devops_cli.security.vault_broker import VaultSecretBroker, parse_vault_uri
@@ -110,59 +107,3 @@ def test_logging_bridge_handles_none_span_context(monkeypatch: pytest.MonkeyPatc
 
 
 # ── Hallucination Invalidation Tests for Session 20260905-035954 ─────────────
-
-
-def test_deterministic_pre_verification_invalidates_pep758_hallucinations() -> None:
-    """Deterministic pre-verification immediately invalidates false PEP 758 syntax claims."""
-    finding = Finding(
-        severity="CRITICAL",
-        location="src/devops_cli/ai/review/verification.py:145-147",
-        title="Syntax error in exception handling",
-        description="The code uses the deprecated syntax except ValueError, OSError: which is invalid in Python 3.",
-        fix="except (ValueError, OSError):",
-    )
-
-    verdict = _deterministic_pre_verification(
-        finding,
-        target_dir=Path.cwd(),
-        changed_files=["src/devops_cli/ai/review/verification.py"],
-    )
-    assert verdict is not None
-    assert verdict.status == "INVALIDATED"
-
-
-def test_deterministic_pre_verification_invalidates_masked_secret_syntax_claim() -> None:
-    """Deterministic pre-verification invalidates false syntax claims about masked secrets."""
-    finding = Finding(
-        severity="CRITICAL",
-        location="src/devops_cli/lang/en/errors.py:29",
-        title="Invalid identifier '<masked-secret>' causes syntax error",
-        description="The field name <masked-secret> in ConfigErrorMessages is not a valid Python identifier.",
-        fix="Rename field to valid identifier",
-    )
-
-    verdict = _deterministic_pre_verification(
-        finding,
-        target_dir=Path.cwd(),
-        changed_files=["src/devops_cli/lang/en/errors.py"],
-    )
-    assert verdict is not None
-    assert verdict.status == "INVALIDATED"
-
-
-def test_deterministic_pre_verification_invalidates_monologue_headline() -> None:
-    """Deterministic pre-verification invalidates findings with conversational scratchpad titles."""
-    finding = Finding(
-        severity="MEDIUM",
-        location="src/devops_cli/docs/generator.py",
-        title='_format_param_default_str: It uses try/except with "except ValueError, AttributeError:" which is Python 2 syntax.',
-        description="Chain of thought monologue leaked into finding fields.",
-    )
-
-    verdict = _deterministic_pre_verification(
-        finding,
-        target_dir=Path.cwd(),
-        changed_files=["src/devops_cli/docs/generator.py"],
-    )
-    assert verdict is not None
-    assert verdict.status == "INVALIDATED"

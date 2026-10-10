@@ -210,6 +210,16 @@ class ReleaseErrorMessages:
         "{path}:{line} '{heading}' is not a changelog category: use one of {categories}. "
         "Nothing was written."
     )
+    cut_changelog_missing: str = (
+        "The cut of v{version} would leave CHANGELOG.md with no entries under ## [{version}]: "
+        "release/v{version} holds no changelog.d/ fragment, or its CHANGELOG.md has no ## [ "
+        "heading to place one under. {missing} Add the entries as changelog.d/<issue>.md in a "
+        "pull request into release/v{version}, then run the cut again. Nothing was pushed."
+    )
+    cut_changelog_missing_items: str = "Completed items with no fragment: {items}."
+    cut_changelog_missing_plan: str = (
+        "devops roadmap close --plan lists the completed items with no fragment."
+    )
 
 
 @dataclass(frozen=True)

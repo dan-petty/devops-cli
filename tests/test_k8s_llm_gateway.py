@@ -512,7 +512,10 @@ class TestK8sLLMGatewayManifests:
                 "capabilities": {"drop": ["ALL"]},
             },
             ("/home/ollama", "/home/ollama/.ollama/models"),
-            {"/home/ollama/.ollama": "ollama-data", "/tmp": "tmp"},
+            {
+                "/home/ollama/.ollama": "ollama-data",
+                "/tmp": "tmp",  # nosec B108  # the pod's emptyDir mount path, under test
+            },
             {
                 "ollama-data": {
                     "hostPath": {"path": "/var/lib/ollama", "type": "DirectoryOrCreate"}

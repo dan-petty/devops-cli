@@ -35,7 +35,6 @@ from devops_cli.config.constants import (
     CONST_MCP_LAZY_DOMAINS,
     CONST_MCP_MAX_COMMAND_OUTPUT_CHARS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
-    CONST_VERIFIED_BY_AGENT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
@@ -212,7 +211,7 @@ def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "dev
 
 @mcp.tool()
 def review_findings(session_id: str = "", status: str = "") -> str:
-    """List a session's findings, filtered by status; each keeps the number verify_finding takes."""
+    """List a session's findings, filtered by status, each with the number `review verify` takes."""
     if session_id:
         _validate_mcp_arg("session_id", session_id)
     cmd = ["uv", "run", "devops", "review", "findings"]
@@ -222,32 +221,6 @@ def review_findings(session_id: str = "", status: str = "") -> str:
         st_clean = status.upper().strip().lstrip("-")
         if st_clean in {"VERIFIED", "UNVERIFIED", "INVALIDATED", "MITIGATED"}:
             cmd.extend(["--status", st_clean])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def verify_finding(session_id: str, index: int, status: str, reason: str = "") -> str:
-    """Record an agent's verdict on the finding `review_findings` numbers `index` (from 1)."""
-    _validate_mcp_arg("session_id", session_id)
-    _validate_mcp_int_bound("index", index, min_val=1)
-    _validate_mcp_arg("status", status)
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "review",
-        "verify",
-        session_id,
-        "--index",
-        str(index),
-        "--status",
-        status,
-    ]
-    if reason:
-        cmd.extend(["--reason", reason])
-    # An MCP client is untrusted, so this tool records its verdict as an agent's. Last, so an
-    # earlier argument cannot override it.
-    cmd.extend(["--adjudicator", CONST_VERIFIED_BY_AGENT])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -779,8 +752,8 @@ def roadmap_reprioritize(
     ref: str | None = None,
     mode: Literal["dry-run", "plan", "confirm"] = "plan",
 ) -> str:
-    """Hold the current release to its admission rule, cap and stall window, and start the next
-    release once it ships; prints each change with its reason.
+    """Hold the current release to its admission rule, size limit and stall window, and start
+    the next release once it ships; prints each change with its reason.
 
     `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
     GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a

@@ -10,8 +10,8 @@ class MainHelp:
     app: str = "DevOps CLI — manage repos, SSH keys, Kubernetes, and more."
     version: str = "Show version and exit."
     dry_run: str = (
-        "Show debug output of commands and AI requests without executing delegated "
-        "subcommands or external write actions."
+        "Preview execution plan without mutating external state. A delegated command "
+        "previews only if it declares --dry-run."
     )
 
 
@@ -117,7 +117,7 @@ class AICommandHelp:
     runs_baseline_set: str = "Set a run as the baseline for its subject."
     runs_baseline_list: str = "List all configured baselines."
     runs_baseline_show: str = "Show the baseline for a subject or run."
-    config_task: str = "Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call."
+    config_task: str = "Set these for one task (chat, metadata, analysis, compose, embedding) instead of every AI call."
     ollama_urls: str = "Ollama server base URLs (comma-separated)."
     max_parallel: str = "Maximum number of simultaneous requests allowed per Ollama server node."
     api_base_url: str = (
@@ -167,10 +167,10 @@ class AICommandHelp:
     include_tests: str = "Include test modules in symbol map."
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
-    eval_review: str = "Persona whose recorded findings to measure the layer against."
+    eval_review: str = "Persona whose recorded verdicts to count."
     include_deterministic: str = (
-        "Also count records a deterministic check labelled; scoring the layer against its own "
-        "labels is circular, so they are excluded by default."
+        "Also count records a deterministic check labelled; they are a machine's labels, not a "
+        "person's, so they are excluded by default."
     )
     dataset_path: str = (
         "Feedback dataset JSONL; a relative path resolves where review data is kept, like "
@@ -738,7 +738,8 @@ class ServeCommandHelp:
     log_level: str = "Logging level (debug, info, warning, error)."
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
     service: str = (
-        "Run continuous background service with GitHub webhook verification and per-repo queue."
+        "Run continuous background service with GitHub webhook verification and "
+        "per-repository release and model lanes."
     )
 
 
@@ -963,7 +964,10 @@ class ReleaseCommandHelp:
     notes: str = "Extract release notes from CHANGELOG.md for a version."
     target_version: str = "Target semantic version (e.g., 0.1.8)."
     sync_docs: str = "Regenerate CLI reference docs and sync README matrix."
-    ensure_changelog: str = "Ensure CHANGELOG.md contains release header with current date."
+    ensure_changelog: str = (
+        "Ensure CHANGELOG.md contains release header with current date. --create-pr always "
+        "collects changelog.d/ into it, whatever this flag says."
+    )
     auto_pr: str = "Create release branch, commit changes, and open a GitHub Release PR."
     prefix: str = "Conventional commit prefix (feat or fix)."
     breaking: str = "Flag release as containing breaking changes (!)."
@@ -1021,10 +1025,11 @@ class RoadmapCommandHelp:
     output: str = "File render writes."
     reprioritize: str = (
         "Hold the current release to its rules: after it starts only a critical fix joins it, "
-        "a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, "
-        "needs-split and stalled items are descoped, each with a reason comment. Once the "
-        "release ships, close it, branch the next one and fill or trim it to the cap. The first "
-        "run records the admitted set and moves nothing. Writes only with --confirm."
+        "a fix that takes it over its limit (release_cap plus release_slots) descopes one "
+        "unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, "
+        "each with a reason comment. Once the release ships, close it, branch the next one, "
+        "fill it to the cap and trim it to the limit. The first run records the admitted set "
+        "and moves nothing. Writes only with --confirm."
     )
     reprioritize_confirm: str = (
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."
@@ -1046,10 +1051,12 @@ class RoadmapCommandHelp:
         "the items of that Release its pull requests deliver, except one a person reopened, and "
         "naming the rest, which hold no cut. Once the release has no open item, one item closed "
         "as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in "
-        "the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role "
-        "bypass on release ruleset 23059172), and opens the release pull request into the "
-        "default branch. Lists completed items with no changelog fragment. Writes only with "
-        "--confirm."
+        "the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's "
+        "section for the version and deletes the fragments, pushes to release/vX.Y.Z "
+        "(requiring Write role bypass on release ruleset 23059172), and opens the release pull "
+        "request into the default branch. The cut fails before it pushes when the branch holds "
+        "neither a fragment nor that section. Lists completed items with no changelog fragment. "
+        "Writes only with --confirm."
     )
     close_confirm: str = (
         "Close the issues and make the cut. Without it, close prints its plan only."
@@ -1117,24 +1124,44 @@ class RoadmapCommandHelp:
         "intake and refine, and record each one's last success. Reprioritize is due on a ship, "
         "a cut or an un-cut the poll reads, on a change to an item in the current release, and "
         "once a day; intake decides at most 5 candidates a run and keeps a record of those it "
-        "left beside the schedule. Without --confirm, or with --dry-run, prints the due list "
-        "and runs nothing."
+        "left beside the schedule; refine is due every hour, on a first run, and after a "
+        "reprioritize run or an intake that placed a critical fix or a P0 item. Without "
+        "--confirm, or with --dry-run, prints the due list and runs nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
     run_dry_run: str = (
         "Make no request: print the due list of jobs and the reason each is due, and run nothing."
     )
     refine: str = (
-        "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. "
-        "Evaluates Next-release and Backlog New items using code, documentation, and external research. "
+        "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, "
+        "using code, documentation, and external research. Without --item, refine takes items "
+        "nearest place first: the current release's New items, then each planned release's, "
+        "nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned "
+        "release and among the backlog's P0 and P1 items it also takes Ready items it has no "
+        "record of, and sets one back to New when it finds it not ready. The backlog's other New "
+        "items follow while fewer than the configured release_cap items are Ready across the "
+        "next planned release and the backlog. Items unchanged since their last refine are "
+        "skipped. "
         "An item whose model call fails is skipped and reported; the others are still refined, "
         "and refine then exits 1."
     )
     refine_item: str = "Specific issue number to refine instead of selecting by priority."
-    refine_limit: str = "Maximum number of New items to refine in this run (default 3)."
+    refine_limit: str = "Maximum number of items to refine in this run (default 3)."
     refine_source: str = "Path to the repository checkout (defaults to current directory)."
     refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
     refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
+    return_item: str = (
+        "Return an item to New on the roadmap board with an evidence comment, handing it back to "
+        "refinement when it cannot be built as specified or needs a refactor beyond its scope."
+    )
+    return_item_arg: str = "The issue or item number to return to New."
+    return_comment: str = "Evidence comment explaining why the item cannot be built as specified."
+    return_comment_file: str = "Path to file containing the evidence comment."
+    return_confirm: str = "Make the writes to GitHub (post comment and set Status to New)."
+    return_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
 
 
 @dataclass(frozen=True)
@@ -1197,17 +1224,6 @@ class ReviewCommandHelp:
         "Specific defect template(s) to check (default: all registered templates)."
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
-    hallucinations: str = (
-        "Inspect and prune the false-positive catalog verification matches: the builtin entries, "
-        "and the claims a person's INVALIDATED verdict recorded."
-    )
-    hallucinations_list: str = "List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."
-    hallucinations_remove: str = (
-        "Remove learned catalog entries; builtin entries cannot be removed."
-    )
-    hallucination_ids: str = "Ids of learned entries to remove."
-    hallucinations_learned_only: str = "Show learned entries only."
-    hallucinations_all_learned: str = "Remove every learned entry."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
@@ -1219,13 +1235,11 @@ class ReviewCommandHelp:
     status_filter: str = "Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED."
     unverified: str = "Show unverified findings only."
     invalidated: str = (
-        "Show INVALIDATED findings only. findings.json holds only those a later verdict "
-        "invalidated; add --candidates for the ones verification invalidated."
+        "Show INVALIDATED findings only; add --candidates to look among every finding the "
+        "review raised."
     )
     verified: str = "Show verified findings only."
-    candidates: str = (
-        "List candidates.json: every finding the review raised, with the ones verification dropped."
-    )
+    candidates: str = "List candidates.json: every finding the review raised, reported or not."
     finding_index: str = (
         "Number `review findings` shows for the finding: its place in findings.json, whatever "
         "filter the list applied."
@@ -1236,18 +1250,9 @@ class ReviewCommandHelp:
         "candidate into findings.json."
     )
     status_target: str = (
-        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It "
-        "withdraws what a person's earlier verdicts recorded that it no longer stands behind: "
-        "the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one."
-    )
-    adjudicator: str = (
-        "Who gives the verdict: human, or agent for an AI agent, which cannot change a person's "
-        "verdict. Only a person's verdict ranks review history and teaches the learned catalog "
-        "and mitigations ledger."
+        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED."
     )
     reason: str = "Explanation or justification for the status change."
-    perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
-    regression_test: str = "Path to regression test guarding against finding recurrence."
     reviews_dir: str = "Directory containing review sessions."
     output_feedback: str = (
         "JSONL dataset to append to (default: the configured data.feedback_dataset_path)."
@@ -1260,8 +1265,6 @@ class ReviewCommandHelp:
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_persona_review: str = "Disable multi-persona LLM inspection."
     persona_review_only: str = "Run persona review only and skip subsequent stages."
-    no_verification: str = "Disable finding verification and false-positive filtering."
-    verification_only: str = "Run verification only and skip subsequent stages."
     no_reranking: str = "Disable finding re-ranking and deduplication."
     reranking_only: str = "Run re-ranking only and skip subsequent stages."
     no_reporting: str = "Disable consolidated report generation."
@@ -1279,7 +1282,7 @@ class ReviewCommandHelp:
         "MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, "
         "dependencies and network references one line each that points at review.md."
     )
-    concurrency: str = "Max concurrent workers for parallel review and verification."
+    concurrency: str = "Max concurrent workers for parallel review."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
 

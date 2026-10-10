@@ -1,4 +1,4 @@
-"""AI Code Review subpackage for multi-agent pipeline, verification, patching, and reporting."""
+"""AI Code Review subpackage for the multi-agent pipeline, verdicts, and reporting."""
 
 from __future__ import annotations
 
@@ -15,37 +15,15 @@ from devops_cli.ai.review.category_metrics import (
     resolve_finding_category,
 )
 from devops_cli.ai.review.chunker import diff_pages, diff_stream_chunks, find_repo_files
-from devops_cli.ai.review.common_hallucinations import (
-    CommonHallucinationEntry,
-    HallucinationCategory,
-    HallucinationMatch,
-    find_judged_entry,
-    find_similar_hallucinations,
-    is_common_hallucination,
-    load_common_hallucinations,
-    record_judged_claim,
-    register_common_hallucination,
-    save_common_hallucinations,
-)
-from devops_cli.ai.review.construct_validator import (
-    AstConstruct,
-    collect_ast_constructs,
-    extract_finding_construct_candidates,
-    validate_construct_location,
-)
 from devops_cli.ai.review.contract_grounding import (
     format_contract_grounding_for_prompt,
     resolve_grounded_contracts,
 )
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
-from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, run_pipeline_self_test
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.pool import ReviewWorkerPool, TokenBucketRateLimiter
-from devops_cli.ai.review.review_environment import (
-    execute_criterion_command,
-    execute_finding_criteria,
-    validate_criteria_command,
-)
+from devops_cli.ai.review.review_environment import validate_criteria_command
 from devops_cli.ai.review.runner import ReviewClients
 from devops_cli.ai.review.verdicts import (
     VerifiedBy,
@@ -69,15 +47,11 @@ from devops_cli.ai.review_schema import (
 )
 
 __all__ = [
-    "AstConstruct",
     "CategoryMetric",
-    "CommonHallucinationEntry",
     "CriterionExecutionResult",
     "FeedbackRecord",
     "FileReviewPayload",
     "Finding",
-    "HallucinationCategory",
-    "HallucinationMatch",
     "ReviewClients",
     "ReviewPipelineOrchestrator",
     "ReviewResult",
@@ -90,38 +64,25 @@ __all__ = [
     "VerifiedBy",
     "apply_verdict",
     "assert_verdict_invariants",
-    "collect_ast_constructs",
     "collect_historical_category_metrics",
     "compute_category_metrics",
     "compute_verdict_distributions",
     "consolidate_duplicate_findings",
     "diff_pages",
     "diff_stream_chunks",
-    "execute_criterion_command",
-    "execute_finding_criteria",
     "export_invalidated_feedback",
-    "extract_finding_construct_candidates",
     "extract_imports_from_diff",
     "extract_imports_from_source",
     "extract_json_block",
-    "find_judged_entry",
     "find_repo_files",
-    "find_similar_hallucinations",
     "format_category_baseline_markdown",
     "format_contract_grounding_for_prompt",
     "group_imports_by_package",
-    "is_common_hallucination",
     "is_field_discriminating",
-    "load_common_hallucinations",
     "normalize_unicode_text",
     "parse_review_response",
-    "record_judged_claim",
-    "register_common_hallucination",
     "resolve_finding_category",
     "resolve_grounded_contracts",
     "resolve_stage_flags",
-    "run_pipeline_self_test",
-    "save_common_hallucinations",
-    "validate_construct_location",
     "validate_criteria_command",
 ]

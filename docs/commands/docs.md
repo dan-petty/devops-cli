@@ -20,6 +20,7 @@ devops docs generate [OPTIONS]
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
 | `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -54,6 +55,7 @@ devops docs sync-readme [OPTIONS]
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -76,6 +78,6 @@ devops docs compact [OPTIONS]
 | `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
 | `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
 | `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
-| `--dry-run` | `boolean` | - | Show debug output of commands and AI requests without executing delegated subcommands or external write actions. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -31,11 +31,9 @@ from devops_cli.ai.analyze.cache import (
 )
 from devops_cli.ai.model_bundler import bundle_ollama_models
 from devops_cli.ai.prompt_eval import evaluate_persona_prompts
-from devops_cli.ai.review.common_hallucinations import get_common_hallucinations_file_path
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.workspace import app as workspace_app
-from devops_cli.config.constants import CONST_HALLUCINATIONS_FILE_NAME
 from devops_cli.core.cleanup import cleanup_data_tier
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions import SecurityError
@@ -525,7 +523,18 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_the_shared_
     )
 
 
-@pytest.mark.parametrize("configured", ["/", "/opt", "/tmp", "/run", "/srv", "/mnt", "/home"])
+@pytest.mark.parametrize(
+    "configured",
+    [
+        "/",
+        "/opt",
+        "/tmp",  # nosec B108  # a data directory set to /tmp is a value cleanup must refuse
+        "/run",
+        "/srv",
+        "/mnt",
+        "/home",
+    ],
+)
 def test_workspace_clean_refuses_a_top_level_directory(
     repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, configured: str
 ) -> None:
@@ -616,49 +625,18 @@ def test_workspace_clean_names_the_directory_it_prunes(
     ) == (0, True, False, 1, True)
 
 
-def test_a_relative_data_dir_override_keeps_one_hallucination_catalog(
-    repo_with_worktree: tuple[Path, Path],
-    monkeypatch: pytest.MonkeyPatch,
-    isolate_user_data_root: Path,
-) -> None:
-    """Verify a relative `DEVOPS_CLI_DATA_DIR` places the catalog under the user-level data root
-    from either worktree, as the review, sample and run directories are (#972)."""
-    main, linked = repo_with_worktree
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "shared-data")
-
-    catalogs = []
-    for start in (main, linked):
-        monkeypatch.chdir(start)
-        catalogs.append(get_common_hallucinations_file_path())
-
-    assert (
-        catalogs
-        == [(isolate_user_data_root / "shared-data" / CONST_HALLUCINATIONS_FILE_NAME).resolve()] * 2
-    )
-
-
 @pytest.mark.parametrize("layout", ["repo_with_worktree", "nested_worktree"])
-@pytest.mark.parametrize(
-    ("start", "caught"), [("worktree", 1), ("worktree package", 1), ("main", 0)]
-)
-def test_prompt_evaluation_reads_shared_data_and_the_current_worktrees_sources(
+@pytest.mark.parametrize("start", ["worktree", "worktree package", "main"])
+def test_prompt_evaluation_reads_the_shared_dataset_from_any_worktree(
     layout: str,
     start: str,
-    caught: int,
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     isolate_user_data_root: Path,
 ) -> None:
     """Verify the recorded verdicts come from the dataset under the user-level data root, where
-    `devops review export-feedback` appends them (#972), while the sources they cite are read
-    from the worktree the command runs in.
-
-    The linked worktree fixed the file the finding claims does not parse, so run there the
-    finding is invalidated; the main checkout still holds the broken version, so run there the
-    finding stands. Run from a package with its own `pyproject.toml`, the cited path is still
-    read from the worktree root: the working directory holds no `parser.py`, and a verifier
-    looking there would stop at the package rather than climb to it.
-    """
+    `devops review export-feedback` appends them (#972), whichever worktree or package the
+    command runs in."""
     main, worktree = request.getfixturevalue(layout)
     _write_dataset(
         isolate_user_data_root / ".data" / "feedback_dataset.jsonl",
@@ -673,8 +651,6 @@ def test_prompt_evaluation_reads_shared_data_and_the_current_worktrees_sources(
             }
         ],
     )
-    (main / "parser.py").write_text("def parse(:\n", encoding="utf-8")
-    (worktree / "parser.py").write_text("def parse() -> int:\n    return 1\n", encoding="utf-8")
     package = worktree / "package"
     package.mkdir()
     (package / "pyproject.toml").write_text("[project]\nname = 'package'\n", encoding="utf-8")
@@ -683,7 +659,7 @@ def test_prompt_evaluation_reads_shared_data_and_the_current_worktrees_sources(
 
     result = evaluate_persona_prompts("devsecops")
 
-    assert (result.total_cases, result.caught_invalidations) == (1, caught)
+    assert (result.total_cases, result.labelled_invalidated) == (1, 1)
 
 
 @pytest.mark.parametrize("start", ["main", "linked"])

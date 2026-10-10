@@ -364,6 +364,10 @@ def vault_login(
             ),
         ),
     ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount.
 
@@ -379,7 +383,7 @@ def vault_login(
         raise typer.Exit(1)
 
     broker = VaultSecretBroker()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops vault login --method {method}",
             action="vault_authenticate",
@@ -455,7 +459,12 @@ def _store_login(token: str, broker: VaultSecretBroker) -> None:
 
 
 @app.command("logout")
-def vault_logout() -> None:
+def vault_logout(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it.
 
     The revoke goes to the address and namespace stored with the token, whatever VAULT_ADDR says
@@ -467,7 +476,7 @@ def vault_logout() -> None:
         print_success("No Vault token is stored; nothing to log out.")
         return
     login = _parse_stored_login(raw_record)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops vault logout",
             action="vault_logout",
@@ -554,13 +563,14 @@ def vault_leases(
     revoke: Annotated[
         str | None, typer.Option("--revoke", help="Revoke a single lease by id")
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Inspect, renew, or revoke tracked Vault dynamic secret leases.
 
     Every mode needs a usable token and fails before any request without one.
     """
     broker = VaultSecretBroker()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops vault leases",
             action="vault_lease_lifecycle",

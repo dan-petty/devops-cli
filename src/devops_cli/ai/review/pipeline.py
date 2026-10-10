@@ -9,7 +9,6 @@ Example:
     >>> metadata = orchestrator.run_pre_analysis_refresh(Path("."))
     >>> payloads = orchestrator.init_per_file_payloads(["src/main.py"], metadata)
     >>> orchestrator.execute_multi_persona_review(payloads, {"src/main.py": "def main(): pass"})
-    >>> orchestrator.execute_finding_verification(payloads)
     >>> orchestrator.execute_finding_reranking(payloads)
     >>> data_out, report_md = orchestrator.generate_consolidated_report(payloads)
 """
@@ -43,15 +42,14 @@ from devops_cli.ai.analyze.symbols import (
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
-from devops_cli.ai.review.calibration import calibrate_findings
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
 from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
-    number_source_lines,
     review_page_chars,
     split_review_pages,
     strip_line_numbers,
 )
+from devops_cli.ai.review.cited_code import record_cited_code
 from devops_cli.ai.review.classification import (
     FileContextType,
     build_context_review_prompt,
@@ -59,7 +57,11 @@ from devops_cli.ai.review.classification import (
     get_default_personas_for_context,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
-from devops_cli.ai.review.path_classes import is_fixture_path, load_path_classes
+from devops_cli.ai.review.path_classes import (
+    is_fixture_path,
+    load_path_classes,
+    load_review_config,
+)
 from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
 from devops_cli.ai.review.sanitization import (
@@ -68,18 +70,15 @@ from devops_cli.ai.review.sanitization import (
     escape_markdown_title,
 )
 from devops_cli.ai.review.verdicts import (
-    VERDICT_FIELDS,
     apply_verdict,
     assert_verdict_invariants,
 )
-from devops_cli.ai.review.verification import _validate_segment_findings, record_cited_code
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
     Finding,
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
-    anchor_location,
     compute_verdict_distributions,
     consolidate_duplicate_findings,
     format_clean_text_field,
@@ -100,6 +99,7 @@ from devops_cli.config.commands import (
     BIN_TRIVY,
 )
 from devops_cli.config.constants import (
+    CONST_DEFAULT_REVIEW_ADVISORY_RULES,
     CONST_DEPENDENCY_SEVERITY_CLEAN,
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_MAX_FILE_SIZE_BYTES,
@@ -114,20 +114,21 @@ from devops_cli.config.constants import (
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_PAGES_DIRNAME,
     CONST_REVIEW_SARIF_FILENAME,
+    CONST_REVIEW_SECRET_SCANNER_RULES,
     CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
     CONST_SEVERITY_CRITICAL,
     CONST_SEVERITY_INFO,
     CONST_SEVERITY_ORDER,
-    CONST_VERIFICATION_UNAVAILABLE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_LOCATION_CONTEXT_LINES,
+    DEFAULT_MAX_COMPLEXITY,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_RETRY_ATTEMPTS,
 )
 from devops_cli.core.binaries import check_binary
+from devops_cli.core.repo import find_worktree_root
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -147,6 +148,8 @@ from devops_cli.output import (
     print_success,
     print_table,
 )
+from devops_cli.review.severity import load_severity_caps
+from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -353,31 +356,6 @@ def _process_pipeline_step_findings(
         "outcome": outcome,
         "page": p_idx,
     }
-
-
-def _anchor_page_findings(
-    file_findings: list[SavedFinding],
-    first_new: int,
-    fpath: str,
-    page_content: str,
-    payload: FileReviewPayload,
-) -> None:
-    """Tie the page's findings located by a bare file or symbol name to the file under review.
-
-    The payload's scratchpad lists the locations tied (`anchored_locations`, as the model wrote
-    them) and those naming neither this file nor a symbol on the page, which may name another
-    file and are kept (`unanchored_locations`).
-    """
-    anchored: list[str] = payload.ai_scratchpad.setdefault("anchored_locations", [])
-    unanchored: list[str] = payload.ai_scratchpad.setdefault("unanchored_locations", [])
-    for index in range(first_new, len(file_findings)):
-        finding = file_findings[index]
-        location = anchor_location(finding.location, fpath, page_content)
-        if location != finding.location:
-            anchored.append(finding.location)
-            file_findings[index] = finding.model_copy(update={"location": location})
-        elif (head := location.split(":", 1)[0]) != fpath and "/" not in head:
-            unanchored.append(location)
 
 
 def _finalize_reviewed_file_scratchpad(
@@ -599,6 +577,14 @@ def _collect_scanner_commit_files(
     return commit_files
 
 
+def _is_secret_scanner_result(tool: str, rule_id: str) -> bool:
+    """Whether a secret scanner reported the result: any Gitleaks rule, or Trivy's secret one."""
+    if tool not in CONST_REVIEW_SECRET_SCANNER_RULES:
+        return False
+    rules = CONST_REVIEW_SECRET_SCANNER_RULES[tool]
+    return rules is None or rule_id in rules
+
+
 def _admit_single_candidate(
     sf: SavedFinding,
     idx: int,
@@ -608,6 +594,7 @@ def _admit_single_candidate(
     commit_files: set[str],
     file_content_getter: Callable[[str], str | None],
     path_classes: Mapping[str, Sequence[str]] | None = None,
+    severity_caps: Mapping[str, str] | None = None,
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
@@ -616,7 +603,8 @@ def _admit_single_candidate(
     """Admit a single scanner finding candidate into a frozen finding (#871).
 
     A suppressed candidate returns its frozen finding and no SavedFinding, so it is listed as
-    suppressed but never reported (#1295).
+    suppressed but never reported (#1295). Its path class caps its severity, unless a secret
+    scanner reported it: a secret in a document or a test is still a secret (#1301).
     """
     from devops_cli.review.admission import admit
     from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
@@ -651,6 +639,7 @@ def _admit_single_candidate(
         commit_files=commit_files,
         file_content_getter=file_content_getter,
         path_classes=path_classes,
+        severity_caps=None if _is_secret_scanner_result(tool, r_id) else severity_caps,
         suppressions=suppressions,
         added_diff_lines=added_diff_lines,
         base_fingerprints=base_fingerprints,
@@ -674,6 +663,7 @@ def _admit_scanner_findings(
     secret_scan_files: Sequence[str],
     resolve_file_path: Callable[[str], Path],
     path_classes: Mapping[str, Sequence[str]] | None = None,
+    severity_caps: Mapping[str, str] | None = None,
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
@@ -707,6 +697,7 @@ def _admit_scanner_findings(
             commit_files=commit_files,
             file_content_getter=_file_content,
             path_classes=path_classes,
+            severity_caps=severity_caps,
             suppressions=suppressions,
             added_diff_lines=added_diff_lines,
             base_fingerprints=base_fingerprints,
@@ -863,7 +854,7 @@ def _build_malicious_network_finding(
         references=ref_urls,
         verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
         invalidation_criteria=["Internal test fixture or isolated sandbox"],
-        # A host with published CVEs is not proof of a defect in this file; verification judges it.
+        # A host with published CVEs is not proof of a defect in this file: it stays unverified.
         reportable=True,
         confidence_score=None,
         persona="devsecops",
@@ -953,27 +944,6 @@ def _build_page_review_prompt(
         rag_context_str=rag_context_str,
         contract_context_str=contract_context_str,
     )
-
-
-def _collect_linked_snippets(
-    linked_files: Sequence[FileAnalysisMeta],
-    resolve_fn: Callable[[str], Path],
-) -> list[str]:
-    """Extract code context snippets from linked repository files with context packing and skeletonization."""
-    from devops_cli.ai.context_packer import ContextPacker, PackingConfig
-
-    packer = ContextPacker(default_config=PackingConfig(max_tokens=400, skeletonize=True))
-    snippets: list[str] = []
-    for lmeta in linked_files:
-        lpath = resolve_fn(lmeta.path)
-        if lpath.exists() and lpath.is_file():
-            try:
-                raw_code = lpath.read_text(encoding="utf-8", errors="replace")
-                packed = packer.pack_code(raw_code)
-                snippets.append(f"Linked File ({lmeta.path}):\n{packed.content}")
-            except Exception as exc:
-                logger.debug("Failed reading/packing linked file %s: %s", lmeta.path, exc)
-    return snippets
 
 
 def _is_manifest_candidate(p: Path) -> bool:
@@ -1367,6 +1337,8 @@ def _resolve_single_tool_state(state: str, reason: str | None) -> str:
         return reason
     if reason == "canary failed":
         return "canary failed"
+    if state == "coverage_gap" or (reason and "uv.lock hash does not match" in str(reason)):
+        return f"coverage gap ({reason})" if reason else "coverage gap"
     if state == ANALYZER_FAILED:
         return f"failed({reason})" if reason else "failed"
     if state == ANALYZER_NOT_INSTALLED:
@@ -1772,18 +1744,6 @@ def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
     return msg
 
 
-def _note_verification_unavailable(findings: list[SavedFinding], exc: Exception) -> None:
-    """Note on each unverified finding of a file whose verification raised why it has no verdict.
-
-    The file's findings are still reported. One the copy-back already gave a verdict or a note,
-    when the error came after it, keeps them.
-    """
-    note = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
-    for f in findings:
-        if f.status == "UNVERIFIED" and f.verification_note is None:
-            f.verification_note = note
-
-
 def _resolve_rag_and_contract_context(
     fpath: str,
     ext: str,
@@ -1887,7 +1847,6 @@ def _execute_single_page_review(
         contract_context_str,
         context_type=resolved_context,
     )
-    first_new = len(file_findings)
     steps, outcomes = _execute_page_review_steps(
         pipeline,
         prompt,
@@ -1900,7 +1859,6 @@ def _execute_single_page_review(
         file_findings,
     )
     file_replies.extend(outcomes)
-    _anchor_page_findings(file_findings, first_new, fpath, page_content, payload)
     return steps
 
 
@@ -1997,82 +1955,6 @@ def _scanned_routed_files(
 ) -> list[str]:
     """The files kept off persona pages in which the secret scan found something."""
     return [f for f in orchestrator.secret_scan_files if findings_by_file.get(f)]
-
-
-def _session_dependencies(file_payloads: Sequence[FileReviewPayload]) -> list[DependencySpec]:
-    """Every dependency the session scanned, each once, whichever file declared it."""
-    unique = {
-        (dep.name, dep.version_range, dep.ecosystem): dep
-        for payload in file_payloads
-        for dep in payload.external_dependencies
-    }
-    return list(unique.values())
-
-
-# A static analyzer's finding titled with the advisory it looked up: Trivy's `[CVE-2020-11111] ...`.
-_SCANNER_ADVISORY_TITLE = re.compile(
-    r"^\[((?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}))\]", re.IGNORECASE
-)
-
-
-def _scanner_advisories(findings: Iterable[Finding]) -> list[DependencySpec]:
-    """The advisories the static analyzers looked up, each as a record of its package (#948).
-
-    Trivy matches a lockfile's pins against its database, so an advisory it names is one this
-    session's scan found, as an OSV record is. Verification takes these records with the
-    session's dependencies: the placeholder check invalidated Trivy's own finding of
-    CVE-2020-11111, and a package Trivy found vulnerable is not one the scan found clean.
-    """
-    records: list[DependencySpec] = []
-    for finding in findings:
-        if (match := _SCANNER_ADVISORY_TITLE.match(finding.title)) is None:
-            continue
-        target, _, package = finding.location.partition(":")
-        records.append(
-            DependencySpec(
-                name=package,
-                source_file=target,
-                severity=finding.severity,
-                queried=True,
-                vulnerabilities=[
-                    VulnerabilityRecord(
-                        id=match[1], package=package, severity=finding.severity, source="Trivy"
-                    )
-                ],
-            )
-        )
-    return records
-
-
-def _cited_line_number(location: str, lines: Sequence[str]) -> int | None:
-    """The line a location cites: its number or, for a location naming a package as Trivy's
-    `uv.lock:requests` does, the line declaring that package, else the first naming it."""
-    cited = location.partition(":")[2].strip()
-    if (number := re.match(r"\d+", cited)) is not None:
-        return int(number[0])
-    if not cited:
-        return None
-    declared = f'name = "{cited}"'
-    return next((n for n, line in enumerate(lines, 1) if line.strip() == declared), None) or next(
-        (n for n, line in enumerate(lines, 1) if cited in line), None
-    )
-
-
-def _cited_lines(text: str, findings: Sequence[Finding]) -> str:
-    """The numbered lines around what each finding cites, for the verifier of a file kept off
-    persona pages (#948).
-
-    Such a file is a lockfile or a planning document, kept off the pages for its size or its
-    noise, and its findings are the scanners'. A Trivy location such as `uv.lock:requests` has no
-    line, so the verifier was sent the whole file: this repository's uv.lock is 558 kB.
-    """
-    lines = text.splitlines()
-    wanted: set[int] = set()
-    for finding in findings:
-        if (center := _cited_line_number(finding.location, lines)) is not None:
-            low = max(1, center - DEFAULT_LOCATION_CONTEXT_LINES)
-            wanted.update(range(low, min(len(lines), center + DEFAULT_LOCATION_CONTEXT_LINES) + 1))
-    return "".join(f"{n}\t{lines[n - 1]}\n" for n in sorted(wanted))
 
 
 def _resolve_review_added_diff_lines(
@@ -2243,6 +2125,7 @@ def _collect_base_revision_fingerprints(
     file_paths: Sequence[str],
     secret_scan_files: Sequence[str],
     path_classes: Mapping[str, Sequence[str]] | None = None,
+    severity_caps: Mapping[str, str] | None = None,
 ) -> set[str]:
     """Scan base revision files to collect pre-existing finding fingerprints (#871)."""
     if base_revision is None or not getattr(base_revision, "read", None):
@@ -2272,6 +2155,7 @@ def _collect_base_revision_fingerprints(
             secret_scan_files=[],
             resolve_file_path=lambda p: tmp_root / p,
             path_classes=path_classes,
+            severity_caps=severity_caps,
         )
         return {bf.fingerprint_v2 for bf in base_admitted if getattr(bf, "fingerprint_v2", None)}
 
@@ -2319,8 +2203,73 @@ def _audit_single_dep(
     return vulns
 
 
+def _parse_review_toml_advisory_and_complexity(
+    parsed_cfg: dict[str, Any],
+) -> tuple[list[str], int, int | None]:
+    """Extract advisory rules, complexity cap and max increase from review.toml dict (#873)."""
+    rules = list(CONST_DEFAULT_REVIEW_ADVISORY_RULES)
+    cap = DEFAULT_MAX_COMPLEXITY
+    max_inc = None
+
+    if "advisory" in parsed_cfg and isinstance(parsed_cfg["advisory"], dict):
+        cfg_rules = parsed_cfg["advisory"].get("rules")
+        if isinstance(cfg_rules, list):
+            rules = [str(r).strip() for r in cfg_rules if str(r).strip()]
+    elif "advisory_rules" in parsed_cfg and isinstance(parsed_cfg["advisory_rules"], list):
+        rules = [str(r).strip() for r in parsed_cfg["advisory_rules"] if str(r).strip()]
+
+    if "complexity" in parsed_cfg and isinstance(parsed_cfg["complexity"], dict):
+        c_cap = parsed_cfg["complexity"].get("max_complexity", parsed_cfg["complexity"].get("cap"))
+        if isinstance(c_cap, int):
+            cap = c_cap
+        c_inc = parsed_cfg["complexity"].get("max_increase")
+        if isinstance(c_inc, int):
+            max_inc = c_inc
+
+    return rules, cap, max_inc
+
+
+def _evaluate_session_complexity_deltas(
+    python_paths: Sequence[Path],
+    target_dir: Path,
+    base_revision: Any,
+    cap: int,
+    max_increase: int | None,
+) -> tuple[list[dict[str, Any]], list[Finding]]:
+    """Compute complexity deltas and findings across reviewed python files (#873)."""
+    if not python_paths:
+        return [], []
+    from devops_cli.security.complexity import compute_complexity_deltas
+
+    base_files: dict[str, str] = {}
+    head_files: dict[str, str] = {}
+    wt = reviewed_tree(target_dir)
+    for py_p in python_paths:
+        try:
+            rel_p = py_p.relative_to(wt).as_posix()
+        except ValueError, RuntimeError:
+            rel_p = py_p.name
+        try:
+            head_files[rel_p] = py_p.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.debug("Failed reading head file %s: %s", rel_p, exc)
+        if base_revision is not None and getattr(base_revision, "read", None):
+            try:
+                base_content = base_revision.read(rel_p)
+                if base_content is not None:
+                    base_files[rel_p] = base_content
+            except (OSError, KeyError, ValueError, RuntimeError) as exc:
+                logger.debug("Failed reading base file %s: %s", rel_p, exc)
+    return compute_complexity_deltas(
+        base_files,
+        head_files,
+        cap=cap,
+        max_increase=max_increase,
+    )
+
+
 class ReviewPipelineOrchestrator:
-    """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
+    """Orchestrates staged multi-agent code reviews with per-file payloads and AI scratchpads."""
 
     def __init__(
         self,
@@ -2332,7 +2281,6 @@ class ReviewPipelineOrchestrator:
         concurrency: int | None = None,
         parallel: bool = True,
         ground_contracts: bool = True,
-        verification_client: LLMClient | None = None,
         subject: dict[str, str] | None = None,
         conventions_revision: str | None = None,
         full_output: bool = False,
@@ -2378,29 +2326,26 @@ class ReviewPipelineOrchestrator:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
-        # Checks the findings llm_client produced; the same client unless one is given.
-        self.verification_client = verification_client or self.llm_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
         # The static analyzers' findings by severity, for the report's analyzer line.
         self.static_severities: Counter[str] = Counter()
-        # The advisories the static analyzers looked up, which verification counts as scanned.
-        self.scanner_advisories: list[DependencySpec] = []
         self.admitted_scanner_findings: list[Any] = []
         self.base_fingerprints: set[str] = set()
-        self.suppressions: list[Any] = []
-        try:
-            import tomllib
-
-            from devops_cli.ai.review.path_classes import _read_config_content
-            from devops_cli.review.suppression import load_review_suppressions
-
-            cfg_text = _read_config_content(base_revision, repo_root)
-            if cfg_text:
-                self.suppressions = load_review_suppressions(tomllib.loads(cfg_text))
-        except Exception:
-            self.suppressions = []
+        # The review.toml the path classes come from: its suppressions, the most severe a
+        # scanner finding in each path class is admitted as (#871, #1301), and the advisory
+        # rules and complexity limits for the ruff and mypy evidence (#873).
+        review_config = load_review_config(base_revision, repo_root)
+        self.suppressions: list[Any] = load_review_suppressions(review_config)
+        self.severity_caps: dict[str, str] = load_severity_caps(review_config)
+        self.complexity_deltas: list[dict[str, Any]] = []
+        self.advisory_rules: list[str]
+        self.complexity_cap: int
+        self.complexity_max_increase: int | None
+        self.advisory_rules, self.complexity_cap, self.complexity_max_increase = (
+            _parse_review_toml_advisory_and_complexity(review_config)
+        )
         self._conventions_by_dir: dict[Path, str] = {}
         self.personas: list[str] = []
 
@@ -2408,7 +2353,7 @@ class ReviewPipelineOrchestrator:
         """Resolve fpath to an existing file within target_dir or its repository, never outside.
 
         A path naming a file outside both, absolute or through `..`, falls back to a sanitized
-        path inside the target, which scanners and verification then find missing.
+        path inside the target, which scanners then find missing.
         """
         from devops_cli.core.repo import find_repo_root
 
@@ -2613,6 +2558,7 @@ class ReviewPipelineOrchestrator:
                         file_paths=file_paths,
                         secret_scan_files=self.secret_scan_files,
                         path_classes=self.path_classes,
+                        severity_caps=self.severity_caps,
                     )
 
                 eff_added = (
@@ -2629,6 +2575,7 @@ class ReviewPipelineOrchestrator:
                     secret_scan_files=self.secret_scan_files,
                     resolve_file_path=self._resolve_file_path,
                     path_classes=self.path_classes,
+                    severity_caps=self.severity_caps,
                     suppressions=getattr(self, "suppressions", None),
                     added_diff_lines=eff_added,
                     base_fingerprints=getattr(self, "base_fingerprints", None),
@@ -2641,7 +2588,6 @@ class ReviewPipelineOrchestrator:
                     observed_outcomes=observed_outcomes,
                 )
                 self.static_severities = Counter(f.severity for f in all_static_findings)
-                self.scanner_advisories = _scanner_advisories(all_static_findings)
 
                 tools = [name for name, _, _ in _STATIC_ANALYZERS]
                 all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
@@ -2678,6 +2624,83 @@ class ReviewPipelineOrchestrator:
             logger.debug("Static security scanning failed or skipped: %s", exc)
 
         return static_findings_by_file
+
+    def _run_review_evidence(
+        self,
+        file_paths: list[str],
+        added_diff_lines: set[tuple[str, int]] | None = None,
+    ) -> dict[str, list[SavedFinding]]:
+        """Run Ruff, mypy, and C901 complexity evidence with project settings (#873)."""
+        evidence_findings_by_file: dict[str, list[SavedFinding]] = {}
+        all_evidence: list[SavedFinding] = []
+        try:
+            from devops_cli.core.repo import main_worktree_root
+            from devops_cli.security.mypy import run_mypy_scan
+            from devops_cli.security.ruff import run_ruff_scan
+
+            py_paths = [
+                self._resolve_file_path(f)
+                for f in file_paths
+                if f.endswith(".py") and self._resolve_file_path(f).is_file()
+            ]
+            if not py_paths:
+                return evidence_findings_by_file
+
+            checkout_root = main_worktree_root(self.target_dir) if self.target_dir else None
+            is_branch_pr = self.subject.get("type") in ("branch", "pr")
+            hunks = getattr(self, "diff_hunks", None)
+            ruff_res = run_ruff_scan(
+                py_paths,
+                advisory_rules=self.advisory_rules,
+                diff_hunks=hunks,
+                is_branch_or_pr=is_branch_pr,
+                isolated=True,
+            )
+            all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
+
+            mypy_res = run_mypy_scan(
+                py_paths,
+                tree=reviewed_tree(self.target_dir),
+                checkout_root=checkout_root,
+            )
+            all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
+
+            deltas, c901_findings = _evaluate_session_complexity_deltas(
+                py_paths,
+                self.target_dir,
+                self.base_revision,
+                self.complexity_cap,
+                self.complexity_max_increase,
+            )
+            self.complexity_deltas = deltas
+            if c901_findings:
+                all_evidence.extend(_wrap_static_findings(c901_findings, tool="c901"))
+
+            eff_added = (
+                added_diff_lines
+                if added_diff_lines is not None
+                else getattr(self, "added_diff_lines", None)
+            )
+            rejections: dict[str, int] = {}
+            admitted_frozen, admitted_saved = _admit_scanner_findings(
+                all_evidence,
+                session_id=self.session_id,
+                worktree_root=reviewed_tree(self.target_dir),
+                file_paths=file_paths,
+                secret_scan_files=self.secret_scan_files,
+                resolve_file_path=self._resolve_file_path,
+                path_classes=self.path_classes,
+                suppressions=getattr(self, "suppressions", None),
+                added_diff_lines=eff_added,
+                base_fingerprints=getattr(self, "base_fingerprints", None),
+                rejection_counts=rejections,
+            )
+            self.admitted_scanner_findings.extend(admitted_frozen)
+            evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.debug("Review evidence scanning failed: %s", exc)
+
+        return evidence_findings_by_file
 
     def _record_static_analyzers(
         self,
@@ -3096,6 +3119,17 @@ class ReviewPipelineOrchestrator:
             pages,
             diff_text_by_file,
         )
+        from devops_cli.ai.review.chunker import extract_file_diff_hunks
+
+        if pages:
+            self.diff_hunks = extract_file_diff_hunks(pages)
+        elif diff_text_by_file:
+            self.diff_hunks = extract_file_diff_hunks(diff_text_by_file.values())
+        else:
+            self.diff_hunks = {}
+        if not self.diff_hunks and self.added_diff_lines:
+            for p, line in self.added_diff_lines:
+                self.diff_hunks.setdefault(p, []).append((line, line))
 
         n_paths = len(file_paths)
         with trace_span("review.init_payloads", attributes={"file_count": n_paths}):
@@ -3116,6 +3150,12 @@ class ReviewPipelineOrchestrator:
                 static_findings_by_file = self._run_static_scanners(
                     file_paths, added_diff_lines=self.added_diff_lines
                 )
+
+            evidence_findings_by_file = self._run_review_evidence(
+                file_paths, added_diff_lines=self.added_diff_lines
+            )
+            for f_path, f_items in evidence_findings_by_file.items():
+                static_findings_by_file.setdefault(f_path, []).extend(f_items)
 
             # Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (
@@ -3223,7 +3263,7 @@ class ReviewPipelineOrchestrator:
             p_def = PERSONAS.get(persona_enum, PERSONAS[Persona.DEVSECOPS])
             persona_lookup[p_def.title] = (p_val, p_def.title)
             persona_lookup[p_val] = (p_val, p_def.title)
-            sys_prompt = _persona_system_prompt(p_def, target_conventions, self.target_dir)
+            sys_prompt = _persona_system_prompt(p_def, target_conventions)
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
@@ -3240,7 +3280,7 @@ class ReviewPipelineOrchestrator:
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
-                system_prompt=_persona_system_prompt(p_def, target_conventions, self.target_dir),
+                system_prompt=_persona_system_prompt(p_def, target_conventions),
                 output_type=ReviewResult,
                 retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
@@ -3612,289 +3652,6 @@ class ReviewPipelineOrchestrator:
                         payload.ai_scratchpad["error"] = err_desc
                         self.errored_files[payload.file_path] = err_desc
 
-    # ── Cross-Referencing Verification & Reasoning ──────────────────────────
-    def _safe_verify_file_payload(
-        self,
-        idx: int,
-        total_files: int,
-        payload: FileReviewPayload,
-        server_info: str,
-        diff_text: str | None = None,
-        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
-        dependencies: Sequence[DependencySpec] = (),
-    ) -> None:
-        """Safely execute finding verification on single file payload with error capture."""
-        if payload.file_path in self.errored_files:
-            return
-        try:
-            self._verify_single_file_payload(
-                idx=idx,
-                total_files=total_files,
-                payload=payload,
-                server_info=server_info,
-                diff_text=diff_text,
-                metadata_by_path=metadata_by_path,
-                dependencies=dependencies,
-            )
-        except Exception as exc:
-            logger.error("Error verifying file %s: %s", payload.file_path, exc)
-            err_desc = _format_error_detail("Verification", exc)
-            payload.ai_scratchpad["stage"] = "failed"
-            payload.ai_scratchpad["error"] = err_desc
-            self.errored_files[payload.file_path] = err_desc
-            _note_verification_unavailable(payload.findings, exc)
-            print_info(
-                f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
-                f"[bold]{payload.file_path}[/bold] [dim]({err_desc})[/dim]",
-                prefix=False,
-            )
-
-    def _verification_context(self, payload: FileReviewPayload, file_code: str) -> str:
-        """What the verifier of a file's findings reads.
-
-        A reviewed file is numbered as the reviewers saw it, so a finding's lines can be checked
-        against it, with its linked files. A file kept off persona pages gives only the lines
-        its findings cite (#948).
-        """
-        if payload.file_path in self.secret_scan_files:
-            return _cited_lines(file_code, payload.findings)
-        linked_snippets = _collect_linked_snippets(payload.linked_files, self._resolve_file_path)
-        linked_str = "\n\n".join(linked_snippets) if linked_snippets else ""
-        return number_source_lines(file_code) + ("\n\n" + linked_str if linked_str else "")
-
-    def _verify_single_file_payload(
-        self,
-        idx: int,
-        total_files: int,
-        payload: FileReviewPayload,
-        server_info: str,
-        diff_text: str | None = None,
-        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
-        dependencies: Sequence[DependencySpec] = (),
-    ) -> None:
-        """Verify findings for a single file using cross-referencing and LLM reasoning.
-
-        The session's own metadata says which symbols the diff removed, and the file's diff text
-        gives the hunks a finding citing one is moved to; the numbered source stays the context.
-        `dependencies` are every dependency the session scanned, which a claim about one, or an
-        advisory a finding cites, is checked against (#948).
-        """
-        fpath = payload.file_path
-        ext = Path(fpath).suffix.lower()
-        with trace_span(
-            "review.file_verify",
-            attributes={
-                "session_id": self.session_id,
-                "file_path": fpath,
-                "file_extension": ext,
-                "candidate_findings": len(payload.findings),
-                "review.stage": "stage_4_verification",
-            },
-        ) as file_v_span:
-            target_file = self._resolve_file_path(fpath)
-            file_code = ""
-            if target_file.exists() and target_file.is_file():
-                try:
-                    file_code = target_file.read_text(encoding="utf-8", errors="replace")
-                except Exception as exc:
-                    logger.debug("Failed reading target file %s for verification: %s", fpath, exc)
-
-            context = self._verification_context(payload, file_code)
-            findings_to_verify = [Finding(**f.model_dump()) for f in payload.findings]
-
-            t_start = time.monotonic()
-            review_res, proc_sec, actual_backend = _validate_segment_findings(
-                result=ReviewResult(
-                    findings=findings_to_verify, external_dependencies=list(dependencies)
-                ),
-                all_segments=[context],
-                client=self.verification_client,
-                analysis_metas=metadata_by_path or {},
-                repo_root=self.target_dir,
-                conventions=self._read_target_conventions(),
-                diff_text=diff_text or "",
-            )
-            elapsed_sec = proc_sec if proc_sec is not None else (time.monotonic() - t_start)
-            verified_list = review_res.findings
-
-            updated_saved: list[SavedFinding] = []
-            for orig, v in zip(payload.findings, verified_list, strict=False):
-                for field in VERDICT_FIELDS:
-                    setattr(orig, field, getattr(v, field))
-                updated_saved.append(orig)
-
-            assert_verdict_invariants(updated_saved)
-
-            valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
-            tot_u = len(updated_saved)
-
-            file_v_span.set_attribute("review.verified_count", valid_cnt)
-            file_v_span.set_attribute("review.total_candidates", tot_u)
-            file_v_span.add_event(
-                "verification_completed",
-                {"valid_count": valid_cnt, "total_candidates": tot_u},
-            )
-
-            thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
-            thoughts_list.append(
-                f"[Verification] Verified {tot_u} finding(s) for "
-                f"'{Path(payload.file_path).name}' "
-                f"({len(payload.findings)} total candidate(s))"
-            )
-
-            payload.findings = updated_saved
-            payload.ai_scratchpad["stage"] = "verified"
-
-            sanitized_name = _sanitize_filename(payload.file_path) + ".json"
-            json_target = self.files_dir / sanitized_name
-            json_target.parent.mkdir(parents=True, exist_ok=True)
-            json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-
-            handled_by = actual_backend or server_info
-            try:
-                sec_val = float(elapsed_sec)
-                sec_str = format_duration(sec_val)
-            except TypeError, ValueError:
-                sec_str = "0.00s"
-
-            print_info(
-                f"[{idx}/{total_files}] Verified [bold]{fpath}[/bold] "
-                f"({valid_cnt}/{tot_u} valid) [dim]handled by {handled_by} {sec_str}[/dim]",
-                prefix=False,
-            )
-
-    def execute_finding_verification(
-        self,
-        file_payloads: list[FileReviewPayload],
-        stage_flags: ReviewStageFlags | None = None,
-        diff_text_by_file: dict[str, str] | None = None,
-        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
-    ) -> None:
-        """Verify findings against file contents and linked files in parallel.
-
-        `metadata_by_path` is the session metadata pre-analysis returned, and `diff_text_by_file`
-        the diff text persona review was given; without them no finding is exempted as citing
-        a removed symbol.
-        """
-        if stage_flags is not None and not stage_flags.verification:
-            print_info(
-                "[dim]Finding verification skipped (disabled via flag)[/dim]",
-                prefix=False,
-            )
-            return
-
-        total_files = len(file_payloads)
-        server_info = self._get_server_info(self.verification_client)
-
-        with (
-            trace_span(
-                "review.verification",
-                attributes={"review.total_files": total_files},
-            ) as s4_span,
-            stage_scope("review.verification"),
-        ):
-            print_info(
-                f"[dim]Verifying findings for {total_files} file(s) "
-                f"-> Configured AI Server(s): {server_info}[/dim]",
-                prefix=False,
-            )
-
-            payloads_with_findings = [
-                (idx, p)
-                for idx, p in enumerate(file_payloads, 1)
-                if p.findings and p.file_path not in self.errored_files
-            ]
-            s4_span.set_attribute("review.files_with_findings", len(payloads_with_findings))
-            if not payloads_with_findings:
-                s4_span.add_event("no_findings_to_verify")
-                print_info("[dim]  ✓ No findings to verify across files[/dim]", prefix=False)
-                return
-
-            config = getattr(self.llm_client, "_config", None)
-            ollama_urls = _resolve_ollama_urls(config)
-            raw_par = getattr(config, "ollama_max_parallel", None)
-            max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            from devops_cli.config.defaults import (
-                DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-                DEFAULT_REVIEW_CONCURRENCY,
-                DEFAULT_REVIEW_MAX_CONCURRENCY,
-            )
-
-            is_gateway = bool(getattr(config, "gateway_enabled", False)) or (
-                getattr(config, "provider", None) == "gateway"
-            )
-            base_capacity = (
-                DEFAULT_GATEWAY_REVIEW_CONCURRENCY if is_gateway else DEFAULT_REVIEW_CONCURRENCY
-            )
-            batch_capacity = max(base_capacity, len(ollama_urls) * max_par)
-            if self.concurrency is not None:
-                n_workers = min(len(payloads_with_findings), max(1, self.concurrency))
-            else:
-                n_workers = min(
-                    len(payloads_with_findings), batch_capacity, DEFAULT_REVIEW_MAX_CONCURRENCY
-                )
-
-            s4_span.set_attribute("review.workers", n_workers)
-            s4_span.set_attribute("review.batch_capacity", batch_capacity)
-
-            diffs = diff_text_by_file or {}
-            dependencies = [*_session_dependencies(file_payloads), *self.scanner_advisories]
-
-            def _verify_task(arg: tuple[int, FileReviewPayload]) -> None:
-                idx, payload = arg
-                self._safe_verify_file_payload(
-                    idx,
-                    total_files,
-                    payload,
-                    server_info,
-                    diff_text=diffs.get(payload.file_path, ""),
-                    metadata_by_path=metadata_by_path,
-                    dependencies=dependencies,
-                )
-
-            if self.parallel and n_workers > 1:
-                from devops_cli.ai.review.pool import ReviewWorkerPool
-
-                pool = ReviewWorkerPool.create(concurrency=n_workers)
-                verify_results = pool.run_sync_all(
-                    _verify_task, payloads_with_findings, return_exceptions=True
-                )
-                for (_idx, payload), res in zip(
-                    payloads_with_findings, verify_results, strict=False
-                ):
-                    if isinstance(res, Exception):
-                        err_desc = _format_error_detail("VerificationWorker", res)
-                        logger.error(
-                            "Unexpected worker exception verifying %s (%s)",
-                            payload.file_path,
-                            type(res).__name__,
-                        )
-                        payload.ai_scratchpad["stage"] = "failed"
-                        payload.ai_scratchpad["error"] = err_desc
-                        self.errored_files[payload.file_path] = err_desc
-                        _note_verification_unavailable(payload.findings, res)
-            else:
-                for idx, payload in payloads_with_findings:
-                    try:
-                        _verify_task((idx, payload))
-                    except Exception as exc:
-                        err_desc = _format_error_detail("VerificationWorker", exc)
-                        logger.error(
-                            "Unexpected worker exception verifying %s (%s)",
-                            payload.file_path,
-                            type(exc).__name__,
-                        )
-                        payload.ai_scratchpad["stage"] = "failed"
-                        payload.ai_scratchpad["error"] = err_desc
-                        self.errored_files[payload.file_path] = err_desc
-                        _note_verification_unavailable(payload.findings, exc)
-
-            from devops_cli.ai.review.stages.adversarial_debate import (
-                run_adversarial_debate_stage,
-            )
-
-            run_adversarial_debate_stage(file_payloads)
-
     # ── AI Validation & Re-ranking ──────────────────────────────────────────
     def _rerank_single_file_payload(self, payload: FileReviewPayload) -> None:
         """Re-rank findings and update payload scratchpad."""
@@ -4190,31 +3947,6 @@ class ReviewPipelineOrchestrator:
         lines.append("")
         return lines
 
-    @staticmethod
-    def _build_criteria_outcomes_section(findings: list[SavedFinding] | None) -> list[str]:
-        """Count the executable criteria by how each ended: passed, failed, timed out or not run.
-
-        Only a passed or failed criterion ran to its own exit status. One stopped at its time
-        limit, one the sandbox could not start (no bubblewrap, a spawn error) and one it stopped
-        for its output all have exit code -1, which `_evaluate_criteria_verdict` treats as not
-        run; none says anything about the code, so none is counted as failed.
-        """
-        results = [r for f in findings or [] for r in f.criteria_execution_results if r.executable]
-        if not results:
-            return []
-        passed = sum(r.passed for r in results)
-        failed = sum(not r.passed and r.exit_code not in (None, -1) for r in results)
-        timed_out = sum(r.timed_out for r in results)
-        not_run = len(results) - passed - failed - timed_out
-        return [
-            "## Executable Criteria",
-            "",
-            "| Passed | Failed | Timed Out | Not Run |",
-            "|---|---|---|---|",
-            f"| {passed} | {failed} | {timed_out} | {not_run} |",
-            "",
-        ]
-
     def _build_consolidated_markdown_report(
         self,
         session_id: str,
@@ -4224,7 +3956,6 @@ class ReviewPipelineOrchestrator:
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
         candidate_findings: list[SavedFinding] | None = None,
-        removed_symbol_findings_count: int = 0,
         symbol_delta_summary: dict[str, int] | None = None,
     ) -> str:
         from devops_cli.ai.review.stages.reporting import (
@@ -4259,10 +3990,6 @@ class ReviewPipelineOrchestrator:
                 f"**-{symbol_delta_summary.get('removed', 0)}** / "
                 f"**={symbol_delta_summary.get('retained', 0)}**"
             )
-        if removed_symbol_findings_count > 0:
-            summary_lines.append(
-                f"Removed-Symbol Findings: **{removed_symbol_findings_count}** cited removed symbol(s)"
-            )
         summary_lines.append("")
         lines.extend(summary_lines)
         lines.extend(self._build_findings_table(reportable_findings))
@@ -4270,6 +3997,7 @@ class ReviewPipelineOrchestrator:
         lines.extend(self._build_introduced_findings_section(reportable_findings))
         lines.extend(self._build_preexisting_findings_section(reportable_findings))
         lines.extend(self._build_suppressed_findings_section(all_findings or reportable_findings))
+        lines.extend(self._build_complexity_section())
         lines.extend(self._build_dependencies_table(all_deps))
         lines.extend(self._build_network_table(all_nets))
 
@@ -4285,7 +4013,6 @@ class ReviewPipelineOrchestrator:
         dist_lines = self._build_verdict_distributions_section(candidate_findings or all_findings)
         if dist_lines:
             lines.extend(dist_lines)
-        lines.extend(self._build_criteria_outcomes_section(candidate_findings or all_findings))
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
@@ -4409,6 +4136,23 @@ class ReviewPipelineOrchestrator:
             "## Suppressed Findings",
             "| Severity | Location | Reason | Expiry | Suppressed By |",
             "|---|---|---|---|---|",
+            *rows,
+            "",
+        ]
+
+    def _build_complexity_section(self) -> list[str]:
+        """Render before/after Complexity table for changed functions in review.md (#873)."""
+        deltas = getattr(self, "complexity_deltas", [])
+        if not deltas:
+            return []
+        rows = [
+            f"| `{d['file']}` | `{d['function']}` | {d['before'] if d['before'] is not None else '—'} | {d['after'] if d['after'] is not None else '—'} |"
+            for d in deltas
+        ]
+        return [
+            "## Complexity",
+            "| File | Function | Before | After |",
+            "|---|---|---|---|",
             *rows,
             "",
         ]
@@ -4724,7 +4468,6 @@ class ReviewPipelineOrchestrator:
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
         candidate_findings: list[SavedFinding] | None = None,
-        removed_symbol_findings_count: int = 0,
         symbol_delta_summary: dict[str, int] | None = None,
     ) -> None:
         """Render review summary table to console."""
@@ -4768,13 +4511,6 @@ class ReviewPipelineOrchestrator:
                     f"+{symbol_delta_summary.get('added', 0)} / -{symbol_delta_summary.get('removed', 0)} / ={symbol_delta_summary.get('retained', 0)}",
                 ]
             )
-        if removed_symbol_findings_count > 0:
-            rows.append(
-                [
-                    "Removed-Symbol Findings",
-                    f"{removed_symbol_findings_count} cited removed symbol(s)",
-                ]
-            )
         rows.extend(self._format_verdict_distributions(findings_pool))
         rows.extend(
             [
@@ -4792,10 +4528,6 @@ class ReviewPipelineOrchestrator:
             border_style="cyan",
             console=console,
         )
-
-    def run_self_test(self) -> bool:
-        """Execute a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn."""
-        return run_pipeline_self_test(target_dir=self.target_dir)
 
     def _compute_symbol_delta_summary(
         self, file_payloads: list[FileReviewPayload]
@@ -4839,13 +4571,6 @@ class ReviewPipelineOrchestrator:
                 f"[dim]Generating report for session '{self.session_id}'...[/dim]",
                 prefix=False,
             )
-            # Verdicts are final here, so each finding's severity is capped by its evidence
-            # before candidates.json, findings.json and the report are written (#948).
-            from devops_cli.core.repo import find_repo_root
-
-            repo_root = find_repo_root(self.target_dir)
-            for payload in file_payloads:
-                payload.findings = calibrate_findings(payload.findings, root=repo_root)
             all_findings = self._collect_and_deduplicate_findings(file_payloads)
             report_span.set_attribute("review.final_findings_count", len(all_findings))
             report_span.add_event(
@@ -4853,13 +4578,14 @@ class ReviewPipelineOrchestrator:
             )
 
         all_deps, all_nets = self._collect_unique_dependencies_and_network_endpoints(file_payloads)
-        removed_count = sum(
-            1 for f in all_findings if f.verification_note == "cites removed symbol"
-        )
         symbol_delta = self._compute_symbol_delta_summary(file_payloads)
 
         candidate_findings = [f for payload in file_payloads for f in payload.findings]
-        record_cited_code([*all_findings, *candidate_findings], self.target_dir)
+        record_cited_code(
+            [*all_findings, *candidate_findings],
+            self._resolve_file_path,
+            find_worktree_root(self.target_dir),
+        )
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
             subject=self.subject,
@@ -4867,8 +4593,8 @@ class ReviewPipelineOrchestrator:
             findings=all_findings,
             external_dependencies=all_deps,
             network_references=all_nets,
-            removed_symbol_findings_count=removed_count,
             symbol_delta_summary=symbol_delta,
+            complexity_delta=getattr(self, "complexity_deltas", []),
         )
 
         assert_verdict_invariants(all_findings)
@@ -4930,7 +4656,6 @@ class ReviewPipelineOrchestrator:
             all_nets=all_nets,
             all_findings=all_findings,
             candidate_findings=candidates.findings,
-            removed_symbol_findings_count=removed_count,
             symbol_delta_summary=symbol_delta,
         )
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
@@ -4948,7 +4673,6 @@ class ReviewPipelineOrchestrator:
             all_nets=all_nets,
             all_findings=all_findings,
             candidate_findings=candidates.findings,
-            removed_symbol_findings_count=removed_count,
             symbol_delta_summary=symbol_delta,
         )
 
@@ -4960,43 +4684,6 @@ class ReviewPipelineOrchestrator:
             f"full report: [dim]{report_path}[/dim])"
         )
         return payload_out.model_dump(), report_md
-
-
-def run_pipeline_self_test(target_dir: Path | None = None) -> bool:
-    """Execute a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn.
-
-    Constructs a finding whose observed and expected values match (polarity failure) and verifies
-    that deterministic pre-verification invalidates it with reportable=False, and that the review
-    orchestrator's finding collection and deduplication excludes it from reportable findings.
-    """
-    from devops_cli.ai.review.verification import _check_verdict_polarity_hallucination
-
-    polarity_finding = Finding.model_construct(
-        title="Incorrect status flag in heartbeat monitor",
-        location="src/monitor.py:10",
-        severity="HIGH",
-        description="Heartbeat status asserted to be erroneous.",
-        fix="Ensure status is OK.",
-        observed_value="OK",
-        expected_value="OK",
-    )
-    result = _check_verdict_polarity_hallucination(polarity_finding)
-    if result is None or result.status != "INVALIDATED" or result.reportable:
-        raise AssertionError(
-            "Pipeline self-test failed: finding constructed to be withdrawn was not invalidated"
-        )
-
-    saved = SavedFinding(**result.model_dump(), persona="devsecops")
-    payload = FileReviewPayload(file_path="src/monitor.py", findings=[saved])
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="self-test", target_dir=target_dir or Path.cwd()
-    )
-    reportable = orchestrator._collect_and_deduplicate_findings([payload])
-    if reportable:
-        raise AssertionError(
-            f"Pipeline self-test failed: withdrawn finding reached reportable output: {reportable}"
-        )
-    return True
 
 
 format_markdown_fix = ReviewPipelineOrchestrator._format_markdown_fix

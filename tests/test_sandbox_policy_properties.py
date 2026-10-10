@@ -137,12 +137,14 @@ def test_property_benign_multidot_paths_permitted(left: str, right: str, ext: st
 )
 @example(head="a", tail="b")
 @example(head="", tail="test")
-def test_property_nul_bytes_in_subpath_raise_error_cls(head: str, tail: str) -> None:
+def test_property_nul_bytes_in_subpath_raise_error_cls(
+    tmp_path_factory: pytest.TempPathFactory, head: str, tail: str
+) -> None:
     """Property: Embedded NUL bytes in safe_resolve_subpath raise error_cls, never raw ValueError."""
     path_with_nul = f"{head}\x00{tail}"
     raises_custom = _check_raises(
         safe_resolve_subpath,
-        Path("/tmp/sandbox"),
+        tmp_path_factory.getbasetemp(),
         path_with_nul,
         error_cls=CustomSubpathError,
         expected_exc=CustomSubpathError,

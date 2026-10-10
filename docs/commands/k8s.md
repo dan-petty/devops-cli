@@ -9,8 +9,14 @@ Manage Kubernetes clusters, pods, services, and workloads.
 **List kubeconfig contexts and mark the active one.**
 
 ```bash
-devops k8s contexts
+devops k8s contexts [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -19,7 +25,7 @@ devops k8s contexts
 **Switch active kubeconfig context and ensure cluster is running.**
 
 ```bash
-devops k8s switch-context <name>
+devops k8s switch-context [OPTIONS] <name>
 ```
 
 **Arguments:**
@@ -28,6 +34,12 @@ devops k8s switch-context <name>
 |---|---|---|---|
 | `<name>` | `string` | Yes | Target context name to switch to. |
 
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## `devops k8s status`
@@ -35,8 +47,14 @@ devops k8s switch-context <name>
 **Show node and pod summary for the current context.**
 
 ```bash
-devops k8s status
+devops k8s status [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -134,6 +152,7 @@ devops k8s bootstrap [OPTIONS]
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
 | `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -154,6 +173,7 @@ devops k8s bootstrap-openwebui [OPTIONS]
 | `--name`, `-n` | `string` | `Local Administrator` | Full display name for the administrator. |
 | `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
 | `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -274,6 +294,7 @@ devops k8s configure-urls [OPTIONS]
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -331,6 +352,7 @@ devops k8s port-forward [OPTIONS]
 | `--valkey-port` | `integer` | `6379` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
 | `--update-config` / `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -392,6 +414,7 @@ devops k8s rbac-audit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -477,6 +500,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
 | `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -497,6 +521,7 @@ devops k8s enable-tls [OPTIONS]
 | `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

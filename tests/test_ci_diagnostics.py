@@ -10,7 +10,7 @@ _MOUNTS = (
     "none / overlay rw,relatime 0 0\n"
     "C:\\134 /workspaces/devops-cli 9p rw,noatime,aname=drvfs 0 0\n"
     "/dev/sde /workspaces/devops-cli/.data ext4 rw,relatime 0 0\n"
-    "/dev/sdf /tmp ext4 rw,relatime 0 0\n"
+    "/dev/sdf /srv ext4 rw,relatime 0 0\n"
     "D:\\134 /mnt/host\\040share 9p rw 0 0\n"
 )
 
@@ -28,7 +28,7 @@ def test_the_most_specific_mount_decides() -> None:
 def test_a_linux_filesystem_is_not_slow() -> None:
     """Verify paths on ext4 and on the overlay root are not reported."""
     assert (
-        slow_mount_fstype(Path("/tmp/work"), _MOUNTS),
+        slow_mount_fstype(Path("/srv/work"), _MOUNTS),
         slow_mount_fstype(Path("/opt/tools"), _MOUNTS),
     ) == (None, None)
 

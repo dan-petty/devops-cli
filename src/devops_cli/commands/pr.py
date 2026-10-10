@@ -17,13 +17,16 @@ from packaging.version import Version
 from devops_cli.config.constants import (
     CONST_AGENT_TASK_FILE_RE,
     CONST_AGENT_TASKS_DIR,
+    CONST_CHANGELOG_FILENAME,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CI_WORKFLOW_FILE,
     CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
+    CONST_GH_RAW_CONTENT_ACCEPT,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PR_API_STATE_MAP,
     CONST_PR_FILE_CHANGED_STATUSES,
+    CONST_PR_FILE_MODIFIED_STATUS,
     CONST_PR_FILE_WRITTEN_STATUSES,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_RELEASE_BRANCH_RE,
@@ -54,6 +57,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.release.changelog_fragments import find_changelog_section
 from devops_cli.roadmap.store import in_release
 
 logger = logging.getLogger(__name__)
@@ -1413,20 +1417,23 @@ def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead
 
 
 def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
-    """Warn if PR changed files intersect with the mitigated findings perimeter ledger."""
-    try:
-        from devops_cli.ai.review.mitigations import (
-            find_perimeter_changes,
-            format_perimeter_warning,
-        )
+    """Warn when the PR changes a file a review.toml suppression of this repository covers."""
+    from devops_cli.ai.review.path_classes import load_review_config
+    from devops_cli.core.repo import find_repo_root
+    from devops_cli.review.suppression import (
+        covering_suppressions,
+        format_covering_suppressions,
+        load_review_suppressions,
+    )
 
-        if not changed.files:
-            return
-        matches = find_perimeter_changes([entry.filename for entry in changed.files])
-        if matches:
-            print_warning(format_perimeter_warning(matches))
-    except Exception as exc:
-        logger.debug("Failed checking PR perimeter changes: %s", exc)
+    if not changed.files:
+        return
+    config = load_review_config(repo_root=find_repo_root())
+    covering = covering_suppressions(
+        [entry.filename for entry in changed.files], load_review_suppressions(config)
+    )
+    if covering:
+        print_warning(format_covering_suppressions(covering))
 
 
 def _repo_full_name(side: dict[str, Any]) -> str:
@@ -1521,9 +1528,18 @@ class _ClosedItem(NamedTuple):
     error: str = ""
 
 
+class _BaseChangelog(NamedTuple):
+    """Whether `release/vX.Y.Z` holds the vX.Y.Z section of CHANGELOG.md the cut writes, or why
+    that wasn't read."""
+
+    has_section: bool
+    error: str = ""
+
+
 class _Grounding(NamedTuple):
     """What the grounding checks judge: the PR's base, the issues it closes, the files it changes,
-    and, into a release branch, the Release of the one issue it closes."""
+    and, into a release branch, the Release of the one issue it closes and, for a PR changing
+    CHANGELOG.md, whether the cut wrote the release's section there."""
 
     pr_num: int
     repo: str
@@ -1531,6 +1547,7 @@ class _Grounding(NamedTuple):
     issues: list[int]
     changed: _ChangedFilesRead
     item: _ClosedItem | None = None
+    changelog: _BaseChangelog | None = None
 
 
 def _closes_one_issue(grounding: _Grounding) -> str | None:
@@ -1587,25 +1604,47 @@ def _changes_a_release_file(changed: ChangedFile) -> list[str]:
     return [path for path in paths if path in CONST_RELEASE_SHARED_FILES]
 
 
+def _base_changelog_was_read(grounding: _Grounding) -> str | None:
+    """The base's CHANGELOG.md was read, so a change to it can be judged against the cut."""
+    if grounding.changelog is None or not grounding.changelog.error:
+        return None
+    return MESSAGES.pr.grounding_changelog_unread.format(
+        number=grounding.pr_num, base=grounding.base, error=grounding.changelog.error
+    )
+
+
 def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
-    """A PR into a release branch leaves CHANGELOG.md and docs/ROADMAP.md to the cut.
+    """Into a release/* branch a PR leaves docs/ROADMAP.md to the cut, and CHANGELOG.md until
+    the cut has written release/vX.Y.Z's section; a critical fix after the cut edits that
+    section (#1450).
 
     Every such PR edited the same lines of both, so each merge made every other open PR
-    conflict and run CI again (#933). Its changelog entry is a fragment of its own instead.
+    conflict and run CI again (#933). Its changelog entry is a fragment of its own instead,
+    except after the cut, where its edit of the section is the entry.
     """
     if not grounding.base.startswith(CONST_RELEASE_BRANCH_PREFIX) or grounding.changed.error:
         return None
     found = {
         path for changed in grounding.changed.files for path in _changes_a_release_file(changed)
     }
+    changelog = grounding.changelog
+    cut = changelog is not None and changelog.has_section
+    if cut or (changelog is not None and changelog.error):
+        # After the cut, or unread, which `_base_changelog_was_read` names.
+        found.discard(CONST_CHANGELOG_FILENAME)
     if not found:
         return None
+    texts = MESSAGES.pr
     issue = str(grounding.issues[0]) if len(grounding.issues) == 1 else "<issue>"
-    return MESSAGES.pr.grounding_release_files_changed.format(
+    blocker = texts.grounding_release_files_changed.format(
         number=grounding.pr_num,
         files=" and ".join(path for path in CONST_RELEASE_SHARED_FILES if path in found),
         base=grounding.base,
-        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md",
+    )
+    if cut:
+        return blocker
+    return blocker + texts.grounding_release_files_fragment.format(
+        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md"
     )
 
 
@@ -1647,6 +1686,7 @@ _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
     _closes_one_issue,
     _changed_files_were_read,
     _changes_its_task_file,
+    _base_changelog_was_read,
     _leaves_release_files_to_the_cut,
     _closes_an_item_of_its_release,
 )
@@ -1674,11 +1714,50 @@ def _read_closed_item(
     return _ClosedItem(title if isinstance(title, str) else None)
 
 
+def _edits_the_changelog(changed: ChangedFile) -> bool:
+    """Whether this change edits CHANGELOG.md in place, as a critical fix after the cut does."""
+    return (
+        changed.filename == CONST_CHANGELOG_FILENAME
+        and changed.status == CONST_PR_FILE_MODIFIED_STATUS
+    )
+
+
+def _read_base_changelog(
+    owner: str, repo_name: str, base: str, changed: _ChangedFilesRead
+) -> _BaseChangelog | None:
+    """Whether `base`, a release branch, holds its version's CHANGELOG.md section, read only for
+    a PR that edits CHANGELOG.md; None for any other PR, which leaves the file to the cut.
+
+    It is read raw at the branch's tip: the cut may have landed after the PR's base commit, and
+    the JSON contents API returns no content for a file above 1 MB.
+    """
+    branch = CONST_RELEASE_BRANCH_RE.fullmatch(base)
+    if branch is None or not any(map(_edits_the_changelog, changed.files)):
+        return None
+    res = run_gh(
+        [
+            CONST_GH_CLI,
+            "api",
+            "-H",
+            CONST_GH_RAW_CONTENT_ACCEPT,
+            f"repos/{owner}/{repo_name}/contents/{CONST_CHANGELOG_FILENAME}?"
+            + urlencode({"ref": base}),
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        return _BaseChangelog(False, _gh_failure(res))
+    section = find_changelog_section(res.stdout or "", branch["version"])
+    return _BaseChangelog(section is not None and bool(section.body.strip()))
+
+
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
-    """Require every item PR to close one issue, change its task file and leave shared files
-    alone, and a PR into `release/vX.Y.Z` to close an item of that release.
+    """Require every item PR to close one issue, change its task file and leave the files the
+    cut writes alone (CHANGELOG.md until the cut has written its section), and a PR into
+    `release/vX.Y.Z` to close an item of that release.
 
     The release PR and release-process PRs deliver no single item and are exempt. It applies
     where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
@@ -1696,7 +1775,8 @@ def _grounding_blockers(
     base = _branch_ref(pr_data, "base")
     issues = [issue.number for issue in linked]
     item = _read_closed_item(owner, repo_name, base, issues)
-    grounding = _Grounding(pr_num, repo, base, issues, changed, item)
+    changelog = _read_base_changelog(owner, repo_name, base, changed)
+    grounding = _Grounding(pr_num, repo, base, issues, changed, item, changelog)
     return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
@@ -1848,9 +1928,11 @@ def check_readiness(
     Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
     and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
     body closes exactly one issue, and it adds, modifies or renames that issue's
-    docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-    docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. Into release/vX.Y.Z,
-    the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
+    docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
+    the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
+    changelog.d/<issue>.md instead; a critical fix after the cut edits that section. Into
+    release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
+    docs/agent/tasks/ is exempt.
     """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)

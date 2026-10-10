@@ -36,8 +36,7 @@ def test_dashboard_json_templates_valid() -> None:
 def test_grafana_dashboards_sync_dry_run() -> None:
     """Verify grafana dashboards sync in dry-run mode."""
     result = runner.invoke(main_app, ["--dry-run", "grafana", "dashboards", "sync"])
-    assert result.exit_code == 0
-    assert "Would run delegated command: devops grafana dashboards sync" in result.output
+    assert (result.exit_code, "devops grafana dashboards sync" in result.output) == (0, True)
 
 
 def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> None:

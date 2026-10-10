@@ -240,3 +240,88 @@ def module_click_command(module_path: str) -> Any | None:
     """
     app = getattr(import_module(module_path), "app", None)
     return None if app is None else typer.main.get_command(app)
+
+
+def _command_declares_dry_run(cmd: Any) -> bool:
+    """Whether a Click command declares a --dry-run option."""
+    return any(
+        param.name == "dry_run" or "--dry-run" in getattr(param, "opts", [])
+        for param in getattr(cmd, "params", [])
+    )
+
+
+def _build_forwarded_args(
+    initial_tokens: list[str], consumed: int, is_root_level: bool
+) -> list[str]:
+    """Insert --dry-run directly after the command path in tokens."""
+    inserted = [*initial_tokens[:consumed], "--dry-run", *initial_tokens[consumed:]]
+    return inserted[1:] if is_root_level else inserted
+
+
+def _descend_subcommand(
+    curr_cmd: Any, curr_name: str, tokens: list[str], parent_ctx: Any
+) -> tuple[Any, str, list[str], Any, int] | None:
+    """Descend one group level if a subcommand is named in tokens."""
+    if (
+        not hasattr(curr_cmd, "resolve_command")
+        or not callable(curr_cmd.resolve_command)
+        or not tokens
+    ):
+        return None
+    ctx = curr_cmd.make_context(curr_name, tokens, parent=parent_ctx, resilient_parsing=False)
+    sub_name, sub_cmd, remaining_args = curr_cmd.resolve_command(ctx, list(tokens))
+    if sub_name is None:
+        return None
+    consumed = len(tokens) - len(remaining_args)
+    return sub_cmd, sub_name, remaining_args, ctx, consumed
+
+
+def _walk_to_leaf(
+    top_cmd: Any, initial_name: str, initial_tokens: list[str]
+) -> tuple[Any, Any | None, int]:
+    """Walk subcommands down to the leaf command and parse its arguments."""
+    curr_cmd = top_cmd
+    curr_name = initial_name
+    tokens = list(initial_tokens)
+    parent_ctx = None
+    consumed = 0
+
+    while True:
+        step = _descend_subcommand(curr_cmd, curr_name, tokens, parent_ctx)
+        if step is None:
+            break
+        curr_cmd, curr_name, tokens, parent_ctx, step_consumed = step
+        consumed += step_consumed
+
+    if not _command_declares_dry_run(curr_cmd):
+        return curr_cmd, None, consumed
+
+    leaf_ctx = curr_cmd.make_context(curr_name, tokens, parent=parent_ctx, resilient_parsing=False)
+    return curr_cmd, leaf_ctx, consumed
+
+
+def resolve_proxy_dry_run(
+    mod_path: str, cmd_name: str, args: list[str]
+) -> tuple[bool, list[str] | None]:
+    """Resolve a delegated command under dry-run and prepare forwarded arguments.
+
+    Returns (True, forwarded_args) if the leaf command declares --dry-run, or (False, None)
+    if it does not declare --dry-run (so the caller prints the generic preview line).
+    Raises ClickException if the command does not resolve or its arguments do not parse.
+    """
+    is_root_level = cmd_name in CONST_CLI_ROOT_LEVEL_COMMANDS
+    initial_tokens = [cmd_name, *args] if is_root_level else list(args)
+    top_cmd = module_click_command(mod_path)
+    if top_cmd is None:
+        return False, None
+
+    prog_name = "devops" if is_root_level else cmd_name
+    leaf_cmd, leaf_ctx, consumed = _walk_to_leaf(top_cmd, prog_name, initial_tokens)
+
+    if not _command_declares_dry_run(leaf_cmd) or leaf_ctx is None:
+        return False, None
+
+    if bool(leaf_ctx.params.get("dry_run", False)):
+        return True, list(args)
+
+    return True, _build_forwarded_args(initial_tokens, consumed, is_root_level)

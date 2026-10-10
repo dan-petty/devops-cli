@@ -121,6 +121,10 @@ def create_tls_secret(
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Create or update a kubernetes.io/tls secret from certificate and private key files."""
     if context:
@@ -128,7 +132,7 @@ def create_tls_secret(
     runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
     runtime._validate_k8s_identifier(secret_name, "secret_name")
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s create-tls-secret",
             target=secret_name,
@@ -193,6 +197,10 @@ def enable_tls_stack(
         bool,
         typer.Option("--overwrite", "-f", help=HELP.options.overwrite),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces."""
     if context:
@@ -207,7 +215,7 @@ def enable_tls_stack(
     if "llm" in selected_stacks:
         namespaces_to_target.extend(["llm"])
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s enable-tls",
             target=stack,

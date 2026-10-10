@@ -16,8 +16,8 @@ from devops_cli.config.constants import (
     CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS,
     CONST_HANDWRITTEN_DOCS_PATHS,
 )
+from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken
 from devops_cli.core.repo import find_repo_root
-from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken
 from devops_cli.docs.source_argv_collector import (
     DevopsArgvReference,
     describe_unresolved_references,

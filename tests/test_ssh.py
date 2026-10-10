@@ -372,11 +372,12 @@ def test_generate_ed25519_key_overwriting_insecure_permissions(tmp_path: Path) -
     k_path = tmp_path / "id_ed25519-20250101"
     pub_path = tmp_path / "id_ed25519-20250101.pub"
 
-    # Pre-create files with overly permissive permissions (0666 / 0644)
+    # Pre-create files with insecure permissions: a world-readable private key, which OpenSSH
+    # refuses as too open, and a world-writable public key
     k_path.write_text("old_insecure_private_key")
-    os.chmod(k_path, 0o666)
+    os.chmod(k_path, 0o644)
     pub_path.write_text("old_public_key")
-    os.chmod(pub_path, 0o666)
+    os.chmod(pub_path, 0o666)  # nosec B103  # a world-writable key regeneration must clamp
 
     # Regenerate key pair
     generate_ed25519_key(k_path, comment="test-regen")

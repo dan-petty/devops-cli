@@ -9,13 +9,15 @@ the `gh` process edge, to count a round's board reads (#1361).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -34,12 +36,18 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
+    CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    CONST_SERVICE_LANE_MODEL,
+    CONST_SERVICE_LANE_RELEASE,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+from devops_cli.config.settings import ServiceConfig
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import (
@@ -52,8 +60,12 @@ from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest, UnusableProposalError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.reprioritize import current_release
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
+    MODEL_LANE_ROWS,
+    RELEASE_LANE_ROWS,
+    SERVICE_JOBS,
     JobOutcome,
     JobRow,
     _run_intake_adapter,
@@ -71,12 +83,14 @@ from devops_cli.roadmap.store import (
     Change,
     ChangeKind,
     CloseReason,
+    FieldOption,
+    FieldSpec,
     GitHubState,
     ItemField,
     Release,
     RoadmapStore,
 )
-from devops_cli.server.service import TriggerBatch
+from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_board_fake import GitHubFake
@@ -305,7 +319,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     )
     c_refine_intake = _eval(
         batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
         table=tbl_crit,
     )
 
@@ -319,7 +333,11 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     )
     c_refine_reprio = _eval(
         batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
+        table=tbl_reprio,
+    )
+    c_refine_idle = _eval(
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
         table=tbl_reprio,
     )
 
@@ -336,6 +354,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
         c_close_miss,
         c_refine_intake,
         c_refine_reprio,
+        c_refine_idle,
     ) == (
         (),
         ("intake",),
@@ -349,6 +368,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
         ("close",),
         ("intake", "refine"),
         ("close", "reprioritize", "refine"),
+        (),
     )
 
 
@@ -435,7 +455,7 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
     )
 
     t59 = (NOW - timedelta(minutes=59)).isoformat()
-    sched = {"intake": t59, "close": t59, "reprioritize": t59}
+    sched = {"intake": t59, "close": t59, "reprioritize": t59, "refine": t59}
     sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
     sched_file.write_text(json.dumps(sched), encoding="utf-8")
 
@@ -519,6 +539,41 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
         ("close", "reprioritize"),
         ("intake", "refine"),
         (),
+    )
+
+
+def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no reprioritize run in the round, refine is due 60 min after its last success, not
+    at 59, and on a first run; the CLI's dry run lists it (#1515)."""
+    table = build_stub_table(include_refine=True)
+    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
+    sched_file.parent.mkdir(parents=True)
+
+    def schedule(refine_age: timedelta | None, now: datetime) -> None:
+        others = {job: now - timedelta(minutes=59) for job in ("close", "reprioritize", "intake")}
+        ages = others | ({} if refine_age is None else {"refine": now - refine_age})
+        sched_file.write_text(json.dumps({job: at.isoformat() for job, at in ages.items()}))
+
+    def due(refine_age: timedelta | None) -> tuple[str, ...]:
+        schedule(refine_age, NOW)
+        return run_due_jobs(
+            REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
+        )
+
+    at_60, at_59, first = due(timedelta(minutes=60)), due(timedelta(minutes=59)), due(None)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    schedule(timedelta(minutes=61), datetime.now(UTC))
+    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
+        cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+
+    assert (at_60, at_59, first, cli.exit_code, "Due: refine\n" in cli.output) == (
+        ("refine",),
+        (),
+        ("refine",),
+        0,
+        True,
     )
 
 
@@ -1011,7 +1066,7 @@ def test_idle_records_zero_or_one_store_calls(
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
     t30 = (NOW - timedelta(minutes=30)).isoformat()
     t5 = (NOW - timedelta(minutes=5)).isoformat()
-    sched = {"intake": t30, "close": t30, "reprioritize": t30, "metrics": t5}
+    sched = {"intake": t30, "close": t30, "reprioritize": t30, "refine": t30, "metrics": t5}
     sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
     sched_file.parent.mkdir(parents=True, exist_ok=True)
     sched_file.write_text(json.dumps(sched), encoding="utf-8")
@@ -1089,15 +1144,16 @@ def test_service_wiring(
     roadmap_store_repos: list[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`devops serve --service` passes service_job, and the reader of the time a refused round
-    names (#1400), to create_service_app and opens store."""
+    """`devops serve --service` passes the two lanes' jobs, and the reader of the time a refused
+    round names (#1400), to create_service_app. Each lane's job opens the store and runs its own
+    rows in its own clone (#1532)."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "devops-cli")
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", f'{{"{REPO}":"secret-1"}}')
 
     with patch("uvicorn.run") as mock_uvicorn:
         res = runner.invoke(serve_app, ["--service"])
-        fastapi_app = mock_uvicorn.call_args[0][0]
+        fastapi_app = mock_uvicorn.call_args[0][0]()
 
     batch = TriggerBatch(
         repo=REPO,
@@ -1106,19 +1162,33 @@ def test_service_wiring(
         last_at=NOW,
     )
     with patch("devops_cli.roadmap.run.run_due_jobs") as mock_run:
-        service_job(REPO, batch)
+        for lane_job in SERVICE_JOBS.values():
+            lane_job(batch)
 
+    lanes = [
+        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"])
+        for call in mock_run.call_args_list
+    ]
     assert (
         res.exit_code,
-        fastapi_app.state.job is service_job,
+        fastapi_app.state.jobs is SERVICE_JOBS,
+        list(SERVICE_JOBS),
         fastapi_app.state.pause_until is service_pause_until,
         REPO in roadmap_store_repos,
-        mock_run.called,
+        lanes,
+        [[row.name for row in rows] for rows in (RELEASE_LANE_ROWS, MODEL_LANE_ROWS)],
+        DEFAULT_DUE_TABLE == (*RELEASE_LANE_ROWS, *MODEL_LANE_ROWS),
     ) == (
         0,
         True,
+        [CONST_SERVICE_LANE_RELEASE, CONST_SERVICE_LANE_MODEL],
         True,
         True,
+        [
+            (REPO, RELEASE_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
+            (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
+        ],
+        [["close", "reprioritize", "metrics"], ["intake", "refine"]],
         True,
     )
 
@@ -1165,7 +1235,7 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
 
     escapes = [
         "owner//tmp",
-        "/tmp/repo",
+        str(tmp_path / "repo"),
         "owner/../etc",
         "owner/name/extra",
         "single_slug",
@@ -1455,6 +1525,15 @@ class _IntakeModel:
         )
 
 
+BOARD_OPTIONS = {
+    ItemField.STATUS: ("New", "Ready", "In Progress", "In Review", "Done", "Blocked"),
+    ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
+    ItemField.VALUE: ("High", "Medium", "Low"),
+    ItemField.EFFORT: ("Low", "Medium", "High"),
+}
+"""The single-select fields of a migrated board and their options."""
+
+
 @dataclass
 class _Clock:
     now: datetime = NOW - timedelta(minutes=10)
@@ -1467,13 +1546,7 @@ def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
     """A roadmap with a current release and `count` open issues off the board, titled
     `candidate 1` up: each one intake's candidate."""
     clock = _Clock()
-    options = {
-        ItemField.STATUS: ("New", "Ready", "In Progress", "In Review", "Done", "Blocked"),
-        ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
-        ItemField.VALUE: ("High", "Medium", "Low"),
-        ItemField.EFFORT: ("Low", "Medium", "High"),
-    }
-    store = InMemoryRoadmapStore(board_options=options, clock=clock)
+    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
     store.create_release(RELEASE)
     titles = [f"candidate {n}" for n in range(1, count + 1)]
@@ -1772,6 +1845,7 @@ def test_a_round_that_sends_no_graphql_logs_no_spend_line_and_reads_no_budget(
 
 DEFAULT_JOB_NAMES = ("intake", "close", "reprioritize", "refine", "metrics")
 POLL = TriggerBatch(repo=REPO, counts={("poll", "", ""): 1}, first_at=NOW, last_at=NOW)
+release_lane_round = SERVICE_JOBS[CONST_SERVICE_LANE_RELEASE]
 
 
 def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> GitHubFake:
@@ -1817,11 +1891,11 @@ def test_a_service_round_ends_with_its_spend_line_however_it_ends(
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         _serve_over(tmp_path, monkeypatch, refused)
         with pytest.raises(GitHubRateLimitError, match="stopped before reading"):
-            service_job(POLL)
+            release_lane_round(POLL)
         lines.append(_spend_lines(caplog))
         caplog.clear()
         _serve_over(tmp_path, monkeypatch, quiet)
-        service_job(POLL)
+        release_lane_round(POLL)
         lines.append(_spend_lines(caplog))
     assert (lines, refused.graphql_calls(GRAPHQL_BUDGET_OPERATION), quiet.graphql_calls()) == (
         [
@@ -1855,7 +1929,7 @@ def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stan
     _serve_over(tmp_path, monkeypatch, pages_and_budget_down)
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         with pytest.raises(GitHubOperationError, match="HTTP 502"):
-            service_job(POLL)
+            release_lane_round(POLL)
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert (warnings, _spend_lines(caplog)) == (
         [
@@ -1884,3 +1958,230 @@ def test_a_ship_the_poll_reads_starts_reprioritize_with_no_graphql_request(
         now=NOW,
     )
     assert (ran, github.graphql_calls()) == (("reprioritize",), [])
+
+
+# ── The Service's release and model lanes (#1532) ─────────────────────────────
+
+PASSING_CHECKS = CheckVerdictSummary(items=[PRCheckItem(name="gate", bucket=CheckBucket.PASS)])
+
+
+def _lane(
+    rows: Sequence[JobRow], *, needs_clone: bool = False, **runners: Callable[..., JobOutcome]
+) -> tuple[JobRow, ...]:
+    """A lane's rows, in its order, each running its stub from `runners` or doing nothing, with a
+    clone only when `needs_clone`."""
+    return tuple(
+        replace(
+            row,
+            runner=runners.get(row.name, lambda **_: JobOutcome()),
+            needs_clone=needs_clone and row.needs_clone,
+        )
+        for row in rows
+    )
+
+
+def _ship(store: InMemoryRoadmapStore, release: str) -> None:
+    """A person merges `release`'s release pull request and publishes its GitHub Release."""
+    person = store.as_actor("alice")
+    pull_request = person.open_pull_request(
+        f"feat(release): {release}",
+        base="main",
+        head=f"chore/cut-{release}",
+        labels=("release",),
+        release=release,
+    )
+    person.close_pull_request(pull_request, merged=True)
+    person.publish_release(release)
+
+
+def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_ships_start(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refine round blocks on a slow model. In the same repository the release lane still runs
+    close at a merged pull request's webhook, which closes the item it delivers, and at the
+    ship's webhook reprioritize still starts the next release; the refine round is still
+    running throughout."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    for board_field, names in BOARD_OPTIONS.items():
+        options = tuple(FieldOption(name=name) for name in names)
+        seeded_store.seed_field(
+            FieldSpec(name=board_field.value, single_select=True, options=options)
+        )
+    minute_ago = datetime.now(UTC) - timedelta(minutes=1)
+    _stamp(
+        tmp_path, close=minute_ago, reprioritize=minute_ago, metrics=minute_ago, intake=minute_ago
+    )
+    item = seeded_store.as_actor("alice").seed_issue("Delivered", release=RELEASE, on_board=True)
+    seeded_store.merge_pull_request(
+        f"feat: #{item}", base=RELEASE_BRANCH, body=f"Closes #{item}\n", changed_paths=("a.py",)
+    )
+    refining, model_answers = threading.Event(), threading.Event()
+
+    def refine(**_: Any) -> JobOutcome:
+        refining.set()
+        model_answers.wait(timeout=5.0)
+        return JobOutcome()
+
+    release_rows = tuple(
+        replace(row, needs_clone=False) for row in RELEASE_LANE_ROWS if row.name != "metrics"
+    )
+    lanes = {
+        CONST_SERVICE_LANE_RELEASE: partial(
+            service_job, table=release_rows, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
+        ),
+        CONST_SERVICE_LANE_MODEL: partial(
+            service_job,
+            table=_lane(MODEL_LANE_ROWS, refine=refine),
+            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+        ),
+    }
+    manager = ServiceManager(
+        ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
+    )
+    release_lane, model_lane = (manager.workers[(REPO, lane)] for lane in lanes)
+    with patch(
+        "devops_cli.github.check_verdict.fetch_pr_check_verdicts", return_value=PASSING_CHECKS
+    ):
+        for worker in manager.workers.values():
+            worker.start()
+        manager.enqueue_trigger(REPO, "poll", "", "")
+        assert refining.wait(timeout=2.0)
+        manager.enqueue_trigger(REPO, *CONST_ROADMAP_CLOSURE_BATCH_KEYS[0])
+        closed = release_lane.wait_active(5.0)
+        delivered = seeded_store.item(item)
+        _ship(seeded_store, RELEASE)
+        manager.enqueue_trigger(REPO, *SHIP_HINT)
+        started = release_lane.wait_active(5.0)
+        current = current_release(seeded_store.releases())
+        refine_still_running = model_lane.is_active()
+        model_answers.set()
+        asyncio.run(manager.drain_and_stop())
+    assert (
+        closed,
+        delivered is not None and delivered.state,
+        started,
+        current is not None and current.title,
+        refine_still_running,
+    ) == (True, GitHubState.CLOSED, True, "v0.2.27", True)
+
+
+def _schedule(tmp_path: Path) -> dict[str, str]:
+    """The repository's `schedule.json`."""
+    return json.loads((tmp_path / REPO_DIR / "schedule.json").read_text(encoding="utf-8"))
+
+
+def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A model-lane round records intake and refine while a release-lane round is running close,
+    which had read `schedule.json` before them: close's success keeps theirs, and theirs keeps
+    the release lane's earlier ones."""
+    _stamp(tmp_path, reprioritize=HALF_HOUR_AGO, metrics=NOW - timedelta(minutes=5))
+    later = NOW + timedelta(seconds=1)
+
+    def close(**_: Any) -> JobOutcome:
+        model_round = run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={("poll", "", ""): 1},
+            table=_lane(MODEL_LANE_ROWS),
+            data_dir=tmp_path,
+            now=later,
+        )
+        assert model_round == ("intake", "refine")
+        return JobOutcome()
+
+    ran = run_due_jobs(
+        REPO,
+        seeded_store,
+        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
+        table=_lane(RELEASE_LANE_ROWS, close=close),
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    assert (ran, _schedule(tmp_path)) == (
+        ("close",),
+        {
+            "reprioritize": HALF_HOUR_AGO.isoformat(),
+            "metrics": (NOW - timedelta(minutes=5)).isoformat(),
+            "intake": later.isoformat(),
+            "refine": later.isoformat(),
+            "close": NOW.isoformat(),
+        },
+    )
+
+
+def test_a_reprioritize_success_makes_refine_due_at_the_model_lanes_next_poll(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """The release lane records reprioritize's success; the model lane's next poll runs refine,
+    though its hour has not passed, and the poll after that does not, since refine has succeeded
+    since. Before it, nothing is due in the model lane."""
+    _stamp(
+        tmp_path,
+        close=HALF_HOUR_AGO,
+        reprioritize=HALF_HOUR_AGO,
+        metrics=NOW - timedelta(minutes=5),
+        intake=HALF_HOUR_AGO,
+        refine=HALF_HOUR_AGO,
+    )
+
+    def model_poll(at: datetime) -> tuple[str, ...]:
+        return _poll_round(seeded_store, tmp_path, now=at, table=_lane(MODEL_LANE_ROWS))
+
+    before = model_poll(NOW)
+    reprioritized = _poll_round(
+        seeded_store, tmp_path, table=_lane(RELEASE_LANE_ROWS), batch={SHIP_HINT: 1}
+    )
+    after = [model_poll(NOW + timedelta(minutes=minutes)) for minutes in (5, 10)]
+    assert (before, reprioritized, after) == ((), ("reprioritize",), [("refine",), ()])
+
+
+def test_each_lane_updates_only_its_own_clone(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, child_argvs: list[list[str]]
+) -> None:
+    """The release lane's close works in `clone` and the model lane's refine in `model-clone`,
+    each at origin's tip of the release branch. A model-lane round leaves a change a cut is
+    making in `clone` alone, where a checkout of that clone would discard it."""
+    bare = tmp_path / "remote.git"
+    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
+    release_tip = _commit_file(
+        bare, RELEASE_BRANCH, "release\n", parent=_commit_file(bare, "main", "main\n")
+    )
+    data_dir = tmp_path / "data"
+    seen: dict[str, tuple[Path, tuple[str, str]]] = {}
+
+    def record(job: str) -> Callable[..., JobOutcome]:
+        def run_job(*, clone_path: Path | None = None, **_: Any) -> JobOutcome:
+            assert clone_path is not None
+            seen[job] = (clone_path, _clone_head(clone_path))
+            return JobOutcome()
+
+        return run_job
+
+    def lane_round(table: Sequence[JobRow], clone_dirname: str) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
+            table=table,
+            data_dir=data_dir,
+            remote_url=str(bare),
+            now=NOW,
+            clone_dirname=clone_dirname,
+        )
+
+    release_rows = _lane(RELEASE_LANE_ROWS, needs_clone=True, close=record("close"))
+    lane_round(release_rows, CONST_ROADMAP_RUN_CLONE_DIRNAME)
+    cut_in_progress = seen["close"][0] / "f.txt"
+    cut_in_progress.write_text("cut in progress\n")
+    model_rows = _lane(MODEL_LANE_ROWS, needs_clone=True, refine=record("refine"))
+    lane_round(model_rows, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
+    repo_dir = data_dir / REPO_DIR
+    assert (seen, cut_in_progress.read_text()) == (
+        {
+            "close": (repo_dir / "clone", (release_tip, RELEASE_BRANCH)),
+            "refine": (repo_dir / "model-clone", (release_tip, RELEASE_BRANCH)),
+        },
+        "cut in progress\n",
+    )

@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, NamedTuple, NoReturn
@@ -52,7 +52,7 @@ from devops_cli.exceptions import (
     ReleaseWorkingTreeDirtyError,
 )
 from devops_cli.exceptions.validation import ValidationError
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.release.changelog_fragments import (
     changelog_heading_anchor,
     collect_changelog_fragments,
@@ -824,6 +824,10 @@ def release_prepare(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Bump version across pyproject.toml and source, update changelog, and sync docs."""
     clean_version = version.lstrip("v").strip()
@@ -835,7 +839,7 @@ def release_prepare(
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     collection = _plan_changelog_or_exit(repo_root, clean_version, today, update_changelog)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release prepare",
             action="prepare_release_version",
@@ -1315,6 +1319,20 @@ def _execute_release_pr(pr_cmd: list[str], repo_root: Path) -> None:
     raise ReleasePRCreationError(msg, details={"command": pr_cmd, "error": err})
 
 
+def _cut_changelog_missing(version: str, missing_fragments: Sequence[int]) -> str:
+    """Why the cut stops with no entries for `version`, naming the items with no fragment when
+    the caller knows them, else where to find them."""
+    texts = ERRORS.release
+    missing = (
+        texts.cut_changelog_missing_items.format(
+            items=", ".join(f"#{number}" for number in missing_fragments)
+        )
+        if missing_fragments
+        else texts.cut_changelog_missing_plan
+    )
+    return texts.cut_changelog_missing.format(version=version, missing=missing)
+
+
 def cut_release(
     version: str | None = None,
     base: str = CONST_GIT_MAIN_BRANCH,
@@ -1326,11 +1344,21 @@ def cut_release(
     is_prepare: bool = False,
     repo_root: Path | None = None,
     edits: Callable[[Path], None] | None = None,
+    missing_fragments: Sequence[int] = (),
 ) -> None:
     """Execute fail-closed release cut orchestration from origin release branch tip.
 
+    A prepared cut (`is_prepare`) bumps the version and collects the tip's `changelog.d/`
+    fragments into the version's `CHANGELOG.md` section, deleting them, in the cut commit, so
+    `release.yml`'s `devops release check` finds the section (#1450). Every fragment is read
+    before the first write, so a bad one stops the cut with the clone clean. With no fragment,
+    the tip's own section is kept, as a re-cut finds it; with neither, the cut stops before it
+    pushes.
+
     `edits`, when given, runs on the cut branch after the version bump and before the commit,
-    as `devops roadmap close` writes `docs/ROADMAP.md` there (#743).
+    as `devops roadmap close` writes `docs/ROADMAP.md` there (#743). `missing_fragments`, the
+    completed items the caller's plan found with no fragment, are named when the cut stops for
+    want of entries, since the roadmap Service logs that error and no plan.
     """
     root = _get_project_root(repo_root)
     target_ver = _validate_release_version(version, root)
@@ -1363,7 +1391,19 @@ def cut_release(
     _checkout_cut_branch(root, cut_branch, remote_ref)
 
     if is_prepare:
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        collection = _plan_fragment_collection(root, target_ver, today)
+        if collection is None and not _extract_changelog_notes(root, target_ver):
+            raise ValidationError(
+                _cut_changelog_missing(target_ver, missing_fragments), field="changelog"
+            )
         _apply_cut_modifications(root, target_ver, sync_docs=sync_docs)
+        if collection is not None:
+            _write_version_changelog(root, target_ver, today, collection)
+            _get("print_info")(
+                MESSAGES.release.updated_changelog.format(version=target_ver, date=today),
+                prefix=False,
+            )
         if edits is not None:
             edits(root)
     else:
@@ -1595,6 +1635,10 @@ def release_notes(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Print markdown release notes for a specified or current release version.
 
@@ -1620,7 +1664,7 @@ def release_notes(
         print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release notes",
             action="extract_release_notes",
@@ -1691,6 +1735,10 @@ def release_sync_notes(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Republish GitHub release descriptions from CHANGELOG.md.
 
@@ -1709,8 +1757,11 @@ def release_sync_notes(
         _get("print_error")("Cannot resolve target repository.")
         raise typer.Exit(1)
 
+    active_dry_run = dry_run or is_dry_run()
     if all_releases:
-        tags = list_published_releases(target_repo)
+        tags = (
+            ["<all published releases>"] if active_dry_run else list_published_releases(target_repo)
+        )
     else:
         target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
         if not target_ver:
@@ -1718,16 +1769,16 @@ def release_sync_notes(
             raise typer.Exit(1)
         tags = [f"v{target_ver}"]
 
-    dry_run = is_dry_run()
-    if dry_run:
+    if active_dry_run:
         render_dry_run_result(
             command="devops release sync-notes",
             action="republish_release_notes",
             details={"repo": target_repo, "releases": ", ".join(tags)},
         )
+        return
 
     for tag in tags:
-        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, dry_run))
+        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, False))
 
 
 # =============================================================================
@@ -1757,6 +1808,10 @@ def release_changelog(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Compile and generate changelog entries from git commits or PR deliverables."""
     from devops_cli.output import (
@@ -1779,7 +1834,7 @@ def release_changelog(
         or f"### Changes in v{target_ver}\n\n* Release v{target_ver}"
     )
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release changelog",
             action="compile_release_changelog",
@@ -1876,6 +1931,10 @@ def release_tag(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Create release commit and annotated git tag."""
     repo_root = _get_project_root(root)
@@ -1885,7 +1944,7 @@ def release_tag(
     release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
     tag_msg = message or release_title
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release tag",
             action="create_annotated_git_tag",

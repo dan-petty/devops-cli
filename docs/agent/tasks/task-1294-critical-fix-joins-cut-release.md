@@ -6,6 +6,8 @@
 **Priority**: priority/p1-high
 **Scope**: type/bug, scope/release, priority/p1-high
 
+> **Superseded in part by #1514.** An admitted fix descopes an item only once it takes the cut release over its limit, `release_cap + release_slots`, not its cap. `test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_unstarted_item` is now `test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranked_unstarted_item`.
+
 ## Description
 
 On 2026-10-07 `devops roadmap reprioritize` moved #1290, a P0 fix for a regression v0.2.28 itself introduced, out of cut v0.2.28 with "v0.2.28 is cut, so nothing joins it until its release pull request is closed; a critical fix goes first into the next release". One row did it: `(CUT, FIX_JOINED) -> TO_NEXT`. Intake asks the same table, so it placed such a fix in the next release too. The owner wants the release branch to hold every change before the release pull request merges.
@@ -27,7 +29,7 @@ On 2026-10-07 `devops roadmap reprioritize` moved #1290, a P0 fix for a regressi
 - [x] Tests run through the in-memory store and the lifecycle machine, with no network. Each new or changed test's call phase is under 1 s; the slowest, the intake case with the release pull request open, took 0.51 s (`--durations`, run serially).
 - [x] `changelog.d/1294.md` records the change; `CHANGELOG.md` and `docs/ROADMAP.md` are untouched.
 - Pending a person: after the Service runs a release image with this fix, the next time a critical fix is filed while a release pull request is open, run `uv run devops roadmap intake --plan` and `uv run devops roadmap reprioritize --plan`. Both show the fix kept in that release with the "is cut, and a critical fix still joins it" reason, and the reprioritize plan prints "Current release: vX.Y.Z (cut)."
-- Pending a person: before merging a release pull request that took a late critical fix, run `uv run devops gh milestones status <version>` and see no open item; then collect the fix's `changelog.d/<issue>.md` into the version's `CHANGELOG.md` section with a `chore/open-vX.Y.Z-collate-<issue>` pull request into `release/vX.Y.Z`. If the release pull request merged while the fix was still open, set the fix's milestone to the next release and run `uv run devops pr edit <pr> --base release/vNEXT`.
+- Pending a person: before merging a release pull request that took a late critical fix, run `uv run devops gh milestones status <version>` and see no open item; then collect the fix's `changelog.d/<issue>.md` into the version's `CHANGELOG.md` section with a `chore/open-vX.Y.Z-collate-<issue>` pull request into `release/vX.Y.Z`. The collate step is superseded by [#1450](https://github.com/dan-petty/devops-cli/issues/1450) (the cut collects): the fix edits the version's section in its own pull request. If the release pull request merged while the fix was still open, set the fix's milestone to the next release and run `uv run devops pr edit <pr> --base release/vNEXT`.
 - No check stops a release pull request from merging while its milestone holds an open item, so a fix still open then stays in the shipped release, whose milestone `release.yml` closes: moved to #1425, which also makes check-readiness refuse a pull request into a release branch whose release pull request has merged.
 
 ## How this composes with #1349
@@ -46,7 +48,7 @@ On 2026-10-07 `devops roadmap reprioritize` moved #1290, a P0 fix for a regressi
 - **The cap binds a cut release.** An admitted fix can descope a cut release's lowest-ranked unstarted item: that item has no change in the release branch, and it would otherwise ship unfinished.
 - **A fix still open when the release pull request merges stays in the shipped release.** Moving it would need a new rule for already-admitted items in `MERGED`, beyond the cut rule. `RELEASE_CYCLE.md` gives a person's recovery step: move the fix to the next release and retarget its pull request. #1425 adds the guard.
 - **No test pins a person's join of another item into a cut release.** The table test pins only the rows this item owns, and criterion 2's tests are intake's placement and the start's pull-in, which are the jobs' own.
-- **The late changelog fragment** is collected the way v0.2.28 collected #1290's (#1293), until #1103 moves the collection to the release merge. The automatic cut does not collect fragments.
+- **The late changelog fragment** is collected the way v0.2.28 collected #1290's (#1293), until #1103 moves the collection to the release merge. The automatic cut does not collect fragments. Superseded by [#1450](https://github.com/dan-petty/devops-cli/issues/1450) (the cut collects).
 - **The release pull request's description** still goes stale when a fix lands; #1346 regenerates it.
 - **No `is_due` change.** The merge changes no decision about an item already admitted, and a fix filed after it triggers a run by itself.
 

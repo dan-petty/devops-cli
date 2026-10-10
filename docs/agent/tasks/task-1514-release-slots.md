@@ -1,0 +1,37 @@
+# Task: A release keeps 4 slots above its cap of 12, so a start still fills to 12 and nothing is trimmed or descoped until it holds more than 16 (#1514)
+
+**Issue**: [#1514](https://github.com/dan-petty/devops-cli/issues/1514)
+**Status**: Done
+**Milestone**: v0.2.33
+**Priority**: priority/p1-high
+**Scope**: type/feature, scope/roadmap, priority/p1-high
+**Feasibility**: Confirmed against origin/release/v0.2.33 (b5ea6ff): `RoadmapConfig` had only `release_cap` (`extra="forbid"`, `roadmap/config.py:40-43`), and `_fill_or_trim` and `_cap_decisions` used it as both the fill target and the limit; `release_slots` is therefore a code default only, since an older Service would refuse the key in `.github/roadmap.toml`.
+
+## Description
+
+A release had one size number, `release_cap` (12): a start filled the release to it and trimmed every item above it, and a critical fix that took a started release over it descoped the release's lowest-ranked unstarted item. So any P0 or P1 item placed in a release that already held 12 pushed another one out. The owner asked (2026-10-09) for 4 slots per release, so that such items join without moving anything else.
+
+- **One setting.** `RoadmapConfig.release_slots` (`DEFAULT_ROADMAP_RELEASE_SLOTS = 4`, `ge=0`) is read from `.github/roadmap.toml`. `RoadmapConfig.release_limit`, a plain property, is `release_cap + release_slots` (16), so `extra="forbid"` still rejects a `release_limit` key. `release_cap` keeps its meaning: the size a start fills to.
+- **Two thresholds.** `_fill_or_trim` tops a starting release up below the cap, as before, and trims only the items above the limit. `_cap_decisions` descopes for a joining fix only above the limit, and the size check uses the larger of the limit and the size at start. `Event.OVER_CAP`, `Event.OVER_CAP_AT_START`, `Reason.CAP` and `Reason.TRIM` keep their names and values, since a `Pending` mark saves them.
+- **Reasons.** `MESSAGES.roadmap.reasons` take a `{limit}` placeholder: `cap`, `over_size` and `trim` name the limit, and `top_up` still names the cap.
+- **`.github/roadmap.toml`** documents `release_slots = 4` as a comment only. A Service still running the previous version parses the file from the default branch with `extra="forbid"`, so a live key would stop its jobs until the new image rolls out (owner's constraint on the issue, 2026-10-09).
+- **Docs.** The `reprioritize` help, the `roadmap_reprioritize` MCP docstring and the knowledge-base example in `ai/knowledge_base/devops_cli/tasks/github_project_management.md`, the generated `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`, `docs/MCP_TOOLS.md` and the README row, the CONTEXT.md *Reprioritization* entry, and a "Superseded in part by #1514" note in the task files of #740 and #1294.
+- **Overlaps.** #1515 keeps `release_cap` as refine's target and reads no `release_limit`; it shares `config/defaults.py`, `lang/en/help.py` and the generated docs. #882 uses `RoadmapConfig.release_limit` for intake's placements. #1123 edits `_fill_or_trim` and `_cap_decisions` too and rebases onto this. #412 shares hunks in `lang/en/help.py`, `lang/en/messages.py` and `ai/mcp/server.py`, and the generated docs. The proposed `release_cap = 16` bridge edits the same defaults block of `.github/roadmap.toml`. Whichever lands second regenerates the docs after rebasing.
+
+## Acceptance Criteria
+
+- [x] `release_slots` is read from `.github/roadmap.toml` and defaults to 4; a negative value fails with an error naming the key (`test_omitted_keys_take_their_defaults`, `test_every_key_can_be_set`, `test_a_negative_release_slots_fails_and_names_the_key` and `test_a_releases_limit_is_its_cap_plus_its_slots` in `tests/test_roadmap_config.py`).
+- [x] On the in-memory store, a release that starts with 10 items is topped up to 12, one that starts with 14 trims nothing, and one that starts with 17 trims its lowest-ranked unstarted item to the next planned release with a reason naming 16 (`test_a_start_fills_to_the_cap_and_trims_only_above_the_limit[topped-up-to-the-cap]`, `[within-the-limit]` and `[over-the-limit]`). `test_a_starting_release_over_the_cap_is_trimmed_into_the_later_release` trims 20 items to 16, and `test_a_milestone_closed_by_hand_starts_nothing_until_its_release_ships` trims 17 to 16.
+- [x] A critical fix that joins a started release holding 12 or 15 items descopes nothing (`test_a_critical_fix_that_joins_a_release_within_its_limit_descopes_nothing[12]` and `[15]`, which replaces `test_with_ten_items_a_critical_fix_descopes_nothing`). One that takes the release to 17 descopes its lowest-ranked unstarted item (`test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_one`, renamed from `test_with_twelve_unstarted_items_...`, `test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_its_limit`, renamed from `..._over_cap`, and `test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranked_unstarted_item`, renamed from `..._over_its_cap_...`). With nothing unstarted but critical fixes, the fix joins and the release holds 17 (`test_with_sixteen_started_items_a_critical_fix_joins_and_the_release_holds_seventeen`, renamed from `test_with_twelve_started_items_..._holds_thirteen`, and `test_with_fifteen_started_items_and_an_admitted_fix_a_second_fix_joins_without_descoping`, renamed from `test_with_eleven_started_items_...`). The size check descopes above the larger of 16 and the size at start (`test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room`, 17 to 16).
+- [x] The lifecycle machine's size invariant, `size_beyond_the_limit_is_only_critical_fixes` in `tests/test_roadmap_lifecycle_properties.py`, checks against `release_cap + release_slots` (`CAP = 3`, `SLOTS = 1`). Its `start` rule holds up to `LIMIT + 1` items, and the replays that fill a release to make a fix descope fill it to the limit; the room-made sweep still counts (40, 20).
+- [x] A second run with no change writes nothing: the start and fix tests above assert the second run's writes are `[]`.
+- [x] A first run records a release over its limit as it stands, 17 items with no move and no comment (`test_the_first_run_records_the_admitted_set_and_a_second_run_writes_nothing`, which held 16).
+- [x] The stop-at-any-write sweep (`test_a_run_that_stops_at_any_write_is_finished_by_the_next_run`) runs with `release_slots=0`, so its trim and rules scenarios still trim and descope.
+- [x] Tests run through the in-memory store and the lifecycle machine, with no network. Each test's call phase in the three files is under 1 s; the slowest, the lifecycle machine's `runTest`, took 0.65 s (`--durations`, run serially).
+- Pending a person: once the Service runs a release image with this item, remove the `release_cap = 16` bridge from `.github/roadmap.toml` if it is on the default branch, then run `uv run devops roadmap reprioritize --plan` and see no trim or descope for a release holding 13 to 16 items. A later change may set `release_slots` in the file once every Service that reads it runs this version.
+
+## Deliverables
+
+- [x] `src/devops_cli/config/defaults.py`, `src/devops_cli/roadmap/config.py`, `src/devops_cli/roadmap/reprioritize.py`, `src/devops_cli/lang/en/messages.py`.
+- [x] `src/devops_cli/lang/en/help.py`, `src/devops_cli/ai/mcp/server.py`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md` and the generated docs; `.github/roadmap.toml`; CONTEXT.md; the task files of #740 and #1294.
+- [x] `changelog.d/1514.md`.

@@ -40,10 +40,6 @@ AI_TASK_ANALYSIS_PROVIDER = "ai.tasks.analysis.provider"
 AI_TASK_ANALYSIS_MODEL = "ai.tasks.analysis.model"
 AI_TASK_ANALYSIS_REASONING_EFFORT = "ai.tasks.analysis.reasoning_effort"
 AI_TASK_ANALYSIS_OLLAMA_URLS = "ai.tasks.analysis.ollama_urls"
-AI_TASK_VERIFICATION_PROVIDER = "ai.tasks.verification.provider"
-AI_TASK_VERIFICATION_MODEL = "ai.tasks.verification.model"
-AI_TASK_VERIFICATION_REASONING_EFFORT = "ai.tasks.verification.reasoning_effort"
-AI_TASK_VERIFICATION_OLLAMA_URLS = "ai.tasks.verification.ollama_urls"
 AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
 AI_TASK_COMPOSE_REASONING_EFFORT = "ai.tasks.compose.reasoning_effort"
@@ -172,10 +168,6 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_TASK_ANALYSIS_MODEL,
     AI_TASK_ANALYSIS_REASONING_EFFORT,
     AI_TASK_ANALYSIS_OLLAMA_URLS,
-    AI_TASK_VERIFICATION_PROVIDER,
-    AI_TASK_VERIFICATION_MODEL,
-    AI_TASK_VERIFICATION_REASONING_EFFORT,
-    AI_TASK_VERIFICATION_OLLAMA_URLS,
     AI_TASK_COMPOSE_PROVIDER,
     AI_TASK_COMPOSE_MODEL,
     AI_TASK_COMPOSE_REASONING_EFFORT,

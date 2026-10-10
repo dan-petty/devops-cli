@@ -90,9 +90,14 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
 
 
 @dashboards_app.command("list")
-def dashboards_list() -> None:
+def dashboards_list(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """List all dashboards."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops grafana dashboards list",
             action="list_grafana_dashboards",
@@ -179,6 +184,10 @@ def dashboards_import(
     folder_id: Annotated[
         int, typer.Option("--folder-id", help=HELP.grafana.folder_id)
     ] = DEFAULT_GRAFANA_FOLDER_ID,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Import a dashboard from JSON."""
     settings = load_settings()
@@ -206,7 +215,7 @@ def dashboards_import(
         dashboard.pop("id", None)
         dashboard.pop("uid", None)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         title = dashboard.get("title", "<unknown>") if isinstance(dashboard, dict) else "<unknown>"
         render_dry_run_result(
             command="devops grafana dashboards import",
@@ -303,6 +312,10 @@ def dashboards_sync(
         Path | None,
         typer.Option("--dir", "-d", help=HELP.grafana.dashboards_dir),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Sync every dashboard JSON file in a directory to Grafana.
 
@@ -319,7 +332,7 @@ def dashboards_sync(
         print_warning(MESSAGES.grafana.no_json_files.format(path=search_dir), prefix=False)
         return
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops grafana dashboards sync",
             target=str(search_dir),
@@ -399,6 +412,10 @@ def dashboards_lint(
         Path, typer.Argument(help=HELP.grafana.lint_path)
     ] = DEFAULT_GRAFANA_DASHBOARDS_DIR,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Statically check dashboard JSON for layout, query, and binding defects.
 
@@ -410,7 +427,7 @@ def dashboards_lint(
     from devops_cli.output import format_json, write_stdout
 
     target = path.resolve()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops grafana dashboards lint {path}",
             action="lint_grafana_dashboards",

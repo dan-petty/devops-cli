@@ -167,7 +167,7 @@ def ai_main(
 # =============================================================================
 
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
-_AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
+_AI_TASKS = ("chat", "metadata", "analysis", "compose", "embedding")
 
 _AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
@@ -1211,6 +1211,10 @@ def pipeline(
             help=HELP.ai.pipeline_stage_context_tokens,
         ),
     ] = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents import PydanticAgent
@@ -1232,7 +1236,7 @@ def pipeline(
             raise typer.Exit(1)
         valid_personas.append(Persona(name))
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai pipeline",
             target=prompt,
@@ -1888,10 +1892,10 @@ def prompt_eval_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Measure the deterministic suppression layer against recorded review verdicts.
+    """Count the review verdicts the feedback dataset records for one persona's findings.
 
     The counts are reported for each labeller, and a label a deterministic check wrote is left
-    out unless --include-deterministic: scoring the layer against its own labels is circular.
+    out unless --include-deterministic: it is a machine's label, not a person's.
     """
     import json
 
@@ -1921,19 +1925,14 @@ def prompt_eval_cmd(
         return
 
     print_info(
-        f"[bold]Deterministic Layer vs Recorded Verdicts — {res.persona}[/bold] "
-        f"({res.total_cases} records)",
+        f"[bold]Recorded Verdicts — {res.persona}[/bold] ({res.total_cases} records)",
         prefix=False,
     )
     print_table(
         columns=["Metric", "Result"],
         rows=[
             ["Recorded invalidations", str(res.labelled_invalidated)],
-            ["  caught without a model", f"[green]{res.caught_invalidations}[/green]"],
-            ["  catch rate", f"{res.catch_rate:.1%}"],
             ["Recorded verifications", str(res.labelled_verified)],
-            ["  contested by the layer", f"[yellow]{res.contested_verifications}[/yellow]"],
-            ["  contested rate", f"{res.contested_rate:.1%}"],
             *(
                 [f"Excluded: labelled by {labeller}", str(count)]
                 for labeller, count in res.excluded_labels.items()
@@ -1943,19 +1942,13 @@ def prompt_eval_cmd(
     )
     print_table(
         title="By labeller",
-        columns=["Labeller", "Invalidated", "Caught", "Verified", "Contested"],
+        columns=["Labeller", "Invalidated", "Verified"],
         rows=[
             [labeller, *(str(counts[field]) for field in counts)]
             for labeller, counts in res.by_labeller.items()
         ],
         border_style="cyan",
     )
-    if res.contested_verifications:
-        print_info(
-            "A contested record is one the layer suppresses that was recorded as verified. "
-            "Either the layer over-suppresses or that verdict was a false positive; both "
-            "need reading, so they are not netted against the catch rate."
-        )
     announce_run(saved)
 
 

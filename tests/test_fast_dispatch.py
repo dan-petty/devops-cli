@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -70,10 +71,11 @@ def test_set_and_is_dry_run() -> None:
     assert is_dry_run() is False
 
 
-def test_format_command() -> None:
+def test_format_command(tmp_path: Path) -> None:
     cmd = ["git", "status"]
+    repo = tmp_path / "repo"
     assert format_command(cmd) == "git status"
-    assert format_command(cmd, cwd="/tmp/repo") == "(cd /tmp/repo && git status)"
+    assert format_command(cmd, cwd=str(repo)) == f"(cd {repo} && git status)"
 
 
 def test_render_dry_run_result(capsys: pytest.CaptureFixture[str]) -> None:

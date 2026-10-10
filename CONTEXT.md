@@ -17,7 +17,7 @@ The in-repo implementation record of one item, written in the pull request that 
 _Avoid_: task, task item
 
 **Changelog fragment**:
-One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and collected into the release's section of `CHANGELOG.md` by a person before the release's pull request merges; the automatic cut collects none. One left behind, such as a late critical fix's, goes into the next release's section.
+One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and collected into the release's section of `CHANGELOG.md` by the cut commit, which deletes it. A critical fix after the cut writes its entry in that section instead, with no fragment.
 _Avoid_: news fragment, changelog snippet
 
 **Priority**:
@@ -111,7 +111,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Reprioritization**:
-Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
+Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and its limit, its size plus a few slots, so that a late P0 or P1 item joins without moving another out. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
 _Avoid_: guard, governor, scope governor
 
 **Closure**:
@@ -122,6 +122,10 @@ _Avoid_: completion, wrap-up
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker
 
+**Lane**:
+One of the Service's two paths for a repository's jobs, each running one round at a time: the release lane runs closure, reprioritization and the metrics, and the model lane runs intake and refinement, which call the model. Both get every trigger, and a round in one never waits for a round in the other.
+_Avoid_: queue, track, worker
+
 ## Code review
 
 **Finding**:
@@ -129,7 +133,7 @@ A reviewer's claim that something in the code is wrong, with where it is and the
 _Avoid_: issue, alert, problem
 
 **Verdict**:
-The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check, the verifier model, an agent or a person.
+The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check or a person; sessions saved before #1150 also record the verifier model or an agent.
 _Avoid_: status, resolution
 
 **Review session**:
@@ -137,7 +141,7 @@ One review run: what was reviewed, every finding it raised and their verdicts.
 _Avoid_: review run, report
 
 **Known false positive**:
-A kind of finding reviewers keep raising wrongly, recorded once with how to recognize and disprove it.
+A kind of finding reviewers keep raising wrongly, recorded once as a `.devops/review.toml` suppression with its reason and an expiry.
 _Avoid_: common hallucination, hallucination entry
 
 ## Verification

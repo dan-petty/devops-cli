@@ -21,8 +21,10 @@ import io
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
+import tempfile
 import textwrap
 import tokenize
 from pathlib import Path
@@ -39,11 +41,8 @@ from devops_cli.ai.review.classification import (
     build_context_review_prompt,
     classify_file_context,
 )
-from devops_cli.ai.review.criteria_evidence import is_tautological_criterion
 from devops_cli.ai.review.review_environment import validate_criteria_command
-from devops_cli.ai.review.verification import _check_placeholder_advisory_hallucination
 from devops_cli.ai.review_schema import (
-    Finding,
     ReviewResult,
     SavedFinding,
     _review_result_from_dict,
@@ -57,7 +56,6 @@ _SRC = _ROOT / "src" / "devops_cli"
 _AI = _SRC / "ai"
 _TASKS = _AI / "tasks"
 _PERSONAS = _AI / "personas"
-_VERIFIER = "tasks/verify_finding_system.md"
 _MCP_OUTPUT = "tasks/mcp_code_review_output.md"
 _DEVSECOPS = "personas/devsecops/prompt.md"
 _DOCS = "tasks/docs_review_prompt.md"
@@ -88,16 +86,14 @@ _GENERATOR_PROMPTS: tuple[str, ...] = (
     ),
 )
 
-# What `review.md` or the verifier calls a non-defect, and the one prompt that says so. Any other
-# generator prompt that names it either asks for it or restates the exemption, and restated
-# copies drift apart: `config_review_prompt.md` asked reviewers to flag the `http://` that
-# `review.md` and the verifier call intended.
+# What `review.md` calls a non-defect, and the one prompt that says so. Any other generator
+# prompt that names it either asks for it or restates the exemption, and restated copies drift
+# apart: `config_review_prompt.md` asked reviewers to flag the `http://` that `review.md` calls
+# intended.
 _NON_DEFECTS: tuple[tuple[str, str], ...] = (
     ("http://", "tasks/review.md"),
     ("NotImplementedError", "tasks/review.md"),
     ("<masked", "tasks/review.md"),
-    ("default_factory", _VERIFIER),
-    ("os.kill(pid, 0)", _VERIFIER),
 )
 
 # The decisions #951 put into the prompts, one marker each, by the prompt that must carry it.
@@ -130,18 +126,9 @@ _DECISIONS: tuple[tuple[str, str], ...] = (
     ("tasks/docs_review_prompt.md", "Roadmaps, changelogs, task files and decision records"),
     ("tasks/config_review_prompt.md", "A missing setting the workload does not need"),
     ("tasks/config_review_prompt.md", "A pinned version tag is pinned"),
-    (_VERIFIER, "**Verified** needs the defective line"),
-    (_VERIFIER, "the untrusted source and the sink it reaches"),
-    (_VERIFIER, "**Trusted input**"),
-    (_VERIFIER, "makes the claimed failure impossible"),
-    (_VERIFIER, "**Unverified**"),
-    (_VERIFIER, "Dependency advisories come from the scanners"),
-    (_VERIFIER, "sit at a lockfile"),
-    (_VERIFIER, "rests on a CVE or GHSA identifier, against a dependency or against code"),
-    (_VERIFIER, "the value behind a marker is a real secret is about the source, and stands"),
 )
 
-# Security rules that tell a reviewer to require a guard or the verifier to verify a claim. Each
+# Security rules that tell a reviewer to require a guard. Each
 # names the untrusted input it is about: "verify where caller or external strings are stored
 # unbounded" and "verify where path traversal checks run only on populated schema properties"
 # named none, so they verified what the trusted-input rule refutes.
@@ -149,13 +136,10 @@ _SOURCE_BOUND_RULES: tuple[tuple[str, str], ...] = (
     ("tasks/review.md", "**Path containment"),
     ("tasks/review.md", "**Egress and SSRF**"),
     ("tasks/review.md", "**Error detail (CWE-209)**"),
-    (_VERIFIER, "**Unbounded stores**"),
-    (_VERIFIER, "**Exception detail size (CWE-209)**"),
-    (_VERIFIER, "**Validation coverage**"),
 )
 
 # A rule that a test's own defect is a test that cannot fail, and the clause that keeps a real
-# credential or vulnerability in a test file reportable, as section 7 of the verifier says.
+# credential or vulnerability in a test file reportable.
 _TEST_RULE = "cannot fail"
 _TEST_FILE_EXCEPTION = "a real credential or a genuine vulnerability in a test file"
 
@@ -211,7 +195,6 @@ _RECALL_RULES: tuple[tuple[str, str], ...] = (
     (_DEVSECOPS, "A value that reaches no sink you can quote is not a vulnerability"),
     (_DEVSECOPS, "A NetworkPolicy does not publish a port"),
     (_DEVSECOPS, "no NetworkPolicy rule is SSRF"),
-    (_VERIFIER, "a misconfiguration needs the quoted setting and what it exposes"),
 )
 
 # The rules that silenced the persona in session `20261002-205520`, and wording that keeps a known
@@ -227,7 +210,6 @@ _SILENCING_RULES: tuple[tuple[str, str], ...] = (
     (_DEVSECOPS, "document as deliberate"),
     (_DEVSECOPS, "where failing closed matters: authentication"),
     (_CONFIG, "A setting the workload does not need is not a defect"),
-    (_VERIFIER, "A security finding also needs the untrusted source"),
 )
 
 # Each restored class and the highest severity it reports without a quoted worse consequence.
@@ -268,9 +250,11 @@ def _run_documented_script(section: str, argv: list[str]) -> list[str]:
     script = re.search(r"```python\n(.*?)```", section, re.DOTALL)
     assert script is not None
     out = io.StringIO()
-    with patch.object(sys, "argv", argv), contextlib.redirect_stdout(out):
-        code = compile(textwrap.dedent(script.group(1)), "SELF_IMPROVEMENT.md", "exec")
-        exec(code, {"__name__": argv[0]})
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "self_improvement_script.py"
+        path.write_text(textwrap.dedent(script.group(1)), encoding="utf-8")
+        with patch.object(sys, "argv", argv), contextlib.redirect_stdout(out):
+            runpy.run_path(str(path), run_name=argv[0])
     return out.getvalue().splitlines()
 
 
@@ -353,7 +337,7 @@ def test_every_prompt_file_is_loaded_somewhere() -> None:
 
 def test_no_generator_prompt_asks_for_a_non_defect() -> None:
     """Each non-defect is stated by its own prompt and named by no other generator prompt."""
-    texts = {name: _read(name) for name in (*_GENERATOR_PROMPTS, _VERIFIER)}
+    texts = {name: _read(name) for name in _GENERATOR_PROMPTS}
     unstated = [subject for subject, home in _NON_DEFECTS if subject not in texts[home]]
     askers = sorted(
         (subject, name)
@@ -381,38 +365,19 @@ def test_no_prompt_asks_for_an_advisory_id_or_takes_one_as_evidence() -> None:
     )
 
 
-def test_the_placeholder_advisory_verdict_states_the_prompts_policy() -> None:
-    """The deterministic verdict said a dependency claim must cite a real advisory; it need not."""
-    finding = Finding(
-        severity="HIGH",
-        location="pyproject.toml:1",
-        title="Outdated FastAPI",
-        description="Older releases carry unpatched CVEs (e.g., CVE-2023-xxxx).",
-    )
-    result = _check_placeholder_advisory_hallucination(finding)
-    assert result is not None
-    reason = result.invalidation_reason or ""
-
-    assert (result.status, "must cite a real" in reason, "come from the scanners" in reason) == (
-        "INVALIDATED",
-        False,
-        True,
-    )
-
-
 def test_the_prompts_carry_the_threat_model_and_the_evidence_bar() -> None:
     """Dropping one of these lets the class of false finding it stopped come back."""
     assert [(name, marker) for name, marker in _DECISIONS if marker not in _read(name)] == []
 
 
-def test_the_masking_marker_rule_is_stated_once_by_the_reviewer_and_the_verifier() -> None:
-    """The verifier said both that a marker claim is false and that it stands."""
+def test_the_masking_marker_rule_is_stated_once_by_the_reviewer() -> None:
+    """The verifier once said both that a marker claim is false and that it stands."""
     counts = {
         name: sum("<masked" in line for line in _read(name).splitlines())
-        for name in (*_GENERATOR_PROMPTS, _VERIFIER)
+        for name in _GENERATOR_PROMPTS
     }
 
-    assert {name: n for name, n in counts.items() if n} == {"tasks/review.md": 1, _VERIFIER: 1}
+    assert {name: n for name, n in counts.items() if n} == {"tasks/review.md": 1}
 
 
 def test_the_marker_rules_name_only_the_markers_the_sanitizer_emits() -> None:
@@ -427,14 +392,12 @@ def test_the_marker_rules_name_only_the_markers_the_sanitizer_emits() -> None:
     )
     marker = re.compile(r"<masked-[a-z-]+>")
     emitted = {"<masked-kind>", *marker.findall(masked)}
-    rules = {name: _line_with(name, "<masked") for name in ("tasks/review.md", _VERIFIER)}
+    rules = {"tasks/review.md": _line_with("tasks/review.md", "<masked")}
     unknown = {name: sorted(set(marker.findall(line)) - emitted) for name, line in rules.items()}
     other_masks = {
         name: [s for s in re.split(r"(?<=\.) ", line) if "<masked>" in s or "REDACTED" in s]
         for name, line in rules.items()
     }
-    verifier = _read(_VERIFIER)
-
     assert (
         unknown,
         {
@@ -443,32 +406,26 @@ def test_the_marker_rules_name_only_the_markers_the_sanitizer_emits() -> None:
         },
         {name: bool(found) for name, found in other_masks.items()},
         (sorted(emitted), "<masked>" in masked),
-        "Prompt Sanitizer Markers" in verifier,
-        "`masked`" in verifier,
     ) == (
-        {"tasks/review.md": [], _VERIFIER: []},
-        {"tasks/review.md": [], _VERIFIER: []},
-        {"tasks/review.md": True, _VERIFIER: True},
+        {"tasks/review.md": []},
+        {"tasks/review.md": []},
+        {"tasks/review.md": True},
         (["<masked-kind>", "<masked-password>", "<masked-secret>", "<masked-token>"], False),
-        False,
-        False,
     )
 
 
 def test_every_test_rule_keeps_a_real_credential_or_vulnerability_reportable() -> None:
-    """The rules for tests disagreed with the verifier's section 7.
-
-    The verifier said a test is a defect only when it cannot fail, and section 7 that a test can
-    hold a genuine vulnerability; the reviewer called every literal in a test "not a secret".
+    """The rules for tests disagreed: one said a test is a defect only when it cannot fail, and
+    another that a test can hold a genuine vulnerability; the reviewer called every literal in a
+    test "not a secret".
     """
-    texts = {name: _read(name) for name in (*_GENERATOR_PROMPTS, _VERIFIER)}
+    texts = {name: _read(name) for name in _GENERATOR_PROMPTS}
     with_rule = sorted(name for name, text in texts.items() if _TEST_RULE in text)
 
     assert (
         with_rule,
         [name for name in with_rule if _TEST_FILE_EXCEPTION not in texts[name].lower()],
-        "A test, a doc or a config file can hold one" in texts[_VERIFIER],
-    ) == (["tasks/code_review_prompt.md", _VERIFIER], [], True)
+    ) == (["tasks/code_review_prompt.md"], [])
 
 
 def test_security_rules_that_require_a_guard_name_an_untrusted_source() -> None:
@@ -560,31 +517,8 @@ def test_the_masked_signature_counts_only_the_review_tools_markers(tmp_path: Pat
     ) == (1, True, True, False)
 
 
-def test_the_verifier_rates_severity_on_the_reviewers_bands() -> None:
-    """The verifier's severity replaces the reviewer's, and it had no bands of its own.
-
-    Its one verified security example, an untrusted request-body path traversal with every step
-    quoted, said `MEDIUM`, where `review.md`'s bands say `HIGH` or `CRITICAL`. A list of every
-    severity names the choices and anchors none.
-    """
-    band = re.compile(r"^\s*- \*\*(?:CRITICAL|HIGH|MEDIUM|LOW)\*\* — .+$", re.MULTILINE)
-    verifier = _read(_VERIFIER)
-    reviewer_bands = [line.strip() for line in band.findall(_read("tasks/review.md"))]
-    example = re.search(r"```json\n(.*?)```", verifier, re.DOTALL)
-    assert example is not None
-    verified = re.findall(
-        r'"status": "VERIFIED",.*?"severity": ([^\n]+),\n', example.group(1), re.DOTALL
-    )
-
-    assert (
-        len(reviewer_bands),
-        [line.strip() for line in band.findall(verifier)] == reviewer_bands,
-        [sorted(re.findall(r'"(\w+)"', severity)) for severity in verified],
-    ) == (4, True, [["CRITICAL", "HIGH", "LOW", "MEDIUM"]])
-
-
 def test_no_example_reply_anchors_high_severity_or_confidence() -> None:
-    """The reviewer's and the verifier's examples said `"severity": "HIGH"`, the verifier's `0.95`.
+    """The reviewer's examples said `"severity": "HIGH"`, and the verifier's `0.95`.
 
     534 of the session's 903 candidates were CRITICAL or HIGH. A list of every severity
     (`"CRITICAL" | "HIGH" | ...`) names the choices and anchors none.
@@ -595,7 +529,7 @@ def test_no_example_reply_anchors_high_severity_or_confidence() -> None:
     )
     anchors = sorted(
         (name, match.group(0))
-        for name in (*_GENERATOR_PROMPTS, _VERIFIER)
+        for name in _GENERATOR_PROMPTS
         for block in fenced.findall(_read(name))
         for match in anchor.finditer(block)
     )
@@ -641,16 +575,6 @@ def test_the_example_replies_show_executable_criteria() -> None:
         "tasks/compose.md",
         "tasks/review_output_instruction.md",
     ]
-
-
-@pytest.mark.parametrize(("name", "command"), _example_criteria())
-def test_every_example_criterion_can_settle_a_verdict(name: str, command: str) -> None:
-    """An example criterion the executor rejects or never counts teaches criteria that prove
-    nothing: `review_output_instruction.md` and `compose.md` showed `git grep` (#846)."""
-    assert (validate_criteria_command(command)[0], is_tautological_criterion(command)) == (
-        True,
-        False,
-    ), f"{name}: {command}"
 
 
 def test_the_persona_reply_schema_holds_only_what_a_reviewer_writes() -> None:

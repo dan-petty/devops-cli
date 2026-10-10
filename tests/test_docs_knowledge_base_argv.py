@@ -8,7 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
-from devops_cli.docs.command_resolver import (
+from devops_cli.core.command_resolver import (
     ArgvPlaceholder,
     CommandReferenceDefect,
     CommandReferenceFinding,

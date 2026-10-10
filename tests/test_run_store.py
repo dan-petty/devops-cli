@@ -466,12 +466,11 @@ def test_get_run_retrieves_saved_run(tmp_path: Path) -> None:
     ) == (True, record.run_id, True, record.run_id)
 
 
-def test_a_review_setup_names_the_model_and_sampling_that_verified(
+def test_a_review_setup_names_the_analysis_model_and_sampling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify verification is layered on the analysis task as reviews layer it: with
-    `ai.tasks.verification` unset, the setup records the analysis model, its pool alone and its
-    sampling, not the base `ai` model's (#413)."""
+    """Verify the setup records the analysis task's model, its pool alone and its sampling, not
+    the base `ai` model's (#413)."""
     settings = load_settings().model_copy(deep=True)
     settings.ai.provider, settings.ai.model = "gateway", "devops-chat"
     settings.ai.tasks.analysis = AITaskOverride(
@@ -483,19 +482,10 @@ def test_a_review_setup_names_the_model_and_sampling_that_verified(
 
     setup = run_store.review_setup()
 
-    assert (
-        setup["models"]["verification"] == setup["models"]["analysis"],
-        setup["models"]["analysis"],
-        setup["pools"],
-        setup["sampling"],
-    ) == (
-        True,
-        "gateway/devops-coder",
+    assert (setup["models"], setup["pools"], setup["sampling"]) == (
+        {"analysis": "gateway/devops-coder"},
         {"devops-coder": pool},
-        {
-            "analysis": {"temperature": 0.3, "top_p": 0.8},
-            "verification": {"temperature": 0.3, "top_p": 0.8},
-        },
+        {"analysis": {"temperature": 0.3, "top_p": 0.8}},
     )
 
 

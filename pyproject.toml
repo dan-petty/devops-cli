@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.32"
+version = "0.2.33"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -207,7 +207,6 @@ pytest_add_cli_args_test_selection = [
     "--ignore=tests/test_docs_source_argv_collector.py",
     "--ignore=tests/test_ai_task_loader.py",
     "--deselect=tests/test_output.py::test_rich_imports_confined_to_output_submodule",
-    "--deselect=tests/test_review_verification.py::test_check_missing_header_hallucination_requires_assignment_and_dispatch",
     # The caller it records is mutmut's trampoline, generated code between the test and the span.
     "--deselect=tests/test_telemetry.py::test_span_caller_location_and_runtime_attributes",
     # git tracking of the checkout

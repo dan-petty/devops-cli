@@ -9,8 +9,14 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 **Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
 
 ```bash
-devops telemetry status
+devops telemetry status [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -63,6 +69,7 @@ devops telemetry test [OPTIONS]
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
 | `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -121,5 +128,6 @@ devops telemetry semconv refresh [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--commit` | `string` | - | Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

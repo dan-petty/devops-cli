@@ -9,176 +9,132 @@ This document defines the architecture, operational workflows, and engineering c
 This section describes the review and self-improvement loop as the code runs it. Each statement
 names the file and line that does what it says, as `path:line`. Lines move as the code changes,
 so read an anchor as the place to start looking. Paths under `src/devops_cli/` are written from
-there: `ai/review/pipeline.py:2832` is `src/devops_cli/ai/review/pipeline.py`, line 2832.
+there: `ai/review/pipeline.py:2842` is `src/devops_cli/ai/review/pipeline.py`, line 2832.
 
-The review is to be redesigned so that tools originate findings and models only explain them; an
-ADR in a later release will record that design, and until it lands the personas and the verifier
-below are what runs.
+The review is being redesigned so that findings come from tools and checked facts, and models
+only explain and plan ([ADR 0005](adr/0005-review-findings-come-from-tools-not-models.md)). #1150
+deleted the model
+verifier, the hallucination catalog, the model-claim guards and the mitigations ledger; until the
+persona stage goes too, persona findings are reported unverified.
 
 ```mermaid
 flowchart TD
     A["devops review path / branch / pr"] --> B["1. Pre-analysis"]
-    B --> C["2. Payloads: static scanners, dependencies, network references"]
+    B --> C["2. Payloads: static scanners and their admission, dependencies, network references"]
     C --> D["3. Persona review: devsecops, or the personas named"]
-    D --> E["4. Verification: deterministic checks, criteria, verifier model, rule filter"]
-    E --> F["5. Re-ranking"]
-    F --> G["6. Report: findings.json, candidates.json, review.md, profile.json"]
-    G --> H["devops review verify: a person's or an agent's verdict"]
-    H -- "a person's INVALIDATED" --> I["Learned catalog: one claim about one piece of code"]
-    H -- "a person's MITIGATED" --> J["Mitigations ledger"]
-    H -- "a person's verdict" --> K["Review history"]
-    I -- "suppresses the claim" --> E
-    I -- "shown to the personas" --> D
-    J --> L["Perimeter warnings: branch and PR reviews, devops pr check-readiness"]
+    D --> F["4. Re-ranking"]
+    F --> G["5. Report: findings.json, candidates.json, review.md, profile.json"]
+    G --> H["devops review verify: a person's verdict"]
+    H --> K["Review history"]
     K --> M["devops review stats, the report's category baseline"]
     H --> N["devops review export-feedback"]
     N --> O["feedback_dataset.jsonl"]
     O --> P["devops ai prompt-eval"]
+    S[".devops/review.toml: suppressions, severity caps"] --> C
+    S --> L["Suppression warnings: branch and PR reviews, devops pr check-readiness"]
 ```
 
 ### A Review
 
-`devops review path`, `branch` and `pr` (`commands/review.py:190`, `:414`, `:624`) all run
-`_execute_review_workflow` (`ai/review/runner.py:2262`). The analysis client is always an
-`LLMClient` (`ai/review/runner.py:1577-1612`), so every review takes the staged path
-(`ai/review/runner.py:2320`), under a profiler, through six stages
-(`ai/review/runner.py:2115-2193`):
+`devops review path`, `branch` and `pr` (`commands/review.py:196`, `:417`, `:734`) all run
+`_execute_review_workflow` (`ai/review/runner.py:2142`). The analysis client is always an
+`LLMClient` (`ai/review/runner.py:1460-1483`), so every review takes the staged path
+(`ai/review/runner.py:2215`), under a profiler, through five stages
+(`ai/review/runner.py:2009-2070`):
 
-1. **Pre-analysis** (`ai/review/pipeline.py:1903`) refreshes each file's metadata: its purpose,
+1. **Pre-analysis** (`ai/review/pipeline.py:2335`) refreshes each file's metadata: its purpose,
    symbols and dependencies, and for a branch or pull request the symbols the diff removed
-   (`ai/review/runner.py:2284-2285`).
-2. **Payloads** (`ai/review/pipeline.py:2460`) run the static scanners over the files
-   (`ai/review/pipeline.py:2011`: Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep), extract
-   dependencies and network references, and look up their advisories and reputations
-   (`ai/review/pipeline.py:2113`, `:2210`).
-3. **Persona review** (`ai/review/pipeline.py:2832`). The DevSecOps persona reviews alone, unless
+   (`ai/review/pipeline.py:1215`).
+2. **Payloads** (`ai/review/pipeline.py:2948`) run the static scanners over the files
+   (`ai/review/pipeline.py:1263`: Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep) and admit
+   each candidate (`ai/review/pipeline.py:586-655`): its location must be in the reviewed tree, a
+   `[[suppressions]]` entry of `.devops/review.toml` read where the diff starts suppresses it, and
+   its path class's `[severity_caps]` entry caps its severity unless a secret scanner reported it,
+   Gitleaks or Trivy's secret results (`ai/review/pipeline.py:578-583`, `:640`,
+   `ai/review/pipeline.py:2269`). They extract
+   dependencies and network references, and look up their advisories and reputations.
+3. **Persona review** (`ai/review/pipeline.py:3332`). The DevSecOps persona reviews alone, unless
    `--persona` names another or `--all` adds architect, qa, auditor and pm
-   (`ai/review/runner.py:133-137`). The sixth persona, challenger, runs only when `--persona`
+   (`ai/review/runner.py:115-126`). The sixth persona, challenger, runs only when `--persona`
    names it (`ai/personas/__init__.py:18-24`). The CLI always passes that list, so the defaults by
-   kind of file (`ai/review/classification.py:268`) are never used
-   (`ai/review/pipeline.py:2779-2783`). A persona's system prompt is its `role.md`,
-   `tasks/review.md` and its `prompt.md` (`ai/personas/__init__.py:74`), then the target's
-   conventions: the opening 3,000 characters of the nearest `AGENTS.md` or its peers and up to
-   8,000 of `.devops/review.md` (`ai/review/pipeline.py:2534-2572`). Next come up to eight claims
-   a person disproved in this project, or the first eight builtin catalog entries when there are
-   none (`ai/review/classification.py:59`, `ai/review/common_hallucinations.py:1032-1064`), and
-   `ai/tasks/guardrails_isolation.md` closes the system prompt (`ai/review/classification.py:35`,
-   `:61`, `:72`).
+   kind of file (`ai/review/classification.py:258`) are never used. A persona's system prompt is
+   its `role.md`, `tasks/review.md` and its `prompt.md` (`ai/personas/__init__.py:74`), then the
+   target's conventions: the opening 3,000 characters of the nearest `AGENTS.md` or its peers and
+   up to 8,000 of `.devops/review.md` (`ai/review/pipeline.py:3034`), and
+   `ai/tasks/guardrails_isolation.md` closes it (`ai/review/classification.py:35`, `:48-62`).
    Every persona reads every page of the file, with the prompt for its kind (code, configuration
-   or documentation; `ai/review/classification.py:32-34`, `:319`), up to three chunks the RAG
-   index returns for the file's path and symbols when RAG is enabled
-   (`ai/review/pipeline.py:1484`), and the contracts of the libraries a Python file imports
-   (`ai/review/pipeline.py:1491-1509`). Findings of one file that report one defect are merged
-   (`ai/review/pipeline.py:2729`).
-4. **Verification** (`ai/review/pipeline.py:3135`) judges each file's findings
-   (`ai/review/verification.py:2686`) in this order:
-   - Deterministic checks (`ai/review/verification.py:1641`); the first that fires gives the
-     verdict. On the finding's own text (`ai/review/verification.py:1528-1555`): identical
-     observed and expected values, conversational or complimentary text, keyword rules, an
-     advisory id written as a placeholder, and an advisory claim against a dependency this
-     session's scan reports clean. An advisory id no scanned dependency carries is removed from
-     the references, and a finding left with none is INVALIDATED
-     (`ai/review/verification.py:659`). On the cited file: a claim a person already judged
-     INVALIDATED (`ai/review/verification.py:1580`); syntax, symbol, runtime-floor, header and
-     `None`-dereference checks, the last by a `mypy --strict` probe
-     (`ai/review/verification.py:1472`, `:1434`); whether the cited lines hold the construct
-     the finding names (`ai/review/verification.py:1617`); and the builtin catalog
-     (`ai/review/verification.py:1490`).
-   - The finding's own criteria (`ai/review/review_environment.py:569`). A passing invalidation
-     criterion that runs the cited code and checks the outcome settles INVALIDATED; criteria never
-     settle VERIFIED (`ai/review/review_environment.py:489-509`,
-     `ai/review/criteria_evidence.py:1-33`).
-   - The verifier model, asked only about the findings still without a verdict, with
-     `verify_finding_system.md` and `verify_finding.md` (`ai/review/verification.py:90-91`,
-     `:2711-2748`). A reply cut at its token cap, or one that does not parse, leaves its findings
-     UNVERIFIED with a note (`ai/review/verification.py:2737-2745`).
-   - A rule filter the code calls an adversarial debate (`ai/review/stages/adversarial_debate.py`,
-     called at `ai/review/pipeline.py:3263`): two keyword rules, one for `httpx2` advisories and
-     one for "unverified stylistic". It calls no model and runs no persona.
-5. **Re-ranking** (`ai/review/pipeline.py:3266-3325`) marks each file that has a reportable
-   finding not INVALIDATED and counts those findings (`ai/review/pipeline.py:3268-3272`). It
-   changes no finding and reorders nothing; the report sorts.
-6. **Report** (`ai/review/pipeline.py:4072`). Each severity is capped by its evidence
-   (`ai/review/calibration.py:1-17`, `ai/review/pipeline.py:4107`), the code each finding cites is
-   recorded on it (`ai/review/pipeline.py:4121`), and the session's directory,
-   `<data dir>/reviews/<UTC timestamp>/` (`ai/review/pipeline.py:1806`, `:1824-1826`), receives:
+   or documentation; `ai/review/classification.py:309`), up to three chunks the RAG index returns
+   for the file's path and symbols when RAG is enabled (`ai/review/pipeline.py:1743-1763`), and the
+   contracts of the libraries a Python file imports. Findings of one file that report one defect
+   are merged (`ai/review/pipeline.py:3229`).
+4. **Re-ranking** (`ai/review/pipeline.py:3485-3505`) marks each file that has a reportable
+   finding not INVALIDATED and counts those findings. It changes no finding and reorders nothing;
+   the report sorts.
+5. **Report** (`ai/review/pipeline.py:4356`). The session's directory,
+   `<data dir>/reviews/<UTC timestamp>/` (`ai/review/pipeline.py:902`), receives:
    - `findings.json`, the reported findings: VERIFIED, MITIGATED and UNVERIFIED, never INVALIDATED
-     (`ai/review/pipeline.py:3327-3336`, `:4134`);
-   - `candidates.json`, every finding the review raised with its verdict, INVALIDATED included
-     (`ai/review/pipeline.py:4137-4145`);
-   - `review.md` (`ai/review/pipeline.py:4162`) and `profile.json` (`ai/review/runner.py:2074`).
+     (`ai/review/pipeline.py:3546`, `:4412`);
+   - `candidates.json`, every finding the review raised with its verdict
+     (`ai/review/pipeline.py:4420`);
+   - `review.md` (`ai/review/pipeline.py:4471`) and `profile.json`.
 
-An UNVERIFIED finding is reported. A finding's `confidence_score` comes from the verifier model or
-a deterministic check; nothing compares the personas or counts their agreement.
+No model and no criterion gives a finding its verdict: a persona's finding is reported UNVERIFIED
+until a person judges it, and `--no-persona-review` gives a tools-only review. Nothing compares the
+personas or counts their agreement.
 
 ### Verdicts
 
-`devops review verify` records a verdict and runs nothing (`commands/review.py:1069-1160`). It
+`devops review verify` records a person's verdict and runs nothing (`commands/review.py:1162`). It
 names one finding: `--index` takes the number `devops review findings` shows, its place in
 `findings.json` whatever filter the list applied, and `--candidate` the number
 `devops review findings --candidates` shows. A candidate given VERIFIED or MITIGATED moves into
 `findings.json`, and a verdict on either copy is recorded on both
-(`ai/review/adjudication.py:248-309`). `--adjudicator` says who gave it: `human`, the default, or
-`agent` (`ai/review/verdicts.py:44-52`), which the MCP `verify_finding` tool always sends
-(`ai/mcp/server.py:200-222`). An agent's verdict never replaces a person's
-(`ai/review/adjudication.py:340-347`).
+(`ai/review/adjudication.py:138-178`). Every verdict records `verified_by="human"`; no command or
+MCP tool takes an agent's verdict.
 
 ### What a Verdict Teaches
 
-Only a person's verdict teaches anything (`ai/review/adjudication.py:311-337`, `:462-490`). An
-agent's changes the finding's status and nothing else.
+A verdict is a label on its session's files (`ai/review/adjudication.py:1-17`); it teaches later
+reviews nothing. It ranks its session in review history: of the sessions that reviewed one
+subject, history counts the one with the most of a person's verdicts, the machine's breaking a tie
+(`ai/review/history.py:133`). `devops review stats` (`commands/review.py:1332`) and the report's
+category baseline (`ai/review/category_metrics.py`) read that history; an agent's verdict that a
+session saved before #1150 holds counts in neither tier.
 
-- **INVALIDATED** records the claim it disproved in the learned catalog
-  (`ai/review/common_hallucinations.py:938-959`). Later reviews of the same project invalidate the
-  same claim about the same code as `deterministic:person_verdict` before any model is asked
-  (`ai/review/verification.py:1580-1599`), and show it to the personas
-  (`ai/review/common_hallucinations.py:1032-1064`). Section 5.7 gives the match.
-- **MITIGATED** records the mechanism, its perimeter files and its regression test in the
-  mitigations ledger (`ai/review/mitigations.py:103`). The ledger suppresses nothing: branch and PR
-  reviews and `devops pr check-readiness` warn when a change touches a perimeter file
-  (`ai/review/runner.py:2245-2259`, `commands/pr.py:1483-1497`).
-- **Every verdict a person gives** ranks its session in review history: of the sessions that
-  reviewed one subject, history counts the one with the most of them, the machine's verdicts
-  breaking a tie (`ai/review/history.py:1-17`). `devops review stats`
-  (`commands/review.py:1256-1300`) and the report's category baseline
-  (`ai/review/category_metrics.py:94-97`) read that history.
-
-A later verdict withdraws what earlier verdicts recorded that it no longer stands behind
-(`ai/review/adjudication.py:1-25`). The review teaches the learned catalog nothing of its own
-(`ai/review/common_hallucinations.py:1-12`), and the builtin catalog,
-`ai/review/common_hallucinations.json`, changes only through a commit.
+A false positive that recurs is prevented by a commit: a `[[suppressions]]` entry in
+`.devops/review.toml` with a rule, a path, a reason and an expiry, the tool's own configuration or
+a rule-pack rule. A suppression's `path` is the code its reason holds for, so a branch or pull
+request review, and `devops pr check-readiness`, list the unexpired suppressions whose path the
+change touches (`review/suppression.py:95-125`, `ai/review/runner.py:2123`,
+`commands/pr.py:1415`).
 
 ### The Feedback Dataset
 
-`devops review export-feedback` (`commands/review.py:2317`) appends to one JSONL file,
-`.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`; `config/defaults.py:40`,
-`ai/review/exporter.py:181-199`), each verdict in `findings.json` and `candidates.json` that the
-file does not hold yet (`ai/review/exporter.py:202-231`). Without `--status` it exports the
-INVALIDATED verdicts only (`commands/review.py:2334`); `--status ALL` exports every verdict. A
-record's `verified_by` names its labeller, and only a person's verdict is labelled `human`
-(`ai/review/exporter.py:61-63`).
+`devops review export-feedback` (`commands/review.py:2526`) appends to one JSONL file,
+`.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`; `ai/review/exporter.py`), each
+verdict in `findings.json` and `candidates.json` that the file does not hold yet. Without
+`--status` it exports the INVALIDATED verdicts only; `--status ALL` exports every verdict. A
+record's `verified_by` names its labeller, and only a person's verdict is labelled `human`.
 
-One command reads the dataset: `devops ai prompt-eval` (`commands/ai.py:1824`,
-`ai/prompt_eval.py:111`). It replays the deterministic checks over the recorded verdicts and
-reports, per labeller, how many recorded invalidations they catch and how many recorded
-verifications they contest (`ai/prompt_eval.py:1-20`). Nothing indexes the dataset for RAG and no
-prompt is built from it: a prompt changes when someone edits a file under `ai/tasks/` or
-`ai/personas/`, which each review's `prompt_digest` records (`ai/personas/__init__.py:80-97`).
+One command reads the dataset: `devops ai prompt-eval` (`commands/ai.py:1868`,
+`ai/prompt_eval.py:104`). It counts the recorded INVALIDATED and VERIFIED verdicts of one persona's
+findings, per labeller; the deterministic layer it once replayed is gone. Nothing indexes the
+dataset for RAG and no prompt is built from it: a prompt changes when someone edits a file under
+`ai/tasks/` or `ai/personas/`, which each review's `prompt_digest` records
+(`ai/personas/__init__.py:80-97`).
 
 ### Where the Loop Keeps Its Data
 
 | Data | Default path | Written by | Read by |
 | :--- | :--- | :--- | :--- |
-| Review sessions | `.data/reviews/<session>/` | each review | `devops review findings`, `verify`, `stats`, `score`, `export-feedback`, `corpus score` |
-| Learned catalog | `.data/common_hallucinations.json` | a person's INVALIDATED verdict | every review |
-| Mitigations ledger | `.data/mitigated_findings.json` | a person's MITIGATED verdict | branch and PR reviews, `devops pr check-readiness` |
+| Review sessions | `.data/reviews/<session>/` | each review, and `devops review verify` | `devops review findings`, `verify`, `stats`, `score`, `export-feedback`, `corpus score` |
+| Suppressions and severity caps | `.devops/review.toml` | a reviewed commit | every review; `devops pr check-readiness` |
 | Feedback dataset | `.data/feedback_dataset.jsonl` | `devops review export-feedback` | `devops ai prompt-eval` |
 
-A relative path resolves under the main worktree in devops-cli's own repository, and under
-`~/.local/share/devops-cli` anywhere else (`core/repo.py:286-303`). `DEVOPS_CLI_DATA_DIR` moves
-all four (`config/settings.py:762-764`, `:781-799`, `ai/review/review_environment.py:185-187`,
-`ai/review/common_hallucinations.py:173-178`): a review run with it set keeps its own sessions,
-catalog, ledger and dataset, and a verdict given there reaches no review run without it.
+A relative data path resolves under the main worktree in devops-cli's own repository, and under
+`~/.local/share/devops-cli` anywhere else (`core/repo.py`). `DEVOPS_CLI_DATA_DIR` moves the
+sessions and the dataset; `.devops/review.toml` is read from the reviewed repository, at the
+revision a branch or pull request diff starts from.
 
 ### What the Loop Does Not Do
 
@@ -186,20 +142,12 @@ These documents said otherwise once; the code does none of it.
 
 - There is no `performance` or `sre` persona, and a review is no ensemble by default.
 - `tasks/review.md` has four steps (ground, inspect, falsify, formulate), not five phases.
-- `devops review verify` verifies nothing; it records the verdict it is given.
-- A review's own checks teach the learned catalog nothing, and an agent's verdict teaches nothing.
-- A persona does not look the catalog up. It is shown up to eight entries, and the deterministic
-  checks of verification match the builtin ones.
+- `devops review verify` verifies nothing; it records the verdict a person gives.
+- No model, criterion or keyword rule gives a finding a verdict, and no verdict teaches a later
+  review: there is no learned catalog and no mitigations ledger.
 - The feedback dataset reaches no RAG index and no prompt.
 - `review_output_instruction.md` and `--summary` belong to a path no CLI review takes: it runs
-  only when the analysis client is not an `LLMClient` (`ai/review/runner.py:2320-2368`).
-- The shared prompts under `ai/tasks/` and `ai/personas/` hold no project's facts since #951, but
-  the code still applies some of devops-cli's to every project: the rule filter names `httpx2`
-  (`ai/review/stages/adversarial_debate.py`), three keyword checks treat localhost defaults,
-  `os.kill(pid, 0)` and flag renames as settled, the last because devops-cli is pre-1.0
-  (`ai/review/verification.py:1116-1168`), and builtin catalog entries such as
-  `HALLUCINATION-HTTPX2-DEPENDENCY` describe devops-cli, which a project with no judged claims is
-  shown among the first eight.
+  only when the analysis client is not an `LLMClient` (`ai/review/runner.py:2215`).
 
 ### Deterministic Mechanical Oracles & Closed-Loop Feedback Inversion
 
@@ -229,7 +177,7 @@ follow those steps, and the calibration records under step 3 are what each sessi
 ### 1. Ground the Review in the Target
 
 - Judge against universal standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target's own conventions (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`); one project's rules are never imposed on another (`ai/tasks/review.md:7`).
-- Lockfiles record exact versions. Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory (`ai/tasks/review.md:8`), and verification removes any advisory id this session's scan does not carry (section 1).
+- Lockfiles record exact versions. Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory (`ai/tasks/review.md:8`).
 - Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Roadmaps, changelogs, task files and decision records get no findings.
 - The threat model is the project's when its conventions state one. Otherwise `review.md` gives every persona a default (`ai/tasks/review.md:36`), and the DevSecOps persona states its own (`ai/personas/devsecops/prompt.md:1-5`): network and fetched content, model output, PR and issue text, repositories under review, Kubernetes and cloud API data, server requests and MCP or tool-call arguments are untrusted; the operator, their config, environment and arguments, and values the code builds are trusted. A vulnerability is a path the reviewer can quote: the untrusted source, the sink and the missing check between them. When it cannot quote them, it returns no finding.
 
@@ -241,9 +189,9 @@ follow those steps, and the calibration records under step 3 are what each sessi
 ### 3. Falsify Before Reporting
 
 - Search for what disproves the defect: surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, caller constraints. Report only what can be seen; when showing the defect needs code the reviewer was not given, there is no finding (`ai/tasks/review.md:25-31`).
-- A persona does not look the hallucination catalog up. Its prompt shows up to eight claims a person disproved in reviews of this project, or the first eight builtin entries when there are none (section 1), and verification matches the builtin catalog deterministically (`ai/review/verification.py:1490`).
+- A persona sees no catalog of disproved claims. A false positive that recurs is a `.devops/review.toml` suppression with a reason and an expiry (section 1).
 - Dismiss theoretical or already-mitigated alerts; prioritize high-signal, reproducible flaws.
-- **Prefer the cheapest mechanical oracle over model judgement.** Before a finding is put to the model verifier, ask which existing tool already decides it. A claim of a `None` dereference is decided by `mypy --strict`; a claim of invalid syntax by the parser; a claim that a symbol is missing by reading the module. A verifier asked to confirm something a tool has already disproved will sometimes confirm it.
+- **Prefer the cheapest mechanical oracle over model judgement.** Before a finding is reported, ask which existing tool already decides it. A claim of a `None` dereference is decided by `mypy --strict`; a claim of invalid syntax by the parser; a claim that a symbol is missing by reading the module. A model asked to confirm something a tool has already disproved will sometimes confirm it.
 - **A finding describes the code as it is now.** Claims that a guard was "removed", "no longer present", or "dropped" must be confirmed against the current file. An assertion about an earlier state, remembered or inferred, is not a finding.
 
 #### Calibration Record: Session `20260921-212653`
@@ -257,7 +205,7 @@ This session produced 42 findings (4 CRITICAL, 6 HIGH). Of the ten highest-sever
 | `_are_findings_duplicate` no longer checks same-file/same-line | Both checks are present and reachable in the current source. |
 | Unpinned `:latest` image in the release workflow | The reference is `cacheFrom`, a build-cache hint, not a deployed image. |
 
-Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The reviewed tree is untrusted, so the check runs devops-cli's own mypy in isolated mode (`python -I -m mypy --strict`), from an empty temporary directory, with devops-cli's own config, which loads only the `pydantic.mypy` plugin its `[tool.mypy]` loads. Nothing of the target runs: not its build backend, which `uv run` would sync, not its mypy config and plugins, and not a `sitecustomize` or `mypy` package that a `PYTHONPATH` naming it would put first (#946). mypy's cache is kept in devops-cli's cache directory (`<data dir>/cache/typecheck-probe/`), one per interpreter, and probes run one at a time. The first probe on a machine is a cold pass over the module's imports: about a minute for a devops-cli module, and longer on a loaded machine, against a 120 s timeout. A probe that times out claims nothing, and the next starts from what it cached. The module under review controls its own strict pass, so the probe claims nothing of a module that holds a `type: ignore` or an inline `# mypy:` comment, or whose cited lines hold an expression of type `Any`: a second, warm pass checks a copy of the module with `# mypy: disallow-any-expr` appended (`--shadow-file`) and names those lines (#972). The remaining two classes were added to the verifier prompt as falsification rules.
+Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` was added to invalidate a claimed `None` dereference whenever the cited module passed `mypy --strict`, before the model verifier saw it. #1150 deleted that probe with the verifier; running mypy as a review tool, with the project's own settings, is #873. The remaining two classes were added to the verifier prompt as falsification rules.
 
 The general lesson, and the reason this record exists: **a high-confidence `VERIFIED` is not evidence.** Confidence measures the model's agreement with itself. When a deterministic oracle for a claim exists, it outranks any confidence score, and the loop should consult it first rather than asking a second model to agree with the first.
 
@@ -487,7 +435,10 @@ the 903 candidates:
 Ten more quoted a bare `<masked>`, which is the file's own text: the known-positive check of that
 protocol.
 
-Each failure now has a mechanism in the code:
+Each failure was given a mechanism in the code. #1150 deleted every one of them but the
+reviewer prompt's: the criteria rule, the advisory checks, the calibration caps and the
+learned catalog are gone, the files and lines cited below name code at the time of this
+record, and only a tool's evidence or a person's verdict settles a finding now:
 
 - **Criteria that checked nothing** (#846, #1043). 36 findings were VERIFIED by criteria, and none
   of their 37 passing commands checked the cited code. A passing command now counts only when it
@@ -510,8 +461,10 @@ Each failure now has a mechanism in the code:
   `ai/personas/devsecops/prompt.md:1-7`).
 
 The lesson this record adds: a review whose reported findings are 87% false does not save a
-person time, it spends it. Every mechanism above removes a false finding or keeps a model from
-writing one; none makes a model find more. The recall set (section 4, #1015) guards that side.
+person time, it spends it. Every mechanism above removed a false finding or kept a model from
+writing one; none made a model find more. The recall set (section 4, #1015) guards that side.
+The #1137 loop then measured the guards keeping false rows more often than valid ones (153 of
+200 against 49 of 90), and the verifier marking none of 94 VERIFIED rows strictly valid.
 
 ### 4. Formulate
 
@@ -548,10 +501,9 @@ sequenceDiagram
     Agent->>Code: Write failing tests from the finding
     Agent->>Code: Fix the cited code
     Agent->>Code: Run the targeted tests, then uv run devops ci
-    Agent->>Session: devops review verify --adjudicator agent
-    Agent->>Dataset: devops review export-feedback --status ALL
     Agent->>GH: Pull request that closes the issue
-    Person->>Session: devops review verify (a person's verdict teaches the loop)
+    Person->>Session: devops review verify (a person's verdict)
+    Person->>Dataset: devops review export-feedback --status ALL
 ```
 
 ### Step 1: Read the Findings
@@ -560,8 +512,8 @@ sequenceDiagram
 place in the file (`commands/review.py:923-998`). The list holds VERIFIED, MITIGATED and
 UNVERIFIED findings: an UNVERIFIED one was reported without a verdict and needs judging as much as
 a VERIFIED one. `--details` prints each finding in full, `--severity` keeps one severity, and
-`--candidates` lists `candidates.json`, every finding the review raised, the ones verification
-invalidated included. The terminal summary of a review lists CRITICAL to MEDIUM findings and
+`--candidates` lists `candidates.json`, every finding the review raised, the invalidated ones
+included. The terminal summary of a review lists CRITICAL to MEDIUM findings and
 only counts LOW and INFO ones (`ai/review/pipeline.py:3706-3729`); `review.md` holds them all.
 
 ### Step 2: Ground the Work in an Issue
@@ -588,22 +540,20 @@ Before altering implementation code in `src/`:
 - Run the targeted tests: `uv run pytest tests/test_<submodule>.py`.
 - Run the Gated CI quality gate: `uv run devops ci`.
 
-### Step 6: Record the Verdict and Export It
+### Step 6: Leave the Verdict to a Person and Prevent a Recurrence
 
-- Record the verdict on each finding the work settled:
-  `devops review verify <session> --index <n> --status <STATUS> --reason "..." --adjudicator agent`,
-  where `<n>` is the number `devops review findings` shows, or `--candidate <n>` for a candidate.
-  The status is VERIFIED for a real defect, MITIGATED when a guard now limits it (with
-  `--perimeter` and `--regression-test`), or INVALIDATED for a false positive.
-- An agent's verdict changes the finding's status and teaches nothing. A person's verdict on the
-  same finding is what teaches the learned catalog, the mitigations ledger and review history
-  (section 1); an agent never records `human`.
+- An agent records no verdict. A person records one on each finding the work settled:
+  `devops review verify <session> --index <n> --status <STATUS> --reason "..."`, where `<n>` is
+  the number `devops review findings` shows, or `--candidate <n>` for a candidate. The status is
+  VERIFIED for a real defect, MITIGATED when a guard now limits it, or INVALIDATED for a false
+  positive. The verdict labels the session and ranks review history (section 1).
 - `devops review export-feedback --status ALL` appends the verdicts the dataset does not hold yet
   to `.data/feedback_dataset.jsonl`, which `devops ai prompt-eval` reads. It changes no prompt and
   no later review.
-- A false-positive pattern that recurs across files and projects belongs in the curated builtin
-  catalog, `src/devops_cli/ai/review/common_hallucinations.json`, changed by a commit, and a rule
-  true only of this repository belongs in `.devops/review.md`.
+- A false positive that recurs belongs in a reviewed `[[suppressions]]` entry in
+  `.devops/review.toml`, with a rule, a path, a reason and an expiry, or in the tool's own
+  configuration or a rule-pack rule, changed by a commit; a rule true only of this repository
+  belongs in `.devops/review.md`.
 
 ---
 
@@ -626,17 +576,14 @@ exports. Like every command, a review also counts in `devops_cli_command_total` 
 The stages run inside trace spans (`trace_span` context managers): `review.session`
 (`ai/review/runner.py:2324`), `review.pre_analysis` (`ai/review/pipeline.py:1932`), the scanners'
 `security.*` spans (`ai/review/pipeline.py:2021-2236`), `review.init_payloads`
-(`ai/review/pipeline.py:2472`), `review.inspection` and one `review.file_review` per file
-(`ai/review/pipeline.py:2854`, `:2640`), `review.verification` and one `review.file_verify` per
-file (`ai/review/pipeline.py:3159`, `:3053`), `review.adversarial_debate`
-(`ai/review/stages/adversarial_debate.py:46`), `review.reranking` (`ai/review/pipeline.py:3300`)
+(`ai/review/pipeline.py:2472`), `review.inspection` and one `review.file_review` per file, `review.reranking`
 and `review.report_generation` (`ai/review/pipeline.py:4093`). Token counts are in `profile.json`,
 below.
 
 ### Review Profiles & Benchmarks
 
 Every review writes `profile.json` next to its `findings.json`: wall time per stage (pre-analysis,
-payloads, persona review, verification, re-ranking, report), the LLM calls, prompt and completion
+payloads, persona review, re-ranking, report), the LLM calls, prompt and completion
 tokens made during each stage, the backends the gateway routed them to, and the candidate,
 verified and reported finding counts. The profile's session ID is an attribute of the session's
 `review.session` span, so a slow stage can be followed into its trace. It also records how each
@@ -653,7 +600,7 @@ the backend that served them (`truncated`). When any reply hit the cap, the prof
 says how many.
 
 A single review is not a measurement: identical runs produce different numbers of candidate
-findings, and verification time follows them. `devops review benchmark <targets> -n 3` reviews the
+findings, and the time of every stage after persona review follows them. `devops review benchmark <targets> -n 3` reviews the
 same files several times with the response cache bypassed and saves the medians under
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
@@ -669,8 +616,8 @@ there too (#951). A test keeps this repository's file under the 8,000-character 
 which a rule is cut before any model reads it.
 
 `devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
-root, in full up to 8,000 characters. It gives the file to the persona reviewers and the verifier,
-beside the general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
+root, in full up to 8,000 characters. It gives the file to the persona reviewers, beside the
+general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
 This repository keeps its own rules in `.devops/review.md`.
 
 A change is reviewed under the conventions it started from, so it cannot loosen its own review
@@ -686,7 +633,7 @@ its prompts carried, empty when they carried none.
 
 ### Synthetic Defect Corpora
 
-A review of a real repository cannot say what it missed, and the verifier labels what it found.
+A review of a real repository cannot say what it missed.
 `devops review corpus generate <sources>` copies the files a review would read and injects one known
 defect into each, recording where. It never writes into the sources. The templates:
 
@@ -733,10 +680,10 @@ lookup stops: a corpus written under `.data/reviews/corpora/` is not reviewed un
 conventions of the checkout around it. After `devops review path <corpus>/files --all`, run
 `devops review corpus score <corpus>`. It reports:
 
-- how many injections some finding matched, before verification;
-- how many were still reported after verification;
-- how many findings the review raised, how many the verifier invalidated and how many it kept.
-  The invalidated count is the verifier's opinion, not a label.
+- how many injections some candidate matched (`candidates.json`);
+- how many were still reported (`findings.json`);
+- how many findings the review raised, how many were invalidated and how many it kept. A review
+  saved before #1150 counts its verifier's opinion as invalidated, not a label.
 
 `--json` also gives, per session, the injections found and then dropped and the reported findings
 that match no injection.
@@ -766,7 +713,7 @@ The score gives:
 
 - for each injection, how many of the k runs found it and how many still reported it;
 - pass@k, the share of injections found in at least one run, and pass^k, the share found in every
-  run, before and after verification;
+  run, among the candidates and among the reported findings;
 - each run's recall, findings, tokens and unparsed persona replies;
 - the mean of each figure (`recall_found`, `recall_reported`, `candidate_findings`,
   `invalidated_findings`, `reported_findings`, `prompt_tokens`, `completion_tokens`), and its
@@ -778,8 +725,7 @@ its own checkout, and the digest says which prompts a session ran. It does not c
 conventions, which `conventions_digest` records beside it. Sessions with different digests
 are refused rather than scored as one arm. The run record's setup names the prompt digest, k, the
 personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
-group the review used. Verification is recorded as reviews resolve it, layered on the analysis
-task, so with `ai.tasks.verification` unset the setup names the analysis model. When a group
+group the review used. When a group
 serves more than one model, the report says `not model-pinned`: pin one model with a single-model
 gateway group before comparing prompts.
 
@@ -799,8 +745,7 @@ shown to the personas of, the runs after it.
 To compare models rather than prompts, run every arm from one checkout and pin each arm's model
 from the shell. Each model `devops-review` serves has a gateway group of its own
 (`qwen3-coder:30b`, `gpt-oss:20b`) with the pool's deployments and weights and no fallback.
-`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` and `DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL` name that group for
-both tasks; the second overrides a configured `ai.tasks.verification`. `devops review benchmark
+`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` names that group for the analysis task. `devops review benchmark
 --no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
 unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
 sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.
@@ -954,10 +899,11 @@ evidence. The gate calls no model, so it cannot score recall; a person runs this
 
 2. **Review.** From T, review the set's files three times per arm, alternating arms. Each review
    is fresh (`--no-cache`), runs no scanners (`--no-static-scan`), so that every candidate is the
-   model's, runs no verification (`--no-verification`), so that each severity is the persona's
-   own (after #846 the copy-back keeps the verifier's), and runs the default DevSecOps persona,
-   which session `20261002-205520` ran. Pin both arms to one model: the first run (2026-10-02)
-   let the pool mix gpt-oss and qwen3-coder per file, and gpt-oss cut two of B's replies. Each arm
+   model's, and runs the default DevSecOps persona. An arm at a revision before #1150 also runs no
+   verification (`--no-verification`), so that each severity is the persona's own (after #846 the
+   copy-back keeps the verifier's); a later revision has no verifier and no such flag. The persona
+   is the one session `20261002-205520` ran. Pin both arms to one model: the first run
+   (2026-10-02) let the pool mix gpt-oss and qwen3-coder per file, and gpt-oss cut two of B's replies. Each arm
    keeps its sessions in a data directory of its own, and `uv run --project` runs an arm's code on
    T's files. The paths are an array, expanded in quotes, so that bash and zsh both pass each one
    as its own argument.
@@ -967,7 +913,7 @@ evidence. The gate calls no model, so it cannot score recall; a person runs this
    files=(k8s/monitoring/networkpolicy.yaml k8s/otel/networkpolicy.yaml src/devops_cli/ai/rag/investigator.py docs/VISION.md src/devops_cli/ai/spend/pricing.py)
    for sample in 1 2 3; do
      for arm in a b; do
-       DEVOPS_CLI_DATA_DIR=$R/data-$arm uv run --project $R/$arm devops review path "${files[@]}" --no-cache --no-static-scan --no-verification
+       DEVOPS_CLI_DATA_DIR=$R/data-$arm uv run --project $R/$arm devops review path "${files[@]}" --no-cache --no-static-scan
      done
    done
    ```
@@ -1098,8 +1044,6 @@ referencing non-existent commands because the commands are registered in a diffe
 - **Persona**: the DevSecOps persona carries an explicit rule that a server object's
   constructor is not its security boundary; transport, bind address, and loopback
   enforcement live at the launch site.
-- **Catalog**: both confirmed false positives are registered as recognised patterns
-  (`HALLUCINATION-SERVER-CONSTRUCTOR-NO-AUTH`, `HALLUCINATION-DECLARATION-WITHOUT-CONSUMER`).
 
 ### 5.3 Suppression Catalog Poisoning (Self-Improvement That Degrades Itself)
 
@@ -1117,15 +1061,10 @@ pairing common words such as `exception` and `handling` or `insecure` and `confi
 `general` ground truth dispatched on id substrings, so none could pass; had it passed, they would
 have invalidated 240 of that session's 903 candidates, 19 VERIFIED HIGH findings among them.
 
-**Guardrails**:
-- The review teaches the catalog nothing. Only a person's INVALIDATED verdict records an entry,
-  and it suppresses one claim exactly (section 5.7) rather than matching a signature.
-- The entries the deterministic checks taught are purged from the ledger on its first load,
-  which logs one notice saying how many it removed.
-- Bare single-word signatures in the builtin catalog are rejected at match time, and an invalid
-  signature regex is skipped rather than degraded into a broad substring match.
-- The ledger's writers take turns on a lock beside it (`common_hallucinations.json.lock`), so
-  verdicts given at once all land, and a ledger that cannot be read warns.
+**Guardrail**: #1150 deleted the catalog. Nothing a review or a verdict does suppresses a later
+finding. A suppression is a `[[suppressions]]` entry in `.devops/review.toml`: it names a rule and
+a path, or one fingerprint, carries a reason and an expiry, and changes only through a reviewed
+commit, read where the reviewed diff starts so a change cannot suppress its own findings.
 
 ### 5.4 Silent Baseline Loss (Fail-Open Calibration)
 
@@ -1134,10 +1073,10 @@ comprehension, so one malformed record discarded all 27 entries and the failure 
 only at debug level. Verification then ran on auto-learned entries alone — precisely the
 entries most likely to be poisoned — with no visible signal.
 
-**Guardrails**: entries are validated individually, a malformed record is skipped with a
-warning naming its id, and a missing or unreadable baseline warns rather than failing
-silently. Calibration data that fails to load must be loud, because its absence changes
-review outcomes without changing review output.
+**Guardrail**: #1150 deleted the catalog. A `.devops/review.toml` that does not parse is logged as
+a warning and suppresses nothing, and an entry with no reason is no suppression. Calibration data
+that fails to load must be loud, because its absence changes review outcomes without changing
+review output.
 
 ### 5.5 Unactionable Findings
 
@@ -1151,7 +1090,7 @@ that says to verify, review or consider means there is no finding.
 ### 5.6 Calibration Metrics Worth Tracking
 
 Finding counts measure volume, not value. The ratios below measure whether the loop is
-actually improving. No command computes the first four: each is read from a session's files, as
+actually improving. No command computes the first three: each is read from a session's files, as
 the calibration records in section 2 read them.
 
 | Signal | Interpretation | Where to read it |
@@ -1159,9 +1098,7 @@ the calibration records in section 2 read them.
 | False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. | A person's INVALIDATED verdicts on the CRITICAL and HIGH findings of `findings.json`. `devops review stats` counts statuses and personas, not severities (`commands/review.py:1168-1186`). |
 | Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. | A person's grouping of `findings.json`. Consolidation has already merged the duplicates it can tell apart (`ai/review_schema.py:1231`). |
 | Share of findings with a non-empty `fix` | Actionability of the output. | The `fix` field of each finding; the failure-signature script of section 4 counts the ones with no code (`no_code_fix`). |
-| Judged claims suppressed per review | What a person's triage saves the next review; each is one claim about one piece of code. | The candidates in `candidates.json` whose `verified_by` is `deterministic:person_verdict` (`ai/review/verification.py:1580-1599`). |
-| Unverified findings reported, and why | Findings a person must judge with no verdict to start from. | `profile.json`, `verdict_distributions.verification_note`: the UNVERIFIED findings by the note that says why, `none` for those verification never reached (`ai/review_schema.py:1636-1648`). |
-| Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. | `devops review hallucinations list`, whose title counts the entries that loaded (`commands/review.py:2239-2259`); a malformed entry is skipped with a warning naming it (`ai/review/common_hallucinations.py:146-157`). |
+| Scanner findings suppressed per review | What reviewed suppressions keep out of the report; each has a reason and an expiry. | The Suppressed Findings section of `review.md`, and the admitted findings in the session's SARIF. |
 
 ### 5.7 Re-Reviews Repeat What a Person Already Disproved
 
@@ -1171,48 +1108,19 @@ had judged nearly all of them false. A cold run rewords every one, and a scanner
 same line under another rule: S6 reported Semgrep's `exec` finding at a test's line 439 under
 Bandit's B102 title.
 
-**Guardrail**: a person's INVALIDATED verdict (`devops review verify --status INVALIDATED`)
-records the claim it disproved, and a later review invalidates the same claim with
-`deterministic:person_verdict` before any model is asked about it. The review records on each
-finding the code its location cites as the review read it (`cited_code`), and the verdict keys
-the claim on that record, never on the file as it reads when the verdict is given, which may
-hold code the person never saw. A verdict on a session saved before this records nothing. The
-claim is matched on:
-
-- the project the code belongs to, the name of its main checkout, so a verdict in one
-  repository never suppresses another's identical code, though both share a data directory. A
-  pull request's head, which `devops review pr` writes to a temporary directory, is named after
-  the checkout the review runs in, and belongs to that project;
-- the file, relative to its checkout, so a scanner's absolute path and a persona's relative one
-  agree;
-- the first line the location cites and a hash of the lines it cites, each stripped of
-  surrounding whitespace. The line keeps a verdict on one `except Exception as err:` handler
-  from reaching the same line in another function, which nobody judged. A change to those lines,
-  or an edit above them that moves them, raises the claim again for a person to judge;
-- the code names of those lines that the title names, or the description when the title names
-  none, ignoring case. Language keywords such as `in`, `for` and `with` and common English words
-  are not code names, and in a prose or configuration file, such as Markdown, YAML or JSON, only
-  a name shaped like an identifier is: one with an underscore or a camelCase hump. A finding that
-  names no code name of its lines records nothing, and the verdict says so, because a claim
-  stated only in prose cannot be told from another claim about the same line.
-
-The tool, persona and wording are not part of the match. Findings whose location names no line,
-such as kube-linter's `Kind/namespace/name` objects, are not suppressed. Any later verdict on the finding
-but INVALIDATED withdraws the entry, whether VERIFIED, MITIGATED or a reset to UNVERIFIED, so a
-claim a person changes their mind about is raised again.
-
-The personas are shown the claims people disproved in reviews of the target, the most often
-judged first, under "reported against this codebase". A repository with none is shown the
-curated builtin entries under a heading that does not claim that, and another repository's judged
-claims are never shown.
+**Guardrail**: #1150 deleted the judged-claim match that once invalidated a claim a person had
+disproved. A person's verdict labels its own session only. A claim a tool keeps raising becomes a
+`.devops/review.toml` suppression of its rule on its path, with the reason and an expiry, and a
+branch or pull request review that changes that path lists the suppression for a person to
+re-check. A persona's repeats are reported until the persona stage is removed (#1151).
 
 The feedback dataset is read honestly too. `devops review export-feedback` appends to the one
 configured dataset, `.data/feedback_dataset.jsonl`, skipping each verdict it already holds, reads
 findings.json and candidates.json, and leaves the file as it was when it finds nothing new. Each
 record carries its session's subject, the finding's category and references, and the excerpt
 of its cited code. `devops ai prompt-eval` reports its counts per labeller and leaves out the labels a
-deterministic check wrote, which the layer it measures would only agree with
-(`--include-deterministic` counts them). `devops ai benchmark --suite` is gone: it sent empty
+deterministic check wrote, a machine's labels rather than a person's (`--include-deterministic`
+counts them). `devops ai benchmark --suite` is gone: it sent empty
 prompts from two task files that never existed and scored the fix as the code under test.
 
 ---

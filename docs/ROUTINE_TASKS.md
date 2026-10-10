@@ -259,7 +259,7 @@ sequenceDiagram
 ```
 
 #### Step-by-Step Procedure:
-1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. It first does the same on the branch of each closed release that still holds an open issue, as one does when its milestone closes before closure runs: it closes the items of that release its pull requests deliver, except an item a person reopened, and names the rest, which hold no cut. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; completed items with no `changelog.d/<issue>.md` are listed for a person to add on the release PR.
+1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. It first does the same on the branch of each closed release that still holds an open issue, as one does when its milestone closes before closure runs: it closes the items of that release its pull requests deliver, except an item a person reopened, and names the rest, which hold no cut. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; the cut collects the `changelog.d/` fragments into the version's `CHANGELOG.md` section and deletes them, and fails before it pushes when the release branch holds neither a fragment nor that section. Completed items with no `changelog.d/<issue>.md` are named: before the cut, add the fragment in a PR into `release/vX.Y.Z`; after it, edit the version's section of `CHANGELOG.md` in a PR.
 2. **Manual Fallback, Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it).
    - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.
@@ -293,7 +293,8 @@ Executed weekly, prior to major releases, or when dependencies are updated.
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.
 - **Methodology**: Analyzes AST for common security pitfalls (unsafe subshell calls, hardcoded passwords, weak crypto).
-- **Command**: `uv run devops ci security` or `uv run bandit -r src -ll -s B608`.
+- **Scope**: `src/` and `tests/`, the targets `.bandit` names, at medium severity and above. `devops scan report` on the repository, which CI uploads to code scanning, runs the same scan.
+- **Command**: `uv run devops ci security` or `uv run bandit -r --ini .bandit --severity-level medium`.
 
 #### 3. Kubernetes & IaC Security Scans
 - **Frequency**: Whenever `k8s/` or `tf/` manifests are modified.
@@ -315,9 +316,8 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      ```bash
      devops ai review findings --session <session-id>
      ```
-  2. Perform deterministic AST verification and human verification:
-     - The verification pipeline automatically executes deterministic syntax assertions (`ast.parse`) and template placeholder mitigations.
-     - Reviewers and agents verify or invalidate remaining findings with specific rationale:
+  2. Record a person's verdict:
+     - No model verifies a finding; a person verifies or invalidates each with specific rationale:
      ```bash
      devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
@@ -326,7 +326,7 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      devops ai review export-feedback --status ALL
      ```
   4. Continuous Self-Improvement Loop:
-     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
+     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives; record each as a `[[suppressions]]` entry in `.devops/review.toml` with a reason and an expiry, or refine the persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`).
 
 ---
 

@@ -147,16 +147,12 @@ def gateway_pool(task: AIConfig) -> list[dict[str, Any]] | None:
 
 
 def review_setup(**extra: Any) -> dict[str, Any]:
-    """What a review's results depend on: models, sampling, the gateway's pool and the page size.
-
-    Verification is resolved as reviews resolve it, layered on the analysis task, so with
-    `ai.tasks.verification` unset the setup names the analysis model that verified.
-    """
+    """What a review's results depend on: models, sampling, the gateway's pool and the page size."""
     from devops_cli.ai.review.chunker import review_page_chars
     from devops_cli.config.settings import load_settings
 
     analysis = load_settings().ai.for_task("analysis")
-    tasks = {"analysis": analysis, "verification": analysis.for_task("verification")}
+    tasks = {"analysis": analysis}
     setup: dict[str, Any] = {
         "models": {name: f"{t.provider}/{t.model}" for name, t in tasks.items()},
         "sampling": {

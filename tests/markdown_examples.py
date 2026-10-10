@@ -22,7 +22,7 @@ from typing import NamedTuple
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken
+from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken
 
 # The fences whose lines a shell would run; a fence with no language is read as one too.
 SHELL_FENCE_LANGUAGES = frozenset({"", "bash", "sh", "shell", "zsh", "console", "shell-session"})

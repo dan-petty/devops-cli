@@ -131,6 +131,10 @@ def index_cmd(
             help=HELP.rag.explain,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Scan and index workspace code and documentation into Qdrant vector database."""
     if explain:
@@ -143,7 +147,7 @@ def index_cmd(
         print_error(ERRORS.rag.path_not_found.format(path=target_path), prefix=False)
         raise typer.Exit(1)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai rag index",
             target=str(target_path),
@@ -236,6 +240,10 @@ def index_kb_cmd(
             help=HELP.rag.explain,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Index the bundled DevOps CLI Knowledge Base into Qdrant for RAG agent retrieval."""
     if explain:
@@ -244,7 +252,7 @@ def index_kb_cmd(
         render_explanation("rag")
         return
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai rag index-kb",
             target="src/devops_cli/ai/knowledge_base",
@@ -348,6 +356,10 @@ def search(
         bool,
         typer.Option("--explain", help=HELP.rag.explain),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Perform semantic search across indexed workspace code and documentation."""
     if explain:
@@ -355,7 +367,7 @@ def search(
 
         render_explanation("rag")
         return
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai rag query",
             target=query,

@@ -123,9 +123,13 @@ def _read_json(response: httpx2.Response) -> dict[str, Any]:
 def query(
     expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
     at: Annotated[str | None, typer.Option("--time", "-t", help=HELP.prometheus.time_at)] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Execute an instant PromQL query."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops prometheus query",
             target=expr,
@@ -253,13 +257,17 @@ def analyze(
         float, typer.Option("--threshold", "-t", help=HELP.prometheus.anomaly_threshold)
     ] = DEFAULT_ANOMALY_Z_THRESHOLD,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Detect anomalies and project the trend of a metric series, computed locally."""
     from devops_cli.output import format_json, write_stdout
     from devops_cli.prometheus.analysis import analyze_series, extract_series_values
 
     _validate_expr(expr)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops prometheus analyze {expr[:60]}",
             action="analyze_metric_series",

@@ -16,7 +16,7 @@
 
 - **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: HTTP clients built by the `devops_cli.http.client` factory check the address they dial, at the connect and on every redirect, against their egress level (public, loopback or private), so a rebinding DNS answer cannot slip past a check made earlier; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Cloud metadata endpoints are refused at every level.
-- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context. A persona's finding is reported unverified until a person judges it with `devops review verify`.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle commands (`devops devcontainer post-create` / `post-start`, both runnable together via `devops devcontainer run-lifecycle`) implement the post-create and post-start hooks.
 - **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
@@ -97,15 +97,16 @@ from devops_cli.ai.review import ReviewPipelineOrchestrator
 
 # Initialize unified LLM client and orchestrator
 client = LLMClient()
-orchestrator = ReviewPipelineOrchestrator(session_id="custom-session", llm_client=client)
+orchestrator = ReviewPipelineOrchestrator(
+    session_id="custom-session", llm_client=client, target_dir=Path.cwd()
+)
 
-# Execute 6-stage review pipeline programmatically
+# Run the review stages programmatically
 metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
 payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
 orchestrator.execute_multi_persona_review(
     payloads, diff_text_by_file={}, personas=["devsecops", "architect"]
 )
-orchestrator.execute_finding_verification(payloads)
 orchestrator.execute_finding_reranking(payloads)
 summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ```
@@ -189,9 +190,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
-| **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
-|  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
-|  | `devops k8s status` | Show node and pod summary for the current context. |
+| **k8s** | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
+|  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
+|  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s render [OPTIONS] <path>` | Render Kubernetes manifest templates with domain and variables substituted. |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
@@ -227,7 +228,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
 | **docker** | `devops docker images [OPTIONS]` | List local Docker images. |
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
-|  | `devops docker push <image>` | Push a Docker image to a registry. |
+|  | `devops docker push [OPTIONS] <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker cache [OPTIONS]` | Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space. |
@@ -266,7 +267,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
-|  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
+|  | `devops ci security [OPTIONS]` | Run bandit static security analysis over src/ and tests/, the targets .bandit names. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci uv-check [OPTIONS]` | Run uv check for fast static type checking and project validation. |
@@ -307,7 +308,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
 |  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-|  | `devops ai prompt-eval [OPTIONS]` | Measure the deterministic suppression layer against recorded review verdicts. |
+|  | `devops ai prompt-eval [OPTIONS]` | Count the review verdicts the feedback dataset records for one persona's findings. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
@@ -330,7 +331,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
-|  | `devops review verify [OPTIONS] <session>` | Record a person's or an agent's verdict on a review finding or candidate. |
+|  | `devops review verify [OPTIONS] <session>` | Record a person's verdict on a review finding or candidate. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
@@ -338,7 +339,6 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
-|  | `devops review hallucinations COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |
@@ -356,11 +356,12 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
 | **roadmap** | `devops roadmap migrate [OPTIONS]` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
 |  | `devops roadmap render [OPTIONS]` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
-|  | `devops roadmap reprioritize [OPTIONS]` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one and fill or trim it to the cap. The first run records the admitted set and moves nothing. Writes only with --confirm. |
+|  | `devops roadmap reprioritize [OPTIONS]` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit. The first run records the admitted set and moves nothing. Writes only with --confirm. |
 |  | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
-|  | `devops roadmap close [OPTIONS]` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm. |
-|  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
-|  | `devops roadmap run [OPTIONS]` | Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+|  | `devops roadmap close [OPTIONS]` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm. |
+|  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
+|  | `devops roadmap run [OPTIONS]` | Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+|  | `devops roadmap return [OPTIONS] <item>` | Return an item to New on the roadmap board with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
@@ -408,7 +409,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tls inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
-| **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
+| **telemetry** | `devops telemetry status [OPTIONS]` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
@@ -431,7 +432,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
 |  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
-|  | `devops vault logout` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
+|  | `devops vault logout [OPTIONS]` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
 |  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
 |  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |

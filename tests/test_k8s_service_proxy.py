@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ssl
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -429,20 +430,21 @@ def test_no_usable_configuration_names_the_context_that_failed() -> None:
             _kube_configuration()
 
 
-def test_client_certificates_are_loaded_when_both_files_are_present() -> None:
+def test_client_certificates_are_loaded_when_both_files_are_present(tmp_path: Path) -> None:
     """k3s admin kubeconfigs authenticate with a client certificate, not a token."""
     from devops_cli.k8s.service_proxy import _ssl_context
 
-    configuration = _configuration(cert_file="/tmp/client.crt", key_file="/tmp/client.key")
+    cert_file, key_file = str(tmp_path / "client.crt"), str(tmp_path / "client.key")
+    configuration = _configuration(cert_file=cert_file, key_file=key_file)
     with patch("ssl.SSLContext.load_cert_chain") as load_chain:
         _ssl_context(configuration)
-    load_chain.assert_called_once_with("/tmp/client.crt", "/tmp/client.key")
+    load_chain.assert_called_once_with(cert_file, key_file)
 
 
-def test_a_certificate_without_its_key_is_not_loaded() -> None:
+def test_a_certificate_without_its_key_is_not_loaded(tmp_path: Path) -> None:
     """Half a credential is not a credential, and loading it raises."""
     from devops_cli.k8s.service_proxy import _ssl_context
 
     with patch("ssl.SSLContext.load_cert_chain") as load_chain:
-        _ssl_context(_configuration(cert_file="/tmp/client.crt"))
+        _ssl_context(_configuration(cert_file=str(tmp_path / "client.crt")))
     load_chain.assert_not_called()

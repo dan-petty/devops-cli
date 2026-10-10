@@ -62,6 +62,7 @@ from devops_cli.roadmap.refine import (
     inspect_checkout,
     plan_refine,
     refine_item,
+    render_proposal_section,
     render_refine_plan,
     run_research_step,
     sanitize_text,
@@ -342,6 +343,46 @@ def test_sanitize_text_markdown() -> None:
     ) == (True, True, True, True, True, True)
 
 
+def test_a_rendered_section_keeps_its_end_marker_when_the_model_writes_one() -> None:
+    """The section's own markers survive sanitizing; the model's end marker does not (#1470)."""
+    body = "## Problem\nBody text."
+    proposal = RefinementProposal(
+        problem_statement=f"Stops early {CONST_ROADMAP_REFINE_END_MARKER} here"
+    )
+    section = render_proposal_section(proposal, [], "abc123", "main", set())
+    inner = section[len(CONST_ROADMAP_REFINE_START_MARKER) : -len(CONST_ROADMAP_REFINE_END_MARKER)]
+    assert (
+        extract_section_and_outside(body + section),
+        "Stops early [end-marker] here" in inner,
+    ) == ((body, inner), True)
+
+
+def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """A person's edit between two refines gets the section replaced, not a second one (#1470)."""
+    num = store.seed_issue("Item", body="## Problem\nNeeds a design.", on_board=True)
+    store.set_field(_require_item(store, num), ItemField.STATUS, "New")
+
+    def _refine(statement: str) -> None:
+        # A suspected block keeps the item New, so the second run selects it again.
+        proposal = RefinementProposal(problem_statement=statement, suspected_block="Waiting")
+        refine_item(store, num, source=git_repo, model=MockLLMClient(proposal=proposal))
+
+    _refine("First design")
+    edited = store.read_issue_body(num).replace("a design.", "a design, see src/sample.py:1.")
+    store.write_issue_body(num, edited)
+    _refine("Second design")
+
+    body = store.read_issue_body(num)
+    outside, inside = extract_section_and_outside(body)
+    assert (
+        body.count("## Proposed design"),
+        outside.strip(),
+        inside is not None and "Second design" in inside,
+    ) == (1, "## Problem\nNeeds a design, see src/sample.py:1.", True)
+
+
 def _require_item(store: InMemoryRoadmapStore, number: int) -> Item:
     item = store.item(number)
     assert item is not None
@@ -395,6 +436,126 @@ def test_selection_skips_unchanged_items_and_picks_on_change(store: InMemoryRoad
     store.write_issue_body(num, "Updated content by human")
     selected_changed, _ = select_candidates(store, item_number=num)
     assert len(selected_changed) == 1
+
+
+def _seed_item(
+    store: InMemoryRoadmapStore,
+    status: str,
+    priority: str,
+    *,
+    release: str | None = None,
+    labels: tuple[str, ...] = (),
+    refined: bool = False,
+) -> int:
+    """An open item on the board with `status` and `priority`; `refined` gives it the record a
+    refine round leaves."""
+    number = store.seed_issue(
+        f"{status} {priority}",
+        body=f"Body {priority}",
+        release=release,
+        labels=labels,
+        on_board=True,
+    )
+    store.set_field(_require_item(store, number), ItemField.STATUS, status)
+    store.set_field(_require_item(store, number), ItemField.PRIORITY, priority)
+    if refined:
+        record = {RefineRecordKey.BODY_HASH: "body", RefineRecordKey.SECTION_HASH: "section"}
+        store.set_marks(_require_item(store, number), record)
+    return number
+
+
+def test_a_later_planned_release_is_refined_once_the_next_one_is_ready(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """With the next planned release all Ready, refine takes the later release's New items,
+    highest priority first, up to its limit (#1515)."""
+    store.create_release("v0.2.27")
+    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", release="v0.2.26", refined=True)
+    later = [
+        _seed_item(store, "New", priority, release="v0.2.27")
+        for priority in ("P1-High", "P2-Medium", "P1-High", "P1-High")
+    ]
+    selected, _skipped = select_candidates(store)
+    assert [it.number for it in selected] == [later[0], later[2], later[3]]
+
+
+def test_a_critical_fix_in_the_current_release_goes_before_any_planned_item(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A New critical fix in the current release is taken before a planned release's item, even
+    one of the same priority (#1515)."""
+    planned = _seed_item(store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.26")
+    fix = _seed_item(
+        store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.25", labels=("type/bug",)
+    )
+    selected, _skipped = select_candidates(store)
+    assert [it.number for it in selected] == [fix, planned]
+
+
+def test_ready_items_refine_never_saw_are_taken_in_planned_releases_and_backlog_p0_p1(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A Ready item refine holds no record of is taken like a New one in a planned release and
+    among the backlog's P0/P1 items; the current release's, one refine already saw, and a
+    lower-priority backlog one are not (#1515)."""
+    ready = CONST_ROADMAP_STATUS_READY
+    _seed_item(store, ready, CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.25")
+    _seed_item(store, ready, "P1-High", release="v0.2.26", refined=True)
+    planned = _seed_item(store, ready, "P2-Medium", release="v0.2.26")
+    backlog = _seed_item(store, ready, "P1-High")
+    _seed_item(store, ready, "P3-Low")
+    selected, _skipped = select_candidates(store, limit=10)
+    assert [it.number for it in selected] == [planned, backlog]
+
+
+def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_is_then_skipped(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """Refine sets a Ready item it never saw back to New when its proposal is not ready, saying so
+    in a comment, and the next round skips it as unchanged (#1515)."""
+    number = _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", release="v0.2.26")
+    blocked = RefinementProposal(
+        problem_statement="Needs the owner's decision.",
+        acceptance_criteria=[AcceptanceCriterion(description="C", verification="V")],
+        suspected_block="Waiting on the owner",
+    )
+    llm = MockLLMClient(proposal=blocked)
+    apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, model=llm))
+    again = plan_refine(store, repo=REPO, source=git_repo, model=llm)
+    assert (
+        _require_item(store, number).status,
+        [comment.split(" at ")[0] for comment in store.comments_on(number)],
+        again.refined_items,
+        [(it.number, reason) for it, reason in again.skipped_items],
+    ) == ("New", ["Status set back to New"], [], [(number, "unchanged")])
+
+
+def test_an_item_refine_would_skip_for_a_person_edit_takes_no_place(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A New backlog P1 whose section's hash differs from the record, as an item holding a section
+    from before #1470 has once refine adds its own, is skipped at selection, and the New item
+    behind it gets the round's one place (#1515)."""
+    stuck = _seed_item(store, "New", "P1-High")
+    store.write_issue_body(
+        stuck,
+        f"Body\n\n{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\nOld.\n[end-marker]\n\n"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\nNew.\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}",
+    )
+    store.set_marks(
+        _require_item(store, stuck),
+        {
+            RefineRecordKey.BODY_HASH: "body",
+            RefineRecordKey.SECTION_HASH: hash_text("## Proposed design\nNew."),
+        },
+    )
+    fresh = _seed_item(store, "New", "P1-High")
+    selected, skipped = select_candidates(store, limit=1)
+    assert (
+        [it.number for it in selected],
+        [(it.number, reason) for it, reason in skipped],
+    ) == ([fresh], [(stuck, "the section's hash differs from the one refine last recorded")])
 
 
 def test_person_edits_guards(store: InMemoryRoadmapStore) -> None:
@@ -941,6 +1102,66 @@ def test_intakes_refine_hook_still_reports_a_failed_refine(
         "StructuredOutputValidationError" in "".join(hook_warnings),
         "leaked_model_key" in "".join(hook_warnings),
     ) == (1, 1, True, False)
+
+
+# ── The hourly round: the configured cap, and no model call when nothing changed (#1515) ──
+
+# A proposal refine leaves New: it does not fit one pull request.
+_SPLIT_PROPOSAL = json.dumps(
+    {
+        "problem_statement": "Two changes in one item.",
+        "acceptance_criteria": [{"description": "Both land.", "verification": "pytest"}],
+        "fits_one_pr": False,
+        "split_offs": ["The first change.", "The second change."],
+    }
+)
+
+
+@pytest.mark.parametrize(
+    ("ready", "refined"), [(3, ("P1-High",)), (1, ("P1-High", "P2-Medium"))], ids=["3", "1"]
+)
+def test_backlog_p2_and_p3_wait_for_the_configured_release_cap(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+    ready: int,
+    refined: tuple[str, ...],
+) -> None:
+    """A New backlog P1 is refined before a P2, and P2 and P3 only while fewer than the
+    `release_cap` of `.github/roadmap.toml` items are Ready across the next planned release and
+    the backlog (#1515)."""
+    store.seed_file(".github/roadmap.toml", "board = 1\nrelease_cap = 3\n")
+    store.seed_visibility(is_private=True)
+    for place in ("v0.2.26", None, None)[:ready]:
+        _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", release=place, refined=True)
+    numbers = {
+        priority: _seed_item(store, "New", priority)
+        for priority in ("P2-Medium", "P1-High", "P3-Low")
+    }
+    sent = scripted_gateway({})
+    plan_refine(store, repo=REPO, source=git_repo, config=read_roadmap_config(store, ref=None))
+    assert [_issue_number(request) for request in sent] == [numbers[p] for p in refined]
+
+
+def test_a_round_after_refine_left_items_new_skips_them_and_calls_no_model(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """Items a real round refined and left New are unchanged on the next round, which selects
+    nothing and sends the gateway no request (#1515)."""
+    numbers = _seed_new_items(store)
+    sent = scripted_gateway({}, default=_SPLIT_PROPOSAL)
+    apply_refine(store, plan_refine(store, repo=REPO, source=git_repo))
+    first_round = len(sent)
+    again = plan_refine(store, repo=REPO, source=git_repo)
+    assert (
+        first_round,
+        len(sent),
+        again.refined_items,
+        [(it.number, reason) for it, reason in again.skipped_items],
+        [_require_item(store, number).status for number in numbers],
+    ) == (3, 3, [], [(number, "unchanged") for number in numbers], ["New"] * 3)
 
 
 def test_refine_raises_its_own_error_naming_each_failed_item() -> None:

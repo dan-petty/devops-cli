@@ -68,6 +68,7 @@ devops argo cd fleet sync [OPTIONS] <app_name>
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo cd gitops`
 
@@ -153,6 +154,7 @@ devops argo cd apps list [OPTIONS]
 |---|---|---|---|
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
 | `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo cd apps sync`
 
@@ -210,6 +212,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 |---|---|---|---|
 | `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -338,6 +341,7 @@ devops argo rollouts promote [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--full` | `boolean` | - | Skip all remaining steps and promote directly to full release |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo rollouts abort`
 
@@ -358,6 +362,7 @@ devops argo rollouts abort [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo rollouts restart`
 
@@ -378,6 +383,7 @@ devops argo rollouts restart [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo rollouts analyze`
 
@@ -401,6 +407,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
 | `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -434,6 +441,7 @@ devops argo fleet sync [OPTIONS] <app_name>
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

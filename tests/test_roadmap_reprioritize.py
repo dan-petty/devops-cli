@@ -350,14 +350,14 @@ def test_an_item_with_a_closed_unmerged_pull_request_is_moved_to_backlog(
     )
 
 
-# ── The cap ───────────────────────────────────────────────────────────────────
+# ── The limit ─────────────────────────────────────────────────────────────────
 
 
-def test_with_twelve_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_one(
+def test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_one(
     roadmap: Roadmap,
 ) -> None:
     """Lowest Priority first, then the lowest Value, then the highest issue number."""
-    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(9)]
+    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(13)]
     low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
     low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
     p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
@@ -371,17 +371,17 @@ def test_with_twelve_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_o
     ) == (
         [NEXT, CURRENT, CURRENT, CURRENT],
         [
-            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, "
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
             "and this was its lowest-ranked unstarted item."
         ],
-        12,
+        16,
     )
 
 
-def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_cap(
+def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_its_limit(
     roadmap: Roadmap,
 ) -> None:
-    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(9)]
+    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(13)]
     low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
     low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
     p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
@@ -398,50 +398,63 @@ def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_r
     ) == (
         [CURRENT, NEXT, CURRENT, CURRENT],
         [
-            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, "
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
             "and this was its lowest-ranked unstarted item."
         ],
-        12,
+        16,
     )
 
 
-def test_with_twelve_started_items_a_critical_fix_joins_and_the_release_holds_thirteen(
+def test_with_sixteen_started_items_a_critical_fix_joins_and_the_release_holds_seventeen(
     roadmap: Roadmap,
 ) -> None:
-    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(12)]
+    """The fix takes the release over its limit of 16 with nothing unstarted to descope."""
+    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(16)]
     started_with(roadmap, *held)
     fix = roadmap.fix()
     roadmap.run()
-    assert (roadmap.release_of(fix, *held), roadmap.size()) == ([CURRENT] * 13, 13)
+    assert (roadmap.release_of(fix, *held), roadmap.size()) == ([CURRENT] * 17, 17)
 
 
-def test_with_eleven_started_items_and_an_admitted_fix_a_second_fix_joins_without_descoping(
+def test_with_fifteen_started_items_and_an_admitted_fix_a_second_fix_joins_without_descoping(
     roadmap: Roadmap,
 ) -> None:
-    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(11)]
+    """The second fix takes the release over its limit of 16, and the first, the only unstarted
+    item, is a critical fix, so nothing is descoped."""
+    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(15)]
     started_with(roadmap, *held)
     first = roadmap.fix("first fix")
     roadmap.run()
     second = roadmap.fix("second fix")
     roadmap.run()
-    assert (roadmap.release_of(first, second, *held), roadmap.size()) == ([CURRENT] * 13, 13)
+    assert (roadmap.release_of(first, second, *held), roadmap.size()) == ([CURRENT] * 17, 17)
 
 
-def test_with_ten_items_a_critical_fix_descopes_nothing(roadmap: Roadmap) -> None:
-    held = [roadmap.file(f"ready {n}", priority="P3-Low") for n in range(10)]
-    started_with(roadmap, *held)
+@pytest.mark.parametrize("held", [12, 15])
+def test_a_critical_fix_that_joins_a_release_within_its_limit_descopes_nothing(
+    roadmap: Roadmap, held: int
+) -> None:
+    """The release's 4 slots above its cap of 12 take the fix without moving another item out,
+    up to its limit of 16 (#1514); a second run writes nothing."""
+    items = [roadmap.file(f"ready {n}", priority="P3-Low") for n in range(held)]
+    started_with(roadmap, *items)
     fix = roadmap.fix()
     roadmap.run()
-    assert (roadmap.release_of(fix, *held), roadmap.size()) == ([CURRENT] * 11, 11)
+    second = roadmap.run()
+    assert (roadmap.release_of(fix, *items), roadmap.size(), second) == (
+        [CURRENT] * (held + 1),
+        held + 1,
+        [],
+    )
 
 
 def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
     roadmap: Roadmap,
 ) -> None:
-    """The reviewer's replay: 12 started items, a fix joins with nothing to descope, then a
-    person moves one back to Ready. While the release holds more than the larger of its cap and
-    its size at start, every unstarted item in it is an admitted critical fix."""
-    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(12)]
+    """The reviewer's replay: 16 started items, a fix joins with nothing to descope, then a
+    person moves one back to Ready. While the release holds more than the larger of its limit
+    and its size at start, every unstarted item in it is an admitted critical fix."""
+    held = [roadmap.file(f"started {n}", status="In Progress") for n in range(16)]
     started_with(roadmap, *held)
     fix = roadmap.fix()
     roadmap.run()
@@ -454,11 +467,11 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
         roadmap.size(),
         roadmap.comments(held[0]),
     ) == (
-        13,
+        17,
         [NEXT, CURRENT],
-        12,
+        16,
         [
-            "Moved to v0.2.26: v0.2.25 holds 13 items, more than its size of 12 and more than "
+            "Moved to v0.2.26: v0.2.25 holds 17 items, more than its limit of 16 and more than "
             "it held when it started, and this was its lowest-ranked unstarted item."
         ],
     )
@@ -503,7 +516,7 @@ def test_a_critical_fix_joins_a_cut_release_until_its_release_pull_request_merge
     """While the release pull request is open, a critical fix joins, so its own pull request
     merges into the release branch first (#1294); once that pull request has merged, the fix
     goes on to the next release. An item with a pull request in flight joins either, and the
-    cap binds both, as it binds a started release."""
+    limit binds both, as it binds a started release."""
     assert decide(state, event) == transition
 
 
@@ -525,12 +538,12 @@ def test_a_fix_filed_while_a_draft_release_pull_request_is_open_joins_and_stays_
     )
 
 
-def test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_unstarted_item(
+def test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranked_unstarted_item(
     roadmap: Roadmap,
 ) -> None:
-    """The cap binds a cut release as a started one: an admitted fix that takes it over the cap
-    sends its lowest-ranked unstarted item on, which would otherwise ship unfinished."""
-    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(11)]
+    """The limit binds a cut release as a started one: an admitted fix that takes it over the
+    limit sends its lowest-ranked unstarted item on, which would otherwise ship unfinished."""
+    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(15)]
     lowest = roadmap.file("lowest", priority="P3-Low")
     started_with(roadmap, *held, lowest)
     roadmap.release_pull_request()
@@ -539,10 +552,10 @@ def test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_
     assert (roadmap.release_of(fix, lowest), roadmap.comments(lowest), roadmap.size()) == (
         [CURRENT, NEXT],
         [
-            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, and "
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, and "
             "this was its lowest-ranked unstarted item."
         ],
-        12,
+        16,
     )
 
 
@@ -570,10 +583,10 @@ def test_a_merged_release_pull_request_locks_the_release_until_it_is_published(
 def test_the_first_run_records_the_admitted_set_and_a_second_run_writes_nothing(
     roadmap: Roadmap,
 ) -> None:
-    """Even a release over the cap, holding a P2 feature, a New item and a P0 feature. The run
+    """Even a release over its limit, holding a P2 feature, a New item and a P0 feature. The run
     names the release in the run record first and gives its size last, and every mark names
     the release by its milestone number."""
-    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(12)]
+    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(13)]
     held += [
         roadmap.file("p2", priority="P2-Medium"),
         roadmap.file("new", status="New"),
@@ -594,10 +607,10 @@ def test_the_first_run_records_the_admitted_set_and_a_second_run_writes_nothing(
         [
             JobWrite("set_run_record", None, "Started", roadmap.number(CURRENT)),
             *(JobWrite("set_mark", number, "Admitted", roadmap.number(CURRENT)) for number in held),
-            JobWrite("set_run_record", None, "Size", "16"),
+            JobWrite("set_run_record", None, "Size", "17"),
         ],
-        [[]] * 16,
-        16,
+        [[]] * 17,
+        17,
         [],
     )
 
@@ -773,7 +786,7 @@ def test_a_starting_release_over_the_cap_is_trimmed_into_the_later_release(
         started.file("in progress", priority="P3-Low", status="In Progress", release=NEXT),
         started.fix("next fix", release=NEXT),
         started.file("p0 feature", priority="P0-Critical", release=NEXT),
-        *(started.file(f"p1 {n}", priority="P1-High", release=NEXT) for n in range(9)),
+        *(started.file(f"p1 {n}", priority="P1-High", release=NEXT) for n in range(13)),
     ]
     trim_last = started.file("p1 last", priority="P1-High", release=NEXT)
     low_x = started.file("p3 low x", priority="P3-Low", value="Low", release=NEXT)
@@ -787,13 +800,44 @@ def test_a_starting_release_over_the_cap_is_trimmed_into_the_later_release(
         started.comments(low_y),
         started.size(NEXT),
     ) == (
-        [NEXT] * 12,
+        [NEXT] * 16,
         [LATER] * 4,
         [
-            "Moved to v0.2.27: v0.2.26 started with more than 12 items, and this was its "
+            "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
             "lowest-ranked unstarted item."
         ],
-        12,
+        16,
+    )
+
+
+@pytest.mark.parametrize(
+    ("planned", "size", "trimmed"),
+    [(10, 12, 0), (14, 14, 0), (17, 16, 1)],
+    ids=["topped-up-to-the-cap", "within-the-limit", "over-the-limit"],
+)
+def test_a_start_fills_to_the_cap_and_trims_only_above_the_limit(
+    started: Roadmap, planned: int, size: int, trimmed: int
+) -> None:
+    """A start tops the release up to its cap of 12 and trims it only above its limit of 16,
+    the cap plus its 4 slots (#1514); a second run writes nothing."""
+    placed = [started.file(f"next {n}", priority="P1-High", release=NEXT) for n in range(planned)]
+    for n in range(3):
+        started.file(f"backlog {n}", priority="P1-High", release=None)
+    started.ship()
+    started.run()
+    second = started.run()
+    moved = [number for number in placed if started.release_of(number) == [LATER]]
+    assert (started.size(NEXT), moved, [started.comments(n) for n in moved], second) == (
+        size,
+        placed[planned - trimmed :],
+        [
+            [
+                "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
+                "lowest-ranked unstarted item."
+            ]
+        ]
+        * trimmed,
+        [],
     )
 
 
@@ -875,9 +919,9 @@ def test_a_milestone_closed_by_hand_starts_nothing_until_its_release_ships(
     started: Roadmap,
 ) -> None:
     """The reviewer's replay: closing v0.2.25's milestone is no ship. v0.2.26 starts, and is
-    trimmed to the cap, only once v0.2.25's release pull request has merged and GitHub Release
+    trimmed to its limit, only once v0.2.25's release pull request has merged and GitHub Release
     v0.2.25 is published."""
-    waiting = [started.file(f"next {n}", release=NEXT) for n in range(13)]
+    waiting = [started.file(f"next {n}", release=NEXT) for n in range(17)]
     started.person.close_release(CURRENT)
     held = started.plan()
     writes = started.run()
@@ -889,7 +933,7 @@ def test_a_milestone_closed_by_hand_starts_nothing_until_its_release_ships(
         writes,
         "v0.2.25 is closed but has not shipped" in render_plan(held),
         (shipped.starting, started.size(NEXT), started.release_of(waiting[-1])),
-    ) == ((NEXT, CURRENT, None, False), [], True, (NEXT, 12, [LATER]))
+    ) == ((NEXT, CURRENT, None, False), [], True, (NEXT, 16, [LATER]))
 
 
 def test_an_item_a_person_moved_to_the_backlog_stays_there_though_no_job_ever_placed_it(
@@ -1523,12 +1567,12 @@ def test_the_status_options_the_guard_refuses_are_those_migrate_merges_into_new(
 def test_every_item_write_comes_with_a_reason_comment_and_none_sets_a_ranking_field(
     roadmap: Roadmap,
 ) -> None:
-    """Admission, the cap, descoping, the stall window and a nudge, in one run.
+    """Admission, the limit, descoping, the stall window and a nudge, in one run.
 
     The admitted-set records of a first run, of a start's kept items and of items a person took
     out are reported under the plan's "Admitted set" heading, not commented.
     """
-    held = [roadmap.file(f"p1 {n}", priority="P1-High") for n in range(11)]
+    held = [roadmap.file(f"p1 {n}", priority="P1-High") for n in range(15)]
     stalls = roadmap.file("in progress", status="In Progress")
     nudged = roadmap.file("in review", status="In Review")
     blocked = roadmap.file("to be blocked")
@@ -1681,7 +1725,7 @@ def test_a_run_that_stops_at_any_write_is_finished_by_the_next_run(
     its own, and ends as the run left alone and the run after it do: after a first run at a
     ship, it descopes the item that was Blocked already."""
     whole = Roadmap()
-    whole.config = RoadmapConfig(board=1, release_cap=SMALL_CAP)
+    whole.config = RoadmapConfig(board=1, release_cap=SMALL_CAP, release_slots=0)
     scenario(whole)
     writes = stop_at(whole.store, 0)
     whole.run()

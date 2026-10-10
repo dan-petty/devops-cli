@@ -21,6 +21,9 @@ they add. A close drops the listings, because the board's own workflow then chan
 issue's card. A write reads only the card it writes, by node id (`RoadmapBoardCard`, about one
 point), so the job record it writes joins the one the card holds then, a card gone or archived
 raises before any write, and the points that read reports below the reserve refuse the write.
+Within one process, `_JOB_RECORD_LOCK` holds each job-record write from that read to its write,
+so the Service's two lanes, which open a store each, never write back a record the other has
+changed since it was read (#1532).
 A field someone changed since the store read the card raises `RoadmapCardChangedError` before
 any write, unless the card already holds the value the write sends: the job planned without
 that change, and ADR 0002 forbids reverting it, so the job fails and the next store plans again.
@@ -49,6 +52,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from http import HTTPStatus
@@ -162,6 +166,11 @@ from devops_cli.roadmap.store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_JOB_RECORD_LOCK = threading.Lock()
+"""Held from the read of a card, and a Release write's read of its issue's milestone, to the
+write of its job record, across every store in the process: the Service's lanes each open a
+store, and mark and place the same cards (#1532)."""
 
 
 class GhRunner(Protocol):
@@ -1556,18 +1565,20 @@ class GitHubRoadmapStore(RoadmapStore):
         if field is ItemField.RELEASE:
             target = self._release_for(value)
             recorded = target.title if target else None
-            self._require_release_unchanged(item, target, operation)
         else:
             require_option(options, field, value)
             recorded = value
         written = None if field is ItemField.RELEASE else field
-        card = self._require_entry(item, operation, written, value)
-        text = card.recorded(with_marks({field: recorded}, marks or {}))
-        card = self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-        if field is ItemField.RELEASE:
-            self._place_in_release(item, target)
-        else:
-            self._edit_card(card, field.value, value, operation)
+        with _JOB_RECORD_LOCK:
+            if field is ItemField.RELEASE:
+                self._require_release_unchanged(item, target, operation)
+            card = self._require_entry(item, operation, written, value)
+            text = card.recorded(with_marks({field: recorded}, marks or {}))
+            card = self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
+            if field is ItemField.RELEASE:
+                self._place_in_release(item, target)
+            else:
+                self._edit_card(card, field.value, value, operation)
 
     def set_marks(
         self,
@@ -1581,12 +1592,13 @@ class GitHubRoadmapStore(RoadmapStore):
         record or forget a value for a field, in one write."""
         operation = "roadmap.item.set_marks"
         require_job_record_field(self._read_schema().options())
-        card = self._require_entry(item, operation)
         changes: JobRecord = {}
         for item_field, value in (recorded or {}).items():
             changes[item_field] = value
-        text = card.recorded(with_marks(changes, marks), forgotten)
-        self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
+        with _JOB_RECORD_LOCK:
+            card = self._require_entry(item, operation)
+            text = card.recorded(with_marks(changes, marks), forgotten)
+            self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def run_record(self) -> JobRecord:
         """The run record card's job record, empty while the board has no such card."""
@@ -1599,13 +1611,14 @@ class GitHubRoadmapStore(RoadmapStore):
         operation = "roadmap.run_record"
         require_job_record_field(self._read_schema().options())
         listed = self._run_record_card()
-        card = (
-            self._require_card_node(listed.id, f"Run record card {listed.id}", operation)
-            if listed
-            else self._create_run_record_card()
-        )
-        text = card.recorded(marks)
-        self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
+        with _JOB_RECORD_LOCK:
+            card = (
+                self._require_card_node(listed.id, f"Run record card {listed.id}", operation)
+                if listed
+                else self._create_run_record_card()
+            )
+            text = card.recorded(marks)
+            self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def release_changes(self, number: int) -> list[Change]:
         """Every time issue `number` joined or left a Release, from its own events."""
@@ -1813,17 +1826,18 @@ class GitHubRoadmapStore(RoadmapStore):
         options = self._read_schema().options()
         require_job_record_field(options)
         require_option(options, field, value)
-        current = self._require_card_node(
-            card.id,
-            f"Card {card.id}",
-            operation,
-            field=field,
-            value=value,
-            held=card.field_value(field),
-        )
-        current = self._edit_card(current, field.value, value, operation)
-        text = current.recorded({field: value})
-        self._edit_card(current, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
+        with _JOB_RECORD_LOCK:
+            current = self._require_card_node(
+                card.id,
+                f"Card {card.id}",
+                operation,
+                field=field,
+                value=value,
+                held=card.field_value(field),
+            )
+            current = self._edit_card(current, field.value, value, operation)
+            text = current.recorded({field: value})
+            self._edit_card(current, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def remove_card(self, card: Card) -> None:
         """Take `card` off the board, raising if it is not on it."""

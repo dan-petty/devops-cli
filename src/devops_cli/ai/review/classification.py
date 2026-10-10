@@ -45,19 +45,10 @@ _UNTRUSTED_CONTEXT_PREAMBLE: Final[str] = (
 )
 
 
-def _persona_system_prompt(persona: PersonaDefinition, agents_md: str, target: Path) -> str:
-    """Compose the per-file/segment system prompt for this persona.
-
-    The false positives a person disproved in reviews of `target`, the directory the review
-    reads, are appended, so a persona sees what it has already got wrong against that codebase
-    before a model is paid to produce it again (#950). The working directory is never assumed:
-    a review of another checkout must not be shown claims judged against this one (#1100).
-    """
-    from devops_cli.ai.review.common_hallucinations import render_negative_exemplars
-
-    exemplars = render_negative_exemplars(target)
+def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
+    """Compose the per-file/segment system prompt for this persona."""
     if not agents_md:
-        return persona.system_prompt + exemplars + _GUARDRAILS_PROMPT
+        return persona.system_prompt + _GUARDRAILS_PROMPT
 
     clean_agents = sanitize_prompt_boundary_tags(agents_md)
     return (
@@ -68,7 +59,7 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str, target: P
         "</project_conventions_context>\n\n"
         "Adhere to target project conventions. Do not raise findings that merely "
         "restate or contradict the conventions explicitly documented above."
-        f"{exemplars}{_GUARDRAILS_PROMPT}"
+        f"{_GUARDRAILS_PROMPT}"
     )
 
 

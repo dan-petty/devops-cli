@@ -172,13 +172,11 @@ def test_build_context_review_prompt_code() -> None:
     ) == (True, True, True, True, True, True, True, True, True, True, True)
 
 
-def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
+def test_build_multi_persona_pipeline_agents_carry_guardrails_and_conventions(
     tmp_path: Path,
 ) -> None:
-    """Verify every orchestrator agent carries guardrails, negative exemplars, and wrapped conventions.
-
-    A target nobody has judged a claim in is shown the shipped false positives (#950).
-    """
+    """Verify every orchestrator agent carries guardrails and wrapped conventions, and no
+    catalog of false positives (#1150)."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 
     orchestrator = ReviewPipelineOrchestrator(
@@ -193,7 +191,7 @@ def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
     all_carry_guardrails = all(
         "## Security & Prompt Isolation Guardrails" in p for p in agent_prompts
     )
-    all_carry_exemplars = all("## Common False Positives" in p for p in agent_prompts)
+    any_carries_exemplars = any("False Positives" in p for p in agent_prompts)
     all_carry_conventions = all(
         "<project_conventions_context>\nStrict project guidelines.\n</project_conventions_context>"
         in p
@@ -203,19 +201,19 @@ def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
     empty_pipe, _ = orchestrator._build_multi_persona_pipeline(["qa"], "")
     qa_prompt = empty_pipe.agents[0].system_prompt
     qa_has_guardrails = "## Security & Prompt Isolation Guardrails" in qa_prompt
-    qa_has_exemplars = "## Common False Positives" in qa_prompt
+    qa_has_exemplars = "False Positives" in qa_prompt
     qa_has_conventions_tag = "<project_conventions_context>" in qa_prompt
 
     assert (
         len(pipeline.agents),
         all_carry_guardrails,
-        all_carry_exemplars,
+        any_carries_exemplars,
         all_carry_conventions,
         len(empty_pipe.agents),
         qa_has_guardrails,
         qa_has_exemplars,
         qa_has_conventions_tag,
-    ) == (2, True, True, True, 1, True, True, False)
+    ) == (2, True, False, True, 1, True, False, False)
 
 
 @pytest.mark.parametrize(

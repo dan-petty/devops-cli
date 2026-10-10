@@ -247,28 +247,6 @@ CONST_MODELS_DIR_NAME = "models"
 CONST_CACHE_DIR_NAME = "cache"
 CONST_CI_CACHE_FILENAME = "ci_cache.json"
 CONST_COVERAGE_INDEX_FILENAME = "coverage_index.json"
-# mypy's cache for the type-check probe of review verification, under the cache directory.
-CONST_TYPECHECK_PROBE_CACHE_DIR_NAME = "typecheck-probe"
-# The probe's mypy config: devops-cli's own, never the reviewed tree's (#946). It loads only the
-# plugin devops-cli's `[tool.mypy]` loads, without which its pydantic models fail `--strict`.
-CONST_TYPECHECK_PROBE_MYPY_CONFIG = "[mypy]\nplugins = pydantic.mypy\n"
-# Appended to a copy of a module the probe passed, so mypy names each line of it holding an
-# expression of type Any: a claim about such an expression is not one a strict pass settles
-# (#972). An inline config comment keeps the option to that module and its lines where they are.
-CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT = "# mypy: disallow-any-expr"
-# What has mypy skip a module's errors; the probe makes no claim on a module holding either (#972).
-# A wider match than mypy's only withholds a claim. `type: ignore`, with any spacing and error
-# codes, is read from the module's comments, as mypy reads it, and matched anywhere in one.
-CONST_TYPE_IGNORE_COMMENT: Final[re.Pattern[str]] = re.compile(r"type:\s*ignore")
-# An inline `# mypy:` configuration line. mypy reads one from every line of the module's text that
-# starts `# mypy: `, a line inside a string too, so it is matched on the raw lines, at any indent.
-CONST_MYPY_CONFIG_LINE: Final[re.Pattern[str]] = re.compile(r"^[ \t]*#[ \t]*mypy:", re.MULTILINE)
-# A PEP 263 coding declaration, looked for anywhere in a module's first two lines, wider than
-# Python or mypy look. mypy decodes the module by it before reading either suppression, and a
-# module declaring UTF-7 can spell `# mypy:` as `+ACM- mypy:`, which a UTF-8 read does not see.
-CONST_SOURCE_CODING_DECLARATION: Final[re.Pattern[bytes]] = re.compile(
-    rb"coding[:=][ \t]*([-\w.]+)"
-)
 # Library contracts, under the data directory: the only place they are written and read (#972).
 CONST_LIBRARIES_DIR_NAME = "libraries"
 # The config and ignore files a review's static scanners are handed in place of any in their
@@ -279,6 +257,10 @@ CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
+# Bandit's project file. This repository's names the targets `devops ci security` and an
+# unisolated `devops scan report` of the tree both scan; a review hands Bandit an empty one in
+# its place (#972).
+CONST_BANDIT_INI_NAME: Final[str] = ".bandit"
 # Every status a scan outcome can have, most severe first: outcomes merged into one, such as a
 # scanner's per-file or per-batch runs, report the worst status any of them had.
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
@@ -316,121 +298,6 @@ CONST_RAG_DIR_NAME = "rag"
 CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
-CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
-# Appended to the learned catalog's file name for the lock its writers take turns on (#950).
-CONST_HALLUCINATIONS_LOCK_SUFFIX = ".lock"
-# The source and id prefix of a learned-catalog entry: a claim a person's INVALIDATED verdict
-# judged, which a later review suppresses exactly (#950).
-CONST_JUDGED_CLAIM_SOURCE = "person"
-CONST_JUDGED_CLAIM_ID_PREFIX = "JUDGED-"
-# The words a judged claim is never keyed on besides Python's keywords (#950): common English
-# words, and the keywords of the other languages a review reads that are words too. A title and the
-# line it cites that share only such words make no claim about that line's code.
-CONST_JUDGED_CLAIM_STOP_WORDS: Final[frozenset[str]] = frozenset(
-    {
-        "a",
-        "about",
-        "after",
-        "all",
-        "also",
-        "an",
-        "any",
-        "are",
-        "at",
-        "be",
-        "been",
-        "before",
-        "but",
-        "by",
-        "can",
-        "case",
-        "const",
-        "could",
-        "default",
-        "do",
-        "does",
-        "done",
-        "each",
-        "end",
-        "esac",
-        "every",
-        "fi",
-        "fn",
-        "func",
-        "function",
-        "has",
-        "have",
-        "here",
-        "how",
-        "into",
-        "it",
-        "its",
-        "let",
-        "may",
-        "might",
-        "more",
-        "most",
-        "must",
-        "mut",
-        "new",
-        "no",
-        "of",
-        "on",
-        "only",
-        "onto",
-        "other",
-        "out",
-        "over",
-        "package",
-        "per",
-        "private",
-        "protected",
-        "public",
-        "same",
-        "see",
-        "should",
-        "so",
-        "some",
-        "static",
-        "such",
-        "than",
-        "that",
-        "the",
-        "their",
-        "then",
-        "there",
-        "these",
-        "they",
-        "this",
-        "those",
-        "to",
-        "too",
-        "under",
-        "up",
-        "upon",
-        "use",
-        "used",
-        "uses",
-        "using",
-        "var",
-        "very",
-        "via",
-        "void",
-        "was",
-        "we",
-        "were",
-        "what",
-        "when",
-        "where",
-        "which",
-        "who",
-        "why",
-        "will",
-        "would",
-        "you",
-        "your",
-    }
-)
 # Test-only paths and environment variables that must be strictly isolated outside the project root
 CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "test_config.yaml",
@@ -1054,6 +921,13 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
+# The Service's lanes (#1532): each repository has one worker per lane. The release lane runs the
+# jobs that close items and start and ship releases, the model lane those that call the model, so
+# a release-lane round never waits for a model-lane round. A service app given no jobs runs its
+# logging job in the default lane.
+CONST_SERVICE_LANE_RELEASE: Final[str] = "release"
+CONST_SERVICE_LANE_MODEL: Final[str] = "model"
+CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
     {
         "/healthz",
@@ -1499,62 +1373,8 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Calls and attributes that make a `python -c` criterion reflection: it inspects that code
-# exists, or what it is called, instead of running it and checking what it does.
-CONST_REFLECTION_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
-    {
-        "callable",
-        "dir",
-        "getattr",
-        "getfullargspec",
-        "getmembers",
-        "getsource",
-        "hasattr",
-        "isinstance",
-        "signature",
-        "type",
-        "vars",
-    }
-)
-CONST_REFLECTION_CRITERIA_ATTRIBUTES: Final[frozenset[str]] = frozenset(
-    {"__annotations__", "__code__", "__dict__", "__signature__", "__wrapped__", "co_varnames"}
-)
-# Calls by which a `python -c` criterion reads a file's text (`Path(...).read_text()`), parses
-# text into values (`json.loads`, `yaml.safe_load`, `tomllib.loads`), tests only that a path
-# exists, or ends the interpreter with a status (`sys.exit`, `exit`, `raise SystemExit`).
-CONST_READING_CRITERIA_CALLS: Final[frozenset[str]] = frozenset({"open", "read_bytes", "read_text"})
-CONST_PARSING_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
-    {"full_load", "literal_eval", "load", "load_all", "loads", "safe_load", "safe_load_all"}
-)
-CONST_EXISTENCE_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
-    {"exists", "is_dir", "is_file", "isdir", "isfile", "lexists"}
-)
-CONST_EXIT_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
-    {"_exit", "exit", "quit", "SystemExit"}
-)
-# How pytest finds tests by default: the files it collects (`python_files`) and how it names a
-# test function (`python_functions`). A `python -c` criterion that calls the cited test is
-# checked by that test's own asserts (#1043).
-CONST_PYTEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
-CONST_PYTEST_FUNCTION_PREFIX: Final[str] = "test"
 
-# ── Review Schemas & Deterministic Verification Constants ─────────────────────
-CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
-    "missing",
-    "lacks",
-    "without",
-    "no ",
-    "not set",
-    "not defined",
-    "not provided",
-    "omits",
-    "absent",
-)
-
-CONST_PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
-    {"none", "n/a", "na", "null", "undefined", "unknown", "[]", "{}"}
-)
-
+# ── Review Schemas ──────────────────────────────────────────────────────────────
 CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES: Final[frozenset[str]] = frozenset(
     {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
 )
@@ -1610,287 +1430,6 @@ CONST_REVIEW_TITLE_FILLER_WORDS: Final[frozenset[str]] = frozenset(
     }
 )
 
-CONST_AUTH_HEADER_CLAIM_KEYWORDS: Final[tuple[str, ...]] = (
-    "missing authorization header",
-    "missing auth header",
-    "sent without authentication",
-    "without including an authorization header",
-    "missing header in",
-)
-
-CONST_AUTH_HEADER_CODE_PATTERNS: Final[tuple[str, ...]] = (
-    'headers["Authorization"]',
-    "headers['Authorization']",
-    '"Authorization":',
-    "'Authorization':",
-)
-
-CONST_AUTH_DISPATCH_PATTERNS: Final[tuple[str, ...]] = (
-    "headers=headers",
-    "headers = headers",
-    "headers=self._headers",
-    "headers=default_headers",
-)
-
-CONST_FIXTURE_CREDENTIAL_KEYWORDS: Final[tuple[str, ...]] = (
-    "hardcoded secret",
-    "hardcoded token",
-    "hardcoded credential",
-    "plaintext secret",
-    "exposed vault token",
-    "hardcoded vault token",
-    "hardcoded password",
-    "hardcoded api key",
-    "hardcoded key",
-    "exposed api key",
-    "plaintext api key",
-    "api key masking",
-)
-
-CONST_MASKED_SYNTAX_ERROR_PHRASES: Final[tuple[str, ...]] = (
-    "syntax error",
-    "invalid syntax",
-    "undefined variable",
-    "nameerror",
-    "unquoted placeholder",
-    "unresolved identifier",
-)
-
-CONST_UNINITIALIZED_CLAIM_KEYWORDS: Final[tuple[str, ...]] = (
-    "uninitialized",
-    "unboundlocalerror",
-)
-
-CONST_MONOLOGUE_PREFIXES: Final[str] = (
-    r"^(?:we need to|let's check|let's verify|first, let's|i need to|looking at the code|"
-    r"based on the above)\b"
-)
-
-CONST_COMPLIMENT_PHRASES: Final[str] = (
-    r"\b(?:looks solid|properly implemented|no vulnerabilities found|clean code|well structured|"
-    r"all clear)\b"
-)
-
-CONST_COMPLIMENT_NEGATIONS: Final[str] = (
-    r"\b(?:not|never|isn't|aren't|no longer|improperly|but|however|except|missing|fails?|"
-    r"lacks?|without)\b"
-)
-
-CONST_HALLUCINATION_FORBIDDEN_WORDS: Final[frozenset[str]] = frozenset(
-    {
-        "secret",
-        "secrets",
-        "token",
-        "tokens",
-        "key",
-        "keys",
-        "password",
-        "passwords",
-        "credential",
-        "credentials",
-        "api",
-        "auth",
-        "test",
-        "tests",
-        "mock",
-        "mocks",
-        "error",
-        "errors",
-        "syntax",
-        "code",
-        "file",
-        "line",
-        "python",
-        "pydantic",
-        "default",
-        "defaults",
-        "mutable",
-        "leak",
-        "leaks",
-        "vulnerability",
-        "vulnerabilities",
-        "security",
-        "issue",
-        "issues",
-        "bug",
-        "bugs",
-        "doc",
-        "docs",
-        "documentation",
-        "example",
-        "examples",
-        "sample",
-        "samples",
-        "rule",
-        "rules",
-        "clause",
-        "clauses",
-        "import",
-        "imports",
-        "package",
-        "packages",
-        "dependency",
-        "dependencies",
-        "found",
-        "missing",
-        "invalid",
-        "statement",
-        "argument",
-        "arguments",
-        "function",
-        "method",
-        "class",
-        "module",
-        "string",
-        "variable",
-        "value",
-        "hardcoded",
-        "exposed",
-        "warning",
-        "info",
-        "general",
-        "critical",
-        "high",
-        "medium",
-        "low",
-        # Stop words & structural descriptors
-        "this",
-        "that",
-        "these",
-        "those",
-        "which",
-        "what",
-        "who",
-        "whom",
-        "whose",
-        "will",
-        "would",
-        "shall",
-        "should",
-        "can",
-        "could",
-        "may",
-        "might",
-        "must",
-        "from",
-        "with",
-        "without",
-        "about",
-        "above",
-        "below",
-        "into",
-        "through",
-        "during",
-        "before",
-        "after",
-        "over",
-        "under",
-        "again",
-        "further",
-        "then",
-        "once",
-        "here",
-        "there",
-        "their",
-        "theirs",
-        "them",
-        "they",
-        "when",
-        "where",
-        "why",
-        "how",
-        "all",
-        "any",
-        "both",
-        "each",
-        "few",
-        "more",
-        "most",
-        "other",
-        "some",
-        "such",
-        "no",
-        "nor",
-        "not",
-        "only",
-        "own",
-        "same",
-        "so",
-        "than",
-        "too",
-        "very",
-        "time",
-        "pipeline",
-        "runtime",
-        "leading",
-        "crash",
-        "blocks",
-        "causing",
-        "potential",
-        "entire",
-        "occur",
-        "occurs",
-        "occurring",
-        "occurred",
-        "lead",
-        "leads",
-        "causes",
-        "caused",
-        "cause",
-        "call",
-        "calls",
-        "called",
-        "calling",
-        "prevent",
-        "prevents",
-        "preventing",
-        "prevented",
-        "fail",
-        "fails",
-        "failed",
-        "failing",
-        "failure",
-        "failures",
-        "pass",
-        "passes",
-        "passed",
-        "passing",
-        "check",
-        "checks",
-        "checked",
-        "checking",
-        "use",
-        "uses",
-        "used",
-        "using",
-        "make",
-        "makes",
-        "made",
-        "making",
-        "get",
-        "gets",
-        "got",
-        "getting",
-        "set",
-        "sets",
-        "setting",
-        "have",
-        "has",
-        "had",
-        "having",
-        "do",
-        "does",
-        "did",
-        "doing",
-        "be",
-        "been",
-        "being",
-        "is",
-        "are",
-        "was",
-        "were",
-    }
-)
 
 # ── Unified Secret Resolution & Vault Lease Lifecycle ────────────────────────
 # Provider identifiers recorded in the credential access audit trail.
@@ -2551,6 +2090,9 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+# The model lane's own clone beside it, so the model lane's checkout never touches a cut the
+# release lane is making in `clone` (#1532).
+CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),
@@ -3189,8 +2731,9 @@ CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
-# open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and
-# `docs/ROADMAP.md` with `devops roadmap render`.
+# open pull request conflict. The cut commit writes both: `CHANGELOG.md`'s section for the
+# version from `changelog.d/`, and `docs/ROADMAP.md` with `devops roadmap render`. Once the cut
+# has written that section, a critical fix edits it in its own pull request (#1450).
 CONST_RELEASE_SHARED_FILES: Final[tuple[str, ...]] = (
     CONST_CHANGELOG_FILENAME,
     CONST_ROADMAP_DOCUMENT_PATH,
@@ -3203,8 +2746,11 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 )
 # The `pulls/{n}/files` statuses under which the file is in the pull request's head and was
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
-# only) and unchanged.
-CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# only) and unchanged. `modified` is an edit in place under the same name.
+CONST_PR_FILE_MODIFIED_STATUS: Final[str] = "modified"
+CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
+    {"added", CONST_PR_FILE_MODIFIED_STATUS, "renamed"}
+)
 # The statuses under which a pull request adds, modifies, renames or removes the file.
 CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
 # `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
@@ -3375,12 +2921,14 @@ CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
 # A verdict a person gave through `devops review verify`: the only ground truth, which review
 # history ranks above any number of machine verdicts.
 CONST_VERIFIED_BY_HUMAN: Final[str] = "human"
-# A verdict an agent gave through `devops review verify --adjudicator agent` or the MCP
-# `verify_finding` tool. MCP clients are untrusted, so it never counts as a person's.
+# A verdict an agent gave, which sessions saved before #1150 hold: review history never counts it
+# as a person's.
 CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # The prefix of a verdict a deterministic check gave (`deterministic:syntax_error`, ...). Such a
-# label is the deterministic layer's own decision, so `ai prompt-eval` leaves it out (#950).
+# label is a machine's, not a person's, so `ai prompt-eval` leaves it out unless asked (#950).
 CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
+# The notes the model verifier wrote on the findings it left without a verdict, which sessions
+# saved before #1150 hold and review statistics still count by kind.
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
@@ -3424,41 +2972,6 @@ CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
     CONST_CITATION_OUT_OF_RANGE,
     CONST_VERIFIER_CONTRADICTION,
 )
-# A mitigating mechanism that negates itself describes the defect, not what limits it: "caught
-# but not logged", "is expected to handle", "the mock is too permissive" (session
-# 20261001-224227, #845).
-CONST_SELF_NEGATING_MECHANISM_PATTERN: Final[str] = (
-    r"\bbut (?:does )?not\b|\bis expected to\b|\bintended to\b|\btoo permissive\b"
-)
-# A verdict's reason saying a criterion passed: a test, command, criterion or check that passes
-# or succeeds with nothing after it ("the test execution which passes, confirming"; not "passes
-# the flag"), or an exit status of 0 (session 20261003-005122, #845).
-CONST_CRITERION_PASSED_CLAIM_PATTERN: Final[str] = (
-    r"\b(?:tests?|commands?|criteri(?:on|a)|checks?|executions?|assertions?)\b"
-    r"(?:\W+\w+){0,3}?\W+(?:pass(?:es|ed)?|succeed(?:s|ed)?)"
-    r"(?=\s*(?:[.,;:()]|$)|\s+(?:successfully|correctly|cleanly|and|but|so|which|while"
-    r"|confirming|showing|indicating|as)\b)"
-    r"|\bexit(?:s|ed)?(?:\s+with)?(?:\s+(?:code|status))?\s+0\b"
-)
-# The fields of a finding the verifier is shown: its number in the call and the claim as the
-# reviewer wrote it, criteria included. Nothing the pipeline writes (status, confidence,
-# criteria results and their run times, notes) is among them, so verifying a finding again
-# sends the same prompt and the response cache can replay the reply. A field added to `Finding`
-# stays out of the verifier prompt until it is listed here.
-CONST_VERIFIER_FINDING_FIELDS: Final[tuple[str, ...]] = (
-    "finding_id",
-    "severity",
-    "location",
-    "title",
-    "description",
-    "fix",
-    "references",
-    "category",
-    "verification_criteria",
-    "invalidation_criteria",
-    "observed_value",
-    "expected_value",
-)
 
 # ── Review Report Integrity (#948) ───────────────────────────────────────────
 # Files a review keeps off persona pages, by repository-relative path: planning documents and
@@ -3474,19 +2987,14 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "docs/commands/*.md",
     "docs/CLI_REFERENCE.md",
 )
-# Where a finding sits in a test: the directories test runners collect from, and the file name
-# shapes pytest (`test_x.py`, `x_test.py`), Go (`x_test.go`) and JavaScript (`x.test.js`,
-# `x.spec.js`) collect.
-CONST_REVIEW_TEST_DIR_NAMES: Final[frozenset[str]] = frozenset({"tests", "test", "__tests__"})
-CONST_REVIEW_TEST_STEM_SUFFIXES: Final[tuple[str, ...]] = ("_test", ".test", ".spec")
-# Words that hedge a finding's claim. A hedged title is MEDIUM at most, whoever verified it.
-CONST_REVIEW_HEDGE_WORDS: Final[frozenset[str]] = frozenset(
-    {"potential", "potentially", "possible", "possibly", "may", "might", "could"}
-)
-# How a secret scanner titles its findings: Gitleaks (`[GITLEAKS]`, `[GITLEAKS:<rule>]`) and
-# Trivy's secret rules (`[SECRET]`). The match is the secret's evidence, so a finding titled so is
-# not capped as a test or document finding.
-CONST_REVIEW_SECRET_SCAN_TITLE_PREFIXES: Final[tuple[str, ...]] = ("[GITLEAKS", "[SECRET]")
+# The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
+# Gitleaks reports nothing else, and Trivy's secret results carry the `SECRET` rule id its parser
+# titles them with. `[severity_caps]` never caps one: a secret in a test or a document is still a
+# secret (#1301).
+CONST_REVIEW_SECRET_SCANNER_RULES: Final[dict[str, frozenset[str] | None]] = {
+    "gitleaks": None,
+    "trivy": frozenset({"SECRET"}),
+}
 # The defect class (`review_schema.DefectClass`) of the CWE ids review findings cite. A CWE not
 # listed falls back to the keyword table over the finding's own words.
 CONST_REVIEW_CWE_DEFECT_CLASSES: Final[dict[int, str]] = {
@@ -3847,3 +3355,12 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
 # connection closes. Without `uri=True` no other name does that, so the set is complete. A store
 # that opens a connection per call loses every write to either.
 CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})
+
+# ── Swallowed Failures Ratchet Invariant ───────────────────────────────────────
+# Ruff rule codes and process return object attributes inspected by the ratchet (#1347).
+CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
+CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
+
+# ── Review Evidence (Ruff & Mypy) ─────────────────────────────────────────────
+CONST_DEFAULT_REVIEW_ADVISORY_RULES: Final[tuple[str, ...]] = ("BLE001",)
+CONST_COMPLEXITY_SOURCE: Final[str] = "mccabe (ruff C901)"

@@ -14,6 +14,7 @@ The shared review prompt carries roughly a dozen host-specific invalidation rule
 
 #### Key Deliverables:
 - Context & Rationale*: The shared review prompt carries roughly a dozen host-specific invalidation rules that the verifier prompt also applies to every finding. The duplication costs tokens on every persona and every segment. Removing them is not obviously right: suppressing a false positive at generation time is cheaper than generating it and invalidating it afterwards, and nothing currently measures which way the trade falls.
+- Update (#1150): The verifier prompt this item measures against is deleted with the model verifier, so the duplication it describes no longer exists; #1150 supersedes this item.
 - Deliverable*: With the benchmark above in place, remove each duplicated rule in turn and measure findings generated, findings invalidated, and total tokens across both stages. Keep the rules whose removal costs more in verification than it saves in generation.
 - Constraint*: Depends on the benchmark. Doing this by argument is how the duplication arose.
 - Unit and integration test coverage with structural tuple equality assertions.

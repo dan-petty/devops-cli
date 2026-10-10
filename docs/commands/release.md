@@ -41,12 +41,13 @@ devops release prepare [OPTIONS] <version>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. --create-pr always collects changelog.d/ into it, whatever this flag says. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -111,6 +112,7 @@ devops release notes [OPTIONS]
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -138,6 +140,7 @@ devops release sync-notes [OPTIONS]
 | `--all` | `boolean` | - | Sync every published release rather than one version. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -158,6 +161,7 @@ devops release changelog [OPTIONS]
 | `--from-tag` | `string` | - | Starting git tag or ref for changelog compilation. |
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -179,5 +183,6 @@ devops release tag [OPTIONS]
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

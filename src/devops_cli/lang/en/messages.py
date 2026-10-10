@@ -21,13 +21,9 @@ class ReviewMessages:
     generating_metadata: str = "Generating segment metadata..."
     stage_metadata: str = "Analyzing metadata across {count} file(s)..."
     stage_segment: str = "Reviewing {count} file(s)..."
-    stage_validate: str = "Validating findings for {count} file(s)..."
     stage_compose: str = "Composing final review..."
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed}"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
-    segment_validate_progress: str = (
-        "  ✓ segment {index}/{total} in {elapsed}: {verified}/{findings} finding(s) verified"
-    )
     total_elapsed: str = "  total {elapsed}"
     collecting_files: str = "Collecting {pattern} files under {target}..."
     no_files_found: str = "No files found."
@@ -92,15 +88,14 @@ class ReviewMessages:
     session_write_failed: str = (
         "Cannot write the session's files, so the verdict was not recorded: {error}"
     )
-    agent_over_person: str = (
-        "A person gave this finding its verdict, and an agent cannot change it; "
-        "only --adjudicator human can."
+    suppressions_cover_changes: str = (
+        "[bold yellow]{count} review.toml suppression(s) cover files this change touches; "
+        "check that each reason still holds:[/bold yellow]"
     )
-    verdict_teaches_nothing: str = (
-        "The verdict is recorded, but later reviews will not suppress this finding: its review "
-        "recorded no code at its location, as sessions saved by earlier versions do not, or its "
-        "title and description name no identifier of that code."
+    suppression_covers_change: str = (
+        "  • [cyan]{rule}[/cyan] on [cyan]{path}[/cyan] (expires {expiry}): {reason}"
     )
+    suppression_never_expires: str = "never"
     sessions_counted: str = (
         "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
         "{target_only} target-only, {unkeyed} unkeyed)"
@@ -639,7 +634,13 @@ class PRMessages:
     )
     grounding_release_files_changed: str = (
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
-        "never conflict on them. Add its changelog entry as {fragment} instead."
+        "never conflict on them."
+    )
+    # Not after the cut, when a critical fix's entry goes in the version's CHANGELOG.md section.
+    grounding_release_files_fragment: str = " Add its changelog entry as {fragment} instead."
+    grounding_changelog_unread: str = (
+        "PR #{number} changes CHANGELOG.md, but {base}'s CHANGELOG.md could not be read to see "
+        "whether the cut wrote its section ({error})."
     )
     grounding_item_not_in_release: str = (
         "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
@@ -1043,7 +1044,8 @@ class ServeMessages:
     # Logged once for each new time a failed Service round names (#1400).
     rounds_paused: str = (
         "No repository starts a Service round before {until}, the time the failed round for "
-        "{repo} named; the triggers that arrive until then run as one round per repository."
+        "{repo} named; the triggers that arrive until then run as one round per lane of each "
+        "repository."
     )
     # Logged when the time a failed round names can't be read: no round waits, and the worker
     # carries on (#1400).
@@ -1207,7 +1209,7 @@ class RoadmapMessages:
     render_backlog: str = "## Backlog"
     render_empty: str = "No items."
     # `devops roadmap reprioritize` (#740). Each reason completes its action's comment, and the
-    # placeholders are {release}, {next}, {cap}, {days} and {detail}.
+    # placeholders are {release}, {next}, {cap}, {limit}, {days} and {detail}.
     reasons: dict[str, str] = field(
         default_factory=lambda: {
             "critical_fix": "a critical fix can join {release} after it starts.",
@@ -1230,11 +1232,11 @@ class RoadmapMessages:
                 "longer ship in it and goes first into the next release."
             ),
             "cap": (
-                "critical fix {detail} took {release} over its size of {cap} items, and this "
+                "critical fix {detail} took {release} over its limit of {limit} items, and this "
                 "was its lowest-ranked unstarted item."
             ),
             "over_size": (
-                "{release} holds {detail} items, more than its size of {cap} and more than it "
+                "{release} holds {detail} items, more than its limit of {limit} and more than it "
                 "held when it started, and this was its lowest-ranked unstarted item."
             ),
             "blocked": "it is Blocked and had not started.",
@@ -1267,7 +1269,7 @@ class RoadmapMessages:
                 "{detail} from Ready items, critical fixes and P0 features first."
             ),
             "trim": (
-                "{release} started with more than {cap} items, and this was its lowest-ranked "
+                "{release} started with more than {limit} items, and this was its lowest-ranked "
                 "unstarted item."
             ),
         }
@@ -1358,6 +1360,10 @@ class RoadmapMessages:
     refine_ready_comment: str = "Status set to Ready at {sha} (see proposed design in issue body)."
     refine_split_comment: str = (
         "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
+    )
+    refine_back_to_new_comment: str = (
+        "Status set back to New at {sha}: refine found it not ready (see Key questions, Fit and "
+        "Suspected block in the proposed design in the issue body)."
     )
     refine_title: str = "# Refinement plan for {repo}"
     refine_none: str = "No items to refine."
@@ -1611,17 +1617,20 @@ class RoadmapMessages:
     close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
     close_cut_files: str = "The cut commit changes {files}."
     close_cut_fragments: str = (
-        "Changelog fragments on the release branch, left uncollected: {fragments}."
+        "Changelog fragments the cut collects into CHANGELOG.md's [{version}] section and "
+        "deletes: {fragments}."
     )
     close_cut_missing: str = (
-        "Closed as completed with no changelog fragment (a person adds it on the release pull "
-        "request): {items}."
+        "Closed as completed with no changelog fragment: {items}. Before the cut, add "
+        "changelog.d/<issue>.md in a pull request into the release branch; after it, edit the "
+        "version's section of CHANGELOG.md in a pull request."
     )
     close_none: str = "none"
     close_dry_run_note: str = (
-        "A cut commits {files} on release/<release> and opens it ready for review. --plan "
-        "reads GitHub and lists each issue the run closes with its comment, the fragments on "
-        "the release branch, left uncollected, and the completed items with none."
+        "A cut commits {files} on release/<release> and opens it ready for review: it collects "
+        "the release branch's changelog fragments into CHANGELOG.md's section for the release "
+        "and deletes them. --plan reads GitHub and lists each issue the run closes with its "
+        "comment, the fragments the cut collects, and the completed items with none."
     )
     close_preview: str = "Nothing was written; pass --confirm to close these and make the cut."
     close_applied: str = "Closed {count} issue(s)."

@@ -8,7 +8,7 @@ import re
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -292,43 +292,6 @@ def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
             seen.add(item)
             result.append(item)
     return result
-
-
-# A bare file name: a name with an extension, which only the file under review may carry.
-_FILE_NAME = re.compile(r"\.[A-Za-z0-9]{1,8}$")
-# The name a bare location starts with, and a line range after a space when it has no colon:
-# `getBodySize:18-24`, `nvm_alias_path() { 1368-1374`.
-_BARE_NAME = re.compile(r"\s*([\w.$-]+)")
-_SPACED_LINES = re.compile(r"\s(\d+(?:-\d+)?)\s*$")
-
-
-def anchor_location(location: str, file_path: str, page_text: str = "") -> str:
-    """Tie a location that names no directory to the file under review, keeping its lines.
-
-    A model may name the file alone (`Dockerfile:7`) or a function in it (`getBodySize:18-24`).
-    The location becomes the reviewed file's path when it names that file, or a symbol the page
-    under review shows. Otherwise it is left as it is: it may name another file.
-    """
-    loc = location.strip()
-    if not loc:
-        return file_path
-    head, _, tail = loc.partition(":")
-    name_match = _BARE_NAME.match(head)
-    if "/" in head or "\\" in head or not name_match:
-        return loc
-    name = name_match.group(1)
-    if _FILE_NAME.search(name) or name.lower() == PurePosixPath(file_path).name.lower():
-        names_this_file = name.lower() == PurePosixPath(file_path).name.lower()
-    else:
-        names_this_file = bool(
-            page_text and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", page_text)
-        )
-    if not names_this_file:
-        return loc
-    if tail.strip():
-        return f"{file_path}:{tail.strip()}"
-    lines = _SPACED_LINES.search(head)
-    return f"{file_path}:{lines.group(1)}" if lines else file_path
 
 
 def _format_location_with_lines(
@@ -754,7 +717,8 @@ class Finding(BaseModel):
     )
     # The category a reviewer or scanner wrote, when validation replaced it.
     category_raw: SkipJsonSchema[str | None] = None
-    # The severity the persona or scanner gave, when the verifier or calibration lowered it.
+    # The severity the persona or scanner gave, when a verifier or calibration lowered it (sessions
+    # saved before #1150).
     severity_raw: SkipJsonSchema[str | None] = None
     # Why advisory ids left `references`: no dependency this session scanned carries them.
     reference_note: SkipJsonSchema[str | None] = None
@@ -1275,9 +1239,8 @@ def sort_findings[F: Finding](findings: list[F]) -> list[F]:
 class CitedCode(BaseModel):
     """The code a finding's location cites, as the review read it when it saved the session (#950).
 
-    A person's verdict keys the claim it suppresses on it, so the claim is about the code that
-    person was shown, whichever checkout the verdict is given in and however the file reads by
-    then.
+    `ai/review/cited_code.py` records it; `devops review score`, review history and the feedback
+    export read it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -1294,19 +1257,10 @@ class SavedFinding(Finding):
     persona: str = ""
     persona_title: str = ""
     recommendation: str = "REQUEST CHANGES"
-    # One id for each learned-catalog or mitigations-ledger entry a person's verdict on this
-    # finding created or added to, which a later verdict that no longer stands behind it
-    # withdraws (#949, #950): any but INVALIDATED for a catalog entry, any but MITIGATED for a
-    # ledger entry. Only `devops review verify` sets them; `Finding`, the shape a model's reply
-    # is parsed into, has no such fields.
-    learned_catalog_ids: list[str] = Field(default_factory=list)
-    mitigation_ledger_ids: list[str] = Field(default_factory=list)
     # On a finding a VERIFIED or MITIGATED verdict moved into findings.json, the number of the
     # candidate in candidates.json it was moved from, which later verdicts on either keep in step.
     moved_from_candidate: int | None = None
-    # The code the location cites, as the review read it when it saved the session (#950). A
-    # person's verdict keys the claim it suppresses on it, and the feedback export carries its
-    # excerpt; None when the location cites no line of a file inside the reviewed checkout.
+    # The code the location cites, when it cites a line of a file in the reviewed checkout (#950).
     cited_code: CitedCode | None = None
     # False when admission found the finding's fingerprint at the base revision (#871, #1295),
     # so review.md lists it under pre-existing findings rather than introduced ones.
@@ -1341,8 +1295,8 @@ class ReviewSessionPayload(BaseModel):
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
     network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
-    removed_symbol_findings_count: int = 0
     symbol_delta_summary: dict[str, int] = Field(default_factory=dict)
+    complexity_delta: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("findings", mode="after")
     @classmethod
@@ -1465,13 +1419,13 @@ def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
 
 
 def reset_verification_state[F: Finding](finding: F) -> F:
-    """A copy of a model-written finding with every field only verification may set cleared.
+    """A copy of a model-written finding with every field only a tool or a person sets cleared.
 
     A reviewer's reply is untrusted text parsed into the full finding schema, so it can mark
-    its own finding INVALIDATED or MITIGATED, which skips verification and drops the finding
-    from the report, or VERIFIED, which reports it unchecked. It can also bring its own
-    confidence, citation, mitigation or criteria results, which the verifier would otherwise
-    keep or be shown as the pipeline's.
+    its own finding INVALIDATED or MITIGATED, which drops it from the report, or VERIFIED, which
+    reports it as confirmed. It can also bring its own confidence, citation, mitigation or
+    criteria results, which would be shown as the pipeline's. Only a person's verdict
+    (`devops review verify`) or a tool's evidence sets them (#1150).
     """
     return finding.model_copy(
         update={
@@ -1500,12 +1454,12 @@ def strip_model_set_state(result: ReviewResult) -> ReviewResult:
     """Clear every field only the pipeline may write that a model supplied in its own output.
 
     `ReviewResult` is parsed from untrusted model text, by `parse_review_response` or by the
-    agent framework, so every field on it is model-writable. `verification_note` exists to tell
-    a reader the verifier never ran; a model able to set it could announce a fabricated outage
-    over findings that were verified normally. The dependencies and network references are the scans' own: a reply
-    that declared a dependency scanned clean, or listed an endpoint, would be trusted by the
-    checks that read them (#948). The raw severity and the reference note record what the
-    pipeline changed.
+    agent framework, so every field on it is model-writable. `verification_note` is the
+    pipeline's note on a finding; a model able to set it could pass its own words off as the
+    pipeline's. The dependencies and network references are the scans' own: a reply that
+    declared a dependency scanned clean, or listed an endpoint, would be trusted by the checks
+    that read them (#948). The raw severity and the reference note record what the pipeline
+    changed.
     """
     for finding in result.findings:
         finding.verification_note = None

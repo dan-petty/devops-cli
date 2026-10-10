@@ -744,7 +744,12 @@ class OTelTelemetryClient:
             {"key": "host.name", "value": {"stringValue": self.host_name}},
             {"key": "host.arch", "value": {"stringValue": platform.machine()}},
             {"key": "os.type", "value": {"stringValue": self.os_type}},
-            {"key": "os.description", "value": {"stringValue": platform.platform()}},
+            # platform.platform() runs `uname -p` for the processor name; system and release
+            # come from os.uname() and start no process.
+            {
+                "key": "os.description",
+                "value": {"stringValue": f"{platform.system()} {platform.release()}"},
+            },
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
             {
                 "key": "process.executable.name",

@@ -100,22 +100,22 @@ def test_every_sample_is_on_github_pinned_and_permissively_licensed() -> None:
         ("name", "../escape"),
     ],
 )
-def test_an_entry_outside_the_policy_is_rejected(field: str, value: object) -> None:
+def test_an_entry_outside_the_policy_is_rejected(field: str, value: object, tmp_path: Path) -> None:
     """Verify copyleft licences, moving refs, other transports and escaping paths are refused."""
     with pytest.raises(ValidationError):
-        _sample(Path("/tmp/repo"), **{"commit": "a" * 40, field: value})
+        _sample(tmp_path / "repo", **{"commit": "a" * 40, field: value})
 
 
-def test_a_dual_licence_of_permissive_licences_is_accepted() -> None:
+def test_a_dual_licence_of_permissive_licences_is_accepted(tmp_path: Path) -> None:
     """Verify an SPDX expression is permissive when every licence in it is."""
-    sample = _sample(Path("/tmp/repo"), "a" * 40, license="MIT OR Apache-2.0")
+    sample = _sample(tmp_path / "repo", "a" * 40, license="MIT OR Apache-2.0")
 
     assert sample.license == "MIT OR Apache-2.0"
 
 
-def test_sample_names_are_unique() -> None:
+def test_sample_names_are_unique(tmp_path: Path) -> None:
     """Verify a catalog naming two samples alike is refused, since each is a directory."""
-    sample = _sample(Path("/tmp/repo"), "a" * 40)
+    sample = _sample(tmp_path / "repo", "a" * 40)
 
     with pytest.raises(ValidationError):
         SampleCatalog(samples=[sample, sample])

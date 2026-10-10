@@ -14,10 +14,11 @@ taken_from: >-
   profiling (DCGM_FI_PROF_*) fields, read in the plain text format (version 0.0.4) through
   the Kubernetes API service proxy.
 scraped_by: >-
-  The chart's own ServiceMonitor (serviceMonitor.enabled in
-  k8s/monitoring/dcgm-exporter-values.yaml), read by Alloy (k8s-monitoring 4.5.2), which
-  remote-writes to the Prometheus server.
-target_labels: [cluster, container, endpoint, instance, job, namespace, node, pod, service]
+  The k8s-monitoring dcgm-exporter integration (integrations.dcgm-exporter in
+  k8s/monitoring/k8s-monitoring-values.yaml), run by Alloy (k8s-monitoring 4.5.2), which
+  remote-writes to the Prometheus server. Its discovery rules set node and instance to the
+  pod's node.
+target_labels: [cluster, instance, job, node]
 families:
   DCGM_FI_DEV_DEC_UTIL: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
   DCGM_FI_DEV_ENC_UTIL: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}

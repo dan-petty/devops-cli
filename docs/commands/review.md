@@ -35,8 +35,6 @@ devops review path [OPTIONS] <targets>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
-| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
@@ -46,7 +44,7 @@ devops review path [OPTIONS] <targets>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
-| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
@@ -84,8 +82,6 @@ devops review branch [OPTIONS] <branch_name>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
-| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
@@ -93,7 +89,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
-| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
@@ -131,8 +127,6 @@ devops review pr [OPTIONS] <number>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
-| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
@@ -140,7 +134,7 @@ devops review pr [OPTIONS] <number>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
-| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
@@ -174,10 +168,10 @@ devops review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only; add --candidates to look among every finding the review raised. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
-| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, reported or not. |
 | `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
@@ -185,9 +179,9 @@ devops review findings [OPTIONS] <session>
 
 ## `devops review verify`
 
-**Record a person's or an agent's verdict on a review finding or candidate.**
+**Record a person's verdict on a review finding or candidate.**
 
-Record a person's or an agent's verdict on a review finding or candidate.
+Record a person's verdict on a review finding or candidate.
 
 Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
 substring of exactly one title, and `--candidate` the number `review findings --candidates`
@@ -200,14 +194,9 @@ verdict on a candidate on its copy in findings.json, so both lists agree. When t
 reports another candidate of the same persona, title, location and description, give the
 verdict to the copy with `--index`. Verdicts given on one session at once take turns.
 
-`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
-agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
-person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
-(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
-what the finding's earlier verdicts recorded there that it no longer stands behind: the
-catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
-claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
-stays, and one nothing else recorded is removed.
+The verdict is a label on the session's files and ranks review history; later reviews do not
+learn from it. To stop a false positive coming back, add a `[[suppressions]]` entry with a
+reason and an expiry to `.devops/review.toml`.
 
 ```bash
 devops review verify [OPTIONS] <session>
@@ -227,11 +216,8 @@ devops review verify [OPTIONS] <session>
 | `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
 | `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
 | `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
-| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
-| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
-| `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
-| `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
 
 ---
 
@@ -275,7 +261,7 @@ devops review benchmark [OPTIONS] <targets>
 | `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
-| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. |
 
 ---
 
@@ -420,6 +406,7 @@ devops review samples fetch [OPTIONS] <names>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review samples validate`
 
@@ -501,48 +488,5 @@ devops review templates check [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
-
----
-
-## `devops review hallucinations`
-
-```bash
-devops review hallucinations COMMAND [ARGS]...
-```
-
-### `devops review hallucinations list`
-
-**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
-
-```bash
-devops review hallucinations list [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--learned` | `boolean` | - | Show learned entries only. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
-### `devops review hallucinations remove`
-
-**Remove learned catalog entries; builtin entries cannot be removed.**
-
-```bash
-devops review hallucinations remove [OPTIONS] <ids>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<ids>` | `string` | No | Ids of learned entries to remove. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--all-learned` | `boolean` | - | Remove every learned entry. |
 
 ---

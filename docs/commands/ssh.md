@@ -19,6 +19,7 @@ devops ssh generate [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--comment`, `-c` | `string` | `` | Comment to include in public key. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -35,6 +36,7 @@ devops ssh register [OPTIONS]
 | `--key-file`, `-k` | `path` | - | Path to private key. |
 | `--title` | `string` | - | Title for the item or entity. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -57,6 +59,7 @@ devops ssh rotate [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--force`, `-f` | `boolean` | - | Rotate even if not yet due. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -74,6 +77,7 @@ devops ssh list [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -91,6 +95,7 @@ devops ssh audit [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -108,5 +113,6 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

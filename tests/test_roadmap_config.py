@@ -17,6 +17,7 @@ def test_omitted_keys_take_their_defaults() -> None:
     assert (
         config.board,
         config.release_cap,
+        config.release_slots,
         config.discovery_threshold,
         config.planning_horizon,
         config.stall_days,
@@ -26,7 +27,7 @@ def test_omitted_keys_take_their_defaults() -> None:
         config.release_credit_base,
         config.release_credit_per_delivered_item,
         config.release_item_target,
-    ) == (2, 12, 24, 2, 14, 200, 0.8, 0.25, 10, 1, 50)
+    ) == (2, 12, 4, 24, 2, 14, 200, 0.8, 0.25, 10, 1, 50)
 
 
 def test_a_missing_board_fails_and_names_the_key() -> None:
@@ -45,6 +46,16 @@ def test_an_unknown_quota_key_is_rejected() -> None:
     with pytest.raises(ConfigurationError, match="quota_bogus") as raised:
         parse_roadmap_config("board = 2\nquota_bogus = 123\n")
     assert raised.value.details["key"] == "quota_bogus"
+
+
+def test_a_negative_release_slots_fails_and_names_the_key() -> None:
+    with pytest.raises(ConfigurationError, match="release_slots") as raised:
+        parse_roadmap_config("board = 2\nrelease_slots = -1\n")
+    assert raised.value.details["key"] == "release_slots"
+
+
+def test_a_releases_limit_is_its_cap_plus_its_slots() -> None:
+    assert RoadmapConfig(board=1, release_cap=12, release_slots=4).release_limit == 16
 
 
 def test_text_that_is_not_toml_fails() -> None:
@@ -69,14 +80,15 @@ def test_fraction_boundary_zero_or_one_rejected_with_key_named(key: str, val: st
 
 def test_every_key_can_be_set() -> None:
     text = (
-        "board = 3\nrelease_cap = 8\ndiscovery_threshold = 10\nplanning_horizon = 1\n"
-        "stall_days = 7\nopen_issue_limit = 150\nthrottle_start_fraction = 0.75\n"
-        "overage_step_fraction = 0.2\nrelease_credit_base = 5\n"
+        "board = 3\nrelease_cap = 8\nrelease_slots = 2\ndiscovery_threshold = 10\n"
+        "planning_horizon = 1\nstall_days = 7\nopen_issue_limit = 150\n"
+        "throttle_start_fraction = 0.75\noverage_step_fraction = 0.2\nrelease_credit_base = 5\n"
         "release_credit_per_delivered_item = 2\nrelease_item_target = 40\n"
     )
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=3,
         release_cap=8,
+        release_slots=2,
         discovery_threshold=10,
         planning_horizon=1,
         stall_days=7,
@@ -94,6 +106,7 @@ def test_this_repositorys_file_names_board_2_and_declares_quota_keys() -> None:
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=2,
         planning_horizon=3,
+        release_cap=16,  # temporary bridge until the Service runs #1514's slots
         open_issue_limit=200,
         throttle_start_fraction=0.8,
         overage_step_fraction=0.25,

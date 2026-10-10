@@ -39,20 +39,7 @@ arguments:
 rollingUpdate:
   maxUnavailable: "50%"
 
+# k8s-monitoring's dcgm-exporter integration (k8s/monitoring/k8s-monitoring-values.yaml) scrapes
+# the exporter, so the chart's own ServiceMonitor, on by chart default, stays off.
 serviceMonitor:
-  enabled: true
-  interval: 15s
-  scrapeTimeout: 10s
-  relabelings:
-    - sourceLabels: [__meta_kubernetes_pod_node_name]
-      separator: ;
-      regex: ^(.*)$
-      targetLabel: node
-      replacement: $1
-      action: replace
-    - sourceLabels: [__meta_kubernetes_pod_node_name]
-      separator: ;
-      regex: ^(.*)$
-      targetLabel: instance
-      replacement: $1
-      action: replace
+  enabled: false
