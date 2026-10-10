@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import configparser
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.commands.ci import get_check_spec
+from devops_cli.commands.scan import app as scan_app
+from devops_cli.config.commands import BIN_BANDIT
+from devops_cli.config.constants import CONST_BANDIT_INI_NAME
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.bandit import BanditScanner, parse_bandit_json, run_bandit_scan
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_EMPTY_BANDIT_REPORT = json.dumps({"errors": [], "results": []})
 
 
 def test_parse_bandit_json_valid() -> None:
@@ -152,3 +162,157 @@ def test_bandit_asks_for_quiet_output_in_every_command_shape(tmp_path: Path) -> 
     )
 
     assert tuple("-q" in cmd for cmd in commands) == (True, True, True)
+
+
+def _fake_bandit_runs() -> tuple[list[tuple[list[str], Path]], Any]:
+    """A stand-in for the Bandit process that reports nothing, and the list of each command it
+    was given with the directory it ran from."""
+    runs: list[tuple[list[str], Path]] = []
+
+    def fake_bandit(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        runs.append((cmd, Path(kwargs["cwd"]).resolve()))
+        return subprocess.CompletedProcess(cmd, 0, stdout=_EMPTY_BANDIT_REPORT, stderr="")
+
+    return runs, fake_bandit
+
+
+def _what_bandit_reports(cmd: list[str], cwd: Path) -> list[str]:
+    """The options of a Bandit command that decide what it reports, its `--ini` file resolved
+    from the directory it runs in: all but `-q` and `-f json`, which only shape its output."""
+    args = iter(cmd[cmd.index(BIN_BANDIT) + 1 :])
+    kept: list[str] = []
+    for arg in args:
+        if arg == "-q":
+            continue
+        if arg == "-f":
+            next(args)
+            continue
+        kept.append(arg)
+        if arg == "--ini":
+            kept.append(str((cwd / next(args)).resolve()))
+    return kept
+
+
+def test_the_scan_report_runs_bandit_on_this_repository_as_the_gate_does(tmp_path: Path) -> None:
+    """Verify `devops scan report` on this repository, which ci.yml uploads to code scanning, runs
+    Bandit as `devops ci security` does from the repository root: the same `.bandit` names the
+    targets, the threshold is the same, and neither ignores `# nosec`. Only output options differ,
+    so the upload reports exactly what the gate fails on."""
+    runs, fake_bandit = _fake_bandit_runs()
+    sarif = tmp_path / "scan.sarif"
+    with patch("devops_cli.security.bandit.run_subprocess", side_effect=fake_bandit):
+        result = CliRunner().invoke(
+            scan_app, ["report", "--scanner", "bandit", "--sarif", str(sarif), str(_REPO_ROOT)]
+        )
+
+    [(scan_cmd, scan_cwd)] = runs
+    gate_cmd = get_check_spec("security").cmd
+    assert (
+        result.exit_code,
+        sarif.is_file(),
+        scan_cwd,
+        _what_bandit_reports(scan_cmd, scan_cwd),
+    ) == (
+        0,
+        True,
+        _REPO_ROOT,
+        _what_bandit_reports(gate_cmd, _REPO_ROOT),
+    )
+    assert _what_bandit_reports(gate_cmd, _REPO_ROOT) == [
+        "-r",
+        "--ini",
+        str(_REPO_ROOT / CONST_BANDIT_INI_NAME),
+        "--severity-level",
+        "medium",
+    ]
+
+
+def test_the_bandit_targets_hold_every_python_file_the_repository_tracks() -> None:
+    """Verify the targets `.bandit` names, which the gate and the code-scanning upload both scan,
+    are src and tests, scanned recursively, and hold every tracked Python file, so none goes
+    unscanned."""
+    ini = configparser.ConfigParser()
+    ini.read(_REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
+    targets = ini["bandit"]["targets"].split(",")
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "*.py", "*.pyw"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    outside = [name for name in tracked if not any(Path(name).is_relative_to(t) for t in targets)]
+
+    assert (targets, ini["bandit"].getboolean("recursive"), bool(tracked), outside) == (
+        ["src", "tests"],
+        True,
+        True,
+        [],
+    )
+
+
+def test_only_an_unisolated_scan_runs_bandit_as_the_tree_s_own_bandit_file_says(
+    tmp_path: Path,
+) -> None:
+    """Verify an unisolated scan of a tree with a `.bandit` runs Bandit from the tree on that file,
+    honouring the tree's `# nosec` markers. A review's isolated scan of the same tree, and an
+    unisolated scan of a tree without one, name the tree, ignore `# nosec`, and the review hands
+    Bandit its own empty file from outside the tree, so the reviewed tree's file cannot narrow
+    what the review sees (#972)."""
+    own = tmp_path / "own"
+    own.mkdir()
+    (own / CONST_BANDIT_INI_NAME).write_text(
+        "[bandit]\ntargets = src\nrecursive = true\nskips = B602\n", encoding="utf-8"
+    )
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    runs, fake_bandit = _fake_bandit_runs()
+
+    with patch("devops_cli.security.bandit.run_subprocess", side_effect=fake_bandit):
+        for target, isolated in ((own, False), (own, True), (bare, False)):
+            BanditScanner().scan(target, isolated=isolated)
+
+    [(unisolated, unisolated_cwd), (review, review_cwd), (untold, untold_cwd)] = runs
+    assert (
+        (_what_bandit_reports(unisolated, unisolated_cwd), unisolated_cwd),
+        (review[review.index("-r") + 1], "--ignore-nosec" in review),
+        (review[-2:], review_cwd.is_relative_to(own)),
+        (_what_bandit_reports(untold, untold_cwd)[:2], "--ignore-nosec" in untold),
+    ) == (
+        (["-r", "--ini", str(own / CONST_BANDIT_INI_NAME), "--severity-level", "medium"], own),
+        (str(own), True),
+        (["--ini", str(review_cwd / CONST_BANDIT_INI_NAME)], False),
+        (["-r", str(bare)], True),
+    )
+
+
+@pytest.mark.parametrize(
+    ("ini_text", "reads_the_file"),
+    [
+        pytest.param("[bandit]\ntargets = src\n", True, id="targets without recursive"),
+        pytest.param("[bandit]\nexclude = tests\nskips = B101\n", False, id="no targets"),
+        pytest.param("[bandit]\ntargets =\n", False, id="empty targets"),
+        pytest.param("targets = src\n", False, id="no section"),
+    ],
+)
+def test_an_unisolated_scan_runs_bandit_on_the_tree_s_bandit_file_only_when_it_names_targets(
+    tmp_path: Path, ini_text: str, reads_the_file: bool
+) -> None:
+    """Verify an unisolated scan hands Bandit the tree's `.bandit` only when the file names its
+    targets, and then with `-r`, so Bandit walks a directory target the file does not mark
+    recursive. Bandit exits 2 on a file that names none, such as its own documented example, or
+    that it cannot parse, so such a tree is scanned whole, ignoring `# nosec`, as a tree without
+    one is."""
+    (tmp_path / CONST_BANDIT_INI_NAME).write_text(ini_text, encoding="utf-8")
+    runs, fake_bandit = _fake_bandit_runs()
+
+    with patch("devops_cli.security.bandit.run_subprocess", side_effect=fake_bandit):
+        BanditScanner().scan(tmp_path)
+
+    [(cmd, cwd)] = runs
+    head = _what_bandit_reports(cmd, cwd)[:3]
+    whole_tree = ["-r", str(tmp_path), "--exclude"]
+    own_file = ["-r", "--ini", str(tmp_path / CONST_BANDIT_INI_NAME)]
+    assert (head, "--ignore-nosec" in cmd) == (
+        (own_file, False) if reads_the_file else (whole_tree, True)
+    )

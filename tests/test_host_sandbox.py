@@ -126,7 +126,8 @@ def test_host_sandbox_cannot_connect_network(tmp_path: Path) -> None:
 def test_host_sandbox_clears_sensitive_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live test: sandboxed child inherits no host credentials and uses isolated HOME."""
     monkeypatch.setenv("GITHUB_TOKEN", "super_secret_host_token")
-    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/host_auth.sock")
+    agent_socket = str(tmp_path / "host_auth.sock")
+    monkeypatch.setenv("SSH_AUTH_SOCK", agent_socket)
     sandbox = HostSandbox()
     script = (
         "import os\n"
@@ -140,7 +141,7 @@ def test_host_sandbox_clears_sensitive_env(tmp_path: Path, monkeypatch: pytest.M
         res.exit_code,
         "LEAKS:" in res.stdout,
         "super_secret_host_token" in res.stdout,
-        "/tmp/host_auth.sock" in res.stdout,
+        agent_socket in res.stdout,
         "HOME:/tmp" in res.stdout,
     ) == (True, 0, True, False, False, True)
 
@@ -203,7 +204,7 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
     """Verify that HostSandbox mounts and configures according to its SandboxPolicy."""
     custom_policy = SandboxPolicy(
         read_only=False,
-        tmpfs={"/tmp": "size=32m", "/var/tmp": "size=16m"},
+        tmpfs={"/scratch": "size=32m", "/cache": "size=16m"},
         system_dirs=("/usr", "/bin"),
         forbidden_env_keys=frozenset({"CUSTOM_SECRET"}),
     )
@@ -219,7 +220,7 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
         "--tmpfs" in args,
         "--size" in args,
         "33554432" in args,
-        "/var/tmp" in args,
+        "/cache" in args,
         "CUSTOM_SECRET" not in str(args),
         "SAFE_VAR" in str(args),
     ) == (True, True, True, True, True, True, True, True)
@@ -231,8 +232,8 @@ def test_host_sandbox_default_policy_mounts_tmp_as_declared(tmp_path: Path) -> N
     options = _sandbox_options(sandbox.build_bwrap_args(["true"], cwd=tmp_path))
     at = options.index("--tmpfs")
     assert (sandbox.policy.tmpfs, options[at - 2 : at + 2]) == (
-        {"/tmp": "size=64m"},  # nosec B108
-        ["--size", "67108864", "--tmpfs", "/tmp"],  # nosec B108
+        {"/tmp": "size=64m"},  # nosec B108  # the sandbox's own /tmp mount, under test
+        ["--size", "67108864", "--tmpfs", "/tmp"],  # nosec B108  # its bubblewrap mount, under test
     )
 
 
@@ -245,7 +246,7 @@ def test_host_sandbox_refuses_a_tmpfs_option_bubblewrap_cannot_apply(
 ) -> None:
     """A tmpfs option bubblewrap cannot apply fails the sandbox's construction, naming it (#798)."""
     with pytest.raises(SandboxValidationError, match=refused):
-        HostSandbox(policy=SandboxPolicy(tmpfs={"/tmp": options}))  # nosec B108
+        HostSandbox(policy=SandboxPolicy(tmpfs={"/scratch": options}))
 
 
 @pytest.mark.bwrap

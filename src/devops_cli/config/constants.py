@@ -257,6 +257,10 @@ CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
+# Bandit's project file. This repository's names the targets `devops ci security` and an
+# unisolated `devops scan report` of the tree both scan; a review hands Bandit an empty one in
+# its place (#972).
+CONST_BANDIT_INI_NAME: Final[str] = ".bandit"
 # Every status a scan outcome can have, most severe first: outcomes merged into one, such as a
 # scanner's per-file or per-batch runs, report the worst status any of them had.
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (

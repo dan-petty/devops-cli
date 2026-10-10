@@ -73,7 +73,7 @@ def test_ci_security_command(monkeypatch) -> None:
 
     result = runner.invoke(app, ["security", "-s", "high"])
     assert result.exit_code == 0
-    assert any("bandit" in c and "-lll" in c for c in called)
+    assert any("bandit" in c and c[-2:] == ["--severity-level", "high"] for c in called)
 
 
 def test_ci_actionlint_command(monkeypatch) -> None:
@@ -444,11 +444,11 @@ def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
     with patch("devops_cli.commands.ci.run_subprocess", side_effect=mock_run):
         res_sec_low = runner.invoke(app, ["security", "-s", "low"])
         assert res_sec_low.exit_code == 0
-        assert any("-l" in c for c in called)
+        assert any(c[-2:] == ["--severity-level", "low"] for c in called)
 
         res_sec_med = runner.invoke(app, ["security", "-s", "medium"])
         assert res_sec_med.exit_code == 0
-        assert any("-ll" in c for c in called)
+        assert any(c[-2:] == ["--severity-level", "medium"] for c in called)
 
         # test with -x and -v
         res_test_xv = runner.invoke(app, ["test", "-x", "-v"])

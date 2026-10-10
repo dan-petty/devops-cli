@@ -201,7 +201,7 @@ Before opening or updating a PR, engineers and agents execute `devops ci` (or `u
 5. `format`: Verifies formatting compliance with `ruff format --check`.
 6. `typecheck`: Enforces strict static type analysis with `mypy --strict`.
 7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`.
-8. `security`: Scans for security antipatterns using `bandit`.
+8. `security`: Scans `src/` and `tests/`, the targets `.bandit` names, for security antipatterns using `bandit`, at medium severity and above.
 9. `actionlint`: Validates `.github/workflows/` against GitHub Actions schema.
 10. `docs`: Regenerates docs (`devops docs generate --sync-readme`) by default; `devops ci --check` verifies freshness with `devops docs check` without changing files.
 11. `uv_check`: Verifies project dependencies and Python environment consistency via `uv check`.

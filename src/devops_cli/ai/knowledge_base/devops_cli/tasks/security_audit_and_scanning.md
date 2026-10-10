@@ -38,8 +38,8 @@ devops scan trivy ghcr.io/dan-petty/devops-cli/devcontainer:latest --type image
 # Audit Python dependencies against vulnerability advisories
 uv audit
 
-# Run Bandit AST static security analysis
-bandit -r src/
+# Run Bandit AST static security analysis over src/ and tests/, the targets .bandit names
+uv run bandit -r --ini .bandit --severity-level medium
 ```
 
 ---

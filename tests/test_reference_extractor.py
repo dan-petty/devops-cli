@@ -1016,7 +1016,7 @@ def test_network_references_rejects_unspecified_ip_and_example_domains() -> None
 
     # Invalid entries and bare words MUST be rejected
     rejected = [
-        "0.0.0.0",
+        "0.0.0.0",  # nosec B104  # the bind-all address, a value the extractor rejects
         "::",
         "https://example.org",
         "https://example.net",

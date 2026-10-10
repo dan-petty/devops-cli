@@ -374,7 +374,7 @@ def test_evaluate_threshold_warnings_high_error_rate() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_collect_sandbox_metrics_with_instance(prom_server: str) -> None:
+def test_collect_sandbox_metrics_with_instance(prom_server: str, tmp_path: Path) -> None:
     """Test collect_sandbox_metrics against a SandboxInstance object."""
     port = int(prom_server.split(":")[-1])
     instance = SandboxInstance(
@@ -384,7 +384,7 @@ def test_collect_sandbox_metrics_with_instance(prom_server: str) -> None:
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=8080, host_port=port, protocol="tcp")],
-        workspace_dir="/tmp/workspace",
+        workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-12T13:00:00Z",
     )
 
@@ -417,7 +417,7 @@ def test_collect_sandbox_metrics_with_raw_url(prom_server: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_engine_metrics_method_delegation() -> None:
+def test_engine_metrics_method_delegation(tmp_path: Path) -> None:
     """Test WorkloadSandboxEngine.metrics delegates properly."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
@@ -429,7 +429,7 @@ def test_engine_metrics_method_delegation() -> None:
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=80, host_port=18080, protocol="tcp")],
-        workspace_dir="/tmp",
+        workspace_dir=str(tmp_path),
         created_at="2026-09-12T13:00:00Z",
     )
     with patch.object(engine.registry, "get_instance", return_value=mock_inst):
@@ -631,7 +631,7 @@ def test_read_cgroup_v2_metrics_standard_paths() -> None:
         assert res.cpu_percent == 1.0
 
 
-def test_resolve_instance_port_fallback() -> None:
+def test_resolve_instance_port_fallback(tmp_path: Path) -> None:
     """Test port resolution defaults to 8080 when no bindings present."""
     from devops_cli.sandbox.metrics import _resolve_instance_port
 
@@ -642,7 +642,7 @@ def test_resolve_instance_port_fallback() -> None:
         image="alpine",
         status=SandboxStatus.RUNNING,
         port_bindings=[],
-        workspace_dir="/tmp",
+        workspace_dir=str(tmp_path),
         created_at="2026-09-12T13:00:00Z",
     )
     assert _resolve_instance_port(inst) == 8080
@@ -668,7 +668,7 @@ def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
     assert "Prometheus metrics scraping" in result.output
 
 
-def test_telemetry_tracing_instrumentation() -> None:
+def test_telemetry_tracing_instrumentation(tmp_path: Path) -> None:
     """Test OpenTelemetry tracing and metric recording in CLI and engine."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
@@ -702,7 +702,7 @@ def test_telemetry_tracing_instrumentation() -> None:
         image="alpine",
         status=SandboxStatus.RUNNING,
         port_bindings=[],
-        workspace_dir="/tmp",
+        workspace_dir=str(tmp_path),
         created_at="2026-09-12T13:00:00Z",
     )
     with (
@@ -1064,7 +1064,7 @@ def test_read_cgroup_v2_metrics_fallback_when_path_invalid(tmp_path: Path) -> No
         mock_docker_fallback.assert_called_once_with("cont-fallback-1")
 
 
-def test_workload_sandbox_engine_persists_and_threads_samples() -> None:
+def test_workload_sandbox_engine_persists_and_threads_samples(tmp_path: Path) -> None:
     """Test WorkloadSandboxEngine persists samples and calculates CPU delta on consecutive calls."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
     from devops_cli.sandbox.metrics import PrometheusScrapeResult
@@ -1079,7 +1079,7 @@ def test_workload_sandbox_engine_persists_and_threads_samples() -> None:
         image="test:latest",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=8080, host_port=18080)],
-        workspace_dir="/tmp",
+        workspace_dir=str(tmp_path),
         created_at="2026-09-12T13:00:00Z",
     )
 

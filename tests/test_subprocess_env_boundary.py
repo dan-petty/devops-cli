@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,14 +29,16 @@ from devops_cli.core.process import (
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
 
-def test_build_subprocess_env_allowlist_and_denylist(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_subprocess_env_allowlist_and_denylist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Verify build_subprocess_env preserves allowlisted vars and strips secrets from ambient environment."""
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setenv("HOME", "/home/testuser")
     monkeypatch.setenv("USER", "testuser")
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("VIRTUAL_ENV", "/app/.venv")
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "/tmp/.data")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     monkeypatch.setenv("OTEL_SERVICE_NAME", "devops-cli")
 
     # Sensitive credentials that MUST be stripped
@@ -57,7 +60,7 @@ def test_build_subprocess_env_allowlist_and_denylist(monkeypatch: pytest.MonkeyP
     assert env["USER"] == "testuser"
     assert env["TERM"] == "xterm-256color"
     assert env["VIRTUAL_ENV"] == "/app/.venv"
-    assert env["DEVOPS_CLI_DATA_DIR"] == "/tmp/.data"
+    assert env["DEVOPS_CLI_DATA_DIR"] == str(tmp_path / ".data")
     assert env["OTEL_SERVICE_NAME"] == "devops-cli"
 
     # Ambient credentials must be stripped
@@ -121,11 +124,13 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
     assert "My_Secret_Key" not in env
 
 
-def test_run_subprocess_isolates_real_child_process(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_subprocess_isolates_real_child_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Verify real child process executed via run_subprocess does not inherit ambient secrets."""
     # Ensure baseline PATH and HOME exist deterministically across all environments
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
-    monkeypatch.setenv("HOME", os.environ.get("HOME", "/tmp"))
+    monkeypatch.setenv("HOME", os.environ.get("HOME", str(tmp_path)))
     monkeypatch.setenv("GITHUB_TOKEN", "leak_test_github_token")
     monkeypatch.setenv("OPENAI_API_KEY", "leak_test_openai_key")
     monkeypatch.setenv("MY_CUSTOM_SECRET", "leak_test_custom_secret")
@@ -158,10 +163,12 @@ def test_run_subprocess_forwards_explicit_env(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.anyio
-async def test_run_subprocess_async_isolates_child_process(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_run_subprocess_async_isolates_child_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Verify run_subprocess_async also enforces environment isolation."""
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
-    monkeypatch.setenv("HOME", os.environ.get("HOME", "/tmp"))
+    monkeypatch.setenv("HOME", os.environ.get("HOME", str(tmp_path)))
     monkeypatch.setenv("VAULT_TOKEN", "hvs.async_leak_test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws_async_leak_test")
 

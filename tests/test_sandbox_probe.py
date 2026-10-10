@@ -7,6 +7,7 @@ import socket
 import threading
 from collections.abc import Generator
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -295,7 +296,7 @@ def test_probe_grpc_unreachable() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_run_sandbox_probes_with_instance(http_server: str) -> None:
+def test_run_sandbox_probes_with_instance(http_server: str, tmp_path: Path) -> None:
     """Test run_sandbox_probes against a SandboxInstance object."""
     port = int(http_server.split(":")[-1])
     instance = SandboxInstance(
@@ -305,7 +306,7 @@ def test_run_sandbox_probes_with_instance(http_server: str) -> None:
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=80, host_port=port, protocol="tcp")],
-        workspace_dir="/tmp/workspace",
+        workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-12T12:00:00Z",
         uptime_seconds=60.0,
     )
@@ -350,7 +351,7 @@ def test_cli_sandbox_probe_dry_run(mock_engine_cls: MagicMock) -> None:
 
 @patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
 def test_cli_sandbox_probe_by_instance_id_success(
-    mock_engine_cls: MagicMock, http_server: str
+    mock_engine_cls: MagicMock, http_server: str, tmp_path: Path
 ) -> None:
     """Test sandbox probe CLI command against existing sandbox instance."""
     port = int(http_server.split(":")[-1])
@@ -362,7 +363,7 @@ def test_cli_sandbox_probe_by_instance_id_success(
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=80, host_port=port, protocol="tcp")],
-        workspace_dir="/tmp/workspace",
+        workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-12T12:00:00Z",
     )
     mock_engine.status.return_value = [mock_instance]
@@ -395,7 +396,9 @@ def test_cli_sandbox_probe_by_instance_id_success(
 
 
 @patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_probe_json_output(mock_engine_cls: MagicMock, http_server: str) -> None:
+def test_cli_sandbox_probe_json_output(
+    mock_engine_cls: MagicMock, http_server: str, tmp_path: Path
+) -> None:
     """Test sandbox probe CLI command with JSON output format."""
     port = int(http_server.split(":")[-1])
     mock_engine = MagicMock()
@@ -406,7 +409,7 @@ def test_cli_sandbox_probe_json_output(mock_engine_cls: MagicMock, http_server: 
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=80, host_port=port, protocol="tcp")],
-        workspace_dir="/tmp/workspace",
+        workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-12T12:00:00Z",
     )
     mock_engine.status.return_value = [mock_instance]
@@ -452,7 +455,7 @@ def test_cli_sandbox_probe_instance_not_found(mock_engine_cls: MagicMock) -> Non
     assert result.exit_code != 0
 
 
-def test_engine_probe_method_delegation() -> None:
+def test_engine_probe_method_delegation(tmp_path: Path) -> None:
     """Test WorkloadSandboxEngine.probe delegates to run_sandbox_probes."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
@@ -464,7 +467,7 @@ def test_engine_probe_method_delegation() -> None:
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[PortBinding(container_port=80, host_port=18080, protocol="tcp")],
-        workspace_dir="/tmp",
+        workspace_dir=str(tmp_path),
         created_at="2026-09-12T12:00:00Z",
     )
     with patch.object(engine.registry, "get_instance", return_value=mock_inst):

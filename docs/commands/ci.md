@@ -126,7 +126,7 @@ devops ci audit [OPTIONS]
 
 ## `devops ci security`
 
-**Run bandit static security vulnerability analysis over src/.**
+**Run bandit static security analysis over src/ and tests/, the targets .bandit names.**
 
 ```bash
 devops ci security [OPTIONS]

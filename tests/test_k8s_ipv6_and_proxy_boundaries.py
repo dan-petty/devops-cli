@@ -190,7 +190,7 @@ def test_port_forward_message_formatting() -> None:
     """Verify port-forward messages handle IPv6 and lists without raising."""
     cases = [
         ("::1", "http://[::1]:8080"),
-        ("0.0.0.0", "http://0.0.0.0:8080"),
+        ("0.0.0.0", "http://0.0.0.0:8080"),  # nosec B104  # formats the bind-all address
         ("localhost,::1", "localhost,::1:8080"),
     ]
     for addr, expected_target in cases:
