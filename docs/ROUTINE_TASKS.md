@@ -293,7 +293,8 @@ Executed weekly, prior to major releases, or when dependencies are updated.
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.
 - **Methodology**: Analyzes AST for common security pitfalls (unsafe subshell calls, hardcoded passwords, weak crypto).
-- **Command**: `uv run devops ci security` or `uv run bandit -r src -ll -s B608`.
+- **Scope**: `src/` and `tests/`, the targets `.bandit` names, at medium severity and above. `devops scan report` on the repository, which CI uploads to code scanning, runs the same scan.
+- **Command**: `uv run devops ci security` or `uv run bandit -r --ini .bandit --severity-level medium`.
 
 #### 3. Kubernetes & IaC Security Scans
 - **Frequency**: Whenever `k8s/` or `tf/` manifests are modified.

@@ -39,16 +39,16 @@ from devops_cli.config.commands import (
 )
 
 
-def test_command_builders() -> None:
+def test_command_builders(tmp_path: Path) -> None:
     """Verify that all subprocess command builders return expected argument lists."""
     assert build_git_rev_parse_cmd(["--show-toplevel"]) == [BIN_GIT, "rev-parse", "--show-toplevel"]
     assert build_git_diff_cmd("feat", "main") == [BIN_GIT, "diff", "main...feat"]
     assert build_git_log_cmd(5) == [BIN_GIT, "log", "-n5"]
-    assert build_git_clone_cmd("https://github.com/org/repo.git", Path("/tmp/repo")) == [
+    assert build_git_clone_cmd("https://github.com/org/repo.git", tmp_path / "repo") == [
         BIN_GIT,
         "clone",
         "https://github.com/org/repo.git",
-        "/tmp/repo",
+        str(tmp_path / "repo"),
     ]
 
     find_cmd = build_find_files_cmd(".", maxdepth=2, exclude_paths=["./.git/*"])

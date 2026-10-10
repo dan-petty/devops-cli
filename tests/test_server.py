@@ -245,11 +245,11 @@ def test_serve_cli_help() -> None:
 def test_serve_cli_invocation_mocked() -> None:
     """Test devops serve starts uvicorn server."""
     with patch("uvicorn.run") as mock_uvicorn:
-        result = runner.invoke(serve_app, ["--host", "0.0.0.0", "--port", "9000"])
+        result = runner.invoke(serve_app, ["--host", "::1", "--port", "9000"])
         assert result.exit_code == 0
         assert mock_uvicorn.called
         assert (mock_uvicorn.call_args.kwargs["host"], mock_uvicorn.call_args.kwargs["port"]) == (
-            "0.0.0.0",
+            "::1",
             9000,
         )
 
@@ -306,11 +306,11 @@ def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
     with patch("uvicorn.run") as mock_uvicorn:
-        result = runner.invoke(serve_app, ["--service", "--host", "0.0.0.0", "--port", "8787"])
+        result = runner.invoke(serve_app, ["--service", "--host", "::1", "--port", "8787"])
         assert (
             result.exit_code,
             mock_uvicorn.called,
             mock_uvicorn.call_args.kwargs["host"],
             mock_uvicorn.call_args.kwargs["port"],
             mock_uvicorn.call_args.kwargs["log_config"],
-        ) == (0, True, "0.0.0.0", 8787, None)
+        ) == (0, True, "::1", 8787, None)

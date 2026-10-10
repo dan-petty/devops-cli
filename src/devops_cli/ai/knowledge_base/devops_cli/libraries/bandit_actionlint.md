@@ -44,8 +44,8 @@ In `devops-cli`:
 
 ### Running Security Audits via CLI
 ```bash
-# Execute Bandit security scan across Python source modules
-uv run bandit -r src/
+# Execute Bandit over src/ and tests/, the targets .bandit names, as devops ci security does
+uv run bandit -r --ini .bandit --severity-level medium
 
 # Execute Actionlint against all GitHub Actions workflow definitions
 uv run actionlint

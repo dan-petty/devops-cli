@@ -131,14 +131,16 @@ class TestRunMcpServer:
 
     def test_run_sse(self) -> None:
         """run_mcp_server sse must call mcp.run with host and port when allowed."""
+        bind_all = "0.0.0.0"  # nosec B104  # the remote bind allow_remote permits, under test
         with patch("devops_cli.ai.mcp.server.mcp") as mock_mcp:
-            run_mcp_server(transport="sse", host="0.0.0.0", port=9000, allow_remote=True)
-            mock_mcp.run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9000)
+            run_mcp_server(transport="sse", host=bind_all, port=9000, allow_remote=True)
+            mock_mcp.run.assert_called_once_with(transport="sse", host=bind_all, port=9000)
 
     def test_run_sse_rejects_non_loopback_by_default(self) -> None:
         """run_mcp_server sse must reject non-loopback host unless allow_remote=True."""
+        bind_all = "0.0.0.0"  # nosec B104  # the remote bind refused by default, under test
         with pytest.raises(ValueError, match="Refusing to bind SSE transport"):
-            run_mcp_server(transport="sse", host="0.0.0.0", port=9000)
+            run_mcp_server(transport="sse", host=bind_all, port=9000)
 
     @pytest.mark.parametrize(
         "loopback_host",
@@ -182,11 +184,11 @@ class TestMcpCli:
         """devops mcp serve --transport sse must pass host and port to run_mcp_server."""
         with patch("devops_cli.commands.mcp.run_mcp_server") as mock_run:
             result = runner.invoke(
-                app, ["serve", "--transport", "sse", "--host", "0.0.0.0", "--port", "9090"]
+                app, ["serve", "--transport", "sse", "--host", "::1", "--port", "9090"]
             )
             assert result.exit_code == 0
             mock_run.assert_called_once_with(
-                transport="sse", host="0.0.0.0", port=9090, allow_remote=False
+                transport="sse", host="::1", port=9090, allow_remote=False
             )
 
     def test_export_schemas_command(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -260,7 +262,7 @@ class TestTfMcpTools:
 class TestAllMcpToolsDirectly:
     """Direct execution tests for all MCP server tool endpoints."""
 
-    def test_mcp_tool_delegations(self) -> None:
+    def test_mcp_tool_delegations(self, tmp_path: Path) -> None:
         from devops_cli.ai.mcp.server import (
             argo_list,
             argo_status,
@@ -339,15 +341,15 @@ class TestAllMcpToolsDirectly:
             assert security_intel_package("requests") == "mock_output"
             assert security_intel_network("api.github.com") == "mock_output"
             assert scan_uv_audit(".") == "mock_output"
-            assert tls_generate_ca(output_dir="/tmp/ca") == "mock_output"
+            ca_dir = str(tmp_path / "ca")
+            cert, key = str(tmp_path / "cert.pem"), str(tmp_path / "key.pem")
+            assert tls_generate_ca(output_dir=ca_dir) == "mock_output"
             assert (
-                tls_generate_cert(
-                    common_name="example.com", sans="example.com", output_dir="/tmp/ca"
-                )
+                tls_generate_cert(common_name="example.com", sans="example.com", output_dir=ca_dir)
                 == "mock_output"
             )
-            assert tls_inspect_cert("/tmp/cert.pem") == "mock_output"
-            assert k8s_create_tls_secret("my-sec", "/tmp/cert.pem", "/tmp/key.pem") == "mock_output"
+            assert tls_inspect_cert(cert) == "mock_output"
+            assert k8s_create_tls_secret("my-sec", cert, key) == "mock_output"
             assert k8s_enable_tls(stack="all", secret_name="web-tls") == "mock_output"
             assert telemetry_status() == "mock_output"
             assert telemetry_test_span(name="test") == "mock_output"

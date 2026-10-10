@@ -9,7 +9,7 @@ Compare disparate security scanning tools (`trivy`, `bandit`, `kube-linter`, `pl
 | Action / Goal | Original Command | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
 | **All-in-One Security Scan** | Multiple distinct tools (`trivy`, `bandit`, `kube-linter`, `pluto`) | `devops scan all` | Executes multi-engine static scanning in parallel and unifies findings into a single severity table. |
-| **Python Security Scan** | `bandit -r src/ -ll` | `devops scan bandit` | Runs Bandit across Python source files, filtering out test suites and temporary files. |
+| **Python Security Scan** | `bandit -r --ini .bandit --severity-level medium` | `devops scan report --scanner bandit` | When the tree's `.bandit` names its targets, runs Bandit on them and honours the tree's `# nosec` markers; otherwise scans the whole tree and ignores `# nosec`. Medium severity and above. `devops review` never reads the reviewed tree's `.bandit` or `# nosec`. |
 | **Filesystem / Container Scan** | `trivy fs . --severity HIGH,CRITICAL` | `devops scan trivy` | Scans dependencies and container images with automatic caching and zero egress leaks. |
 | **Kubernetes Linting** | `kube-linter lint k8s/` | `devops scan kube-linter` | Audits manifests against production security standards (read-only rootfs, non-root users, drop capabilities). |
 | **Deprecated K8s API Scan** | `pluto detect-files -d k8s/` | `devops scan pluto` | Detects deprecated Kubernetes API versions before cluster upgrades. |

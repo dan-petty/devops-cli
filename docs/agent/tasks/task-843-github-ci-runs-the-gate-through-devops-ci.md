@@ -31,6 +31,7 @@ Drift between GitHub CI and the local gate (`uv run devops ci`) previously cause
 
 - [x] **Check specification table**: Single ordered table of check specs in `commands/ci.py` feeding aggregate gate, subcommands, and CI jobs.
 - [x] **Bandit rule set**: Security row standardized to `uv run bandit -r src -ll`; scanner adapters drop `-s B608`; targeted `# nosec B608` placed on `instruction_generator.py` and `stack_lifecycle.py`; `build_bandit_cmd` and `DEFAULT_BANDIT_EXCLUDE` removed.
+  - **Amended 2026-10-10 (owner decision, v0.2.33)**: The row runs `uv run bandit -r --ini .bandit --severity-level medium`. `.bandit` names `src` and `tests`, so tests are scanned too, and `devops scan report` on the repository reads the same file.
 - [x] **Workflow alignment**: `ci.yml` static, test, and dependency-freshness jobs call `devops ci`.
 - [x] **Parity test**: Offline PyYAML validation in `tests/test_ci.py` asserts `ci.yml` steps invoke `devops ci` reaching all rows, with mutation tests ensuring invalid configurations fail.
 - [x] **Selection**: `devops ci --only` and `--skip` tested via CliRunner for valid dispatch and error handling on invalid names or conflicting options.

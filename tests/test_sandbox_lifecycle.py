@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 from devops_cli.config.constants import (
     CONST_TRACEPARENT_ENV_VAR,
     CONST_TRACESTATE_ENV_VAR,
+    CONST_X11_SOCKET_DIR,
 )
 from devops_cli.exceptions.docker import DockerEngineError, DockerSandboxError
 from devops_cli.exceptions.sandbox import (
@@ -51,7 +52,7 @@ from devops_cli.telemetry import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_sandbox_models_serialization() -> None:
+def test_sandbox_models_serialization(tmp_path: Path) -> None:
     """Test round-trip serialization of SandboxInstance and related models."""
     port_binding = PortBinding(container_port=8080, host_port=18080, protocol="tcp")
     instance = SandboxInstance(
@@ -61,7 +62,7 @@ def test_sandbox_models_serialization() -> None:
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
         port_bindings=[port_binding],
-        workspace_dir="/tmp/workspace",
+        workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-11T20:00:00Z",
         uptime_seconds=120.5,
         metadata={"managed_by": "devops-cli"},
@@ -78,7 +79,7 @@ def test_sandbox_models_serialization() -> None:
     assert restored.port_bindings[0].container_port == 8080
 
 
-def test_sandbox_models_secret_masking() -> None:
+def test_sandbox_models_secret_masking(tmp_path: Path) -> None:
     """Verify SandboxExecResult, SandboxLogLine, and PanicIncident mask secret tokens."""
     from devops_cli.sandbox.models import (
         PanicIncident,
@@ -113,7 +114,7 @@ def test_sandbox_models_secret_masking() -> None:
         panic_type=PanicType.PYTHON_TRACEBACK,
         message=f"Panic with {raw_secret}",
         stacktrace=[f"File {raw_secret}.py"],
-        archived_path=f"/tmp/{raw_secret}.log",
+        archived_path=f"{tmp_path}/{raw_secret}.log",
         archive_error=f"Failed with {raw_secret}",
     )
     assert raw_secret not in panic.message
@@ -396,11 +397,11 @@ _REFUSED_WORKSPACES: dict[str, Any] = {
         tmp,
         {"SSH_AUTH_SOCK": f"{tmp}/vscode-ssh-auth-x.sock"},
     ),
-    "x11-dir": lambda tmp, rt: (Path("/tmp/.X11-unix"), Path("/tmp/.X11-unix"), {}),
+    "x11-dir": lambda tmp, rt: (CONST_X11_SOCKET_DIR, CONST_X11_SOCKET_DIR, {}),
     # The test's runtime directory lies under /tmp, so it is cleared for the X11 rule to answer.
     "holds-x11-dir": lambda tmp, rt: (
-        Path("/tmp"),
-        Path("/tmp/.X11-unix"),
+        CONST_X11_SOCKET_DIR.parent,
+        CONST_X11_SOCKET_DIR,
         {"XDG_RUNTIME_DIR": ""},
     ),
 }
@@ -655,7 +656,7 @@ def test_engine_deploy_docker_sdk(tmp_path: Path, docker_engine: Any) -> None:
         assert create_kwargs["security_opt"] == ["no-new-privileges:true"]
         assert create_kwargs["pids_limit"] == 256
         assert create_kwargs["read_only"] is True
-        assert "/tmp" in create_kwargs["tmpfs"]
+        assert "/tmp" in create_kwargs["tmpfs"]  # nosec B108  # the in-container mount, under test
         # Explicit loopback binding
         assert create_kwargs["ports"]["80/tcp"][0] == "127.0.0.1"
 
@@ -1282,7 +1283,7 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
         ("no-new-privileges:true",),
         256,
         True,
-        {"/tmp": "size=64m,noexec"},  # nosec B108
+        {"/tmp": "size=64m,noexec"},  # nosec B108  # the in-container mount, under test
     )
 
     with pytest.raises(ValidationError):
@@ -1305,14 +1306,14 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
             "security_opt": ["no-new-privileges:true"],
             "pids_limit": 256,
             "read_only": True,
-            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
+            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108  # in-container, under test
         },
         {
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "pids_limit": 256,
             "read_only": True,
-            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
+            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108  # in-container, under test
         },
         False,
     )
