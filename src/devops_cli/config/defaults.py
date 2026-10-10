@@ -88,13 +88,6 @@ DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
 DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
-DEFAULT_VLLM_URL: str = "http://localhost:8000/v1"
-DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm-48gib.llm.svc.cluster.local:8000/v1"
-DEFAULT_VLLM_MODEL: str = "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
-DEFAULT_VLLM_SERVED_MODEL_NAME: str = "qwen3-coder:30b"
-DEFAULT_VLLM_SINGLE_CLUSTER_URL: str = "http://vllm-16gib.llm.svc.cluster.local:8000/v1"
-DEFAULT_VLLM_SINGLE_MODEL: str = "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
-DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME: str = "qwen2.5-coder-14b-instruct"
 # The default Ollama tier's Service (k8s/llm/profiles/services.yaml).
 DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-16gib"
 DEFAULT_OLLAMA_CLUSTER_URL: str = (

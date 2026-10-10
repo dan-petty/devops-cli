@@ -569,7 +569,7 @@ def test_remote_model_on_loopback_needs_no_opt_in(
     )
 
 
-@pytest.mark.parametrize(("provider", "model"), [("mock", "gpt-4o"), ("vllm", "qwen3-coder:30b")])
+@pytest.mark.parametrize(("provider", "model"), [("mock", "gpt-4o"), ("custom", "qwen3-coder:30b")])
 def test_remote_model_pydantic_ai_cannot_infer_raises(
     remote_bridge: Any, provider: str, model: str
 ) -> None:

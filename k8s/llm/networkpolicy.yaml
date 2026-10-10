@@ -12,8 +12,6 @@ spec:
         operator: NotIn
         values:
           - llm-gateway
-          - vllm
-          - vllm-single
           - portkey
           - valkey-runs
   policyTypes:

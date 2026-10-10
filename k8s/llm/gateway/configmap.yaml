@@ -183,7 +183,7 @@ data:
       # Check prompt size against max_input_tokens before calling a backend, so an oversized
       # prompt moves straight to its context-window fallback instead of failing first.
       enable_pre_call_checks: true
-      # Backend unavailable: prefer the larger vLLM model before the small Ollama model.
+      # Backend unavailable: prefer the larger model before the small model.
       fallbacks:
         - devops-reasoning: [devops-coder]
         - devops-coder: [devops-reasoning, devops-chat]

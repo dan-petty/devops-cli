@@ -348,3 +348,39 @@ def test_syntopical_and_research_dead_settings_are_removed() -> None:
         syntopical_defaults,
         syntopical_constants,
     ) == ([], [], [], [])
+
+
+def test_vllm_dead_settings_commands_and_mcp_tools_are_removed() -> None:
+    """The vestigial vLLM defaults, settings, commands, and MCP tools are removed (#820).
+
+    Verifies that removed vLLM deployments leave no leftover settings in config/defaults or
+    settings.AISettings, no scale commands or router methods, and no ai_vllm_scale MCP tool.
+    """
+    from devops_cli.ai.gateway import GatewayRouter
+    from devops_cli.ai.mcp.server import list_mcp_tools
+    from devops_cli.commands.ai_gateway import app as ai_gateway_app
+    from devops_cli.config import constants, defaults, settings
+
+    removed_defaults = [k for k in dir(defaults) if "VLLM" in k]
+    ai_settings_has_vllm = hasattr(settings.AIConfig, "vllm_url")
+    router_has_scale = hasattr(GatewayRouter, "scale_vllm")
+    mcp_tools = [t.name for t in list_mcp_tools()]
+    mcp_has_scale = "ai_vllm_scale" in mcp_tools
+    cli_commands = [c.name for c in ai_gateway_app.registered_commands]
+    cli_has_scale = "scale" in cli_commands
+
+    assert (
+        removed_defaults,
+        ai_settings_has_vllm,
+        router_has_scale,
+        mcp_has_scale,
+        cli_has_scale,
+        constants.CONST_AI_BACKENDS,
+    ) == (
+        [],
+        False,
+        False,
+        False,
+        False,
+        ("ollama",),
+    )

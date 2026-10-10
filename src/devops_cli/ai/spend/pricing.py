@@ -69,7 +69,6 @@ def _is_configured_ai_server_host(host: str) -> bool:
     candidates = (
         settings.ai.gateway_url,
         settings.ai.api_base_url,
-        settings.ai.vllm_url,
         settings.ai.portkey_url,
         *settings.ai.ollama_urls,
     )

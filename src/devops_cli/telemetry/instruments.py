@@ -277,7 +277,7 @@ def emit(instrument: Instrument, value: float, attributes: dict[str, Any] | None
 
 
 def backend_name(served_by: str | None) -> str:
-    """A serving backend's short name: its host's first label, e.g. `vllm` or `ollama-0`."""
+    """A serving backend's short name: its host's first label, e.g. `ollama-16gib` or `ollama-0`."""
     if not served_by:
         return ""
     from devops_cli.http.urls import extract_domain_target

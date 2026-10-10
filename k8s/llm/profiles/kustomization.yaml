@@ -4,4 +4,3 @@ kind: Kustomization
 resources:
   - services.yaml
   - ollama-profiles.yaml
-  - networkpolicy.yaml

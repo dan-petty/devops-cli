@@ -652,7 +652,7 @@ def test_response_span_attributes_enriched() -> None:
         "ok",
         backend_info="openai (example.com)",
         model="gpt-4o-2024-08-06",
-        served_by="vllm-48gib",
+        served_by="ollama-48gib",
         completion_tokens=60,
         wall_seconds=2.0,
     )
@@ -665,4 +665,4 @@ def test_response_span_attributes_enriched() -> None:
             handle._attributes.get("server.address"),
             "server.port" in handle._attributes,
             "gen_ai.server.served_by" in handle._attributes,
-        ) == ("gpt-4o-2024-08-06", "vllm-48gib", 30.0, "example.com", False, False)
+        ) == ("gpt-4o-2024-08-06", "ollama-48gib", 30.0, "example.com", False, False)
