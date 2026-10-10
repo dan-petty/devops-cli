@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
 from devops_cli.config.constants import (
+    CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -54,6 +55,9 @@ class TriggerBatch(BaseModel):
 PauseReader = Callable[[Exception], datetime | None]
 """Reads the time a failed round's error names, before which no round starts, or None."""
 
+LaneJob = Callable[[TriggerBatch], None]
+"""What one lane of a repository runs for each batch of its triggers."""
+
 
 def default_service_job(batch: TriggerBatch) -> None:
     """Default fallback job executing for repository events when no custom handler is given."""
@@ -72,13 +76,13 @@ def no_round_pause(_exc: Exception) -> datetime | None:
 
 
 class RoundPause:
-    """The time before which no worker starts a round, shared by every repository's worker
-    (#1400).
+    """The time before which no worker starts a round, shared by every repository's worker in
+    every lane (#1400, #1532).
 
     A failed round can name a time to wait for, which `reader` reads from its error: the roadmap
     Service names a GraphQL budget refusal's reset, because the budget is the machine account's
-    and every repository's rounds spend it. Triggers keep coalescing meanwhile, so each
-    repository runs one round with all of them once the time passes.
+    and every repository's rounds spend it. Triggers keep coalescing meanwhile, so each lane of
+    each repository runs one round with all of them once the time passes.
     """
 
     def __init__(self, clock: Callable[[], datetime], reader: PauseReader = no_round_pause) -> None:
@@ -123,16 +127,20 @@ class RoundPause:
 
 
 class RepoWorker:
-    """Dedicated daemon worker thread maintaining a single-concurrency queue for one repository."""
+    """Dedicated daemon worker thread running one lane of one repository: a single-concurrency
+    queue whose triggers coalesce into the lane's next round (#1532)."""
 
     def __init__(
         self,
         repo: str,
-        job_func: Callable[[TriggerBatch], None],
+        lane: str,
+        job_func: LaneJob,
         clock: Callable[[], datetime],
         pause: RoundPause | None = None,
     ) -> None:
         self.repo = repo
+        self.lane = lane
+        self._labels = {"repo": repo, "lane": lane}
         self.job_func = job_func
         self.clock = clock
         self.pause = pause or RoundPause(clock)
@@ -149,7 +157,7 @@ class RepoWorker:
         """Start the daemon worker thread."""
         self._thread = threading.Thread(
             target=self._run,
-            name=f"service-worker-{self.repo}",
+            name=f"service-worker-{self.repo}-{self.lane}",
             daemon=True,
         )
         self._thread.start()
@@ -163,9 +171,7 @@ class RepoWorker:
                 self._first_at = now
             self._last_at = now
             self._pending_counts[key] = self._pending_counts.get(key, 0) + 1
-            GLOBAL_METRICS.set_gauge(
-                CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels={"repo": self.repo}
-            )
+            GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels=self._labels)
             self._cond.notify()
 
     def is_alive(self) -> bool:
@@ -222,9 +228,7 @@ class RepoWorker:
             self._first_at = None
             self._last_at = None
             self._is_active = True
-            GLOBAL_METRICS.set_gauge(
-                CONST_SERVICE_METRIC_QUEUE_DEPTH, 0.0, labels={"repo": self.repo}
-            )
+            GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 0.0, labels=self._labels)
             return counts, first_at, last_at
 
     def _execute_batch(self, batch: TriggerBatch) -> None:
@@ -232,7 +236,7 @@ class RepoWorker:
         start_time = time.perf_counter()
         start_epoch = time.time()
         GLOBAL_METRICS.set_gauge(
-            CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels={"repo": self.repo}
+            CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels=self._labels
         )
         result = "success"
         tracer = get_tracer()
@@ -241,6 +245,7 @@ class RepoWorker:
             kind="internal",
             attributes={
                 "service.repo": self.repo,
+                "service.lane": self.lane,
                 "service.triggers": sum(batch.counts.values()),
                 "service.trigger_types": len(batch.counts),
             },
@@ -256,7 +261,7 @@ class RepoWorker:
                     "Service job execution failed for %s: %s",
                     self.repo,
                     exc,
-                    extra={"repo": self.repo, "result": "error"},
+                    extra={**self._labels, "result": "error"},
                     exc_info=True,
                 )
                 self.pause.after(exc, self.repo)
@@ -264,13 +269,10 @@ class RepoWorker:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
                 GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOBS,
-                    labels={"repo": self.repo, "result": result},
+                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
                 )
                 GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOB_SECONDS,
-                    value=duration,
-                    labels={"repo": self.repo},
+                    CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
                 with self._cond:
                     self._is_active = False
@@ -295,32 +297,42 @@ class RepoWorker:
                 self._execute_batch(batch)
         except Exception as exc:
             self._error = exc
-            logger.error("Service worker thread crashed for %s: %s", self.repo, exc, exc_info=True)
+            logger.error(
+                "Service worker thread crashed for %s: %s",
+                self.repo,
+                exc,
+                extra=self._labels,
+                exc_info=True,
+            )
 
 
 class ServiceManager:
-    """Coordinates per-repo queues, background workers, polling loop, and lifecycle."""
+    """Coordinates the background workers, one per lane of each repository, the polling loop,
+    and the lifecycle. Every trigger goes to each lane of its repository, so a round in one lane
+    never waits for another lane's (#1532)."""
 
     def __init__(
         self,
         config: ServiceConfig,
         secrets: dict[str, str],
-        job_func: Callable[[TriggerBatch], None],
+        jobs: Mapping[str, LaneJob],
         clock: Callable[[], datetime],
         sleep_func: Callable[[float], Coroutine[Any, Any, None]],
         pause_until: PauseReader = no_round_pause,
     ) -> None:
         self.config = config
         self.secrets = secrets
-        self.job_func = job_func
+        self.jobs = jobs
         self.clock = clock
         self.sleep_func = sleep_func
         self.managed_repos: set[str] = set(config.repos)
         self.machine_account: str | None = config.machine_account
         self.delivery_cache = DeliveryLRUCache()
         self.pause = RoundPause(clock, pause_until)
-        self.workers: dict[str, RepoWorker] = {
-            repo: RepoWorker(repo, job_func, clock, self.pause) for repo in config.repos
+        self.workers: dict[tuple[str, str], RepoWorker] = {
+            (repo, lane): RepoWorker(repo, lane, job, clock, self.pause)
+            for repo in config.repos
+            for lane, job in jobs.items()
         }
         self._stop_event = threading.Event()
         self._ready = False
@@ -336,31 +348,30 @@ class ServiceManager:
 
     async def _tick_loop(self) -> None:
         """Polling tick loop advancing time and scheduling periodic repository syncs."""
-        for repo, worker in self.workers.items():
-            worker.enqueue(source=CONST_SERVICE_SOURCE_POLL, event="", action="")
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_TRIGGERS,
-                labels={"repo": repo, "source": CONST_SERVICE_SOURCE_POLL},
-            )
-
+        self._poll()
         interval = float(self.config.poll_interval_seconds)
         while not self._stop_event.is_set():
             await self.sleep_func(interval)
             if self._stop_event.is_set():
                 break
-            for repo, worker in self.workers.items():
-                worker.enqueue(source=CONST_SERVICE_SOURCE_POLL, event="", action="")
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_TRIGGERS,
-                    labels={"repo": repo, "source": CONST_SERVICE_SOURCE_POLL},
-                )
+            self._poll()
+
+    def _poll(self) -> None:
+        """Enqueue a poll trigger on every lane of every repository, counted once per
+        repository."""
+        for repo in self.managed_repos:
+            self.enqueue_trigger(repo, CONST_SERVICE_SOURCE_POLL, "", "")
+            GLOBAL_METRICS.increment_counter(
+                CONST_SERVICE_METRIC_TRIGGERS,
+                labels={"repo": repo, "source": CONST_SERVICE_SOURCE_POLL},
+            )
 
     def enqueue_trigger(self, repo: str, source: str, event: str, action: str) -> bool:
-        """Enqueue a trigger to the specified repository worker queue."""
-        worker = self.workers.get(repo)
-        if worker is None:
+        """Enqueue a trigger on every lane of the repository; False for an unmanaged one."""
+        if repo not in self.managed_repos:
             return False
-        worker.enqueue(source=source, event=event, action=action)
+        for lane in self.jobs:
+            self.workers[(repo, lane)].enqueue(source=source, event=event, action=action)
         return True
 
     def is_ready(self) -> bool:
@@ -481,20 +492,22 @@ async def _service_trace_middleware(request: Request, call_next: Any) -> Any:
 
 
 def create_service_app(
-    job: Callable[[TriggerBatch], None] | None = None,
+    jobs: Mapping[str, LaneJob] | None = None,
     settings: Settings | None = None,
     secrets: dict[str, str] | None = None,
     clock: Callable[[], datetime] | None = None,
     sleep_func: Callable[[float], Coroutine[Any, Any, None]] | None = None,
     pause_until: PauseReader | None = None,
 ) -> FastAPI:
-    """Construct production FastAPI service application; `pause_until` reads the time a failed
-    round's error names, before which no repository starts a round."""
+    """Construct production FastAPI service application. `jobs` is each lane's job, run by one
+    worker per lane of each repository, the default logging job in one lane when none is given;
+    `pause_until` reads the time a failed round's error names, before which no lane of any
+    repository starts a round."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
     service_clock = clock or (lambda: datetime.now(UTC))
     service_sleep = sleep_func or asyncio.sleep
-    job_handler = job or default_service_job
+    lane_jobs = jobs or {CONST_SERVICE_LANE_DEFAULT: default_service_job}
     pause_reader = pause_until or no_round_pause
 
     _warn_missing_secrets(active_settings.service.repos, service_secrets)
@@ -502,7 +515,7 @@ def create_service_app(
     manager = ServiceManager(
         config=active_settings.service,
         secrets=service_secrets,
-        job_func=job_handler,
+        jobs=lane_jobs,
         clock=service_clock,
         sleep_func=service_sleep,
         pause_until=pause_reader,
@@ -523,7 +536,7 @@ def create_service_app(
         lifespan=lifespan,
     )
     app.state.service_manager = manager
-    app.state.job = job_handler
+    app.state.jobs = lane_jobs
     app.state.pause_until = pause_reader
 
     app.middleware("http")(_service_trace_middleware)

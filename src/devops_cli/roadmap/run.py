@@ -1,13 +1,17 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs close, reprioritize and metrics before intake and refine, so a burst of
-candidates never holds back a ship's start or the metrics (#1360). Each row is due by its
-interval, by a webhook hint in the batch, or by its due rule, which judges the changes made
-since the row last succeeded: reprioritize's is `reprioritize.is_due`, the rule the lifecycle
-machine runs, given the current release; intake's is an issue reopened, or a fresh candidate its
-last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake decides at most
-`DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour and on a first run, and in a
-round where reprioritize ran or intake placed a critical fix or a P0 item (#1515).
+The due table runs the release lane's rows, close, reprioritize and metrics, before the model
+lane's, intake and refine, so a burst of candidates never holds back a ship's start or the
+metrics (#1360). `devops roadmap run` runs the whole table in one round. The Service runs each
+lane in its own worker and its own clone (`SERVICE_JOBS`), so a release-lane round never waits
+for a model-bound one (#1532); both lanes read and write the repository's one `schedule.json`.
+Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which judges
+the changes made since the row last succeeded: reprioritize's is `reprioritize.is_due`, the rule
+the lifecycle machine runs, given the current release; intake's is an issue reopened, or a fresh
+candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
+decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
+run, once reprioritize has succeeded since refine last did, and in a round where reprioritize ran
+or intake placed a critical fix or a P0 item (#1515).
 """
 
 from __future__ import annotations
@@ -17,9 +21,11 @@ import logging
 import os
 import shlex
 import subprocess
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -40,7 +46,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
     CONST_ROADMAP_RUN_BOARD_FILTER,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
+    CONST_SERVICE_LANE_MODEL,
+    CONST_SERVICE_LANE_RELEASE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
@@ -76,13 +85,16 @@ from devops_cli.roadmap.store import (
     in_release,
 )
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.server.service import TriggerBatch
+from devops_cli.server.service import LaneJob, TriggerBatch
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.config import RoadmapConfig
     from devops_cli.roadmap.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
+
+_SCHEDULE_LOCK = threading.Lock()
+"""Held while a job's success is written to `schedule.json`, which the Service's lanes share."""
 
 
 def parse_due_tuple(output: str) -> tuple[str, ...]:
@@ -185,6 +197,16 @@ def _write_schedule(schedule_path: Path, schedule: Mapping[str, datetime]) -> No
 
     payload = {job: dt.isoformat() for job, dt in schedule.items()}
     write_json_file(schedule_path, payload, indent=2, atomic=True)
+
+
+def _record_success(schedule_path: Path, job: str, at: datetime) -> None:
+    """Record `at` as `job`'s last success in schedule.json, keeping every other job's as the
+    file holds it now: the Service's lanes write the same file while each other's rounds run
+    (#1532)."""
+    with _SCHEDULE_LOCK:
+        schedule = _read_schedule(schedule_path)
+        schedule[job] = at
+        _write_schedule(schedule_path, schedule)
 
 
 def read_intake_record(path: Path) -> IntakeRecord:
@@ -303,8 +325,11 @@ def ensure_checkout(
     data_dir: Path,
     remote_url: str | None = None,
     current_rel: Release | None = None,
+    dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
 ) -> Path:
-    """Clone the repository to <data dir>/roadmap/<owner>/<name>/clone, update it, return its path.
+    """Clone the repository to <data dir>/roadmap/<owner>/<name>/<dirname>, update it, return its
+    path. `clone` is the release lane's and the CLI's, `model-clone` the Service's model lane's,
+    so the model lane's update never touches a cut in progress (#1532).
 
     The clone rows (`needs_clone`) rely on this contract:
 
@@ -323,9 +348,7 @@ def ensure_checkout(
       a successful pruning fetch selects the default branch. A timeout or a missing `git` binary
       propagates as `run_subprocess` raises it.
     """
-    clone_dir = _resolve_roadmap_repo_path(
-        data_dir, repo, CONST_ROADMAP_RUN_CLONE_DIRNAME, error_cls=GitOperationError
-    )
+    clone_dir = _resolve_roadmap_repo_path(data_dir, repo, dirname, error_cls=GitOperationError)
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
     url = remote_url or f"https://github.com/{repo}.git"
     try:
@@ -365,6 +388,17 @@ def _reprioritize_due(check: DueCheck) -> bool:
     return is_due(check.changes, check.now, check.last_success, check.current)
 
 
+def _refine_due(check: DueCheck) -> bool:
+    """Refine is due once reprioritize has succeeded since refine last did, as `schedule.json`
+    holds them: in the Service the release lane runs reprioritize, and the model lane's next
+    poll runs refine (#1532)."""
+    schedule = _read_schedule(check.repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME)
+    reprioritized = schedule.get("reprioritize")
+    if reprioritized is None:
+        return False
+    return check.last_success is None or reprioritized > check.last_success
+
+
 def _reprioritize_cross_job(
     outcomes: dict[str, JobOutcome], store: RoadmapStore, cur: Release | None
 ) -> bool:
@@ -389,7 +423,8 @@ def _reprioritize_cross_job(
 def _refine_cross_job(
     outcomes: dict[str, JobOutcome], _store: RoadmapStore, _cur: Release | None
 ) -> bool:
-    """Refinement is due if reprioritization ran or intake placed critical/P0 item."""
+    """Refinement is due if reprioritization ran in the round, as in `devops roadmap run`, or
+    intake placed a critical/P0 item."""
     if "reprioritize" in outcomes:
         return True
     intake_outcome = outcomes.get("intake")
@@ -616,7 +651,7 @@ def _run_metrics_adapter(
     return JobOutcome()
 
 
-DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
+RELEASE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="close",
         interval=timedelta(minutes=DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES),
@@ -638,6 +673,11 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
         needs_clone=True,
         first_run_due=True,
     ),
+)
+"""The rows that close items, start and ship releases, and refresh the metrics: none calls the
+model."""
+
+MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="intake",
         interval=timedelta(minutes=DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES),
@@ -652,9 +692,14 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
         runner=_run_refine_adapter,
         needs_clone=True,
         first_run_due=True,
+        due_rule=_refine_due,
         cross_job_predicate=_refine_cross_job,
     ),
 )
+"""The rows that call the model, which answers one call at a time."""
+
+DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*RELEASE_LANE_ROWS, *MODEL_LANE_ROWS)
+"""Every row, the release lane's first: what `devops roadmap run` runs in one round."""
 
 
 def build_stub_table(
@@ -786,8 +831,9 @@ def _prepare_clone(
     cur: Release | None,
     clone_path: Path | None,
     clone_error: Exception | None,
+    clone_dirname: str,
 ) -> tuple[Path | None, Exception | None]:
-    """Ensure git clone is ready for a job requiring checkout."""
+    """Ensure git clone `clone_dirname` is ready for a job requiring checkout."""
     if not row.needs_clone:
         return clone_path, clone_error
     if clone_error is not None:
@@ -795,7 +841,7 @@ def _prepare_clone(
     if clone_path is not None:
         return clone_path, None
     try:
-        path = ensure_checkout(repo, base_data, remote_url, cur)
+        path = ensure_checkout(repo, base_data, remote_url, cur, clone_dirname)
         return path, None
     except Exception as exc:
         return None, exc
@@ -811,12 +857,12 @@ def _execute_due_rows(
     remote_url: str | None,
     changes: Sequence[Change],
     active_batch: Mapping[tuple[str, str, str], int],
-    schedule: dict[str, datetime],
     schedule_path: Path,
     current_time: datetime,
+    clone_dirname: str,
 ) -> tuple[str, ...]:
-    """Execute all due jobs in order with failure tracking. Each runner also gets the
-    repository's data directory and the round's time."""
+    """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
+    Each runner also gets the repository's data directory and the round's time."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     resets: list[datetime] = []
@@ -833,7 +879,7 @@ def _execute_due_rows(
 
         if row.needs_clone:
             clone_path, clone_error = _prepare_clone(
-                row, repo, base_data, remote_url, cur, clone_path, clone_error
+                row, repo, base_data, remote_url, cur, clone_path, clone_error, clone_dirname
             )
             if clone_error is not None:
                 failed_jobs.append(row.name)
@@ -851,8 +897,7 @@ def _execute_due_rows(
             )
             outcomes[row.name] = outcome or JobOutcome()
             succeeded_jobs.append(row.name)
-            schedule[row.name] = current_time
-            _write_schedule(schedule_path, schedule)
+            _record_success(schedule_path, row.name, current_time)
         except Exception as exc:
             logger.exception("Roadmap job %s failed", row.name)
             failed_jobs.append(row.name)
@@ -878,12 +923,14 @@ def run_due_jobs(
     remote_url: str | None = None,
     dry_run: bool = False,
     now: datetime | None = None,
+    clone_dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
 ) -> tuple[str, ...]:
-    """Evaluate and execute due roadmap jobs.
+    """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
     whose rows are all not due reads no more than its changes. The current release is read when
-    there are changes to judge or a row is due, for its cross-job triggers and clone.
+    there are changes to judge or a row is due, for its cross-job triggers and clone. Each row is
+    judged by `schedule.json` as the round found it, and each success is written as it happens.
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -922,9 +969,9 @@ def run_due_jobs(
         remote_url,
         changes,
         active_batch,
-        schedule,
         schedule_path,
         current_time,
+        clone_dirname,
     )
 
 
@@ -964,28 +1011,17 @@ def service_pause_until(exc: Exception) -> datetime | None:
     return reset + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS)
 
 
-def service_job(
-    repo_or_batch: str | TriggerBatch,
-    batch: TriggerBatch | None = None,
-) -> None:
-    """Service mode adapter that runs due roadmap jobs for a coalesced trigger batch, ending,
-    however the round ends, with its GraphQL spend line; a round a budget refusal ended reads
-    no budget for it."""
+def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: str) -> None:
+    """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
+    `clone_dirname` for a coalesced trigger batch, ending, however the round ends, with its
+    GraphQL spend line; a round a budget refusal ended reads no budget for it."""
     from devops_cli.commands.roadmap import _open_roadmap
 
-    if isinstance(repo_or_batch, TriggerBatch):
-        active_batch = repo_or_batch
-        repo = repo_or_batch.repo
-    elif batch is not None:
-        active_batch = batch
-        repo = repo_or_batch
-    else:
-        raise RoadmapRunError("TriggerBatch is required")
-
+    repo = batch.repo
     _target, _config, store = _open_roadmap(repo, None, CONST_ROADMAP_RUN_BOARD_FILTER)
     refused = False
     try:
-        run_due_jobs(repo, store, batch=active_batch)
+        run_due_jobs(repo, store, batch=batch, table=table, clone_dirname=clone_dirname)
     except Exception as exc:
         refused = _refused_reset(exc) is not None
         raise
@@ -993,8 +1029,23 @@ def service_job(
         log_round_spend(repo, store, read=not refused)
 
 
+SERVICE_JOBS: Mapping[str, LaneJob] = {
+    CONST_SERVICE_LANE_RELEASE: partial(
+        service_job, table=RELEASE_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
+    ),
+    CONST_SERVICE_LANE_MODEL: partial(
+        service_job, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
+    ),
+}
+"""Each lane's job, which `devops serve --service` runs in one worker per lane of each
+repository (#1532)."""
+
+
 __all__ = [
     "DEFAULT_DUE_TABLE",
+    "MODEL_LANE_ROWS",
+    "RELEASE_LANE_ROWS",
+    "SERVICE_JOBS",
     "JobOutcome",
     "JobRow",
     "build_stub_table",

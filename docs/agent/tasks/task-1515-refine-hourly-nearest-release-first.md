@@ -11,7 +11,7 @@
 
 Refine had no cadence of its own and looked one release ahead. It now has one and walks every open release.
 
-- **Hourly.** The refine row in `DEFAULT_DUE_TABLE` (`src/devops_cli/roadmap/run.py`) gets `interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES)` (60, in `config/defaults.py` beside the intake and closure intervals) and `first_run_due=True`, and keeps its cross-job trigger: a round in which reprioritize ran, or intake placed a critical fix or a P0 item. A round with nothing to refine makes no model call, because `plan_refine` returns before it builds a client.
+- **Hourly.** The refine row in `DEFAULT_DUE_TABLE` (`src/devops_cli/roadmap/run.py`) gets `interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES)` (60, in `config/defaults.py` beside the intake and closure intervals) and `first_run_due=True`, and keeps its cross-job trigger: a round in which intake placed a critical fix or a P0 item, or, in `devops roadmap run`'s one round, reprioritize ran. The Service runs reprioritize in its release lane, so there refine runs at the model lane's next poll after reprioritize's success (#1532). A round with nothing to refine makes no model call, because `plan_refine` returns before it builds a client.
 - **Nearest place first.** `select_candidates` (`src/devops_cli/roadmap/refine.py`) takes up to `--limit` (default 3) items in this order, each place by priority, and still skips items unchanged since their last refine:
   1. the current release's New items (critical fixes and items a person placed there);
   2. each planned release's New items, nearest release first;
@@ -50,7 +50,7 @@ Refine had no cadence of its own and looked one release ahead. It now has one an
 - A round in which an item's model call fails records no success, so refine stays due at every 300 s poll until a round has none, and each such round sends the failing item's two model calls again (the round's other items are recorded and then skipped as unchanged). Refine's time in `schedule.json` stays old meanwhile. Intake behaves the same way. Accepted for this change: it changes no retry rule, and a record that makes a failed item wait for a body change is separate work. Moved to #1526.
 - An item whose new body would exceed the 65536-character body limit (`CONST_ROADMAP_REFINE_MAX_BODY_CHARS`) gets no record, so every refine round that reaches it, hourly, takes a place and sends its two model calls again. Accepted for this change, for the same reason. Moved to #1526.
 - #273, #277, #698 and #438 (all New on 2026-10-09) hold a section refine wrote before #1470, which ends in `[end-marker]`; #273 and #438 hold two. Each gains one marked section on its next refine, and refine then skips it, taking no place, with "the section's hash differs from the one refine last recorded" until a person deletes the old `[end-marker]` section, as #1470 states.
-- A round of 3 items keeps the repository's worker busy for about 20-35 min, as refine after reprioritize does today. Accepted, as the issue states.
+- A round of 3 items keeps the repository's model lane busy for about 20-35 min, as refine after reprioritize does today. Accepted, as the issue states; since #1532 close and reprioritize run meanwhile in the release lane.
 
 ## Deliverables
 

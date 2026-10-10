@@ -917,6 +917,13 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
+# The Service's lanes (#1532): each repository has one worker per lane. The release lane runs the
+# jobs that close items and start and ship releases, the model lane those that call the model, so
+# a release-lane round never waits for a model-lane round. A service app given no jobs runs its
+# logging job in the default lane.
+CONST_SERVICE_LANE_RELEASE: Final[str] = "release"
+CONST_SERVICE_LANE_MODEL: Final[str] = "model"
+CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
     {
         "/healthz",
@@ -2079,6 +2086,9 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+# The model lane's own clone beside it, so the model lane's checkout never touches a cut the
+# release lane is making in `clone` (#1532).
+CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),
