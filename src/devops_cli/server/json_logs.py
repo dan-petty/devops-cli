@@ -12,6 +12,7 @@ from devops_cli.security.sanitizer import mask_secrets
 
 CONTEXT_LOG_KEYS: Final[tuple[str, ...]] = (
     "repo",
+    "lane",
     "source",
     "event",
     "action",

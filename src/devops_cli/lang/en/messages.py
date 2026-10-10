@@ -1044,7 +1044,8 @@ class ServeMessages:
     # Logged once for each new time a failed Service round names (#1400).
     rounds_paused: str = (
         "No repository starts a Service round before {until}, the time the failed round for "
-        "{repo} named; the triggers that arrive until then run as one round per repository."
+        "{repo} named; the triggers that arrive until then run as one round per lane of each "
+        "repository."
     )
     # Logged when the time a failed round names can't be read: no round waits, and the worker
     # carries on (#1400).

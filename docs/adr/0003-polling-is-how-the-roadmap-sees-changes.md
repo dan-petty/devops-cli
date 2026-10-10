@@ -11,3 +11,4 @@ The service finds changes by polling GitHub on a short tick, using conditional r
 
 - The webhook endpoint is exposed through the existing Cloudflare Tunnel on a single path; every other route of the service stays private.
 - Removing the poll "because we have webhooks" would silently stop board changes from triggering anything.
+- Every poll and every webhook goes to both of a repository's lanes, the release lane (close, reprioritize, metrics) and the model lane (intake, refine) (#1532). Each lane judges only its own rows against the shared `schedule.json`, so a release-lane round never waits for a model-bound one, and the shared round pause holds both.

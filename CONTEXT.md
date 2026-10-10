@@ -122,6 +122,10 @@ _Avoid_: completion, wrap-up
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker
 
+**Lane**:
+One of the Service's two paths for a repository's jobs, each running one round at a time: the release lane runs closure, reprioritization and the metrics, and the model lane runs intake and refinement, which call the model. Both get every trigger, and a round in one never waits for a round in the other.
+_Avoid_: queue, track, worker
+
 ## Code review
 
 **Finding**:

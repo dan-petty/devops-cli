@@ -1,4 +1,4 @@
-"""Unit tests for service mode, webhook verification, and per-repo queue."""
+"""Unit tests for service mode, webhook verification, and each repository's lane queues."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ import queue
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from devops_cli.config import Settings
@@ -26,6 +28,9 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
+    CONST_SERVICE_LANE_DEFAULT,
+    CONST_SERVICE_LANE_MODEL,
+    CONST_SERVICE_LANE_RELEASE,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -50,6 +55,9 @@ from devops_cli.server.service import (
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import _from_otlp_any_value, get_tracer, reset_tracer
+
+LANE = CONST_SERVICE_LANE_DEFAULT
+"""The one lane of the tests that run one job per repository."""
 
 
 def _sign(payload: bytes, secret: str) -> str:
@@ -123,7 +131,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
         elif ("webhook", "issues", "labeled") in batch.counts:
             job_2_done.set()
 
-    app = create_service_app(job=test_job, settings=settings, secrets=secrets)
+    app = create_service_app(jobs={LANE: test_job}, settings=settings, secrets=secrets)
 
     with TestClient(app) as client:
         # First delivery: triggers the job
@@ -253,7 +261,9 @@ def test_webhook_duplicate_and_ignored_deliveries() -> None:
     secrets = {"example-org/repo1": "secret-1"}
     received_batches: list[TriggerBatch] = []
 
-    app = create_service_app(job=received_batches.append, settings=settings, secrets=secrets)
+    app = create_service_app(
+        jobs={LANE: received_batches.append}, settings=settings, secrets=secrets
+    )
 
     with TestClient(app) as client:
         # Normal delivery
@@ -401,7 +411,7 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
             batches_by_repo[batch.repo].append(batch)
             repo2_done.set()
 
-    app = create_service_app(job=concurrent_job, settings=settings, secrets=secrets)
+    app = create_service_app(jobs={LANE: concurrent_job}, settings=settings, secrets=secrets)
 
     with TestClient(app) as client:
         # Trigger Repo 1 initial job
@@ -476,7 +486,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
         tick_batches.append(batch)
 
     app = create_service_app(
-        job=tick_job,
+        jobs={LANE: tick_job},
         settings=settings,
         secrets=secrets,
         clock=fake_clock,
@@ -509,7 +519,7 @@ def test_job_error_handling_and_metrics() -> None:
             raise RuntimeError("Deliberate test failure")
         job_succeeded.set()
 
-    app = create_service_app(job=flake_job, settings=settings, secrets=secrets)
+    app = create_service_app(jobs={LANE: flake_job}, settings=settings, secrets=secrets)
 
     with TestClient(app) as client:
         payload = json.dumps(
@@ -532,11 +542,11 @@ def test_job_error_handling_and_metrics() -> None:
 
     err_count = GLOBAL_METRICS.get_counter_value(
         CONST_SERVICE_METRIC_JOBS,
-        labels={"repo": "example-org/repo1", "result": "error"},
+        labels={"repo": "example-org/repo1", "lane": LANE, "result": "error"},
     )
     succ_count = GLOBAL_METRICS.get_counter_value(
         CONST_SERVICE_METRIC_JOBS,
-        labels={"repo": "example-org/repo1", "result": "success"},
+        labels={"repo": "example-org/repo1", "lane": LANE, "result": "success"},
     )
     assert (err_count, succ_count >= 1.0) == (1.0, True)
 
@@ -564,7 +574,7 @@ def test_readyz_and_healthz_lifecycle() -> None:
         ) == (200, "ready", 200, "healthy")
 
         # Simulate crash of worker
-        worker = app.state.service_manager.workers["example-org/repo1"]
+        worker = app.state.service_manager.workers[("example-org/repo1", LANE)]
         worker._error = RuntimeError("Worker thread died")
         res_unhealthy = client.get("/healthz")
         assert (res_unhealthy.status_code, res_unhealthy.json()["status"]) == (503, "unhealthy")
@@ -654,6 +664,7 @@ def test_json_log_formatter_zero_leakage() -> None:
     record.outcome = "accepted"
     record.duration_s = 0.045
     record.result = "success"
+    record.lane = "model"
     # Unallowed/secret fields that must never appear in log output:
     record.secret = "SUPER_SECRET_KEY"
     record.signature = "sha256=abcdef123456"
@@ -670,6 +681,7 @@ def test_json_log_formatter_zero_leakage() -> None:
         "gcp_abcdefghijklmnopqrstuvwxyz" in data["exception"],
         "<masked-gcp-service-account>" in data["exception"],
         data["repo"],
+        data["lane"],
         "secret" in data,
         "signature" in data,
     ) == (
@@ -680,6 +692,7 @@ def test_json_log_formatter_zero_leakage() -> None:
         False,
         True,
         "example-org/repo1",
+        "model",
         False,
         False,
     )
@@ -701,7 +714,7 @@ def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
             batch1_started.set()
             batch1_release.wait(timeout=2.0)
 
-    app = create_service_app(job=draining_job, settings=settings, secrets=secrets)
+    app = create_service_app(jobs={LANE: draining_job}, settings=settings, secrets=secrets)
 
     with TestClient(app) as client:
         # 1. Enqueue first webhook to make worker active
@@ -816,6 +829,7 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
 
     worker = RepoWorker(
         repo="example-org/repo1",
+        lane=LANE,
         job_func=lambda b: None,
         clock=lambda: now,
     )
@@ -826,6 +840,7 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
 
     failing_worker = RepoWorker(
         repo="example-org/repo1",
+        lane=LANE,
         job_func=failing_job,
         clock=lambda: now,
     )
@@ -841,6 +856,7 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
     assert (
         span_ok["name"],
         attrs_ok["service.repo"],
+        attrs_ok["service.lane"],
         attrs_ok["service.triggers"],
         attrs_ok["service.trigger_types"],
         attrs_ok["service.result"],
@@ -852,6 +868,7 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
     ) == (
         "service.job example-org/repo1",
         "example-org/repo1",
+        LANE,
         4,
         2,
         "success",
@@ -872,7 +889,8 @@ RESUME = RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS)
 rounds start again."""
 WAIT_LINE = (
     "No repository starts a Service round before 2026-10-08T13:00:05+00:00, the time the failed "
-    "round for {repo} named; the triggers that arrive until then run as one round per repository."
+    "round for {repo} named; the triggers that arrive until then run as one round per lane of "
+    "each repository."
 )
 
 
@@ -949,13 +967,16 @@ class _Rounds:
 
 
 def _service(
-    rounds: _Rounds, clock: _Clock, reader: PauseReader = service_pause_until
+    jobs: Mapping[str, Callable[[TriggerBatch], None]],
+    clock: _Clock,
+    reader: PauseReader = service_pause_until,
 ) -> ServiceManager:
-    """The Service over both repositories, its workers started, with no poll loop."""
+    """The Service over both repositories, one worker per lane each, the workers started, with no
+    poll loop."""
     manager = ServiceManager(
         config=_make_settings(repos=[REPO_A, REPO_B]).service,
         secrets={},
-        job_func=rounds,
+        jobs=jobs,
         clock=clock,
         sleep_func=asyncio.sleep,
         pause_until=reader,
@@ -995,7 +1016,7 @@ def test_a_budget_refusal_holds_every_repositorys_rounds_until_the_reset(
     }[source]
     rounds, clock = _Rounds(refusal, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
-        manager = _service(rounds, clock)
+        manager = _service({LANE: rounds}, clock)
         _trigger(manager, REPO_A)
         refused = rounds.wait(1, manager)
         held: list[bool] = []
@@ -1024,7 +1045,7 @@ def test_every_worker_refused_for_one_reset_logs_one_wait_line(
     rounds = _Rounds(lambda: _refuse_read(next(refusals)), {REPO_A: 2, REPO_B: 1})
     clock = _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
-        manager = _service(rounds, clock)
+        manager = _service({LANE: rounds}, clock)
         _trigger(manager, REPO_A, REPO_B)
         first = rounds.wait(2, manager)
         clock.now = RESUME
@@ -1077,7 +1098,7 @@ def test_an_error_that_names_no_reset_holds_no_round(
 
     rounds, clock = _Rounds(fail, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
-        manager = _service(rounds, clock)
+        manager = _service({LANE: rounds}, clock)
         _trigger(manager, REPO_A)
         refused = rounds.wait(1, manager)
         _trigger(manager, REPO_B)
@@ -1092,7 +1113,7 @@ def test_a_refusal_whose_reset_has_passed_holds_no_round(caplog: pytest.LogCaptu
     rounds = _Rounds(_refuse_read, {REPO_A: 1})
     clock = _Clock(RESUME + timedelta(seconds=1))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
-        manager = _service(rounds, clock)
+        manager = _service({LANE: rounds}, clock)
         _trigger(manager, REPO_A)
         refused = rounds.wait(1, manager)
         _trigger(manager, REPO_B)
@@ -1106,7 +1127,7 @@ def test_a_drain_during_a_pause_stops_the_workers_without_running_the_held_round
     holds: the drain returns well within it, the workers stop, and the held rounds never run;
     the next pod's start-up poll reads the changes they were for."""
     rounds, clock = _Rounds(_refuse_read, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
-    manager = _service(rounds, clock)
+    manager = _service({LANE: rounds}, clock)
     _trigger(manager, REPO_A)
     rounds.wait(1, manager)
     _trigger(manager, REPO_A, REPO_B)
@@ -1132,7 +1153,7 @@ def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
     rounds = _Rounds(_refuse_read, {REPO_A: 1})
     clock = _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
-        manager = _service(rounds, clock, unreadable)
+        manager = _service({LANE: rounds}, clock, unreadable)
         _trigger(manager, REPO_A)
         refused = rounds.wait(1, manager)
         _trigger(manager, REPO_A, REPO_B)
@@ -1149,4 +1170,163 @@ def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
             "waits for it: ValueError: no reset in this error"
         ],
         [],
+    )
+
+
+# ── A release-lane round never waits for a model-lane round (#1532) ───────────
+
+RELEASE_LANE, MODEL_LANE = CONST_SERVICE_LANE_RELEASE, CONST_SERVICE_LANE_MODEL
+
+
+class _Lanes:
+    """One repository's two lane jobs: the model lane's first round blocks, as on a slow model,
+    until the test lets it go; every round is recorded by lane."""
+
+    def __init__(self) -> None:
+        self.model_started = threading.Event()
+        self.model_answers = threading.Event()
+        self.batches: dict[str, list[TriggerBatch]] = {RELEASE_LANE: [], MODEL_LANE: []}
+        self.most_at_once = dict.fromkeys(self.batches, 0)
+        self._running = dict.fromkeys(self.batches, 0)
+        self._lock = threading.Lock()
+
+    def jobs(self) -> dict[str, Callable[[TriggerBatch], None]]:
+        return {lane: partial(self._round, lane) for lane in self.batches}
+
+    def _round(self, lane: str, batch: TriggerBatch) -> None:
+        with self._lock:
+            self.batches[lane].append(batch)
+            self._running[lane] += 1
+            self.most_at_once[lane] = max(self.most_at_once[lane], self._running[lane])
+        try:
+            if lane == MODEL_LANE and len(self.batches[lane]) == 1:
+                self.model_started.set()
+                self.model_answers.wait(timeout=5.0)
+        finally:
+            with self._lock:
+                self._running[lane] -= 1
+
+
+def _lanes_app(lanes: _Lanes) -> FastAPI:
+    """The Service over one repository with the two lanes' jobs."""
+    return create_service_app(
+        jobs=lanes.jobs(), settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"}
+    )
+
+
+def _post(client: TestClient, event: str, action: str, delivery: str) -> int:
+    """Deliver a signed webhook for repository A; the response's status."""
+    payload = json.dumps(
+        {"repository": {"full_name": REPO_A}, "action": action, "sender": {"login": "alice"}}
+    ).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        CONST_GH_WEBHOOK_EVENT_HEADER: event,
+        CONST_GH_WEBHOOK_DELIVERY_HEADER: delivery,
+        CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(payload, "secret-1"),
+    }
+    return client.post("/webhooks/github", content=payload, headers=headers).status_code
+
+
+def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked() -> None:
+    """The model lane's start-up round blocks on a slow model. A merged pull request's webhook
+    still runs a release-lane round at once, and the triggers that arrive meanwhile wait as one
+    model-lane batch, which runs once the model answers. Each lane runs one round at a time, and
+    each trigger counts once for the repository, whatever the lanes."""
+    lanes = _Lanes()
+    app = _lanes_app(lanes)
+    deliveries = [("pull_request", "closed"), ("issues", "opened"), ("issues", "opened")]
+    with TestClient(app) as client:
+        workers = app.state.service_manager.workers
+        release, model = workers[(REPO_A, RELEASE_LANE)], workers[(REPO_A, MODEL_LANE)]
+        assert lanes.model_started.wait(timeout=1.0)
+        statuses = [
+            _post(client, event, action, f"lane-{n}")
+            for n, (event, action) in enumerate(deliveries)
+        ]
+        release_done, model_blocked = release.wait_active(1.0), model.is_active()
+        lanes.model_answers.set()
+        model_done = model.wait_active(1.0)
+    pull_request_closed = ("webhook", "pull_request", "closed")
+    triggers = {
+        source: GLOBAL_METRICS.get_counter_value(
+            CONST_SERVICE_METRIC_TRIGGERS, labels={"repo": REPO_A, "source": source}
+        )
+        for source in ("poll", "webhook")
+    }
+    assert (
+        statuses,
+        release_done,
+        model_blocked,
+        model_done,
+        any(pull_request_closed in batch.counts for batch in lanes.batches[RELEASE_LANE]),
+        sum(sum(batch.counts.values()) for batch in lanes.batches[RELEASE_LANE]),
+        [batch.counts for batch in lanes.batches[MODEL_LANE]],
+        lanes.most_at_once,
+        triggers,
+    ) == (
+        [202, 202, 202],
+        True,
+        True,
+        True,
+        True,
+        4,
+        [
+            {("poll", "", ""): 1},
+            {pull_request_closed: 1, ("webhook", "issues", "opened"): 2},
+        ],
+        {RELEASE_LANE: 1, MODEL_LANE: 1},
+        {"poll": 1.0, "webhook": 3.0},
+    )
+
+
+def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
+    """While the model lane's round is blocked with a trigger waiting behind it, /metrics shows
+    the model lane's queue depth at 1 and the release lane's at 0, and each lane's rounds under
+    its own label."""
+    lanes = _Lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        release = app.state.service_manager.workers[(REPO_A, RELEASE_LANE)]
+        assert lanes.model_started.wait(timeout=1.0)
+        _post(client, "pull_request", "closed", "stalled-1")
+        assert release.wait_active(1.0)
+        exported = client.get("/metrics").text.splitlines()
+        lanes.model_answers.set()
+    repo = f'repo="{REPO_A}"'
+
+    def exported_as(metric: str, labels: str) -> bool:
+        return any(line.startswith(f"{metric}{{{labels}}} ") for line in exported)
+
+    assert (
+        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="model",{repo}}} 1.0' in exported,
+        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="release",{repo}}} 0.0' in exported,
+        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="release",{repo},result="success"'),
+        exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="release",{repo}'),
+        exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="model",{repo}'),
+        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="model",{repo},result="success"'),
+    ) == (True, True, True, True, True, False)
+
+
+def test_a_budget_refusal_in_the_model_lane_holds_the_release_lane_too() -> None:
+    """Both lanes spend the machine account's one GraphQL budget: the model lane's refused round
+    holds the release lane's next round through the shared pause until 5 s after the reset, and
+    then each lane runs one round with the trigger that waited (#1400)."""
+    model, release = _Rounds(_refuse_read, {REPO_A: 1}), _Rounds(lambda: None, {})
+    clock = _Clock(RESET - timedelta(minutes=20))
+    manager = _service({RELEASE_LANE: release, MODEL_LANE: model}, clock)
+    _trigger(manager, REPO_A)
+    first = (release.wait(1, manager), model.wait(1, manager))
+    clock.now = RESET - timedelta(minutes=10)
+    _trigger(manager, REPO_A)
+    held = (release.held(manager), model.held(manager))
+    clock.now = RESUME
+    resumed = (release.wait(1, manager), model.wait(1, manager))
+    asyncio.run(manager.drain_and_stop())
+    assert (first, held, resumed, release.triggers(), model.triggers()) == (
+        ([REPO_A], [REPO_A]),
+        (True, True),
+        ([REPO_A], [REPO_A]),
+        {REPO_A: [1, 1], REPO_B: []},
+        {REPO_A: [1, 1], REPO_B: []},
     )
