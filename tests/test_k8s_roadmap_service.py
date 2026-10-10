@@ -51,7 +51,7 @@ def test_deployment_spec_and_container() -> None:
         container["name"],
         container["image"],
         "--service" in args,
-        ("--host", "0.0.0.0") in arg_pairs,
+        ("--host", "0.0.0.0") in arg_pairs,  # nosec B104  # the pod binds all its interfaces
         ("--workers", "1") in arg_pairs,
         pod["serviceAccountName"],
         pod["terminationGracePeriodSeconds"],

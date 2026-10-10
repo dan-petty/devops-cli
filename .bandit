@@ -1,0 +1,8 @@
+# Bandit's scope for this repository: every Python file it tracks lies under these targets.
+# `devops ci security` runs `bandit -r --ini .bandit`, and `devops scan report` on this tree, the
+# code-scanning upload in ci.yml, reads this file too, so both scan the same files and honour the
+# same `# nosec` markers. The severity threshold, DEFAULT_BANDIT_SEVERITY (medium), is on both
+# command lines: Bandit 1.9.4 reads a `level` set here as text and fails on it.
+[bandit]
+targets = src,tests
+recursive = true

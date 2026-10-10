@@ -1042,18 +1042,17 @@ def test_yaml_output_is_portable_rather_than_python_tagged() -> None:
     assert yaml.safe_load(rendered) == {"state": "quiesced"}
 
 
-def test_both_formats_agree_on_values_json_has_to_coerce() -> None:
+def test_both_formats_agree_on_values_json_has_to_coerce(tmp_path: Path) -> None:
     """Paths, datetimes and enums must not differ between the two representations."""
     import datetime
     import json
-    import pathlib
 
     import yaml
 
     from devops_cli.output.serialization import serialize
 
     payload = {
-        "path": pathlib.Path("/tmp/x"),
+        "path": tmp_path / "x",
         "when": datetime.datetime(2026, 9, 22, tzinfo=datetime.UTC),
     }
     assert json.loads(serialize(payload, "json")) == yaml.safe_load(serialize(payload, "yaml"))

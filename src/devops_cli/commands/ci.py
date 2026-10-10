@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
 
 from devops_cli.config.constants import (
+    CONST_BANDIT_INI_NAME,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
@@ -401,6 +402,25 @@ def _resolve_pytest_cmd() -> list[str]:
     ]
 
 
+def _bandit_cmd(severity: str) -> list[str]:
+    """Bandit over the targets the repository's `.bandit` names, walking each directory among
+    them, reporting `severity` and above.
+
+    `devops scan report` on this tree runs Bandit with the same file and threshold, so the
+    code-scanning upload reports what this check fails on.
+    """
+    return [
+        "uv",
+        "run",
+        "bandit",
+        "-r",
+        "--ini",
+        CONST_BANDIT_INI_NAME,
+        "--severity-level",
+        severity.lower(),
+    ]
+
+
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
     return [
@@ -452,7 +472,7 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="security",
             display_title=MESSAGES.ci.bandit_scan,
-            cmd=["uv", "run", "bandit", "-r", "src", "-ll"],
+            cmd=_bandit_cmd(DEFAULT_BANDIT_SEVERITY),
             span_name="ci.step.security",
             metric_step="security",
         ),
@@ -1616,20 +1636,12 @@ def security(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run bandit static security vulnerability analysis over src/."""
+    """Run bandit static security analysis over src/ and tests/, the targets .bandit names."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    spec = get_check_spec("security")
-    if severity.lower() == DEFAULT_BANDIT_SEVERITY.lower():
-        cmd = list(spec.cmd)
-    else:
-        level_flag = (
-            "-lll" if severity.lower() == "high" else ("-l" if severity.lower() == "low" else "-ll")
-        )
-        cmd = ["uv", "run", "bandit", "-r", "src", level_flag]
-    if not _run(cmd):
+    if not _run(_bandit_cmd(severity)):
         raise typer.Exit(1)
 
 

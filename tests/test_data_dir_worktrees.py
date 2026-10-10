@@ -523,7 +523,18 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_the_shared_
     )
 
 
-@pytest.mark.parametrize("configured", ["/", "/opt", "/tmp", "/run", "/srv", "/mnt", "/home"])
+@pytest.mark.parametrize(
+    "configured",
+    [
+        "/",
+        "/opt",
+        "/tmp",  # nosec B108  # a data directory set to /tmp is a value cleanup must refuse
+        "/run",
+        "/srv",
+        "/mnt",
+        "/home",
+    ],
+)
 def test_workspace_clean_refuses_a_top_level_directory(
     repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, configured: str
 ) -> None:

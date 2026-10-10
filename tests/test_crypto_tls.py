@@ -240,9 +240,9 @@ def test_tls_overwriting_insecure_permissions(tmp_path: Path) -> None:
     c_file = tmp_path / CONST_CA_CERT_NAME
 
     k_file.write_text("old_insecure_key")
-    os.chmod(k_file, 0o666)
+    os.chmod(k_file, 0o644)
     c_file.write_text("old_cert")
-    os.chmod(c_file, 0o666)
+    os.chmod(c_file, 0o666)  # nosec B103  # a world-writable certificate regeneration must clamp
 
     generate_ca_certificate(output_dir=tmp_path, overwrite=True)
 

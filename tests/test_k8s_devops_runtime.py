@@ -128,7 +128,12 @@ def test_writable_paths_are_empty_dirs_and_the_data_dir_is_under_home() -> None:
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops"),
         env["DEVOPS_CLI_CONFIG"],
         config_mount["readOnly"],
-    ) == ({"/tmp", "/home/devops"}, True, "/config/devops-cli.yaml", True)
+    ) == (
+        {"/tmp", "/home/devops"},  # nosec B108  # the pod's emptyDir mount paths, under test
+        True,
+        "/config/devops-cli.yaml",
+        True,
+    )
 
 
 def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None:

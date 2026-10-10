@@ -854,7 +854,7 @@ class TestDevcontainerCli:
             "name": "test-mounts",
             "mounts": [
                 "source=test-data,target=${containerWorkspaceFolder}/.data,type=volume",
-                "source=test-tmp,target=/tmp,type=volume",
+                "source=test-scratch,target=/scratch,type=volume",
             ],
         }
         (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -862,7 +862,7 @@ class TestDevcontainerCli:
         targets = _extract_mount_targets(tmp_path)
         paths = [t[0] for t in targets]
         assert (tmp_path / ".data").resolve() in paths
-        assert Path("/tmp").resolve() in paths
+        assert Path("/scratch").resolve() in paths
         assert (tmp_path / ".venv").resolve() in paths
 
     def test_setup_volume_mount_permissions_and_lifecycle(
@@ -912,6 +912,7 @@ class TestDevcontainerCli:
             _ensure_path_ownership,
             _setup_volume_mount_permissions,
         )
+        from devops_cli.config.constants import CONST_SYSTEM_TEMP_DIRS
 
         test_dir = tmp_path / "test_ownership"
         test_dir.mkdir()
@@ -969,8 +970,8 @@ class TestDevcontainerCli:
         _ensure_path_ownership(test_dir)
         assert any("chown" in c for c in sudo_calls)
 
-        # 5. /tmp permission check
-        msg_tmp = _ensure_mount_permissions(Path("/tmp"), "volume", dry_run=False)
+        # 5. System temp directory permission check
+        msg_tmp = _ensure_mount_permissions(CONST_SYSTEM_TEMP_DIRS[0], "volume", dry_run=False)
         assert "1777" in (msg_tmp or "")
 
         # 6. .ssh permission check

@@ -458,7 +458,7 @@ def test_archive_incident_nested_or_absolute_traversal_rejection(tmp_path: Path)
     """Verify nested subdirectories and absolute paths in incident_id are rejected."""
     from devops_cli.exceptions.security import SecurityError
 
-    for bad_id in ("/tmp/evil", "sub/dir", "a\\b", ".."):
+    for bad_id in (str(tmp_path / "evil"), "sub/dir", "a\\b", ".."):
         incident = PanicIncident(
             incident_id=bad_id,
             instance_id="inst-test",

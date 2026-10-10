@@ -1235,7 +1235,7 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
 
     escapes = [
         "owner//tmp",
-        "/tmp/repo",
+        str(tmp_path / "repo"),
         "owner/../etc",
         "owner/name/extra",
         "single_slug",
