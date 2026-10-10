@@ -2357,11 +2357,6 @@ CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
     ".lan",
 )
 
-CONST_RESEARCH_DIR_NAME: Final[str] = "research"
-CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20
-CONST_SYNTOPICAL_MIN_RELEVANCE: Final[float] = 0.2
-CONST_SYNTOPICAL_MAX_EXCERPT_CHARS: Final[int] = 1000
-
 # ── Kubernetes Informer & Service Constants ──────────────────────────────────
 CONST_K8S_EVENT_ADDED: Final[str] = "ADDED"
 CONST_K8S_EVENT_MODIFIED: Final[str] = "MODIFIED"

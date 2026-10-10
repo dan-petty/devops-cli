@@ -861,11 +861,6 @@ DEFAULT_SECURITY_STREAM_TAIL_LINES: int = 100
 DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS: int = 86400  # 24 hours
 DEFAULT_THREAT_INTEL_BATCH_SIZE: int = 25
 
-# ── Cognitive Research & Syntopical Defaults ──────────────────────────────────
-DEFAULT_RESEARCH_DIR: str = "./.data/research"
-DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS: float = 30.0
-DEFAULT_SYNTOPICAL_MAX_SOURCES: int = 20
-
 # ── Kubernetes Informer & Service Defaults ───────────────────────────────────
 DEFAULT_K8S_CACHE_TTL_SECONDS: float = 5.0
 DEFAULT_K8S_INFORMER_RESYNC_SECONDS: float = 30.0
