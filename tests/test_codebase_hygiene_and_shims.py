@@ -314,3 +314,37 @@ def test_security_module_private_functions_all_have_callers() -> None:
         if sum(len(re.findall(rf"\b{name}\b", text)) for text in sources if name in text) < 2
     ]
     assert uncalled == []
+
+
+def test_syntopical_and_research_dead_settings_are_removed() -> None:
+    """The unread syntopical and research defaults and constants are deleted (#273).
+
+    Verifies that dead research settings without readers in src/ or tests/ are removed from
+    devops_cli.config.defaults and devops_cli.config.constants, preventing duplicate and
+    vestigial settings.
+    """
+    from devops_cli.config import constants, defaults
+
+    removed_defaults = (
+        "DEFAULT_RESEARCH_DIR",
+        "DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS",
+        "DEFAULT_SYNTOPICAL_MAX_SOURCES",
+    )
+    removed_constants = (
+        "CONST_RESEARCH_DIR_NAME",
+        "CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES",
+        "CONST_SYNTOPICAL_MIN_RELEVANCE",
+        "CONST_SYNTOPICAL_MAX_EXCERPT_CHARS",
+    )
+
+    defaults_present = [name for name in removed_defaults if hasattr(defaults, name)]
+    constants_present = [name for name in removed_constants if hasattr(constants, name)]
+    syntopical_defaults = [k for k in dir(defaults) if "SYNTOPICAL" in k]
+    syntopical_constants = [k for k in dir(constants) if "SYNTOPICAL" in k]
+
+    assert (
+        defaults_present,
+        constants_present,
+        syntopical_defaults,
+        syntopical_constants,
+    ) == ([], [], [], [])
