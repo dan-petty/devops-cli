@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from typing import TYPE_CHECKING
 
 import typer
@@ -139,24 +140,26 @@ def serve(
     if service:
         from devops_cli.config import load_settings
         from devops_cli.roadmap.run import SERVICE_JOBS, service_pause_until
-        from devops_cli.server.json_logs import setup_service_logging
+        from devops_cli.server.json_logs import service_log_config
         from devops_cli.server.service import create_service_app
 
         settings = load_settings()
         parsed_secrets = _validate_service_mode(reload=reload, workers=workers, settings=settings)
-        setup_service_logging(log_level)
 
-        fastapi_app = create_service_app(
-            jobs=SERVICE_JOBS,
-            settings=settings,
-            secrets=parsed_secrets,
-            pause_until=service_pause_until,
-        )
+        # uvicorn calls this factory after it applies log_config, so the warnings building the app
+        # logs (a managed repository with no webhook secret) are JSON too.
         uvicorn.run(
-            fastapi_app,
+            partial(
+                create_service_app,
+                jobs=SERVICE_JOBS,
+                settings=settings,
+                secrets=parsed_secrets,
+                pause_until=service_pause_until,
+            ),
+            factory=True,
             host=host,
             port=port,
-            log_config=None,
+            log_config=service_log_config(log_level),
         )
         return
 

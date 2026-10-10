@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +14,7 @@ from typer.testing import CliRunner
 from devops_cli import __version__
 from devops_cli.commands.serve import app as serve_app
 from devops_cli.server.app import create_app
+from devops_cli.server.json_logs import service_log_config
 
 runner = CliRunner()
 
@@ -313,4 +316,66 @@ def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_uvicorn.call_args.kwargs["host"],
             mock_uvicorn.call_args.kwargs["port"],
             mock_uvicorn.call_args.kwargs["log_config"],
-        ) == (0, True, "0.0.0.0", 8787, None)
+        ) == (0, True, "0.0.0.0", 8787, service_log_config("info"))
+
+
+def test_serve_service_mode_leaves_logging_to_the_server(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`devops serve --service` hands its JSON logging to uvicorn, which applies it as it starts.
+
+    The command configured the process's logging itself before it called uvicorn: it cleared the
+    root logger's handlers and stopped the `devops_cli` loggers propagating. Run in process with
+    uvicorn doubled, as here, it left that in place for every later test, so a test's caplog never
+    saw a `devops_cli` record.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
+
+    with patch("uvicorn.run"):
+        result = runner.invoke(serve_app, ["--service"])
+    logging.getLogger("devops_cli.server").warning("a record after the service command")
+
+    assert (result.exit_code, "a record after the service command" in caplog.text) == (0, True)
+
+
+def test_serve_service_mode_builds_the_app_after_the_server_applies_its_logging(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """uvicorn builds the service app from a factory after it applies the JSON `log_config`.
+
+    Building the app warns about each managed repository with no webhook secret. Built before the
+    command called uvicorn, that warning had no handler yet and came out as plain text on stderr.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1", "example-org/repo2"]')
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
+
+    def missing_secret_warnings() -> list[str]:
+        return [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage().startswith("No webhook secret configured")
+        ]
+
+    warnings_when_run: list[list[str]] = []
+
+    def run(app_factory: Callable[[], object], **_: object) -> None:
+        warnings_when_run.append(missing_secret_warnings())
+        app_factory()
+
+    with patch("uvicorn.run", side_effect=run) as mock_uvicorn:
+        result = runner.invoke(serve_app, ["--service"])
+
+    assert (
+        result.exit_code,
+        mock_uvicorn.call_args.kwargs.get("factory"),
+        warnings_when_run,
+        missing_secret_warnings(),
+    ) == (
+        0,
+        True,
+        [[]],
+        ["No webhook secret configured for managed repository: example-org/repo2"],
+    )
