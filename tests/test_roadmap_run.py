@@ -1153,7 +1153,7 @@ def test_service_wiring(
 
     with patch("uvicorn.run") as mock_uvicorn:
         res = runner.invoke(serve_app, ["--service"])
-        fastapi_app = mock_uvicorn.call_args[0][0]
+        fastapi_app = mock_uvicorn.call_args[0][0]()
 
     batch = TriggerBatch(
         repo=REPO,

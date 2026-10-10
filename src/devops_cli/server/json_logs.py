@@ -61,20 +61,22 @@ class JsonLogStreamHandler(logging.StreamHandler[Any]):
             pass
 
 
-def setup_service_logging(log_level: str = "INFO") -> None:
-    """Configure root and uvicorn loggers to emit single-line JSON to stdout."""
-    handler = JsonLogStreamHandler()
-    handler.setFormatter(JsonLogFormatter())
+def service_log_config(log_level: str = "INFO") -> dict[str, Any]:
+    """The service's logging, single-line JSON to stdout from the root, uvicorn and devops_cli
+    loggers, as the `logging.config.dictConfig` schema uvicorn applies when it starts.
+
+    Handing it to uvicorn as `log_config` leaves the process's logging alone until the server
+    starts. Loggers that exist by then stay enabled.
+    """
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.addHandler(handler)
-    root.setLevel(numeric_level)
-
-    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "devops_cli"):
-        u_log = logging.getLogger(name)
-        u_log.handlers.clear()
-        u_log.addHandler(handler)
-        u_log.setLevel(numeric_level)
-        u_log.propagate = False
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"json": {"()": JsonLogFormatter}},
+        "handlers": {"json": {"class": JsonLogStreamHandler, "formatter": "json"}},
+        "root": {"handlers": ["json"], "level": numeric_level},
+        "loggers": {
+            name: {"handlers": ["json"], "level": numeric_level, "propagate": False}
+            for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "devops_cli")
+        },
+    }
