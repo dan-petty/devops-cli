@@ -715,7 +715,6 @@ DEFAULT_SANDBOX_PIDS_LIMIT: int = 256
 DEFAULT_SANDBOX_NETWORK: str = "isolated"
 DEFAULT_LOG_STREAM: str = "stdout"
 DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"
-DEFAULT_CONTAINER_ENGINE: str = "docker"
 DEFAULT_OPENAPI_SCHEMA_PATH: str = "/openapi.json"
 
 # ── Kubernetes & Argo Defaults ──────────────────────────────────────────────

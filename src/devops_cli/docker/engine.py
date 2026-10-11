@@ -17,8 +17,14 @@ from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
     CONST_DOCKER_BUILD_CACHE_TYPES,
+    CONST_DOCKER_DEFAULT_UNIX_SOCKET,
     CONST_DOCKER_DF_BUILD_CACHE_KEY,
     CONST_DOCKER_UNIX_ADAPTER_SCHEME,
+    CONST_PODMAN_ENGINE_COMPONENT_NAME,
+    CONST_PODMAN_ROOTFUL_SOCKET_PATH,
+    CONST_PODMAN_SOCKET_RELATIVE_PATH,
+    CONST_RUN_USER_BASE,
+    CONST_SECURITY_OPT_ROOTLESS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DOCKER_CACHE_TTL_SECONDS,
@@ -26,7 +32,11 @@ from devops_cli.config.defaults import (
     DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
 )
-from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerEngineError
+from devops_cli.exceptions.docker import (
+    DockerDaemonUnavailableError,
+    DockerEngineError,
+    DockerError,
+)
 from devops_cli.models.docker import (
     BuildCacheRecord,
     BuildCacheReport,
@@ -190,6 +200,40 @@ def build_cache_report(entries: list[dict[str, Any]]) -> BuildCacheReport:
     )
 
 
+def _podman_rootless_socket_path() -> Path:
+    """Derive the rootless Podman socket path from XDG_RUNTIME_DIR or the /run/user base."""
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return Path(xdg) / CONST_PODMAN_SOCKET_RELATIVE_PATH
+    uid = os.getuid() if hasattr(os, "getuid") else 1000
+    return CONST_RUN_USER_BASE / str(uid) / CONST_PODMAN_SOCKET_RELATIVE_PATH
+
+
+def _find_podman_socket() -> Path | None:
+    """Locate active rootless or rootful Podman socket, rootless taking precedence."""
+    rootless = _podman_rootless_socket_path()
+    if rootless.exists():
+        return rootless
+    rootful = CONST_PODMAN_ROOTFUL_SOCKET_PATH
+    if rootful.exists() and os.access(rootful, os.R_OK | os.W_OK):
+        return rootful
+    return None
+
+
+def _check_container_connection() -> None:
+    """Raise configuration error if CONTAINER_CONNECTION is set."""
+    if "CONTAINER_CONNECTION" in os.environ:
+        raise DockerDaemonUnavailableError(
+            "CONTAINER_CONNECTION: named connections are not supported; set CONTAINER_HOST instead",
+            host="CONTAINER_CONNECTION",
+        )
+
+
+def _with_tls(env_tls: Any) -> dict[str, Any]:
+    """Return dict with tls key if env_tls is provided."""
+    return {"tls": env_tls} if env_tls is not None else {}
+
+
 # =============================================================================
 # Docker Engine Service
 # =============================================================================
@@ -248,36 +292,46 @@ class DockerEngineService:
         from docker import ContextAPI
         from docker.context.api import get_current_context_name  # type: ignore[import-untyped]
 
+        _check_container_connection()
+
         env_params = docker.utils.kwargs_from_env(environment=os.environ)
         env_tls = env_params.get("tls")
 
-        # 1. DOCKER_HOST from kwargs_from_env
-        if "base_url" in env_params:
-            params: dict[str, Any] = {}
-            if env_tls is not None:
-                params["tls"] = env_tls
-            return "DOCKER_HOST", str(env_params["base_url"]), params
+        # 1. CONTAINER_HOST from environment
+        container_host = os.environ.get("CONTAINER_HOST")
+        if container_host is not None:
+            return "CONTAINER_HOST", str(container_host), _with_tls(env_tls)
 
-        # 2. DOCKER_CONTEXT from environment
+        # 2. DOCKER_HOST from kwargs_from_env
+        if "base_url" in env_params:
+            return "DOCKER_HOST", str(env_params["base_url"]), _with_tls(env_tls)
+
+        # 3. DOCKER_CONTEXT from environment
         docker_context = os.environ.get("DOCKER_CONTEXT")
         if docker_context:
             source, raw, params = cls._context_endpoint(docker_context, env_tls)
             if docker_context == "default":
-                source = "/var/run/docker.sock"
+                source = CONST_DOCKER_DEFAULT_UNIX_SOCKET
             return source, raw, params
 
-        # 3. currentContext in config.json when not "default"
+        # 4. currentContext in config.json when not "default"
         current_name = get_current_context_name()
         if current_name != "default":
             return cls._context_endpoint(current_name, env_tls)
 
-        # 4. Default context
+        # 5. Podman user/rootful sockets
+        podman_sock = _find_podman_socket()
+        if podman_sock is not None:
+            return str(podman_sock), f"unix://{podman_sock}", _with_tls(env_tls)
+
+        # 6. Default context
         ctx = ContextAPI.DEFAULT_CONTEXT
-        params = {}
         tls = env_tls or ctx.TLSConfig
-        if tls is not None:
-            params["tls"] = tls
-        return "/var/run/docker.sock", str(ctx.Host or "unix:///var/run/docker.sock"), params
+        return (
+            CONST_DOCKER_DEFAULT_UNIX_SOCKET,
+            str(ctx.Host or f"unix://{CONST_DOCKER_DEFAULT_UNIX_SOCKET}"),
+            _with_tls(tls),
+        )
 
     @staticmethod
     def _parse_endpoint(source: str, raw: str, params: dict[str, Any]) -> str:
@@ -361,9 +415,13 @@ class DockerEngineService:
                 **endpoint.params,
             )
         except Exception as exc:
-            raise DockerDaemonUnavailableError(
-                f"{endpoint.source}: {exc}", host=endpoint.source
-            ) from exc
+            msg = f"{endpoint.source}: {exc}"
+            if endpoint.source == CONST_DOCKER_DEFAULT_UNIX_SOCKET:
+                msg = (
+                    f"{msg}; set CONTAINER_HOST or DOCKER_HOST, "
+                    "or run systemctl --user enable --now podman.socket"
+                )
+            raise DockerDaemonUnavailableError(msg, host=endpoint.source) from exc
 
         self._host = endpoint.base_url
         return self._client
@@ -390,6 +448,55 @@ class DockerEngineService:
             reachable = False
         self._set_cached("ping", reachable, ttl=self._cache_ttl if reachable else 2.0)
         return reachable
+
+    # -- Engine facts & security introspection --------------------------------
+
+    def security_options(self) -> list[str]:
+        """Return the security options reported by the daemon info endpoint."""
+        cached = self._get_cached("security_options")
+        if cached is not None:
+            return list(cached)
+        try:
+            info = self.client().info() or {}
+            opts = [str(opt) for opt in (info.get("SecurityOptions") or [])]
+        except (DockerError, OSError) as exc:
+            logger.debug("Failed retrieving engine security options: %s", exc)
+            opts = []
+        self._set_cached("security_options", opts)
+        return opts
+
+    def is_rootless(self) -> bool:
+        """Report whether the underlying engine runs in rootless mode."""
+        cached = self._get_cached("is_rootless")
+        if cached is not None:
+            return bool(cached)
+        result = CONST_SECURITY_OPT_ROOTLESS in self.security_options()
+        self._set_cached("is_rootless", result)
+        return result
+
+    def kind(self) -> str:
+        """Report engine kind ('Podman' or 'Docker')."""
+        cached = self._get_cached("engine_kind")
+        if cached is not None:
+            return str(cached)
+        try:
+            version_data = self.client().version() or {}
+            components = version_data.get("Components") or []
+            is_podman = any(
+                comp.get("Name") == CONST_PODMAN_ENGINE_COMPONENT_NAME
+                for comp in components
+                if isinstance(comp, dict)
+            )
+            result = "Podman" if is_podman else "Docker"
+        except (DockerError, OSError) as exc:
+            logger.debug("Failed retrieving engine version components: %s", exc)
+            result = "Docker"
+        self._set_cached("engine_kind", result)
+        return result
+
+    def is_podman(self) -> bool:
+        """Report whether the connected daemon is a Podman engine."""
+        return self.kind() == "Podman"
 
     # -- Response cache -------------------------------------------------------
 
@@ -442,14 +549,23 @@ class DockerEngineService:
     def container_stats(self, container_id: str) -> ContainerStatEntry:
         """Capture a single typed resource utilisation sample for a container."""
         container = self.get_container(container_id)
+        name = getattr(container, "name", "") or container_id
         try:
-            stats = container.stats(stream=False)
+            stream = container.stats(stream=True, decode=True)
+            if isinstance(stream, dict):
+                second_frame = stream
+            else:
+                iterator = iter(stream)
+                next(iterator, None)
+                second_frame = next(iterator, {})
+                close_fn = getattr(stream, "close", None)
+                if callable(close_fn):
+                    close_fn()
         except Exception as exc:
             raise DockerEngineError(
                 f"Container stats capture failed: {exc}", container_id=container_id
             ) from exc
-        name = getattr(container, "name", "") or container_id
-        return project_container_stats(container_id, name, stats or {})
+        return project_container_stats(container_id, name, second_frame or {})
 
     def stream_container_stats(
         self, container_id: str, *, samples: int | None = None
@@ -463,9 +579,16 @@ class DockerEngineService:
             raise DockerEngineError(
                 f"Container stats stream failed: {exc}", container_id=container_id
             ) from exc
-        for index, frame in enumerate(stream):
-            if samples is not None and index >= samples:
+        iterator = iter(stream)
+        next(iterator, None)
+        yielded = 0
+        for frame in iterator:
+            if samples is not None and yielded >= samples:
+                close_fn = getattr(stream, "close", None)
+                if callable(close_fn):
+                    close_fn()
                 return
+            yielded += 1
             yield project_container_stats(container_id, name, frame or {})
 
     # -- Container lifecycle --------------------------------------------------

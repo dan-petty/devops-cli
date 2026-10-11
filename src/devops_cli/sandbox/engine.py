@@ -70,9 +70,9 @@ def is_home_or_subpath(target_path: Path) -> bool:
 
 def _resolve_user_string(rootless: bool) -> str | None:
     """Resolve container user string for rootless container execution."""
-    if rootless and hasattr(os, "getuid"):
-        return f"{os.getuid()}:{os.getgid()}"
-    return None
+    from devops_cli.docker.sandbox import resolve_sandbox_user
+
+    return resolve_sandbox_user(rootless)
 
 
 def _ensure_internal_network() -> None:
@@ -270,19 +270,22 @@ class WorkloadSandboxEngine:
         }
         nano_cpus = int(config.cpu_limit * 1e9) if config.cpu_limit else None
 
+        user_str = _resolve_user_string(config.rootless)
+
         kwargs: dict[str, Any] = {
             "image": config.image,
             "command": config.command,
             "working_dir": "/workspace",
             "volumes": volumes,
             "ports": ports_map,
-            "user": _resolve_user_string(config.rootless),
             "mem_limit": config.memory_limit,
             "nano_cpus": nano_cpus,
             "environment": dict(config.env),
             "detach": True,
             **config.policy.to_docker_security_kwargs(read_only=config.read_only),
         }
+        if user_str is not None:
+            kwargs["user"] = user_str
         if config.network_config.mode == SandboxNetworkMode.ISOLATED:
             kwargs["network_mode"] = "none"
         elif config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:

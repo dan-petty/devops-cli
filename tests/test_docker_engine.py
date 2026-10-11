@@ -428,6 +428,172 @@ def test_unix_socket_path_resolution(
     assert engine.unix_socket_path() is None
 
 
+def test_endpoint_container_connection_set_raises_configuration_error(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CONTAINER_CONNECTION set raises configuration error naming CONTAINER_HOST."""
+    monkeypatch.setenv("CONTAINER_CONNECTION", "dev")
+    engine = DockerEngineService()
+    with patch("docker.DockerClient") as mock_client:
+        with pytest.raises(DockerEngineError, match="CONTAINER_HOST"):
+            engine.resolve_host()
+    assert mock_client.called is False
+
+
+def test_endpoint_container_host_ssh_raises_daemon_unavailable(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CONTAINER_HOST with ssh scheme raises daemon unavailable without dialling."""
+    monkeypatch.setenv("CONTAINER_HOST", "ssh://user@192.0.2.1")
+    engine = DockerEngineService()
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        engine.client()
+    assert "CONTAINER_HOST" in str(exc_info.value)
+
+
+def test_endpoint_container_host_beats_docker_host_and_podman(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CONTAINER_HOST has highest precedence over DOCKER_HOST and Podman sockets."""
+    podman_sock = tmp_path / "podman.sock"
+    podman_sock.parent.mkdir(parents=True, exist_ok=True)
+    podman_sock.touch()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    monkeypatch.setenv("CONTAINER_HOST", "unix:///run/custom/podman.sock")
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert (endpoint.source, endpoint.raw) == (
+        "CONTAINER_HOST",
+        "unix:///run/custom/podman.sock",
+    )
+
+
+def test_endpoint_podman_rootless_xdg_runtime_dir(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Rootless Podman socket under XDG_RUNTIME_DIR is discovered automatically."""
+    sock_dir = tmp_path / "runtime" / "podman"
+    sock_dir.mkdir(parents=True, exist_ok=True)
+    podman_sock = sock_dir / "podman.sock"
+    podman_sock.touch()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert (endpoint.source, endpoint.raw, endpoint.base_url) == (
+        str(podman_sock),
+        f"unix://{podman_sock}",
+        f"http+unix://{podman_sock}",
+    )
+
+
+def test_endpoint_podman_rootless_fallback_run_user(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When XDG_RUNTIME_DIR is unset, fallback to /run/user/<uid>/podman/podman.sock."""
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    fake_run_user = tmp_path / "run" / "user"
+    user_sock_dir = fake_run_user / str(os.getuid()) / "podman"
+    user_sock_dir.mkdir(parents=True, exist_ok=True)
+    podman_sock = user_sock_dir / "podman.sock"
+    podman_sock.touch()
+
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_RUN_USER_BASE", fake_run_user)
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert (endpoint.source, endpoint.raw, endpoint.base_url) == (
+        str(podman_sock),
+        f"unix://{podman_sock}",
+        f"http+unix://{podman_sock}",
+    )
+
+
+def test_endpoint_podman_rootful_used_when_accessible(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Rootful Podman socket is used when rootless socket is absent and rootful is R/W."""
+    rootful_sock = tmp_path / "podman" / "podman.sock"
+    rootful_sock.parent.mkdir(parents=True, exist_ok=True)
+    rootful_sock.touch()
+
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
+    orig_access = os.access
+
+    def mock_access(path: Any, mode: int, **kwargs: Any) -> bool:
+        if Path(path) == rootful_sock:
+            return True
+        return orig_access(path, mode, **kwargs)
+
+    monkeypatch.setattr("os.access", mock_access)
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert (endpoint.source, endpoint.raw) == (
+        str(rootful_sock),
+        f"unix://{rootful_sock}",
+    )
+
+
+def test_endpoint_podman_rootful_skipped_when_inaccessible(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Rootful Podman socket is ignored if not accessible with R/W permissions."""
+    rootful_sock = tmp_path / "podman" / "podman.sock"
+    rootful_sock.parent.mkdir(parents=True, exist_ok=True)
+    rootful_sock.touch()
+
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
+
+    def mock_access(path: Any, mode: int, **kwargs: Any) -> bool:
+        if Path(path) == rootful_sock:
+            return False
+        return True
+
+    monkeypatch.setattr("os.access", mock_access)
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert endpoint.source == "/var/run/docker.sock"
+
+
+def test_endpoint_podman_rootless_beats_rootful(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Rootless Podman socket takes precedence over rootful socket."""
+    sock_dir = tmp_path / "runtime" / "podman"
+    sock_dir.mkdir(parents=True, exist_ok=True)
+    rootless_sock = sock_dir / "podman.sock"
+    rootless_sock.touch()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+    rootful_sock = tmp_path / "run_podman" / "podman.sock"
+    rootful_sock.parent.mkdir(parents=True, exist_ok=True)
+    rootful_sock.touch()
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
+
+    engine = DockerEngineService()
+    endpoint = engine.resolve_host()
+    assert endpoint.source == str(rootless_sock)
+
+
+def test_endpoint_default_dial_failure_message_mentions_systemctl_podman(
+    docker_endpoint_env: Any,
+) -> None:
+    """Docker default socket failure appends guidance to set CONTAINER_HOST or enable podman.socket."""
+    engine = DockerEngineService()
+    with patch("docker.DockerClient", side_effect=RuntimeError("connection refused")):
+        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+            engine.client()
+
+    assert (
+        "; set CONTAINER_HOST or DOCKER_HOST, or run systemctl --user enable --now podman.socket"
+        in str(exc_info.value)
+    )
+
+
 def test_close_releases_socket_and_clears_cache() -> None:
     """Closing the service releases the socket and drops memoised responses."""
     engine = DockerEngineService()
@@ -662,12 +828,107 @@ def test_stream_container_stats_unbounded_drains_source(docker_engine: Any) -> N
     frame = {"pids_stats": {"current": 1}}
     mock_container = MagicMock()
     mock_container.name = "svc"
-    mock_container.stats.return_value = iter([frame, frame])
+    mock_container.stats.return_value = iter([frame, frame, frame])
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
     with docker_engine(mock_client) as engine:
         assert len(list(engine.stream_container_stats("cid-1"))) == 2
+
+
+def test_engine_kind_podman_and_docker(docker_engine: Any) -> None:
+    """kind() identifies Podman Engine via Components or falls back to Docker."""
+    mock_client = MagicMock()
+    mock_client.version.return_value = {
+        "Components": [{"Name": "Podman Engine", "Version": "5.0.0"}]
+    }
+
+    with docker_engine(mock_client) as engine:
+        assert (engine.kind(), engine.is_podman()) == ("Podman", True)
+
+    DockerEngineService.reset_instance()
+    mock_client_docker = MagicMock()
+    mock_client_docker.version.return_value = {
+        "Components": [{"Name": "Docker Engine - Community", "Version": "27.0.0"}]
+    }
+
+    with docker_engine(mock_client_docker) as engine:
+        assert (engine.kind(), engine.is_podman()) == ("Docker", False)
+
+
+def test_engine_is_rootless(docker_engine: Any) -> None:
+    """is_rootless() checks info()['SecurityOptions'] for name=rootless."""
+    mock_client = MagicMock()
+    mock_client.info.return_value = {"SecurityOptions": ["name=rootless", "name=seccomp"]}
+
+    with docker_engine(mock_client) as engine:
+        assert (engine.is_rootless(), engine.security_options()) == (
+            True,
+            ["name=rootless", "name=seccomp"],
+        )
+
+    DockerEngineService.reset_instance()
+    mock_client_rootful = MagicMock()
+    mock_client_rootful.info.return_value = {"SecurityOptions": ["name=apparmor"]}
+
+    with docker_engine(mock_client_rootful) as engine:
+        assert (engine.is_rootless(), engine.security_options()) == (
+            False,
+            ["name=apparmor"],
+        )
+
+
+def test_engine_facts_memoized(docker_engine: Any) -> None:
+    """Engine facts (kind, is_rootless) are fetched once and memoized."""
+    mock_client = MagicMock()
+    mock_client.version.return_value = {"Components": [{"Name": "Podman Engine"}]}
+    mock_client.info.return_value = {"SecurityOptions": ["name=rootless"]}
+
+    with docker_engine(mock_client) as engine:
+        _ = engine.kind()
+        _ = engine.kind()
+        _ = engine.is_rootless()
+        _ = engine.is_rootless()
+
+    assert (mock_client.version.call_count, mock_client.info.call_count) == (1, 1)
+
+
+def test_container_stats_two_frames_first_empty_precpu(docker_engine: Any) -> None:
+    """container_stats discards 1st frame and uses 2nd frame when streamed."""
+    frame1 = {
+        "pids_stats": {"current": 1},
+        "cpu_stats": {"cpu_usage": {"total_usage": 1000}},
+        "precpu_stats": {},
+    }
+    frame2 = {
+        "pids_stats": {"current": 2},
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 2000, "percpu_usage": [2000]},
+            "system_cpu_usage": 20000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 1000},
+            "system_cpu_usage": 10000,
+        },
+        "memory_stats": {"usage": 512, "limit": 1024},
+    }
+    mock_stream = MagicMock()
+    mock_stream.__iter__.return_value = iter([frame1, frame2])
+    mock_container = MagicMock()
+    mock_container.name = "svc"
+    mock_container.stats.return_value = mock_stream
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+
+    with docker_engine(mock_client) as engine:
+        stats = engine.container_stats("cid-1")
+
+    assert (stats.pids_count, stats.cpu_percentage > 0.0, mock_stream.close.called) == (
+        2,
+        True,
+        True,
+    )
 
 
 def test_lifecycle_operations_use_direct_api_calls(docker_engine: Any) -> None:
@@ -952,3 +1213,21 @@ def test_cli_docker_cache_dry_run() -> None:
     result = runner.invoke(docker_app, ["cache", "--dry-run"])
     assert result.exit_code == 0
     assert "docker_build_cache_introspect" in result.output
+
+
+def test_cli_docker_cache_podman_engine(docker_engine: Any) -> None:
+    """The cache command on Podman informs user and exits 1 without prune_builds or df."""
+    mock_client = MagicMock()
+    mock_client.version.return_value = {
+        "Components": [{"Name": "Podman Engine", "Version": "5.0.0"}]
+    }
+
+    with docker_engine(mock_client):
+        result = runner.invoke(docker_app, ["cache"])
+
+    assert (
+        result.exit_code,
+        "Podman keeps no BuildKit cache; its build layers are images" in result.output,
+        mock_client.df.called,
+        mock_client.api.prune_builds.called,
+    ) == (1, True, False, False)

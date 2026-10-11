@@ -145,6 +145,7 @@ class DockerErrorMessages:
     cannot_connect: str = "Cannot connect to Docker: {exc}"
     invalid_image_name: str = "Invalid Docker image name format: '{image}'"
     push_failed: str = "Docker push failed: {error}"
+    podman_no_build_cache: str = "Podman keeps no BuildKit cache; its build layers are images, and `devops docker prune` removes the dangling ones."
 
 
 @dataclass(frozen=True)

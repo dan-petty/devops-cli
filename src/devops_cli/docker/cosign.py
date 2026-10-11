@@ -146,6 +146,7 @@ class CosignRunner:
                     check=False,
                     env=env,
                     timeout=self.timeout,
+                    extra_allowed_env={"XDG_RUNTIME_DIR"},
                 )
             except subprocess.TimeoutExpired as exc:
                 raise CosignError(
@@ -209,6 +210,7 @@ class CosignRunner:
                     text=True,
                     check=False,
                     timeout=self.timeout,
+                    extra_allowed_env={"XDG_RUNTIME_DIR"},
                 )
             except subprocess.TimeoutExpired as exc:
                 raise CosignVerificationError(

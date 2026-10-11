@@ -19,6 +19,7 @@ In `devops-cli`:
 - **Workstation Health & Stats**: Powers `devops docker stats`, collecting real-time CPU percentages, memory usage, network I/O, and container health states.
 - **Container Lifecycle**: Powers container start, stop, restart, image pulling, and volume inspections.
 - **DevContainer Management**: Validates container runtime capabilities in developer workstations.
+- **Podman & Docker Socket Resolution**: Automatically negotiates the Engine API socket across `CONTAINER_HOST`, `DOCKER_HOST`, Docker contexts, rootless Podman (`$XDG_RUNTIME_DIR/podman/podman.sock` or `/run/user/<uid>/podman/podman.sock`), rootful Podman (`/run/podman/podman.sock`), and Docker default (`/var/run/docker.sock`). Podman sockets are checked before the Docker default socket.
 
 ---
 
