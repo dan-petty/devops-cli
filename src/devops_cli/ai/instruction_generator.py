@@ -147,10 +147,11 @@ def generate_pointer_stub(
         if is_devops_cli
         else ""
     )
+    import_directive = "@AGENTS.md\n\n" if filename == CONST_CLAUDE_MD_FILENAME else ""
     return f"""\
 # {title}
 
-> **This file is a pointer, not the source.** {tool_name} looks specifically for
+{import_directive}> **This file is a pointer, not the source.** {tool_name} looks specifically for
 > `{filename}`, so this stub exists to redirect it. All actual instructions — project
 > overview, build/test commands, code conventions, architecture, AI features,
 > environment & modernization policy, and security notes — live in
