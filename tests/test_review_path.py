@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,19 +18,8 @@ from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
     diff_pages,
 )
-from devops_cli.ai.review.runner import (
-    ReviewClients,
-    _collect_files,
-    _load_agents_md,
-    _persona_system_prompt,
-    _run_review,
-)
-from devops_cli.ai.review.sanitization import _build_prompt
-from devops_cli.ai.review_schema import ReviewResult
-from devops_cli.config.defaults import (
-    DEFAULT_REVIEW_MAX_DIFF_CHARS,
-    DEFAULT_REVIEW_TIMEOUT_SECONDS,
-)
+from devops_cli.ai.review.classification import _persona_system_prompt
+from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
@@ -46,59 +34,6 @@ def test_review_path_help_includes_persona_option() -> None:
     assert result.exit_code == 0
     clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", result.output)
     assert "--persona" in clean_output
-
-
-def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "AGENTS.md").write_text("## Policy\nUse latest Python.\n", encoding="utf-8")
-    nested = tmp_path / "src" / "pkg"
-    nested.mkdir(parents=True)
-
-    agents_md = _load_agents_md(nested)
-
-    assert "Use latest Python." in agents_md
-
-
-def test_load_agents_md_prefers_the_nearest_conventions_file(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "AGENTS.md").write_text("## Root\nRoot rules.\n", encoding="utf-8")
-    subproject = tmp_path / "services" / "api"
-    (subproject / "src").mkdir(parents=True)
-    (subproject / "AGENTS.md").write_text("## API\nAPI rules.\n", encoding="utf-8")
-
-    conventions = _load_agents_md(subproject / "src")
-
-    assert ("API rules." in conventions, "Root rules." in conventions) == (True, False)
-
-
-def test_load_agents_md_reads_claude_md_fallback(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "CLAUDE.md").write_text("## Guidelines\nUse Go 1.23.\n", encoding="utf-8")
-    nested = tmp_path / "cmd"
-    nested.mkdir(parents=True)
-
-    conventions = _load_agents_md(nested)
-
-    assert "Use Go 1.23." in conventions
-
-
-def test_load_agents_md_reads_copilot_instructions_fallback(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    github_dir = tmp_path / ".github"
-    github_dir.mkdir(parents=True)
-    (github_dir / "copilot-instructions.md").write_text(
-        "## Copilot\nUse Rust 2024 edition.\n", encoding="utf-8"
-    )
-
-    conventions = _load_agents_md(tmp_path)
-
-    assert "Use Rust 2024 edition." in conventions
-
-
-def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-
-    assert _load_agents_md(tmp_path) == ""
 
 
 def test_persona_system_prompt_includes_agents_md_when_present() -> None:
@@ -118,29 +53,6 @@ def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
     assert prompt.startswith(persona.system_prompt)
     assert "Security & Prompt Isolation Guardrails" in prompt
     assert "Project Instructions" not in prompt
-
-
-def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
-    (tmp_path / "kept.py").write_text("print('kept')\n", encoding="utf-8")
-    (tmp_path / "ignored.txt").write_text("ignore me\n", encoding="utf-8")
-
-    subprocess.run(["git", "add", ".gitignore", "kept.py"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "add", "-f", "ignored.txt"], cwd=tmp_path, check=True)
-
-    content = _collect_files(tmp_path, "*")
-
-    assert "kept.py" in content
-    assert "### ignored.txt" not in content
-
-
-def test_review_prompt_contains_full_diff_without_truncation() -> None:
-    big_diff = "x" * (DEFAULT_REVIEW_MAX_DIFF_CHARS + 1)
-    prompt = _build_prompt(big_diff, "review title")
-
-    assert "review title" in prompt
-    assert big_diff in prompt
 
 
 def test_diff_pages_keeps_small_files_on_separate_pages() -> None:
@@ -239,187 +151,6 @@ def test_paginate_file_diff_block_rolling_window_overlap() -> None:
     assert len(windows) > 1
     assert all("diff --git a/big.py b/big.py" in w for w in windows)
     assert "line 000" in windows[0]
-
-
-def test_run_review_three_steps_combines_segments(tmp_path: Path) -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    calls: list[str] = []
-
-    class DummyClient:
-        def chat(
-            self,
-            system: str,
-            user: str,
-            *,
-            enable_thinking: bool = True,
-            **kwargs: object,
-        ) -> str:
-            calls.append(user)
-            if "Per-segment review outputs" in user:
-                return "final recomposed review"
-            if "Be specific. Do not make recommendations." in user:
-                return "summary"
-            return '{"findings":[],"recommendation":"APPROVE","summary":"segment review"}'
-
-    result = _run_review(
-        ["page-one", "page-two"],
-        "title",
-        persona,
-        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
-        agents_md="",
-        build_prompt=lambda content, title: f"{title}:{content}",
-        target_dir=tmp_path,
-    )
-
-    # 2 review (step 2) + 1 recompose (step 3) (metadata step 1 uses fast static extraction)
-    assert len(calls) == 3
-    assert result == "final recomposed review"
-    assert any("Analysis metadata for review context" in c for c in calls)
-    assert any("Per-segment review outputs" in c for c in calls)
-
-
-def test_run_review_never_sends_empty_user_prompt(tmp_path: Path) -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    calls: list[str] = []
-
-    class DummyClient:
-        def chat(
-            self,
-            system: str,
-            user: str,
-            *,
-            enable_thinking: bool = True,
-            **kwargs: object,
-        ) -> str:
-            calls.append(user)
-            return '{"findings":[],"recommendation":"APPROVE","summary":"ok"}'
-
-    _run_review(
-        ["content-1", "content-2"],
-        "title",
-        persona,
-        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
-        agents_md="",
-        build_prompt=lambda content, title: f"{title}\n{content}",
-        target_dir=tmp_path,
-    )
-
-    # 2 review + 1 recompose
-    assert len(calls) == 3
-    assert all(call.strip() for call in calls)
-
-
-def test_run_review_metadata_includes_filenames(tmp_path: Path) -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    review_calls: list[str] = []
-
-    class DummyClient:
-        def chat(
-            self,
-            system: str,
-            user: str,
-            *,
-            enable_thinking: bool = True,
-            **kwargs: object,
-        ) -> str:
-            if "Analysis metadata for review context" in user or "File:" in user:
-                review_calls.append(user)
-            if "Per-segment review outputs" in user:
-                return "done"
-            if "Be specific. Do not make recommendations." in user:
-                return "summary"
-            return '{"findings":[],"recommendation":"APPROVE","summary":"review"}'
-
-    pages = [
-        "diff --git a/src/a.py b/src/a.py\n@@ -1,1 +1,2 @@\n+x\n",
-        "diff --git a/src/b.py b/src/b.py\n@@ -1,1 +1,2 @@\n+y\n",
-    ]
-    result = _run_review(
-        pages,
-        "title",
-        persona,
-        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
-        agents_md="",
-        build_prompt=lambda content, title: f"{title}\n{content}",
-        target_dir=tmp_path,
-    )
-
-    assert result == "done"
-    assert len(review_calls) == 2
-    assert any("src/a.py" in call for call in review_calls)
-    assert any("src/b.py" in call for call in review_calls)
-
-
-def test_run_review_dry_run_skips_client_calls(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    call_count = 0
-
-    class DummyClient:
-        def chat(
-            self,
-            system: str,
-            user: str,
-            *,
-            enable_thinking: bool = True,
-            **kwargs: object,
-        ) -> str:
-            nonlocal call_count
-            call_count += 1
-            return "should-not-be-called"
-
-    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-
-    result = _run_review(
-        ["page-one", "page-two"],
-        "title",
-        persona,
-        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
-        agents_md="",
-        build_prompt=lambda content, title: f"{title}:{content}",
-        target_dir=tmp_path,
-    )
-
-    assert call_count == 0
-    from devops_cli.ai.review_schema import ReviewResult
-
-    assert isinstance(result, ReviewResult)
-    assert any("[dry-run]" in f.title for f in result.findings)
-
-
-def test_run_review_single_segment_skips_recompose(tmp_path: Path) -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    calls: list[str] = []
-
-    class DummyClient:
-        def chat(
-            self,
-            system: str,
-            user: str,
-            *,
-            enable_thinking: bool = True,
-            **kwargs: object,
-        ) -> str:
-            calls.append(user)
-            if "Be specific. Do not make recommendations." in user:
-                return "summary"
-            return '{"findings":[],"recommendation":"APPROVE","summary":"single segment review"}'
-
-    result = _run_review(
-        ["only-page"],
-        "title",
-        persona,
-        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
-        agents_md="",
-        build_prompt=lambda content, title: f"{title}:{content}",
-        target_dir=tmp_path,
-    )
-
-    # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped
-    assert len(calls) == 1
-    assert isinstance(result, ReviewResult)
-    assert result.summary == "single segment review"
 
 
 def test_review_client_uses_long_read_timeout_for_chat_requests(

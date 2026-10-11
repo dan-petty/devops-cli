@@ -79,7 +79,6 @@ from devops_cli.ai.review.profile import (
 )
 from devops_cli.ai.review.review_environment import nearest_review_conventions
 from devops_cli.ai.review.runner import (
-    _build_path_prompt,
     _corpus_digest,
     _execute_review_workflow,
     _find_session_dir,
@@ -105,7 +104,6 @@ from devops_cli.ai.review.samples import (
     load_sample_catalog,
     samples_dir,
 )
-from devops_cli.ai.review.sanitization import _build_prompt
 from devops_cli.ai.review.template_sweep import (
     TemplateSweepReport,
     save_sweep_run,
@@ -334,7 +332,7 @@ def path(
         print_info("Scanning in place (uncommitted work)...", prefix=False)
         if len(path_targets) == 1:
             target = path_targets[0]
-            pages, title, agents_md, routed_files = _prepare_path_content(target, pattern)
+            pages, title, routed_files = _prepare_path_content(target, pattern)
             target_resolved = target.resolve()
             top = git_show_toplevel(target_resolved)
             target_dir = (
@@ -345,17 +343,14 @@ def path(
             target_ref = str(target_resolved)
         else:
             all_pages: list[str] = []
-            agents_md = ""
             target_names: list[str] = []
             routed_files = []
             first_target_dir = Path.cwd().resolve()
             for t in path_targets:
                 t_resolved = t.resolve()
-                t_pages, _, t_agents, t_routed = _prepare_path_content(t, pattern)
+                t_pages, _, t_routed = _prepare_path_content(t, pattern)
                 all_pages.extend(t_pages)
                 routed_files.extend(t_routed)
-                if not agents_md and t_agents:
-                    agents_md = t_agents
                 target_names.append(str(t_resolved))
                 if (
                     first_target_dir == Path.cwd().resolve()
@@ -374,8 +369,6 @@ def path(
         _execute_review_workflow(
             pages,
             title,
-            _build_path_prompt,
-            agents_md,
             all_personas,
             persona,
             summary,
@@ -543,17 +536,13 @@ def branch(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    pages, title, agents_md, target_ref, base_revision = _prepare_branch_content(
-        branch_name, base, repo_path
-    )
+    pages, title, target_ref, base_revision = _prepare_branch_content(branch_name, base, repo_path)
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     if base_revision is None or getattr(base_revision, "read_head", None) is None:
         print_info("Scanning in place (uncommitted work)...", prefix=False)
         _execute_review_workflow(
             pages,
             title,
-            _build_prompt,
-            agents_md,
             all_personas,
             persona,
             summary,
@@ -581,8 +570,6 @@ def branch(
         _execute_review_workflow(
             pages,
             title,
-            _build_prompt,
-            agents_md,
             all_personas,
             persona,
             summary,
@@ -651,7 +638,6 @@ def _post_pr_review_comment(
 def _run_pr_review_workflow(
     pages: list[str],
     title: str,
-    agents_md: str,
     pull: Any,
     number: int,
     head_dir: Path,
@@ -685,8 +671,6 @@ def _run_pr_review_workflow(
         return _execute_review_workflow(
             pages,
             title,
-            _build_prompt,
-            agents_md,
             all_personas,
             persona,
             summary,
@@ -712,8 +696,6 @@ def _run_pr_review_workflow(
         return _execute_review_workflow(
             pages,
             title,
-            _build_prompt,
-            agents_md,
             all_personas,
             persona,
             summary,
@@ -866,13 +848,12 @@ def pr(
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
+        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, head_dir=head_dir
         )
         reviews = _run_pr_review_workflow(
             pages,
             title,
-            agents_md,
             pull,
             number,
             head_dir,

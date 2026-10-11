@@ -477,6 +477,7 @@ class LLMClient(
         context_tag: str | None = None,
         append_cache: bool | None = None,
         priority: RequestPriority | str | None = RequestPriority.HIGH,
+        **kwargs: Any,
     ) -> LLMResponse:
         """Send a single-turn chat message and return the assistant reply."""
         return self.chat_messages(
@@ -490,6 +491,7 @@ class LLMClient(
             context_tag=context_tag,
             append_cache=append_cache,
             priority=priority,
+            **kwargs,
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
@@ -681,9 +683,10 @@ class LLMClient(
 
     def chat_messages(
         self,
-        system: str,
-        messages: list[ChatMessage],
+        system: str = "",
+        messages: list[ChatMessage] | None = None,
         *,
+        system_prompt: str | None = None,
         enable_thinking: bool = True,
         validator: Callable[[str], bool] | None = None,
         max_retries: int | None = None,
@@ -692,8 +695,12 @@ class LLMClient(
         context_tag: str | None = None,
         append_cache: bool | None = None,
         priority: RequestPriority | str | None = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         """Send a multi-turn chat request with response validation, caching, and retries."""
+        if system_prompt and not system:
+            system = system_prompt
+        eff_messages = list(messages) if messages is not None else []
         eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
         if eff_start is None and context_tag:
@@ -710,14 +717,14 @@ class LLMClient(
                 provider=str(getattr(self._config, "provider", "ollama")),
                 model=str(getattr(self._config, "model", "default")),
                 system=system,
-                messages_or_prompt=messages,
+                messages_or_prompt=eff_messages,
                 options={"enable_thinking": enable_thinking},
             )
             cached_candidate = self._cache.get(unaugmented_key)
             if cached_candidate is not None:
                 eff_start = cached_candidate.content
 
-        out_messages = self._augment_messages(messages, eff_start)
+        out_messages = self._augment_messages(eff_messages, eff_start)
         cache_key = self._cache.generate_key(
             provider=str(getattr(self._config, "provider", "ollama")),
             model=str(getattr(self._config, "model", "default")),

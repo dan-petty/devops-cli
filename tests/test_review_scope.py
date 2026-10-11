@@ -109,7 +109,7 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
 
     def prepare(number: int, repo: Any, head_dir: Path) -> Any:
         (head_dir / "app.py").write_text("head\n", encoding="utf-8")
-        return (["page"], "PR #7", "", MagicMock(), "base/app", None)
+        return (["page"], "PR #7", MagicMock(), "base/app", None)
 
     def run(*args: Any, **kwargs: Any) -> list[Any]:
         target = kwargs["target_dir"]

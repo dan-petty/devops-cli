@@ -14,6 +14,7 @@ import typer
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.classification import _persona_system_prompt
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.review_environment import (
     nearest_conventions,
     nearest_review_conventions,
@@ -297,28 +298,21 @@ def test_a_branch_cannot_loosen_its_own_review(
             conventions_file.write(_EXEMPTION + "\n")
     (root / "app.go").write_text("package main\n\nfunc main() {}\n", encoding="utf-8")
     git(root, "commit", "-qam", "exempt the branch")
-    pages, title, agents_md, target, base_revision = _prepare_branch_content(
-        "feature", "main", root
-    )
+    pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
     built: list[ReviewPipelineOrchestrator] = []
 
     def build(**kwargs: Any) -> ReviewPipelineOrchestrator:
         built.append(ReviewPipelineOrchestrator(**kwargs))
         return built[-1]
 
-    with (
-        patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator", side_effect=build),
-        patch("devops_cli.ai.review.runner._run_persona_loop", return_value=[]) as persona_loop,
-    ):
+    with patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator", side_effect=build):
         _execute_review_workflow(
             pages,
             title,
-            MagicMock(),
-            agents_md,
             False,
             None,
             False,
-            ReviewClients(analysis=MagicMock(), compose=MagicMock()),
+            ReviewClients(analysis=MagicMock(spec=ReviewLLMClient)),
             target_type="branch",
             target_ref=target,
             target_dir=root,
@@ -326,16 +320,13 @@ def test_a_branch_cannot_loosen_its_own_review(
         )
     [orchestrator] = built
     conventions = orchestrator._read_target_conventions()
-    prompts = (
-        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], conventions),
-        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], persona_loop.call_args.args[4]),
-    )
+    prompt = _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], conventions)
 
     assert (
-        [_EXEMPTION in prompt for prompt in prompts],
-        ["Use Go 1.23." in prompt for prompt in prompts],
+        _EXEMPTION not in prompt,
+        "Use Go 1.23." in prompt,
         "may reach private networks" in conventions,
-    ) == ([False, False], [True, True], True)
+    ) == (True, True, True)
 
 
 def _feature_exempting_itself_first(root: Path, git: Callable[..., None]) -> None:
@@ -370,26 +361,23 @@ def test_a_ci_checkout_reviews_the_branch_under_its_origins_conventions(
     git(root, "update-ref", "refs/remotes/origin/main", "main")
     git(root, "branch", "-qD", "main")
 
-    pages, title, agents_md, _target, base_revision = _prepare_branch_content(None, "main", root)
+    pages, title, _target, base_revision = _prepare_branch_content(None, "main", root)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="ci",
         llm_client=MagicMock(),
         target_dir=root,
         conventions_revision=base_revision.revision,
     )
-    prompts = (
-        _persona_system_prompt(
-            PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions()
-        ),
-        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], agents_md),
+    prompt = _persona_system_prompt(
+        PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions()
     )
 
     assert (
         title,
         any(_EXEMPTION in page for page in pages),
-        [_EXEMPTION in prompt for prompt in prompts],
-        ["Use Go 1.23." in prompt for prompt in prompts],
-    ) == ("Branch `feature` vs `origin/main`", True, [False, False], [True, True])
+        _EXEMPTION not in prompt,
+        "Use Go 1.23." in prompt,
+    ) == ("Branch `feature` vs `origin/main`", True, True, True)
 
 
 def test_a_checkout_with_no_base_at_all_is_not_reviewed_against_itself(
@@ -431,7 +419,7 @@ def test_a_manifest_the_branch_adds_does_not_hide_its_bases_conventions(
     git(root, "add", ".")
     git(root, "commit", "-qm", "corpus manifest")
 
-    _pages, _title, agents_md, _target, base_revision = _prepare_branch_content(
+    _pages, _title, _target, base_revision = _prepare_branch_content(
         "feature", "main", root / "sub"
     )
     orchestrator = ReviewPipelineOrchestrator(
@@ -440,9 +428,10 @@ def test_a_manifest_the_branch_adds_does_not_hide_its_bases_conventions(
         target_dir=root / "sub",
         conventions_revision=base_revision.revision,
     )
+    target_conventions = orchestrator._read_target_conventions()
 
     assert (
-        "Use Go 1.23." in agents_md,
-        "may reach private networks" in orchestrator._read_target_conventions(),
+        "Use Go 1.23." in target_conventions,
+        "may reach private networks" in target_conventions,
         nearest_review_conventions(root / "sub", "feature"),
     ) == (True, True, "")

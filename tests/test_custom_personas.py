@@ -22,11 +22,12 @@ def test_load_custom_repo_persona_exists(tmp_path: Path) -> None:
 
     persona_def = load_custom_repo_persona(tmp_path, "security-lead")
     assert persona_def is not None
-    assert persona_def.name == "security-lead"
-    assert persona_def.title == "Custom Persona (Security-Lead)"
-    assert custom_prompt in persona_def.system_prompt
-    assert custom_prompt in persona_def.chat_prompt
-    assert custom_prompt in persona_def.compose_prompt
+    assert (
+        persona_def.name,
+        persona_def.title,
+        custom_prompt in persona_def.system_prompt,
+        custom_prompt in persona_def.chat_prompt,
+    ) == ("security-lead", "Custom Persona (Security-Lead)", True, True)
 
 
 def test_load_custom_repo_persona_traversal(tmp_path: Path) -> None:

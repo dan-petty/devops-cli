@@ -9,7 +9,8 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
-from devops_cli.ai.review.runner import format_pr_review_comment
+from devops_cli.ai.review.protocol import ReviewLLMClient
+from devops_cli.ai.review.runner import ReviewClients, format_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.commands.review import app as review_app
 
@@ -193,7 +194,6 @@ def test_devops_review_pr_post_publishes_comment(
             return_value=(
                 ["diff --git a/src/app.py b/src/app.py\n+pass\n"],
                 "PR 42: Test PR",
-                "AGENTS.md",
                 mock_pull,
                 "org/repo",
                 None,
@@ -236,7 +236,7 @@ def test_devops_review_pr_post_dry_run_skips_comment(
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
         patch(
             "devops_cli.commands.review._prepare_pr_content",
-            return_value=(["diff content"], "PR 42", "AGENTS.md", mock_pull, "org/repo", None),
+            return_value=(["diff content"], "PR 42", mock_pull, "org/repo", None),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),
@@ -248,3 +248,35 @@ def test_devops_review_pr_post_dry_run_skips_comment(
         mock_pull.create_issue_comment.call_count,
         "Would post PR comment on #42" in result.output,
     ) == (0, 0, True)
+
+
+def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify empty PR diff with --post calls _review_routed_files_only with zero model calls and exits 0 (#995)."""
+    monkeypatch.setattr(
+        "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
+    )
+    mock_pull = MagicMock()
+    mock_pull.get_files.return_value = []
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+    review_clients = ReviewClients(analysis=mock_client)
+
+    with (
+        patch("devops_cli.commands.review._init_logfire_if_enabled"),
+        patch("devops_cli.commands.review._make_review_clients", return_value=review_clients),
+        patch(
+            "devops_cli.commands.review._prepare_pr_content",
+            return_value=([], "PR 42", mock_pull, "org/repo", None),
+        ),
+        patch("devops_cli.commands.review.load_settings"),
+    ):
+        result = runner.invoke(review_app, ["pr", "42", "--post"])
+
+    assert (
+        result.exit_code,
+        mock_client.chat.called,
+        mock_client.chat_messages.called,
+        mock_pull.create_issue_comment.call_count,
+    ) == (0, False, False, 1)

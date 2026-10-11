@@ -300,12 +300,10 @@ def test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review(
         _execute_review_workflow(
             [_MOD_DIFF],
             "Branch `feature` vs `main`",
-            MagicMock(),
-            "",
             all_personas=False,
             persona=None,
             summary_only=False,
-            clients=ReviewClients(analysis=client, compose=client),
+            clients=ReviewClients(analysis=client),
             target_type="branch",
             target_ref="feature",
             target_dir=tmp_path,
