@@ -1190,3 +1190,51 @@ def test_a_relative_data_path_resolves_under_the_user_level_root_while_a_review_
         ((isolate_user_data_root / ".data/reviews").resolve(), named),
         (main / ".data/reviews").resolve(),
     )
+
+
+def test_the_pricing_registry_is_shared_from_any_directory(
+    repo_with_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify PricingRegistry reads overrides from the main worktree's data directory when
+    instantiated from a subdirectory of a linked worktree (#661)."""
+    from devops_cli.ai.spend.pricing import PricingRegistry
+    from devops_cli.config.defaults import DEFAULT_AI_PRICING_OVERRIDES_FILENAME
+
+    main, linked = repo_with_worktree
+    overrides_dir = main / ".data" / "ai"
+    overrides_dir.mkdir(parents=True, exist_ok=True)
+    overrides_file = overrides_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME
+    overrides_file.write_text(
+        json.dumps(
+            {
+                "shared-override-model": {
+                    "prompt_usd_per_million": 1.25,
+                    "completion_usd_per_million": 5.0,
+                    "source": "custom_override",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    subdir = linked / "nested" / "component"
+    subdir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
+    monkeypatch.setattr("devops_cli.core.repo.is_own_source_repository", lambda *_: True)
+    monkeypatch.chdir(subdir)
+
+    registry = PricingRegistry()
+    price = registry.get_pricing("shared-override-model")
+
+    assert (
+        registry.data_dir,
+        price.prompt_usd_per_million,
+        price.completion_usd_per_million,
+        price.source,
+    ) == (
+        (main / ".data").resolve(),
+        1.25,
+        5.0,
+        "custom_override",
+    )

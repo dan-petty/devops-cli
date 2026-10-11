@@ -74,14 +74,31 @@ def test_ai_spend_alias_report(mock_spend_env: SpendLedger) -> None:
 
 
 def test_ai_cost_list_pricing(mock_spend_env: SpendLedger) -> None:
-    """Verify devops ai cost list-pricing outputs catalog in json and table."""
+    """Verify devops ai cost list-pricing outputs catalog in json, yaml, and table with base rate captions."""
+    import yaml
+
     res_json = runner.invoke(cost_app, ["list-pricing", "--json"])
     assert res_json.exit_code == 0
     catalog = json.loads(res_json.stdout)
     assert len(catalog) >= 50
 
+    # YAML output format
+    res_yaml = runner.invoke(cost_app, ["list-pricing", "--format", "yaml"])
+    assert (res_yaml.exit_code, yaml.safe_load(res_yaml.stdout) == catalog) == (0, True)
+
+    # Table output with search, column headers, and caption
     res_table = runner.invoke(cost_app, ["list-pricing", "--search", "llama"])
-    assert (res_table.exit_code, "llama" in res_table.stdout.lower()) == (0, True)
+    assert (
+        res_table.exit_code,
+        "llama" in res_table.stdout.lower(),
+        "Base Prompt USD / 1M" in res_table.stdout,
+        "Base Completion USD / 1M" in res_table.stdout,
+        "base-tier rates for a small call at current time" in res_table.stdout.lower(),
+    ) == (0, True, True, True, True)
+
+    # Help text states base-tier rates
+    res_help = runner.invoke(cost_app, ["list-pricing", "--help"])
+    assert (res_help.exit_code, "base-tier rates" in res_help.stdout.lower()) == (0, True)
 
 
 def test_ai_cost_set_price(mock_spend_env: SpendLedger) -> None:
@@ -111,13 +128,60 @@ def test_ai_cost_set_price(mock_spend_env: SpendLedger) -> None:
 def test_ai_cost_update_pricing(
     mock_spend_env: SpendLedger, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify devops ai cost update-pricing triggers registry update."""
+    """Verify devops ai cost update-pricing triggers registry update and reports model counts."""
+    from devops_cli.ai.spend import UpdatePricingResult
+
     monkeypatch.setattr(
-        PricingRegistry, "update_from_remote", lambda self, source_url=None, timeout=15.0: 42
+        PricingRegistry,
+        "update_from_remote",
+        lambda self, source_url=None, timeout=15.0: UpdatePricingResult(
+            source_model_count=42, merged_model_count=120
+        ),
     )
 
     res = runner.invoke(cost_app, ["update-pricing"])
-    assert (res.exit_code, "42 models loaded" in res.stdout) == (0, True)
+    assert (
+        res.exit_code,
+        "42 models supplied" in res.stdout,
+        "120 models in merged catalog" in res.stdout,
+    ) == (0, True, True)
+
+
+def test_ai_cost_update_pricing_reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops ai cost update-pricing --reset clears snapshot and caches."""
+    pricing = PricingRegistry(data_dir=tmp_path)
+    monkeypatch.setattr("devops_cli.commands.ai_cost.get_pricing_registry", lambda: pricing)
+
+    # Exits 0 if file is absent
+    res_absent = runner.invoke(cost_app, ["update-pricing", "--reset"])
+    assert (
+        res_absent.exit_code,
+        "Successfully reset pricing snapshot" in res_absent.stdout,
+    ) == (0, True)
+
+    # When file exists, deletes it and exits 0
+    snap_file = tmp_path / "ai" / "pricing_snapshot.json"
+    snap_file.parent.mkdir(parents=True, exist_ok=True)
+    snap_file.write_text("{}", encoding="utf-8")
+    assert snap_file.exists()
+
+    res_present = runner.invoke(cost_app, ["update-pricing", "--reset"])
+    assert (
+        res_present.exit_code,
+        snap_file.exists(),
+        "Successfully reset pricing snapshot" in res_present.stdout,
+    ) == (0, False, True)
+
+
+def test_ai_cost_update_pricing_reset_and_source_conflict(
+    mock_spend_env: SpendLedger,
+) -> None:
+    """Verify combining --reset with --source raises a usage error."""
+    res = runner.invoke(
+        cost_app,
+        ["update-pricing", "--reset", "--source", "https://example.com/pricing.json"],
+    )
+    assert (res.exit_code, "Cannot combine --reset with --source" in res.output) == (2, True)
 
 
 def test_ai_cost_reset(mock_spend_env: SpendLedger) -> None:

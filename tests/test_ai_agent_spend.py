@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -97,3 +98,56 @@ def test_spend_guard_lifecycle_hooks() -> None:
     # System prompt additions
     prompts = spend.get_system_prompt_additions(ctx)
     assert any("Spend guardrails active" in p for p in prompts)
+
+
+def test_spend_guard_record_usage_tiered_and_caller_pricing() -> None:
+    """Verify SpendGuard calculates tiered pricing via calculate_request_cost and honors caller pricing."""
+    spend = SpendGuard()
+    cost_tiered = spend.record_usage(
+        "claude-sonnet-4-5", prompt_tokens=250_000, completion_tokens=1_000
+    )
+    assert (cost_tiered, spend.usage.total_usd) == (1.5225, 1.5225)
+
+    # Caller's pricing mapping keeps flat rate without querying registry
+    spend_flat = SpendGuard(
+        pricing={
+            "claude-sonnet-4-5": ModelPricing(
+                prompt_usd_per_million=2.0, completion_usd_per_million=10.0
+            )
+        }
+    )
+    cost_flat = spend_flat.record_usage(
+        "claude-sonnet-4-5", prompt_tokens=250_000, completion_tokens=1_000
+    )
+    assert (cost_flat, spend_flat.usage.total_usd) == (0.51, 0.51)
+
+
+def test_embedding_result_cost_fallback_with_request_timestamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify EmbeddingResult.cost fallback prices with calculate_request_cost and local provider is 0 unless overridden."""
+    from datetime import UTC, datetime
+
+    from pydantic_ai.usage import RequestUsage
+
+    from devops_cli.ai.agents.embeddings import EmbeddingResult
+    from devops_cli.ai.spend.pricing import PricingRegistry
+
+    pricing = PricingRegistry(data_dir=tmp_path)
+    monkeypatch.setattr("devops_cli.ai.spend.get_pricing_registry", lambda: pricing)
+
+    ts = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
+    result = EmbeddingResult(
+        embeddings=[[0.1, 0.2]],
+        inputs=["test text"],
+        model_name="local-embed",
+        provider_name="ollama",
+        usage=RequestUsage(input_tokens=100_000),
+        timestamp=ts,
+    )
+    cost_default = result.cost()
+    assert cost_default.total_price == 0.0
+
+    pricing.set_custom_pricing("local-embed", 1.5, 0.0)
+    cost_overridden = result.cost()
+    assert cost_overridden.total_price == 0.15

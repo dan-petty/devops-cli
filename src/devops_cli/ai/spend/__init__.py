@@ -14,7 +14,12 @@ from devops_cli.ai.spend.models import (
     StageSpendSummary,
 )
 from devops_cli.ai.spend.payoff import compute_hardware_payoff
-from devops_cli.ai.spend.pricing import PricingRegistry, get_pricing_registry, is_local
+from devops_cli.ai.spend.pricing import (
+    PricingRegistry,
+    UpdatePricingResult,
+    get_pricing_registry,
+    is_local,
+)
 from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
 from devops_cli.ai.spend.stage import current_stage, resolve_spend_stage, stage_scope
 
@@ -29,6 +34,7 @@ __all__ = [
     "SpendLedger",
     "SpendRecord",
     "StageSpendSummary",
+    "UpdatePricingResult",
     "compute_hardware_payoff",
     "current_stage",
     "export_ai_spend_prometheus",

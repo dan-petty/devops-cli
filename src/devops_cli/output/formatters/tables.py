@@ -59,6 +59,7 @@ def render_table(
     *,
     border_style: str | None = DEFAULT_TABLE_BORDER_STYLE,
     box_style: Any = None,
+    caption: str | None = None,
     safe: bool = False,
 ) -> Table:
     """Construct a styled Rich Table from columns and rows or TablePayload."""
@@ -85,6 +86,7 @@ def render_table(
     effective_box = getattr(title, "box_style", box_style)
     effective_show_header = getattr(title, "show_header", True)
     effective_header_style = getattr(title, "header_style", None) or "bold"
+    effective_caption = getattr(title, "caption", None) or caption
 
     table = Table(
         title=effective_title,
@@ -93,6 +95,7 @@ def render_table(
         title_style="bold cyan",
         header_style=effective_header_style,
         show_header=effective_show_header,
+        caption=effective_caption,
     )
     for col in effective_cols:
         _add_table_column(table, col, safe=safe)

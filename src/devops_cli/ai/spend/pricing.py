@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
@@ -21,6 +24,104 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_review_data_path
 from devops_cli.core.validation import is_loopback_host
+
+logger = logging.getLogger(__name__)
+
+
+class UpdatePricingResult(NamedTuple):
+    """Result summary of a pricing snapshot update."""
+
+    source_model_count: int
+    merged_model_count: int
+
+
+def _get_installed_genai_prices_version() -> str:
+    """Return the installed package version of genai-prices."""
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version("genai-prices")
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+
+
+def _preprocess_raw_providers(
+    raw_providers: list[Any], bundled_providers: Sequence[Any]
+) -> list[Any]:
+    """Ensure raw provider dicts have name and api_pattern if overriding a bundled provider."""
+    bundled_by_id = {p.id: p for p in bundled_providers}
+    preprocessed: list[Any] = []
+    for item in raw_providers:
+        if isinstance(item, dict) and "id" in item and item["id"] in bundled_by_id:
+            bp = bundled_by_id[item["id"]]
+            entry = dict(item)
+            if not entry.get("name"):
+                entry["name"] = bp.name
+            if not entry.get("api_pattern"):
+                entry["api_pattern"] = bp.api_pattern
+            preprocessed.append(entry)
+        else:
+            preprocessed.append(item)
+    return preprocessed
+
+
+def _merge_single_provider(file_p: Any, bundled_p: Any) -> Any:
+    """Merge a file-supplied Provider with a bundled Provider field by field."""
+    from genai_prices.types import Provider
+
+    file_model_ids = {m.id for m in file_p.models}
+    merged_models = list(file_p.models) + [
+        m for m in bundled_p.models if m.id not in file_model_ids
+    ]
+    kwargs: dict[str, Any] = {"id": file_p.id, "models": merged_models}
+    fields = (
+        "name",
+        "api_pattern",
+        "pricing_urls",
+        "description",
+        "price_comments",
+        "model_match",
+        "provider_match",
+        "extractors",
+        "fallback_model_providers",
+    )
+    for field_name in fields:
+        val = getattr(file_p, field_name, None)
+        kwargs[field_name] = val if val is not None else getattr(bundled_p, field_name, None)
+    return Provider(**kwargs)
+
+
+def _merge_providers(file_providers: Sequence[Any], bundled_providers: Sequence[Any]) -> list[Any]:
+    """Merge file providers onto bundled providers following priority rules."""
+    file_by_id = {p.id: p for p in file_providers}
+    merged: list[Any] = []
+    seen_ids: set[str] = set()
+
+    for bundled_p in bundled_providers:
+        seen_ids.add(bundled_p.id)
+        if bundled_p.id in file_by_id:
+            merged.append(_merge_single_provider(file_by_id[bundled_p.id], bundled_p))
+        else:
+            merged.append(bundled_p)
+
+    for file_p in file_providers:
+        if file_p.id not in seen_ids:
+            merged.append(file_p)
+
+    return merged
+
+
+def _parse_snapshot_fetch_time(raw_snap: dict[str, Any]) -> datetime:
+    """Parse recorded fetch timestamp from snapshot payload, defaulting to UTC now."""
+    val = raw_snap.get("fetched_at") or raw_snap.get("fetch_time") or raw_snap.get("timestamp")
+    if val:
+        try:
+            if isinstance(val, (int, float)):
+                return datetime.fromtimestamp(val, tz=UTC)
+            return datetime.fromisoformat(str(val))
+        except ValueError, TypeError:
+            pass
+    return datetime.now(tz=UTC)
 
 
 def _normalize_model_name(model: str) -> str:
@@ -229,17 +330,60 @@ class PricingRegistry:
         """Load cached snapshot from disk to restore previously updated prices."""
         if not self.snapshot_path.is_file():
             return
+
+        def _warn_ignored(reason: str) -> None:
+            logger.warning(
+                "Ignoring pricing snapshot %s (%s). To clear it, run 'devops ai cost update-pricing --reset'.",
+                self.snapshot_path,
+                reason,
+            )
+
         try:
-            from genai_prices.data_snapshot import DataSnapshot, set_custom_snapshot
+            content = self.snapshot_path.read_text(encoding="utf-8")
+            raw_snap = json.loads(content)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _warn_ignored(f"unreadable: {exc}")
+            return
+
+        if not isinstance(raw_snap, dict):
+            _warn_ignored("old format (missing metadata wrapper)")
+            return
+
+        recorded_version = raw_snap.get("genai_prices_version") or raw_snap.get("version")
+        if not recorded_version:
+            _warn_ignored("missing genai-prices version")
+            return
+
+        installed_version = _get_installed_genai_prices_version()
+        if recorded_version != installed_version:
+            _warn_ignored(
+                f"stale (recorded version {recorded_version} != installed version {installed_version})"
+            )
+            return
+
+        raw_providers = raw_snap.get("providers")
+        if not isinstance(raw_providers, list):
+            _warn_ignored("missing or invalid providers list")
+            return
+
+        fetch_time = _parse_snapshot_fetch_time(raw_snap)
+
+        try:
+            from genai_prices.data_snapshot import (
+                DataSnapshot,
+                _bundled_snapshot,
+                set_custom_snapshot,
+            )
             from genai_prices.types import _providers_from_raw
 
-            raw_snap = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
-            if isinstance(raw_snap, list):
-                set_custom_snapshot(
-                    DataSnapshot(_providers_from_raw(raw_snap), from_auto_update=True)
-                )
-        except Exception:
-            pass
+            bundled = _bundled_snapshot()
+            preprocessed = _preprocess_raw_providers(raw_providers, bundled.providers)
+            file_providers = _providers_from_raw(preprocessed)
+            merged = _merge_providers(file_providers, bundled.providers)
+            snapshot = DataSnapshot(providers=merged, from_auto_update=True, timestamp=fetch_time)
+            set_custom_snapshot(snapshot)
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            _warn_ignored(f"failed to parse providers: {exc}")
 
     def _load_persisted_overrides(self) -> None:
         """Load user custom pricing overrides file."""
@@ -453,10 +597,16 @@ class PricingRegistry:
         if source_url:
             p = Path(source_url)
             if p.is_file():
-                return json.loads(p.read_text(encoding="utf-8"))
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and "providers" in raw:
+                    return raw["providers"]
+                return raw
             r = httpx2.get(source_url, timeout=timeout)
             r.raise_for_status()
-            return json.loads(r.content)
+            raw = json.loads(r.content)
+            if isinstance(raw, dict) and "providers" in raw:
+                return raw["providers"]
+            return raw
 
         import genai_prices
 
@@ -465,35 +615,65 @@ class PricingRegistry:
         if url:
             r = httpx2.get(url, timeout=timeout)
             r.raise_for_status()
-            return json.loads(r.content)
+            raw = json.loads(r.content)
+            if isinstance(raw, dict) and "providers" in raw:
+                return raw["providers"]
+            return raw
         return updater.fetch()
 
-    def update_from_remote(self, source_url: str | None = None, timeout: float = 15.0) -> int:
+    def update_from_remote(
+        self, source_url: str | None = None, timeout: float = 15.0
+    ) -> UpdatePricingResult:
         """Synchronize model pricing catalog from remote genai-prices registry or file."""
-        from genai_prices.data_snapshot import DataSnapshot, set_custom_snapshot
+        from genai_prices.data_snapshot import (
+            DataSnapshot,
+            _bundled_snapshot,
+            set_custom_snapshot,
+        )
         from genai_prices.types import _providers_from_raw
 
         fetched = self._fetch_raw_pricing_payload(source_url, timeout)
-        if isinstance(fetched, DataSnapshot):
-            snapshot = fetched
-            set_custom_snapshot(snapshot)
-            self._pricing_cache.clear()
-            self._catalog.clear()
-            return sum(len(p.models) for p in snapshot.providers)
-
         if not isinstance(fetched, list):
             raise ValueError("Expected fetched prices payload to be a provider array")
 
-        providers = _providers_from_raw(fetched)
-        snapshot = DataSnapshot(providers, from_auto_update=True)
+        fetched_at = datetime.now(tz=UTC)
+        bundled = _bundled_snapshot()
+        preprocessed = _preprocess_raw_providers(fetched, bundled.providers)
+        source_providers = _providers_from_raw(preprocessed)
+        merged_providers = _merge_providers(source_providers, bundled.providers)
+
+        snapshot = DataSnapshot(
+            providers=merged_providers, from_auto_update=True, timestamp=fetched_at
+        )
         set_custom_snapshot(snapshot)
 
         self.ai_dir.mkdir(parents=True, exist_ok=True)
-        self.snapshot_path.write_text(json.dumps(fetched), encoding="utf-8")
+        payload = {
+            "genai_prices_version": _get_installed_genai_prices_version(),
+            "fetched_at": fetched_at.isoformat(),
+            "providers": fetched,
+        }
+        self.snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
         self._pricing_cache.clear()
         self._catalog.clear()
-        return sum(len(p.models) for p in snapshot.providers)
+
+        source_count = sum(len(p.models) for p in source_providers)
+        merged_count = sum(len(p.models) for p in merged_providers)
+        return UpdatePricingResult(source_model_count=source_count, merged_model_count=merged_count)
+
+    def reset_pricing(self) -> None:
+        """Reset custom pricing snapshot, removing persisted file and restoring bundled catalog."""
+        from genai_prices.data_snapshot import set_custom_snapshot
+
+        if self.snapshot_path.is_file():
+            try:
+                self.snapshot_path.unlink()
+            except OSError:
+                pass
+        set_custom_snapshot(None)
+        self._pricing_cache.clear()
+        self._catalog.clear()
 
 
 _GLOBAL_REGISTRY: PricingRegistry | None = None

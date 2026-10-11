@@ -13,6 +13,7 @@ from devops_cli.ai.spend.models import HardwarePayoffSummary, LifetimeSpendRepor
 from devops_cli.core.cli import new_typer
 from devops_cli.output import (
     format_json,
+    format_yaml,
     print_error,
     print_info,
     print_success,
@@ -573,6 +574,13 @@ def cost_update_pricing(
             help="Custom URL or file path for open-source model pricing dataset.",
         ),
     ] = None,
+    reset: Annotated[
+        bool,
+        typer.Option(
+            "--reset",
+            help="Reset custom pricing snapshot and restore bundled catalog.",
+        ),
+    ] = False,
     timeout: Annotated[
         float,
         typer.Option(
@@ -583,11 +591,23 @@ def cost_update_pricing(
     ] = 15.0,
 ) -> None:
     """Synchronize open-source industrial average pricing catalog from remote registry."""
+    if reset and source:
+        raise typer.BadParameter("Cannot combine --reset with --source.")
+
     registry = get_pricing_registry()
+    if reset:
+        registry.reset_pricing()
+        print_success("Successfully reset pricing snapshot to bundled dataset.")
+        return
+
     try:
-        count = registry.update_from_remote(source_url=source, timeout=timeout)
+        res = registry.update_from_remote(source_url=source, timeout=timeout)
+        if isinstance(res, tuple):
+            source_count, merged_count = res[0], res[1]
+        else:
+            source_count = merged_count = int(res)
         print_success(
-            f"Successfully synchronized open-source pricing catalog: {count:,} models loaded."
+            f"Successfully synchronized open-source pricing catalog: {source_count:,} models supplied, {merged_count:,} models in merged catalog."
         )
     except Exception as exc:
         print_error(f"Failed to update pricing catalog: {exc}")
@@ -620,7 +640,10 @@ def cost_list_pricing(
         ),
     ] = False,
 ) -> None:
-    """List active token pricing rates per model and backend server."""
+    """List active token pricing rates per model and backend server.
+
+    Rates are base-tier rates for a small call at the current time; each call is priced from its own usage and request time.
+    """
     eff_format = "json" if json_flag else format_opt.lower()
     registry = get_pricing_registry()
     all_prices = registry.list_all_pricing()
@@ -635,11 +658,15 @@ def cost_list_pricing(
         data = {k: v.model_dump() for k, v in filtered.items()}
         write_stdout(format_json(data))
         return
+    if eff_format == "yaml":
+        data = {k: v.model_dump() for k, v in filtered.items()}
+        write_stdout(format_yaml(data))
+        return
 
     cols = [
         ("Model / Target Endpoint", "cyan"),
-        ("Prompt USD / 1M", "magenta"),
-        ("Completion USD / 1M", "magenta"),
+        ("Base Prompt USD / 1M", "magenta"),
+        ("Base Completion USD / 1M", "magenta"),
         ("Pricing Source", "yellow"),
     ]
     rows: list[list[str]] = [
@@ -651,10 +678,12 @@ def cost_list_pricing(
         ]
         for k, v in sorted(filtered.items())
     ]
+    caption = "Rates are base-tier rates for a small call at current time; each call is priced from its own usage and request time."
     print_table(
         title=f"AI Model Pricing Catalog ({len(filtered):,} entries)",
         columns=cols,
         rows=rows,
+        caption=caption,
     )
 
 

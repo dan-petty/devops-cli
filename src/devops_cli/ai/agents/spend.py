@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -52,12 +53,24 @@ class SpendGuard(BaseCapability):
     pricing: dict[str, ModelPricing] = Field(default_factory=dict)
     usage: SpendUsage = Field(default_factory=SpendUsage)
 
-    def record_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    def record_usage(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        request_timestamp: datetime | None = None,
+    ) -> float:
         """Calculate, record, and check spend limits for a model request."""
-        pricing_rule = self.pricing.get(model) or self.pricing.get(
-            model.split(":")[0], get_pricing_registry().get_pricing(model)
-        )
-        cost = pricing_rule.calculate_cost(prompt_tokens, completion_tokens)
+        custom_rule = self.pricing.get(model) or self.pricing.get(model.split(":")[0])
+        if custom_rule is not None:
+            cost = custom_rule.calculate_cost(prompt_tokens, completion_tokens)
+        else:
+            cost = get_pricing_registry().calculate_request_cost(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                request_timestamp=request_timestamp,
+            )
         self.usage.add(prompt_tokens, completion_tokens, cost)
         self.check_limits()
         return cost
@@ -88,10 +101,12 @@ class SpendGuard(BaseCapability):
             if args and hasattr(args[0], "prompt_tokens") and hasattr(args[0], "completion_tokens"):
                 res = args[0]
                 model = getattr(ctx, "model", "") or getattr(res, "model", "default")
+                req_ts = getattr(res, "timestamp", None)
                 self.record_usage(
                     model=str(model),
                     prompt_tokens=int(getattr(res, "prompt_tokens", 0) or 0),
                     completion_tokens=int(getattr(res, "completion_tokens", 0) or 0),
+                    request_timestamp=req_ts if isinstance(req_ts, datetime) else None,
                 )
 
         return AgentHooks(before_model_request=[before_req], after_model_request=[after_req])

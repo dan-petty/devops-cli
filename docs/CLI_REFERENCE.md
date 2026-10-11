@@ -4879,11 +4879,16 @@ devops ai cost update-pricing [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
 
 #### `devops ai cost list-pricing`
 
 **List active token pricing rates per model and backend server.**
+
+List active token pricing rates per model and backend server.
+
+Rates are base-tier rates for a small call at the current time; each call is priced from its own usage and request time.
 
 ```bash
 devops ai cost list-pricing [OPTIONS]
@@ -5004,11 +5009,16 @@ devops ai spend update-pricing [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
 
 #### `devops ai spend list-pricing`
 
 **List active token pricing rates per model and backend server.**
+
+List active token pricing rates per model and backend server.
+
+Rates are base-tier rates for a small call at the current time; each call is priced from its own usage and request time.
 
 ```bash
 devops ai spend list-pricing [OPTIONS]
