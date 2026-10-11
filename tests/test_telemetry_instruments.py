@@ -484,7 +484,7 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
     """Verify findings are counted once per persona, severity and status, and failed personas
     contribute none."""
     persona = PersonaDefinition(
-        name="devsecops", title="DevSecOps", system_prompt="", chat_prompt="", compose_prompt=""
+        name="devsecops", title="DevSecOps", system_prompt="", chat_prompt=""
     )
     findings = [
         Finding(severity="high", title="a", location="x:1", status="VERIFIED"),

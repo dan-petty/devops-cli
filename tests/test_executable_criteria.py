@@ -309,7 +309,7 @@ def test_a_find_criterion_that_runs_or_writes_is_rejected(command: str) -> None:
     assert (valid, _FIND_ACTION_REFUSED in str(error)) == (False, True)
 
 
-@pytest.mark.parametrize("prompt", ["review.md", "review_output_instruction.md"])
+@pytest.mark.parametrize("prompt", ["review.md"])
 def test_criteria_rule_in_the_prompts_offers_no_pytest_command(prompt: str) -> None:
     """The reviewer is not invited to write a pytest criterion the validator refuses (#847)."""
     tasks = Path(__file__).resolve().parents[1] / "src" / "devops_cli" / "ai" / "tasks"

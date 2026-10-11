@@ -38,7 +38,7 @@ def test_review_path_workflow(tmp_path: Path) -> None:
     with (
         patch(
             "devops_cli.commands.review._prepare_path_content",
-            return_value=(["code page"], "Path Review", "AGENTS.md", []),
+            return_value=(["code page"], "Path Review", []),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
     ):
@@ -53,7 +53,6 @@ def test_review_branch_workflow() -> None:
     prepared = (
         ["diff content"],
         "Branch Review",
-        "AGENTS.md",
         "feat/my-feature",
         sentinel.base_revision,
     )
@@ -76,7 +75,7 @@ def test_review_pr_workflow() -> None:
     from (#593)."""
     mock_pull = MagicMock()
     mock_wf = [(MagicMock(title="QA", name="qa"), "QA feedback")]
-    prepared = (["pr diff"], "PR 10", "AGENTS.md", mock_pull, "org/repo", sentinel.base_revision)
+    prepared = (["pr diff"], "PR 10", mock_pull, "org/repo", sentinel.base_revision)
 
     with (
         patch("devops_cli.commands.review._prepare_pr_content", return_value=prepared),
@@ -457,16 +456,16 @@ def test_tally_findings_splits_comma_joined_personas() -> None:
 
 
 _PREPARED_REVIEWS = {
-    "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", "", [])),
+    "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", [])),
     "branch": (
         "_prepare_branch_content",
         ["branch", "feat/x"],
-        (["diff"], "Branch Review", "", "feat/x", sentinel.base_revision),
+        (["diff"], "Branch Review", "feat/x", sentinel.base_revision),
     ),
     "pr": (
         "_prepare_pr_content",
         ["pr", "10"],
-        (["diff"], "PR 10", "", MagicMock(), "org/repo", sentinel.base_revision),
+        (["diff"], "PR 10", MagicMock(), "org/repo", sentinel.base_revision),
     ),
 }
 

@@ -20,9 +20,6 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_CHAT_MODEL` | `ai.tasks.chat.model` | No | AI model override for chat task |
 | `DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URLS` | `ai.tasks.chat.ollama_urls` | No | Ollama URLs override for chat task |
 | `DEVOPS_CLI_AI_TASK_CHAT_PROVIDER` | `ai.tasks.chat.provider` | No | AI provider override for chat task |
-| `DEVOPS_CLI_AI_TASK_COMPOSE_MODEL` | `ai.tasks.compose.model` | No | AI model override for compose task |
-| `DEVOPS_CLI_AI_TASK_COMPOSE_OLLAMA_URLS` | `ai.tasks.compose.ollama_urls` | No | Ollama URLs override for compose task |
-| `DEVOPS_CLI_AI_TASK_COMPOSE_PROVIDER` | `ai.tasks.compose.provider` | No | AI provider override for compose task |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_MODEL` | `ai.tasks.embedding.model` | No | AI model override for embedding generation task |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_OLLAMA_URLS` | `ai.tasks.embedding.ollama_urls` | No | Ollama URLs override for embedding generation task |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_PROVIDER` | `ai.tasks.embedding.provider` | No | AI provider override for embedding generation task |

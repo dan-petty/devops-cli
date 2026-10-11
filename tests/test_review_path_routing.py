@@ -21,6 +21,7 @@ from typer.testing import CliRunner
 from devops_cli.ai.review.chunker import _extract_header_filenames, diff_pages
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _collect_file_blocks,
@@ -262,37 +263,31 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     legacy engine sent that page to the model."""
     root = tmp_path / "project"
     _branch(root, git, ("changelog.d/1.md",))
-    pages, title, agents_md, target, base_revision = _prepare_branch_content(
-        "feature", "main", root
-    )
-    model = MagicMock()
+    pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
+    model = MagicMock(spec=ReviewLLMClient)
     printed: list[str] = []
     monkeypatch.setattr(
         "devops_cli.ai.review.runner.print_info", lambda text, **_: printed.append(text)
     )
 
-    with patch("devops_cli.ai.review.runner._run_persona_loop", return_value=[]) as persona_loop:
-        _execute_review_workflow(
-            pages,
-            title,
-            MagicMock(),
-            agents_md,
-            False,
-            None,
-            False,
-            ReviewClients(analysis=model, compose=model),
-            target_type="branch",
-            target_ref=target,
-            target_dir=root,
-            base_revision=base_revision,
-        )
+    _execute_review_workflow(
+        pages,
+        title,
+        False,
+        None,
+        False,
+        ReviewClients(analysis=model),
+        target_type="branch",
+        target_ref=target,
+        target_dir=root,
+        base_revision=base_revision,
+    )
 
     assert (
         model.method_calls,
-        persona_loop.called,
         secret_scan["Gitleaks"],
         any("Nothing is left for the personas" in line for line in printed),
-    ) == ([], False, [[root / "changelog.d/1.md"]], True)
+    ) == ([], [[root / "changelog.d/1.md"]], True)
 
 
 def _review_routed_branch(
@@ -304,23 +299,19 @@ def _review_routed_branch(
     """Review a branch touching only `changelog.d/1.md`; what was printed, and findings.json."""
     root = tmp_path / "project"
     _branch(root, git, ("changelog.d/1.md",))
-    pages, title, agents_md, target, base_revision = _prepare_branch_content(
-        "feature", "main", root
-    )
+    pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
     printed: list[str] = []
     monkeypatch.setattr(
         "devops_cli.ai.review.runner.print_info", lambda text, **_: printed.append(text)
     )
-    model = MagicMock()
+    model = MagicMock(spec=ReviewLLMClient)
     _execute_review_workflow(
         pages,
         title,
-        MagicMock(),
-        agents_md,
         False,
         None,
         False,
-        ReviewClients(analysis=model, compose=model),
+        ReviewClients(analysis=model),
         target_type="branch",
         target_ref=target,
         target_dir=root,

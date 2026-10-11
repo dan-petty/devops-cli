@@ -4,23 +4,24 @@ suppressions a branch or PR change touches, and what a model's reply may not set
 from __future__ import annotations
 
 import inspect
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.ai.analyze.symbols import BaseRevision
-from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _check_and_warn_perimeter_changes,
-    _execute_final_recompose,
     _execute_review_workflow,
-    _parse_reply,
-    _run_persona_loop,
-    _run_review,
+)
+from devops_cli.ai.review_schema import (
+    FileReviewPayload,
+    SavedFinding,
+    derive_recommendation,
 )
 from devops_cli.config.constants import CONST_REVIEW_CONFIG_FILE
 
@@ -111,8 +112,6 @@ def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() ->
     layers = {
         "_execute_review_workflow": _execute_review_workflow,
         "ReviewPipelineOrchestrator": ReviewPipelineOrchestrator.__init__,
-        "_run_persona_loop": _run_persona_loop,
-        "_run_review": _run_review,
     }
     targets = {name: inspect.signature(fn).parameters["target_dir"] for name, fn in layers.items()}
     refresh = inspect.signature(ReviewPipelineOrchestrator.run_pre_analysis_refresh)
@@ -123,14 +122,11 @@ def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() ->
     assert refresh.parameters["target_dir"].default is inspect.Parameter.empty
 
 
-@pytest.mark.parametrize("summary_only", [True, False])
 def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, summary_only: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a review whose target is not the working directory loads analysis metadata from
-    the target's repository, in the summary and down the persona loop (#1100). Both read the
-    repository the working directory belongs to, so another checkout's files were described
-    by this one's metadata."""
+    the target's repository in the summary (#1100)."""
     here = _checkout(tmp_path / "here", {"runner.py": _RUNNER})
     target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
     monkeypatch.chdir(here)
@@ -142,18 +138,15 @@ def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metad
 
     with (
         patch("devops_cli.ai.review.runner._load_file_analysis_metas", side_effect=metas),
-        patch("devops_cli.ai.review.runner._execute_review_segments", return_value=[""]),
         patch("devops_cli.ai.review.runner._print_analysis_metadata"),
     ):
         _execute_review_workflow(
             [f"### File: runner.py\n{_RUNNER}"],
             "Path review",
-            MagicMock(),
-            "",
             False,
             Persona.DEVSECOPS,
-            summary_only,
-            ReviewClients(analysis=MagicMock(), compose=MagicMock()),
+            True,
+            ReviewClients(analysis=MagicMock(spec=ReviewLLMClient)),
             target_type="path",
             target_ref=str(target),
             target_dir=target,
@@ -162,63 +155,104 @@ def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metad
     assert (len(roots) > 0, set(roots)) == (True, {target.resolve()})
 
 
-class _Compose:
-    """The compose model's edge: it answers the recompose prompt with a canned reply."""
+def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> None:
+    """Verify --summary prints metadata and returns before ReviewPipelineOrchestrator construction,
+    making zero model calls and creating no session directory (#995)."""
+    target = _checkout(tmp_path / "target", {"app.py": "def foo(): pass\n"})
+    mock_client = MagicMock(spec=ReviewLLMClient)
 
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
+    with (
+        patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator") as mock_orchestrator,
+        patch("devops_cli.ai.review.runner._print_analysis_metadata"),
+    ):
+        result = _execute_review_workflow(
+            ["### File: app.py\ndef foo(): pass\n"],
+            "Path review",
+            False,
+            Persona.DEVSECOPS,
+            True,
+            ReviewClients(analysis=mock_client),
+            target_type="path",
+            target_ref=str(target),
+            target_dir=target,
+        )
 
-    def chat(self, **_: object) -> str:
-        return self.reply
+    assert (
+        result,
+        mock_orchestrator.called,
+        mock_client.chat.called,
+        mock_client.chat_messages.called,
+        (target / ".data" / "reviews").exists(),
+    ) == ([], False, False, False, False)
 
 
-def _reply(*findings: dict[str, object]) -> str:
-    return json.dumps(
-        {"findings": list(findings), "recommendation": "REQUEST CHANGES", "summary": "s"}
+def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> None:
+    """Verify a review of routed files only (such as uv.lock) invokes _review_routed_files_only
+    with zero model calls and succeeds (#948, #995)."""
+    target = _checkout(tmp_path / "target", {"uv.lock": "version = 1\n"})
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+
+    result = _execute_review_workflow(
+        [],
+        "Branch `feature` vs `main`",
+        False,
+        Persona.DEVSECOPS,
+        False,
+        ReviewClients(analysis=mock_client),
+        target_type="branch",
+        target_ref="feature",
+        target_dir=target,
+        routed_files=["uv.lock"],
     )
 
-
-_SELF_JUDGED = {
-    "severity": "HIGH",
-    "location": "src/a.py:3",
-    "title": "Shell injection",
-    "description": "d",
-    "status": "INVALIDATED",
-    "verified_by": "llm",
-    "confidence_score": 0.9,
-}
+    assert (
+        len(result) == 1,
+        mock_client.chat.called,
+        mock_client.chat_messages.called,
+    ) == (True, False, False)
 
 
-@pytest.mark.parametrize(
-    ("recompose", "expected"),
-    [
-        (_reply(_SELF_JUDGED), [("Shell injection", "UNVERIFIED", None, None)]),
-        (_reply(), [("Segment finding", "UNVERIFIED", None, None)]),
-    ],
-    ids=["self-judged", "empty-recompose"],
-)
-def test_a_legacy_review_saves_no_status_a_model_wrote_and_keeps_the_segments_findings(
-    recompose: str, expected: list[tuple[object, ...]]
-) -> None:
-    """A model's reply cannot settle its own finding: a status, an adjudicator and a confidence
-    it wrote are cleared, as the orchestrator clears them. A recompose that lists no finding
-    keeps the segments' findings rather than dropping them (#1150)."""
-    segment = _reply({**_SELF_JUDGED, "title": "Segment finding", "location": "src/b.py:1"})
-    segments = [_parse_reply(segment), _parse_reply(_reply())]
-
-    result = _execute_final_recompose(
-        "Path review",
-        {},
-        [segment, _reply()],
-        segments,
-        PERSONAS[Persona.DEVSECOPS],
-        ReviewClients(analysis=MagicMock(), compose=_Compose(recompose)),
-        "system",
-        "",
-        2,
+def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: Path) -> None:
+    """Verify #789 constraint: unverified HIGH findings remain in the report and findings.json
+    with REQUEST CHANGES recommendation; only INVALIDATED findings leave the report."""
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-789",
+        session_dir=tmp_path / "session",
+        llm_client=mock_client,
+        target_dir=tmp_path,
     )
+    unverified_high = SavedFinding(
+        title="Unverified SQL Injection",
+        severity="HIGH",
+        status="UNVERIFIED",
+        reportable=True,
+        location="app.py:10",
+        description="Possible injection",
+        fix="Use parameters",
+    )
+    invalidated_high = SavedFinding(
+        title="False Positive Overflow",
+        severity="HIGH",
+        status="INVALIDATED",
+        reportable=False,
+        location="app.py:20",
+        description="Not reachable",
+        fix="None",
+    )
+    payload = FileReviewPayload(
+        file_path="app.py",
+        findings=[unverified_high, invalidated_high],
+    )
+    data, _ = orchestrator.generate_consolidated_report([payload])
 
-    assert not isinstance(result, str)
-    assert [
-        (f.title, f.status, f.verified_by, f.confidence_score) for f in result.findings
-    ] == expected
+    findings_in_report = data.get("findings", [])
+    assert (
+        len(findings_in_report),
+        findings_in_report[0]["title"],
+        findings_in_report[0]["status"],
+        derive_recommendation([unverified_high]),
+        derive_recommendation([invalidated_high]),
+    ) == (1, "Unverified SQL Injection", "UNVERIFIED", "REQUEST CHANGES", "APPROVE")

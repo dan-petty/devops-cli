@@ -330,18 +330,18 @@ def test_ai_config_task_name_via_for_task() -> None:
 
     base_config = AIConfig()
     chat_config = base_config.for_task("chat")
-    compose_config = base_config.for_task("compose")
+    analysis_config = base_config.for_task("analysis")
     unknown_config = base_config.for_task("unregistered_stage_or_task")
 
     assert (
         base_config.task_name,
         chat_config.task_name,
-        compose_config.task_name,
+        analysis_config.task_name,
         unknown_config.task_name,
     ) == (
         None,
         "chat",
-        "compose",
+        "analysis",
         None,
     )
 

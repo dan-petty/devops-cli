@@ -23,7 +23,6 @@ from devops_cli.ai.review.chunker import (
 )
 from devops_cli.ai.review.classification import FileContextType, build_context_review_prompt
 from devops_cli.ai.review.pipeline import _page_imports
-from devops_cli.ai.task_loader import load_task_prompt
 
 _DEFECT = "    path.parent.mkdir(mode=0o777, parents=True, exist_ok=True)"
 
@@ -181,10 +180,8 @@ def test_persona_prompts_ask_for_the_shown_line_numbers() -> None:
             FileContextType.DOCUMENTATION,
         )
     ]
-    protocol = load_task_prompt("paginated_review_protocol.md")
 
     assert all(re.search(r"line number.*never copy them", p, re.S) for p in prompts)
-    assert "never copy them" in protocol
 
 
 def test_extract_added_diff_lines_raw_and_numbered() -> None:

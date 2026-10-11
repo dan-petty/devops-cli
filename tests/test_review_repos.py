@@ -48,7 +48,7 @@ class TestReviewReposSubdirectories:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """devops ai review path must collect files under repos/ even if git-ignored at parent."""
-        from devops_cli.ai.client import LLMResponse
+        from devops_cli.models.ai import FileAnalysisMeta
 
         target_dir = tmp_path / "repos" / "sample-app"
         target_dir.mkdir(parents=True)
@@ -56,26 +56,9 @@ class TestReviewReposSubdirectories:
 
         monkeypatch.setenv("DEVOPS_CLI_REPOS_BASE_DIR", str(tmp_path / "repos"))
 
-        with (
-            patch(
-                "devops_cli.ai.client.model_request",
-                return_value=LLMResponse(
-                    "Summary review finding: code is clean.", backend_info="mock-model"
-                ),
-            ),
-            patch(
-                "devops_cli.ai.client.LLMClient.chat_messages",
-                return_value=LLMResponse(
-                    "Summary review finding: code is clean.", backend_info="mock-model"
-                ),
-            ),
-            patch(
-                "devops_cli.ai.client.LLMClient.chat",
-                return_value=LLMResponse(
-                    "Summary review finding: code is clean.", backend_info="mock-model"
-                ),
-            ),
+        with patch(
+            "devops_cli.ai.review.runner._load_file_analysis_metas",
+            return_value={"main.py": FileAnalysisMeta(path="main.py", language="python")},
         ):
             result = runner.invoke(app, ["path", str(target_dir), "--summary", "--dry-run"])
-            assert result.exit_code == 0
-            assert "Segment 1" in result.output or "main.py" in result.output
+            assert (result.exit_code, "main.py" in result.output) == (0, True)

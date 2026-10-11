@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.category_metrics import (
     collect_historical_category_metrics,
     compute_category_metrics,
@@ -14,8 +14,7 @@ from devops_cli.ai.review.category_metrics import (
 )
 from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review.runner import _save_findings_json
-from devops_cli.ai.review_schema import Finding, ReviewResult, ReviewSessionPayload, SavedFinding
+from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 
 _SUBJECT = review_subject("branch", "feature", ["diff --git a/config.py b/config.py\n"])
 _OLDER = "2026-10-01T09:00:00+00:00"
@@ -413,13 +412,14 @@ def test_the_baseline_shows_once_an_earlier_session_has_the_category(
     )
 
 
-def test_a_persona_loop_session_feeds_the_baseline_from_its_findings_json(tmp_path: Path) -> None:
-    """Verify a session the persona loop wrote, with findings.json and no candidates.json,
-    counts its findings.json findings in the baseline."""
+def test_a_persona_loop_session_feeds_the_baseline_from_its_findings_json(
+    tmp_path: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify a session with findings.json and no candidates.json counts its findings.json findings in the baseline."""
     session = tmp_path / "reviews" / "persona-loop"
-    session.mkdir(parents=True)
     findings = [
-        Finding(
+        SavedFinding(
+            persona=Persona.DEVSECOPS.value,
             title="Masked token in config",
             location="config.py:1",
             category="secret_exposure",
@@ -427,7 +427,8 @@ def test_a_persona_loop_session_feeds_the_baseline_from_its_findings_json(tmp_pa
             verified_by="llm",
             reportable=False,
         ),
-        Finding(
+        SavedFinding(
+            persona=Persona.DEVSECOPS.value,
             title="Hardcoded password in settings",
             location="settings.py:9",
             category="secret_exposure",
@@ -436,8 +437,11 @@ def test_a_persona_loop_session_feeds_the_baseline_from_its_findings_json(tmp_pa
             verified_by="llm",
         ),
     ]
-    _save_findings_json(
-        [(PERSONAS[Persona.DEVSECOPS], ReviewResult(findings=findings))], session, subject=_SUBJECT
+    write_review_session(
+        session,
+        generated_at="2026-10-01T10:00:00+00:00",
+        findings=findings,
+        subject=_SUBJECT,
     )
 
     metrics, history = collect_historical_category_metrics(tmp_path / "reviews")

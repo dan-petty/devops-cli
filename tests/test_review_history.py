@@ -10,11 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.category_metrics import (
     collect_historical_category_metrics,
     compute_category_metrics,
@@ -26,16 +24,13 @@ from devops_cli.ai.review.history import (
     subject_key,
 )
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _execute_review_workflow,
-    _run_persona_loop,
-    _save_findings_json,
 )
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
-    Finding,
-    ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
 )
@@ -110,73 +105,24 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
     ) == (subject, subject, True, True)
 
 
-def test_the_persona_loop_writer_records_the_subject_and_a_utc_time(tmp_path: Path) -> None:
-    """Verify `_save_findings_json` writes the subject it is given and stamps `generated_at`
-    with a UTC offset, as the pipeline does; it stamped local time without one."""
-    subject = review_subject("path", str(tmp_path), _PAGES)
-    finding = Finding(title="Token in config", location="config.py:1", description="leak")
-
-    _save_findings_json(
-        [(PERSONAS[Persona.DEVSECOPS], ReviewResult(findings=[finding]))],
-        tmp_path,
-        subject=subject,
-    )
-
-    saved = json.loads((tmp_path / "findings.json").read_text(encoding="utf-8"))
-    assert (saved["subject"], datetime.fromisoformat(saved["generated_at"]).utcoffset()) == (
-        subject,
-        timedelta(0),
-    )
-
-
-def test_the_persona_loop_hands_its_subject_to_findings_json(tmp_path: Path) -> None:
-    """Verify `_run_persona_loop` passes its subject through `_write_summary` to the
-    findings.json it writes."""
-    subject = review_subject("path", str(tmp_path), _PAGES)
-    result = ReviewResult(findings=[Finding(title="Token in config", location="config.py:1")])
-    client = MagicMock()
-
-    with (
-        patch("devops_cli.ai.review.runner._review_session_dir", return_value=tmp_path),
-        patch("devops_cli.ai.review.runner._load_shared_metadata_for_pages", return_value={}),
-        patch("devops_cli.ai.review.runner._run_review", return_value=result),
-        patch("devops_cli.ai.review.runner._print_review"),
-    ):
-        _run_persona_loop(
-            _PAGES,
-            "Persona loop",
-            MagicMock(),
-            ReviewClients(analysis=client, compose=client),
-            "",
-            all_personas=False,
-            persona=Persona.DEVSECOPS,
-            subject=subject,
-            target_dir=tmp_path,
-        )
-
-    saved = json.loads((tmp_path / "findings.json").read_text(encoding="utf-8"))
-    assert (saved["subject"], len(saved["findings"])) == (subject, 1)
-
-
-def test_a_review_hands_one_subject_to_both_findings_writers(tmp_path: Path) -> None:
+def test_a_review_hands_its_subject_to_the_orchestrator(tmp_path: Path) -> None:
     """Verify `_execute_review_workflow` builds the subject from its target and pages once, and
-    gives it to the orchestrator and to the persona loop, which a client that is not an
-    `LLMClient` takes."""
-    client = MagicMock()
+    gives it to the orchestrator."""
+    client = MagicMock(spec=ReviewLLMClient)
 
-    with (
-        patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator") as orchestrator,
-        patch("devops_cli.ai.review.runner._run_persona_loop", return_value=[]) as persona_loop,
-    ):
+    with patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator") as orchestrator:
+        orchestrator.return_value.session_id = "test-session"
+        orchestrator.return_value.generate_consolidated_report.return_value = (
+            MagicMock(findings=[]),
+            "report",
+        )
         _execute_review_workflow(
             _PAGES,
             "Branch `feature` vs `main`",
-            MagicMock(),
-            "",
-            all_personas=False,
-            persona=None,
-            summary_only=False,
-            clients=ReviewClients(analysis=client, compose=client),
+            False,
+            None,
+            False,
+            ReviewClients(analysis=client),
             target_type="branch",
             target_ref="feature",
             target_dir=tmp_path,
@@ -189,9 +135,8 @@ def test_a_review_hands_one_subject_to_both_findings_writers(tmp_path: Path) -> 
     }
     assert (
         orchestrator.call_args.kwargs["subject"],
-        persona_loop.call_args.kwargs["subject"],
         review_subject("branch", "feature", _PAGES),
-    ) == (expected, expected, expected)
+    ) == (expected, expected)
 
 
 def test_a_subject_key_follows_the_reviewed_pages() -> None:

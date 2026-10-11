@@ -93,6 +93,11 @@ class FunctionModel(BaseModel):
             return json.dumps(result)
         return str(getattr(result, "content", result))
 
+    backend_info: str = "mock"
+
+    def get_context_window(self, task: str | None = None) -> int:
+        return 8192
+
     def chat_messages(
         self,
         system_or_messages: str | list[ChatMessage | dict[str, Any]],

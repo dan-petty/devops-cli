@@ -33,7 +33,6 @@ class PersonaDefinition(BaseModel):
     title: str
     system_prompt: str  # tasks/review.md + prompt.md
     chat_prompt: str  # role.md + tasks/chat.md
-    compose_prompt: str  # role.md + tasks/compose.md
 
 
 def _load(path: Path) -> str:
@@ -48,11 +47,6 @@ def _get_task_review() -> str:
 @lru_cache
 def _get_task_chat() -> str:
     return _load(_TASKS_DIR / "chat.md")
-
-
-@lru_cache
-def _get_task_compose() -> str:
-    return _load(_TASKS_DIR / "compose.md")
 
 
 @lru_cache
@@ -73,7 +67,6 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
         title=names[persona],
         system_prompt=role + "\n\n" + _get_task_review() + "\n\n" + domain,
         chat_prompt=role + "\n\n" + _get_task_chat(),
-        compose_prompt=role + "\n\n" + _get_task_compose(),
     )
 
 
@@ -171,5 +164,4 @@ def load_custom_repo_persona(repo_path: Path, persona_name: str) -> PersonaDefin
         title=f"Custom Persona ({safe_name.title()})",
         system_prompt=content + "\n\n" + _get_task_review(),
         chat_prompt=content + "\n\n" + _get_task_chat(),
-        compose_prompt=content + "\n\n" + _get_task_compose(),
     )

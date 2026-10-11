@@ -41,7 +41,6 @@ from devops_cli.ai.review.classification import (
     build_context_review_prompt,
     classify_file_context,
 )
-from devops_cli.ai.review.review_environment import validate_criteria_command
 from devops_cli.ai.review_schema import (
     ReviewResult,
     SavedFinding,
@@ -75,10 +74,6 @@ _GENERATOR_PROMPTS: tuple[str, ...] = (
     "tasks/docs_review_prompt.md",
     "tasks/config_review_prompt.md",
     "tasks/guardrails_isolation.md",
-    "tasks/review_output_instruction.md",
-    "tasks/paginated_review_protocol.md",
-    "tasks/path_review_prompt.md",
-    "tasks/compose.md",
     *(
         f"personas/{persona.value}/{name}"
         for persona in Persona
@@ -535,46 +530,6 @@ def test_no_example_reply_anchors_high_severity_or_confidence() -> None:
     )
 
     assert anchors == []
-
-
-_FENCED_JSON = re.compile(r"```json\n(.*?)```", re.DOTALL)
-_JSON_STRING = r'"(?:[^"\\]|\\.)*"'
-_CRITERION_COMMAND = re.compile(rf'"command":\s*({_JSON_STRING})')
-_CRITERIA_LIST = re.compile(r'"(?:verification|invalidation)_criteria":\s*\[(.*?)\]', re.DOTALL)
-
-
-def _example_criteria() -> list[tuple[str, str]]:
-    """Every executable criterion the example replies in the task and persona prompts show.
-
-    A criterion is an object's `command`, or a bare string in a criteria list that the allowlist
-    accepts, which the reply parser runs as a command too. The examples are not all valid JSON
-    (`compose.md` lists severities as `"CRITICAL" | "HIGH"`), so they are read by pattern.
-    """
-    names = [
-        name
-        for name in _prompt_names()
-        if (name.startswith("tasks/") and name.count("/") == 1) or name.endswith("/prompt.md")
-    ]
-    found: list[tuple[str, str]] = []
-    for name in names:
-        for block in _FENCED_JSON.findall(_read(name)):
-            found += [(name, json.loads(s)) for s in _CRITERION_COMMAND.findall(block)]
-            for items in _CRITERIA_LIST.findall(block):
-                bare = re.findall(_JSON_STRING, re.sub(r"\{.*?\}", "", items, flags=re.DOTALL))
-                found += [
-                    (name, text)
-                    for text in map(json.loads, bare)
-                    if validate_criteria_command(text)[0]
-                ]
-    return found
-
-
-def test_the_example_replies_show_executable_criteria() -> None:
-    """The reviewer's example replies teach the criterion format; an empty scan proves nothing."""
-    assert sorted({name for name, _ in _example_criteria()}) == [
-        "tasks/compose.md",
-        "tasks/review_output_instruction.md",
-    ]
 
 
 def test_the_persona_reply_schema_holds_only_what_a_reviewer_writes() -> None:

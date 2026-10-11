@@ -60,7 +60,7 @@
   "src/devops_cli/ai/review/classification.py": 2,
   "src/devops_cli/ai/review/path_classes.py": 3,
   "src/devops_cli/ai/review/pipeline.py": 32,
-  "src/devops_cli/ai/review/runner.py": 6,
+  "src/devops_cli/ai/review/runner.py": 1,
   "src/devops_cli/ai/review/template_sweep.py": 5,
   "src/devops_cli/ai/review_schema.py": 8,
   "src/devops_cli/ai/run/__init__.py": 1,

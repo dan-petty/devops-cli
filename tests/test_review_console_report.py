@@ -15,6 +15,7 @@ import pytest
 from rich.console import Console
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.vulnerability import (
@@ -370,17 +371,12 @@ def test_review_workflow_hands_full_output_to_the_orchestrator(tmp_path: Path) -
         built.append(ReviewPipelineOrchestrator(**kwargs))
         return built[-1]
 
-    clients = ReviewClients(analysis=MagicMock(), compose=MagicMock())
-    with (
-        patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator", side_effect=build),
-        patch("devops_cli.ai.review.runner._run_persona_loop", return_value=[]),
-    ):
+    clients = ReviewClients(analysis=MagicMock(spec=ReviewLLMClient))
+    with patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator", side_effect=build):
         for full_output in (True, False):
             _execute_review_workflow(
                 [],
                 "Path Review",
-                MagicMock(),
-                "",
                 False,
                 None,
                 False,

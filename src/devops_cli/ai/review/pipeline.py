@@ -63,6 +63,7 @@ from devops_cli.ai.review.path_classes import (
     load_review_config,
 )
 from devops_cli.ai.review.profile import active_profiler
+from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
 from devops_cli.ai.review.sanitization import (
     _sanitize_filename,
@@ -1104,7 +1105,7 @@ def _fetch_ip_threat_intel(
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
-    ai_client: LLMClient | None,
+    ai_client: ReviewLLMClient | None,
     batch_capacity: int,
 ) -> list[FileAnalysisMeta]:
     """Execute parallel pre-analysis across batch of repository paths using ReviewWorkerPool."""
@@ -2274,7 +2275,8 @@ class ReviewPipelineOrchestrator:
     def __init__(
         self,
         session_id: str | None = None,
-        llm_client: LLMClient | None = None,
+        llm_client: ReviewLLMClient | None = None,
+        verification_client: ReviewLLMClient | None = None,
         *,
         target_dir: Path,
         session_dir: Path | None = None,
@@ -2325,7 +2327,8 @@ class ReviewPipelineOrchestrator:
         self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
-        self.llm_client = llm_client or LLMClient()
+        self.llm_client: ReviewLLMClient = llm_client or LLMClient()
+        self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
@@ -2372,7 +2375,7 @@ class ReviewPipelineOrchestrator:
                 return resolved
         return target_root / Path(fpath.lstrip("/\\")).name
 
-    def _get_server_info(self, client: LLMClient | None = None) -> str:
+    def get_server_info(self, client: ReviewLLMClient | None = None) -> str:
         """Describe a client's provider, host and model; the analysis client by default."""
         target = client or self.llm_client
         if not target:
@@ -2388,6 +2391,8 @@ class ReviewPipelineOrchestrator:
         if model:
             return f"LLM [model: {model}]"
         return "LLM server"
+
+    _get_server_info = get_server_info
 
     # ── Stage 1: Pre-Analysis & Metadata Refresh ──────────────────────────────
     @staticmethod
@@ -3520,7 +3525,7 @@ class ReviewPipelineOrchestrator:
         # A file kept off persona pages has a payload only to carry its secret-scan findings.
         file_payloads = [p for p in file_payloads if p.file_path not in self.secret_scan_files]
         total_files = len(file_payloads)
-        server_info = self._get_server_info()
+        server_info = self.get_server_info()
 
         with trace_span(
             "review.inspection",

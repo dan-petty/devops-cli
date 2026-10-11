@@ -50,11 +50,11 @@ def test_task_switching_provider_does_not_inherit_global_api_base_url() -> None:
     """Verify only tasks that keep the global provider inherit its api_base_url."""
     ai = AIConfig(provider="openai", api_base_url=OPENAI_URL)
     ai.tasks.analysis = AITaskOverride(provider="claude")
-    ai.tasks.compose = AITaskOverride(provider="openai")
+    ai.tasks.chat = AITaskOverride(provider="openai")
 
     assert (
         ai.for_task("analysis").api_base_url,
-        ai.for_task("compose").api_base_url,
+        ai.for_task("chat").api_base_url,
         ai.for_task("metadata").api_base_url,
     ) == (None, OPENAI_URL, OPENAI_URL)
 
