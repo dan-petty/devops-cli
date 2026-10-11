@@ -2796,7 +2796,7 @@ CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
 CONST_K8S_INGRESS_SERVICE_PATTERNS: Final[tuple[tuple[str, str, str], ...]] = (
     ("argocd.url", "argocd", "argocd"),
     ("grafana.url", "monitoring", "grafana"),
-    ("prometheus.url", "monitoring", "prometheus"),
+    ("prometheus.url", "monitoring", "prometheus-server"),
     ("open_webui.url", "llm", "chat"),
     ("qdrant.url", "llm", "qdrant"),
     ("ai.gateway_url", "llm", "ai"),

@@ -382,3 +382,28 @@ def test_configure_fqdn_urls() -> None:
         "https://example.com/custom",
         "https://ai.example.com/v1",
     )
+
+
+def test_configure_urls_fqdn_resolves_prometheus_server_ingress() -> None:
+    """A test with a Prometheus ingress whose backend is the Prometheus server Service sets prometheus.url (#1104, #818)."""
+    from devops_cli.commands.k8s.networking import _configure_fqdn_urls
+
+    mock_ingress = {
+        "monitoring:prometheus-server": ["prometheus.example.com"],
+        "monitoring:grafana": ["grafana.example.com"],
+    }
+    settings = Settings()
+    configured: dict[str, str] = {}
+    with patch(
+        "devops_cli.commands.k8s.networking._discover_ingress_hosts",
+        return_value=mock_ingress,
+    ):
+        _configure_fqdn_urls(None, settings, configured, ["infra"])
+
+    assert (
+        configured.get("prometheus.url"),
+        configured.get("grafana.url"),
+    ) == (
+        "https://prometheus.example.com",
+        "https://grafana.example.com",
+    )

@@ -398,12 +398,8 @@ def _configure_infra_stack_urls(
     from devops_cli.config.settings import dotted_set
 
     raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
-    raw_grafana = _detect_service_url(
-        "kube-prometheus-grafana", "monitoring", context=effective_context
-    ) or _detect_service_url("grafana", "monitoring", context=effective_context)
-    raw_prom = _detect_service_url(
-        "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
-    ) or _detect_service_url("prometheus", "monitoring", context=effective_context)
+    raw_grafana = _detect_service_url("grafana", "monitoring", context=effective_context)
+    raw_prom = _detect_service_url("prometheus-server", "monitoring", context=effective_context)
     raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
     raw_pyro = _detect_service_url("pyroscope", "monitoring", context=effective_context)
 
@@ -525,12 +521,11 @@ def _configure_llm_stack_urls(
 
 
 # Which Service backs each configured endpoint. Names are matched as substrings, most
-# specific first, because chart releases rename services: Prometheus ships as
-# `kube-prometheus-kube-prome-prometheus` rather than `prometheus`.
+# specific first, because chart releases rename services.
 _PROXY_TARGETS_INFRA: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("argocd.url", "argocd", ("argocd-server",), ("80", "http", "server")),
     ("grafana.url", "monitoring", ("grafana",), ("80", "http", "service")),
-    ("prometheus.url", "monitoring", ("prome-prometheus", "prometheus"), ("9090", "web")),
+    ("prometheus.url", "monitoring", ("prometheus-server",), ("9090", "http", "web")),
     ("jaeger.url", "otel", ("jaeger",), ("16686", "query", "http-query")),
     ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
 )
@@ -735,7 +730,7 @@ def _find_service_ingress_url(
 _FQDN_TARGETS_INFRA: tuple[tuple[str, str], ...] = (
     ("argocd.url", "argocd"),
     ("grafana.url", "grafana"),
-    ("prometheus.url", "prome-prometheus"),
+    ("prometheus.url", "prometheus-server"),
 )
 _FQDN_TARGETS_LLM: tuple[tuple[str, str], ...] = (
     ("open_webui.url", "open-webui"),
@@ -989,13 +984,8 @@ def _collect_port_forward_services(
         services.extend(
             [
                 ("argocd", "svc/argocd-server", ports["argocd"], 80),
-                ("monitoring", "svc/kube-prometheus-grafana", ports["grafana"], 80),
-                (
-                    "monitoring",
-                    "svc/kube-prometheus-kube-prome-prometheus",
-                    ports["prometheus"],
-                    9090,
-                ),
+                ("monitoring", "svc/grafana", ports["grafana"], 80),
+                ("monitoring", "svc/prometheus-server", ports["prometheus"], 9090),
                 ("otel", "svc/jaeger", ports["jaeger"], 16686),
                 ("otel", "svc/jaeger", ports["otel"], 4318),
                 ("monitoring", "svc/pyroscope", ports["pyroscope"], 4040),
