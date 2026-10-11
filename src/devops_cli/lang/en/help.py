@@ -248,6 +248,12 @@ class AICommandHelp:
     forage_query: str = "Inquiry text for calculating semantic information scent."
     forage_max_nodes: str = "Maximum number of nodes to visit along the trail."
     forage_min_score: str = "Minimum relevance scent threshold before backtracking."
+    research_annotate: str = "Record or view file-anchored marginalia observations and hypotheses."
+    annotate_path: str = "Target file path to annotate or inspect marginalia."
+    annotate_type: str = "Annotation type (ASSUMPTION, HYPOTHESIS, CONTRADICTION, QUESTION, TODO)."
+    annotate_content: str = "Annotation observation, hypothesis, or note text."
+    annotate_anchor: str = "Anchor reference: file path, AST node id, or line range."
+    annotate_list: str = "List existing marginalia annotations without adding a new one."
 
 
 @dataclass(frozen=True)

@@ -951,3 +951,6 @@ DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20
 DEFAULT_AI_FORAGE_MIN_SCORE: Final[float] = 0.1
 DEFAULT_AI_FORAGE_MAX_COMMITS: Final[int] = 50
 DEFAULT_AI_FORAGE_FILE_READ_CAP_BYTES: Final[int] = 65536
+
+# ── AI Research Marginalia Defaults ───────────────────────────────────────────
+DEFAULT_MARGINALIA_DIR: Final[str] = ".data/marginalia"
