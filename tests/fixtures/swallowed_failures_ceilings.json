@@ -65,7 +65,7 @@
   "src/devops_cli/ai/review_schema.py": 8,
   "src/devops_cli/ai/run/__init__.py": 1,
   "src/devops_cli/ai/spend/ledger.py": 6,
-  "src/devops_cli/ai/spend/pricing.py": 17,
+  "src/devops_cli/ai/spend/pricing.py": 15,
   "src/devops_cli/ai/spend/prometheus.py": 1,
   "src/devops_cli/ai/template/__init__.py": 2,
   "src/devops_cli/ai/test_gen.py": 2,

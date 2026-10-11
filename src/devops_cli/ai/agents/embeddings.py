@@ -169,8 +169,13 @@ class EmbeddingResult(PydanticEmbeddingResult):
         except Exception:
             from devops_cli.ai.spend import get_pricing_registry
 
-            pricing = get_pricing_registry().get_pricing(self.model_name)
-            calc = pricing.calculate_cost(self.usage.input_tokens or 0, 0)
+            calc = get_pricing_registry().calculate_request_cost(
+                self.model_name,
+                self.usage.input_tokens or 0,
+                0,
+                provider=self.provider_name,
+                request_timestamp=self.timestamp,
+            )
             return EmbeddingCost(total_price=calc)
 
 

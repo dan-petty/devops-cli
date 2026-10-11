@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -599,3 +600,213 @@ def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:
         "devops_cli_ai_counterfactual_spend_usd" in prom_output,
         "devops_cli_ai_tokens_total" in prom_output,
     ) == (True, True)
+
+
+def test_add_column_duplicate_tolerance_and_stale_column_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify _add_column tolerates existing columns and _init_db succeeds when column check is stale (#661)."""
+    from devops_cli.ai.spend.ledger import _add_column
+
+    db_path = tmp_path / "stale_check.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        _add_column(conn, "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;")
+
+    # Simulate stale column check in _init_db returning empty cursor
+    real_get_conn = ledger._get_connection
+
+    class StaleConnProxy:
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self._conn = conn
+
+        def execute(self, sql: str, *args: Any) -> Any:
+            if "table_info" in sql:
+                cursor = self._conn.cursor()
+                cursor.execute("SELECT 1 WHERE 0")
+                return cursor
+            return self._conn.execute(sql, *args)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._conn, name)
+
+        def __enter__(self) -> StaleConnProxy:
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *args: Any) -> Any:
+            return self._conn.__exit__(*args)
+
+    monkeypatch.setattr(ledger, "_get_connection", lambda: StaleConnProxy(real_get_conn()))
+    ledger._init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
+    assert ("served_by" in cols, "stage" in cols, "finish_reason" in cols) == (True, True, True)
+
+
+def test_spend_ledger_days_filter_excludes_earlier_record_on_cutoff_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify --days filter excludes a record from earlier on the cutoff calendar day than the cutoff timestamp (#661)."""
+    import devops_cli.ai.spend.ledger as ledger_mod
+
+    db_path = tmp_path / "cutoff_test.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    pinned_now = datetime(2026, 10, 11, 15, 0, 0, tzinfo=UTC)
+
+    class PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            return pinned_now
+
+    monkeypatch.setattr(ledger_mod, "datetime", PinnedDatetime)
+
+    # Cutoff for days=1 is 2026-10-10T15:00:00+00:00
+    # Earlier on the cutoff calendar day (2026-10-10 10:00): should be EXCLUDED
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="earlier-on-cutoff-day",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.001,
+        timestamp="2026-10-10T10:00:00+00:00",
+    )
+    # Later on the cutoff calendar day (2026-10-10 16:00): should be INCLUDED
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="later-on-cutoff-day",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.001,
+        timestamp="2026-10-10T16:00:00+00:00",
+    )
+    # Today (2026-10-11 12:00): should be INCLUDED
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="today-record",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.001,
+        timestamp="2026-10-11T12:00:00+00:00",
+    )
+
+    report = ledger.get_lifetime_report(days=1, group_by="model")
+    models = {m.model for m in report.models}
+    assert (
+        report.total_requests,
+        "earlier-on-cutoff-day" in models,
+        "later-on-cutoff-day" in models,
+        "today-record" in models,
+    ) == (2, False, True, True)
+
+
+def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify devops ai cost report and bare devops ai cost with prometheus format filter by days and hardware cost (#661)."""
+    import re
+
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.ai_cost import app as cost_app
+
+    cli_runner = CliRunner()
+    db_path = tmp_path / "prom_cli_spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    now = datetime.now(UTC)
+    three_days_ago = now - timedelta(days=3)
+
+    ledger.record_request(
+        provider="openai",
+        server="example.com",
+        model="model-today",
+        prompt_tokens=10_000,
+        completion_tokens=2_000,
+        cost_usd=0.05,
+        timestamp=now.isoformat(),
+    )
+    ledger.record_request(
+        provider="openai",
+        server="example.com",
+        model="model-old",
+        prompt_tokens=5_000,
+        completion_tokens=1_000,
+        cost_usd=0.02,
+        timestamp=three_days_ago.isoformat(),
+    )
+
+    monkeypatch.setattr("devops_cli.commands.ai_cost.get_spend_ledger", lambda: ledger)
+
+    # 1. Report command with --reference-model gpt-4o
+    res_4o = cli_runner.invoke(
+        cost_app,
+        [
+            "report",
+            "--format",
+            "prometheus",
+            "--days",
+            "1",
+            "--hardware-cost",
+            "1000",
+            "--reference-model",
+            "gpt-4o",
+        ],
+    )
+    assert (
+        res_4o.exit_code,
+        'devops_cli_ai_requests_total{model="model-today"' in res_4o.stdout,
+        'model="model-old"' not in res_4o.stdout,
+        "devops_cli_ai_hardware_cost_usd 1000.00" in res_4o.stdout,
+    ) == (0, True, True, True)
+
+    match_4o = re.search(r"devops_cli_ai_counterfactual_spend_usd\s+([0-9.]+)", res_4o.stdout)
+    assert match_4o is not None
+    cf_spend_4o = float(match_4o.group(1))
+
+    # 2. Report command with --reference-model gpt-4o-mini -> counterfactual spend changes
+    res_mini = cli_runner.invoke(
+        cost_app,
+        [
+            "report",
+            "--format",
+            "prometheus",
+            "--days",
+            "1",
+            "--hardware-cost",
+            "1000",
+            "--reference-model",
+            "gpt-4o-mini",
+        ],
+    )
+    match_mini = re.search(r"devops_cli_ai_counterfactual_spend_usd\s+([0-9.]+)", res_mini.stdout)
+    assert match_mini is not None
+    cf_spend_mini = float(match_mini.group(1))
+    assert (res_mini.exit_code, cf_spend_4o != cf_spend_mini) == (0, True)
+
+    # 3. Bare devops ai cost --format prometheus behaves same way
+    res_bare = cli_runner.invoke(
+        cost_app,
+        [
+            "--format",
+            "prometheus",
+            "--days",
+            "1",
+            "--hardware-cost",
+            "1000",
+            "--reference-model",
+            "gpt-4o",
+        ],
+    )
+    assert (
+        res_bare.exit_code,
+        'devops_cli_ai_requests_total{model="model-today"' in res_bare.stdout,
+        'model="model-old"' not in res_bare.stdout,
+        "devops_cli_ai_hardware_cost_usd 1000.00" in res_bare.stdout,
+    ) == (0, True, True, True)
