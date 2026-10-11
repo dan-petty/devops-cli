@@ -46,6 +46,11 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.defect_classifier import (
+    PRHardeningAudit,
+    audit_pr_hardening,
+    classify_defect_pr,
+)
 from devops_cli.github.issue_closure import extract_linked_issues
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
@@ -56,6 +61,7 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
+    write_stdout,
 )
 from devops_cli.release.changelog_fragments import find_changelog_section
 from devops_cli.roadmap.store import in_release
@@ -2404,6 +2410,223 @@ def update_pr(
     )
     if not success and not (dry_run or is_dry_run()):
         raise typer.Exit(1)
+
+
+def _fetch_pr_view_payload(number: int, repo: str | None = None) -> dict[str, Any] | None:
+    """Fetch PR metadata and files via gh pr view."""
+    cmd = [CONST_GH_CLI, "pr", "view", str(number)]
+    if repo:
+        cmd.extend(["--repo", repo])
+    cmd.extend(["--json", "number,title,labels,files,state,mergedAt"])
+    res = run_gh(cmd, check=False)
+    if res.returncode != 0 or not res.stdout.strip():
+        return None
+    try:
+        data = json.loads(res.stdout)
+        return cast(dict[str, Any], data) if isinstance(data, dict) else None
+    except json.JSONDecodeError, ValueError:
+        return None
+
+
+def _fetch_merged_prs_payload(limit: int, repo: str | None = None) -> list[dict[str, Any]]:
+    """Fetch recent merged pull requests including file data."""
+    cmd = [
+        CONST_GH_CLI,
+        "pr",
+        "list",
+        "--state",
+        "merged",
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,labels,files",
+    ]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_gh(cmd, check=False)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        data = json.loads(res.stdout)
+        return cast(list[dict[str, Any]], data) if isinstance(data, list) else []
+    except json.JSONDecodeError, ValueError:
+        return []
+
+
+def _ensure_pr_files(pr_item: dict[str, Any], repo: str | None = None) -> list[dict[str, Any]]:
+    """Ensure PR payload includes files list, querying view if needed."""
+    files = pr_item.get("files")
+    if files is not None and isinstance(files, list):
+        return cast(list[dict[str, Any]], files)
+    number = int(pr_item.get("number", 0))
+    if number > 0:
+        viewed = _fetch_pr_view_payload(number, repo=repo)
+        if viewed and isinstance(viewed.get("files"), list):
+            return cast(list[dict[str, Any]], viewed["files"])
+    return []
+
+
+def _render_hardening_table(audits: list[PRHardeningAudit]) -> None:
+    """Render audited defect pull requests as a formatted terminal table."""
+    rows: list[list[str]] = []
+    for a in audits:
+        surfaces_desc = (
+            ", ".join(f"{s} (+{a.surface_additions[s]})" for s in a.hardened_surfaces)
+            if a.is_hardened
+            else "—"
+        )
+        status_desc = "[green]Hardened[/green]" if a.is_hardened else "[red]Missing[/red]"
+        rows.append(
+            [
+                f"#{a.number}",
+                a.title,
+                ", ".join(a.classification.reasons) or "defect",
+                status_desc,
+                surfaces_desc,
+            ]
+        )
+    print_table(
+        title=MESSAGES.pr.hardening_report_title,
+        columns=[
+            ("#", "right"),
+            ("Title", "bold"),
+            ("Defect Classification", "cyan"),
+            "Status",
+            ("Surfaces Added", "green"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_hardening_json(audits: list[PRHardeningAudit]) -> None:
+    """Emit JSON payload for audited defect pull requests."""
+    payload = [
+        {
+            "pr_number": a.number,
+            "title": a.title,
+            "is_defect": a.classification.is_defect,
+            "reasons": list(a.classification.reasons),
+            "is_hardened": a.is_hardened,
+            "empty_files": a.empty_file_list,
+            "surfaces": a.surface_additions,
+            "hardened_surfaces": list(a.hardened_surfaces),
+        }
+        for a in audits
+    ]
+    write_stdout(json.dumps(payload, indent=2) + "\n")
+
+
+def _audit_single_pr(
+    pr: int,
+    repo: str | None,
+    output_format: str,
+    fail_on_missing: bool,
+) -> None:
+    """Audit hardening compliance for a single pull request by number."""
+    payload = _fetch_pr_view_payload(pr, repo=repo)
+    if payload is None:
+        print_error(f"Failed to fetch pull request #{pr}")
+        raise typer.Exit(1)
+
+    files = payload.get("files")
+    if not files:
+        print_error(MESSAGES.pr.hardening_report_empty_files.format(number=pr))
+        if fail_on_missing:
+            raise typer.Exit(1)
+        return
+
+    classification = classify_defect_pr(payload.get("title", ""), payload.get("labels", []))
+    if not classification.is_defect:
+        print_info(MESSAGES.pr.hardening_report_pr_not_defect.format(number=pr))
+        return
+
+    audit = audit_pr_hardening(pr, payload.get("title", ""), payload.get("labels", []), files)
+    if output_format.lower() == "json":
+        _render_hardening_json([audit])
+        if fail_on_missing and not audit.is_hardened:
+            raise typer.Exit(1)
+        return
+
+    _render_hardening_table([audit])
+    if audit.is_hardened:
+        surfaces_str = ", ".join(
+            f"{s} (+{audit.surface_additions[s]})" for s in audit.hardened_surfaces
+        )
+        print_success(
+            MESSAGES.pr.hardening_report_single_passed.format(number=pr, surfaces=surfaces_str)
+        )
+    else:
+        print_error(MESSAGES.pr.hardening_report_single_failed.format(number=pr))
+        if fail_on_missing:
+            raise typer.Exit(1)
+
+
+def _audit_all_defect_prs(
+    limit: int,
+    repo: str | None,
+    output_format: str,
+    fail_on_missing: bool,
+) -> None:
+    """Audit hardening compliance for all merged defect pull requests."""
+    raw_prs = _fetch_merged_prs_payload(limit=limit, repo=repo)
+    audits: list[PRHardeningAudit] = []
+    for item in raw_prs:
+        classification = classify_defect_pr(item.get("title", ""), item.get("labels", []))
+        if classification.is_defect:
+            files = _ensure_pr_files(item, repo=repo)
+            audit = audit_pr_hardening(
+                item.get("number", 0), item.get("title", ""), item.get("labels", []), files
+            )
+            audits.append(audit)
+
+    if not audits:
+        print_info(MESSAGES.pr.hardening_report_no_defects)
+        return
+
+    if output_format.lower() == "json":
+        _render_hardening_json(audits)
+        missing_count = sum(1 for a in audits if not a.is_hardened)
+        if fail_on_missing and missing_count > 0:
+            raise typer.Exit(1)
+        return
+
+    _render_hardening_table(audits)
+    total = len(audits)
+    hardened = sum(1 for a in audits if a.is_hardened)
+    missing = total - hardened
+    if missing > 0:
+        print_warning(
+            MESSAGES.pr.hardening_report_failed.format(missing_count=missing, total_count=total)
+        )
+        if fail_on_missing:
+            raise typer.Exit(1)
+    else:
+        print_success(MESSAGES.pr.hardening_report_passed.format(count=total))
+
+
+@app.command("hardening-report", help=HELP.pr.hardening_report)
+def hardening_report_cmd(
+    pr: Annotated[int | None, typer.Option("--pr", help=HELP.pr.hardening_report_pr)] = None,
+    fail_on_missing: Annotated[
+        bool, typer.Option("--fail-on-missing", help=HELP.pr.hardening_report_fail_on_missing)
+    ] = False,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", min=1, help="Maximum number of merged PRs to inspect")
+    ] = 100,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help="Output format (table, json)")
+    ] = "table",
+) -> None:
+    """Audit merged defect pull requests for guardrail additions to declared hardening surfaces."""
+    if pr is not None:
+        _audit_single_pr(
+            pr, repo=repo, output_format=output_format, fail_on_missing=fail_on_missing
+        )
+    else:
+        _audit_all_defect_prs(
+            limit=limit, repo=repo, output_format=output_format, fail_on_missing=fail_on_missing
+        )
 
 
 # =============================================================================

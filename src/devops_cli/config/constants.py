@@ -2766,6 +2766,18 @@ CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
 )
 # The statuses under which a pull request adds, modifies, renames or removes the file.
 CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
+# docs/ROADMAP.md is explicitly excluded because it is a generated view.
+CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
+    "AGENTS.md",
+    "src/devops_cli/ai/tasks/*.md",
+    "src/devops_cli/ai/knowledge_base/",
+    "common_hallucinations.json",
+)
+# Taxonomy labels that classify a pull request as addressing a defect (#697).
+CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
+# Conventional commit title pattern identifying a bug fix pull request (#697).
+CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 # `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
 # when the response carries no message.
 CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")

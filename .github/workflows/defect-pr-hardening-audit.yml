@@ -1,0 +1,76 @@
+name: Defect PR Hardening Audit
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+env:
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  audit-hardening:
+    name: Audit Defect PR Hardening
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    if: >-
+      github.event.pull_request.merged == true &&
+      (contains(github.event.pull_request.labels.*.name, 'type/bug') ||
+       contains(github.event.pull_request.labels.*.name, 'type/security'))
+
+    steps:
+      - name: Check token permissions for fork pull requests
+        id: fork_guard
+        if: github.event.pull_request.head.repo.fork == true
+        run: |
+          echo "Skip-not-fail: pull request originated from a fork; skipping hardening audit."
+          exit 0
+
+      - name: Check out repository
+        if: "!github.event.pull_request.head.repo.fork"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv toolchain
+        if: "!github.event.pull_request.head.repo.fork"
+        uses: ./.github/actions/setup-toolchain
+
+      - name: Run hardening report
+        id: hardening_report
+        if: "!github.event.pull_request.head.repo.fork"
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run devops pr hardening-report --pr "$PR_NUMBER" --fail-on-missing
+
+      - name: Hand unhardened defect finding to intake
+        if: failure() && steps.hardening_report.outcome == 'failure' && !github.event.pull_request.head.repo.fork
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          INTAKE_BODY=$(mktemp)
+          cat <<'EOF' > "$INTAKE_BODY"
+          ## Unhardened Defect PR Audit Finding
+
+          Defect Pull Request #${PR_NUMBER} was merged without adding guardrails or lessons to any declared hardening surface.
+
+          ### Declared Hardening Surfaces
+          - `AGENTS.md`
+          - `src/devops_cli/ai/tasks/*.md`
+          - `src/devops_cli/ai/knowledge_base/`
+          - `common_hallucinations.json`
+
+          Per project invariants (`AGENTS.md`), defect fixes must codify root-cause guardrails into at least one declared surface to prevent recurrent regressions.
+          EOF
+          sed -i "s/\${PR_NUMBER}/${PR_NUMBER}/g" "$INTAKE_BODY"
+          uv run devops roadmap intake --title "fix(hardening): defect PR #${PR_NUMBER} missing declared surface hardening" --body-file "$INTAKE_BODY" --confirm

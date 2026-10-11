@@ -652,6 +652,22 @@ class PRMessages:
         "PR #{number} is not grounded: the Release of #{issue} could not be read ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
+    hardening_report_title: str = "Defect Pull Request Hardening Audit"
+    hardening_report_no_defects: str = "No merged defect pull requests found matching criteria."
+    hardening_report_pr_not_defect: str = "PR #{number} is not classified as a defect PR."
+    hardening_report_passed: str = (
+        "All {count} defect PRs satisfied hardening requirements on declared surfaces."
+    )
+    hardening_report_failed: str = (
+        "{missing_count} of {total_count} defect PRs lack additions on declared hardening surfaces."
+    )
+    hardening_report_single_passed: str = (
+        "PR #{number} passed hardening audit: additions present on declared surface(s): {surfaces}"
+    )
+    hardening_report_single_failed: str = (
+        "PR #{number} failed hardening audit: no additions on declared hardening surfaces."
+    )
+    hardening_report_empty_files: str = "PR #{number} returned an empty file list from GitHub."
 
 
 @dataclass(frozen=True)

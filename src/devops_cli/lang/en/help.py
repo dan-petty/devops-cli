@@ -850,6 +850,13 @@ class PRCommandHelp:
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )
     update_dispatch_ci: str = "Dispatch the ci.yml workflow on the head branch after updating."
+    hardening_report: str = (
+        "Audit merged defect pull requests for guardrail additions to declared hardening surfaces."
+    )
+    hardening_report_pr: str = "Audit a specific pull request by number."
+    hardening_report_fail_on_missing: str = (
+        "Exit with non-zero exit code if hardening is missing on any audited defect pull request."
+    )
 
 
 @dataclass(frozen=True)
