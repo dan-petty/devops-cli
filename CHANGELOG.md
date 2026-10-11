@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.34] - 2026-10-11
+
+### Added
+- **Agentic information foraging & scent trails (`devops ai research forage`)**:
+  - Implemented Pirolli & Card's Information Foraging Theory with a deterministic, local-only crawler exploring codebases via relational semantic scent.
+  - Added multi-edge extractors across Python AST symbol imports (`ast`), internal Markdown references (`markdown-it-py`), and git co-change history (`GitPython`).
+  - Added best-first heuristic search with `heapq` and cycle-detection ledger, scoring edges via BM25 lexical similarity (`ai/lexical.py`) and backtracking when information scent drops below threshold.
+  - Registered `devops ai research forage` CLI command with interactive summary panels, detailed trail tables, and structured `--json` output.
+- **Defect PR hardening audit and post-merge intake automation**:
+  - Implemented `devops pr hardening-report [--pr N] [--fail-on-missing]` to audit merged defect pull requests for guardrail additions to declared hardening surfaces (`AGENTS.md`, `src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`, `common_hallucinations.json`), explicitly excluding `docs/ROADMAP.md`.
+  - Added reusable defect PR classifier (`classify_defect_pr`, `is_defect_pr`) in `src/devops_cli/github/defect_classifier.py` identifying defect pull requests by `type/bug`, `type/security` labels or Conventional Commits `fix(...)` / `fix:` titles.
+  - Added post-merge audit workflow `.github/workflows/defect-pr-hardening-audit.yml` triggering on closed merged defect PRs, running the hardening audit with `--fail-on-missing`, and automatically handing findings to roadmap intake on failure with skip-not-fail for fork PRs.
+  - Added workflow contract tests in `tests/test_workflow_contracts.py` validating triggers, permissions, step commands, intake routing, and static Typer command resolution.
+- **Worktree inventory & safe orphan reclamation (`devops repos worktrees`)**:
+  - Added `devops repos worktrees status` command to list every git worktree in the repository with per-entry commits ahead of main, dirty-path count, whether any other local or remote ref contains the tip, and git's `locked` and `prunable` status.
+  - Added `--json` output option emitting typed arrays containing `ahead` (int), `dirty` (int), `contained` (bool), `locked` (bool), and `prunable` (bool).
+  - Added `devops repos worktrees prune` with safe dry-run preview by default; without `--force`, removes only clean and contained worktrees and refuses unmerged, dirty, or locked checkouts.
+  - Added `--force` support to remove worktrees regardless of clean or unmerged status, cleaning up metadata with `git worktree prune`.
+  - Implemented NUL-separated porcelain parsing via `git worktree list --porcelain -z` per the #1440 convention to safely support worktree paths with newlines.
+- **AGENTS.md Context Budget Enforced (`src/devops_cli/config/constants.py`)**:
+  - Declared `CONST_AGENTS_MD_MAX_CHARS: Final[int] = 40_000` defining the maximum character budget for `AGENTS.md`.
+  - Added unit test in `tests/test_agents_md_claims.py` verifying that `AGENTS.md` length is within `CONST_AGENTS_MD_MAX_CHARS` and `CONST_AGENTS_MD_MAX_CHARS <= 40_000`.
+  - Added `@AGENTS.md` import directive generation to `generate_pointer_stub` in `src/devops_cli/ai/instruction_generator.py` for Claude Code memory loading.
+- **Podman engine discovery & rootless sandbox user mapping (`devops docker`, `devops sandbox`)**:
+  - Implemented automatic container engine discovery across `CONTAINER_HOST`, `DOCKER_HOST`, Docker contexts, rootless Podman (`$XDG_RUNTIME_DIR/podman/podman.sock` and `/run/user/<uid>/podman/podman.sock`), rootful Podman (`/run/podman/podman.sock`), and Docker default (`/var/run/docker.sock`).
+  - Added fast configuration error when `CONTAINER_CONNECTION` is detected, guiding configuration to `CONTAINER_HOST`.
+  - Added Engine API facts introspection (`kind()`, `is_rootless()`, `security_options()`) to identify Podman and rootless execution models.
+  - Added user namespace mapping (`resolve_sandbox_user`) configuring `user="0:0"` on rootless engines so sandboxed workloads run with container root mapped to the host user, enabling write access to mounted workspaces without permission errors.
+  - Enhanced Docker default socket connection failure message with Podman user socket activation instructions (`systemctl --user enable --now podman.socket`).
+  - Handled Podman's BuildKit absence in `devops docker cache` with informative guidance directing users to `devops docker prune`.
+  - Propagated resolved `DOCKER_HOST` to Dive container analysis and granted `XDG_RUNTIME_DIR` pass-through to Cosign image verification.
+
+### Changed
+- **Poetically Concise AGENTS.md**:
+  - Condensed `AGENTS.md` from 116,655 characters (26,283 cl100k tokens, 497 lines) to 38,355 characters (8,839 cl100k tokens, 221 lines), achieving a 67.1% character reduction and 66.4% token reduction under the 40,000-character budget with 1,645 characters of headroom.
+  - Linked operational procedures (release choreography, PR monitoring, review feedback loops) directly to canonical documentation (`docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`).
+  - Replaced duplicate rules enforced by named checks with direct pointers to the enforcing commands and pre-commit hooks (`uv run devops ci`, `ruff-check`, `structural-invariants`).
+  - Updated `CLAUDE.md` to load `@AGENTS.md` using Claude Code memory import syntax.
+- **The roadmap service is suspended (`k8s/devops/roadmap-service`)**: GitHub suspended the Service's machine account, so `deployment/roadmap-service` asks for 0 replicas, and an Argo CD sync or `devops k8s deploy-stack --stack devops` no longer starts it. AGENTS.md and `k8s/README.md` open their roadmap-service sections with the suspension: nobody scales, restarts or re-pushes secrets for the Service, only a person runs mutating `devops roadmap` commands, and agents leave the Service's items labelled `status/blocked` alone.
+
+### Removed
+- **Unread syntopical and cognitive research settings**:
+  - Removed dead constants and defaults (`DEFAULT_RESEARCH_DIR`, `DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS`, `DEFAULT_SYNTOPICAL_MAX_SOURCES`, `CONST_RESEARCH_DIR_NAME`, `CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES`, `CONST_SYNTOPICAL_MIN_RELEVANCE`, `CONST_SYNTOPICAL_MAX_EXCERPT_CHARS`) in `config/defaults.py` and `config/constants.py` with no consumers in `src/` or `tests/`.
+- **Removed vLLM deployments, configuration, and leftover policies**:
+  - Removed dead vLLM cluster URL defaults (`DEFAULT_VLLM_16GIB_CLUSTER_URL`, `DEFAULT_VLLM_48GIB_CLUSTER_URL`), settings field `AIConfig.vllm_url`, router method `GatewayRouter.scale_vllm`, CLI command `devops ai gateway scale`, and FastMCP tool `ai_vllm_scale`.
+  - Removed vestigial vLLM Kubernetes manifests, perimeter policies, and port 8000 egress rules across `k8s/llm/` and `k8s/monitoring/`, including `k8s/llm/profiles/networkpolicy.yaml` (`vllm-profiles-perimeter`) and Portkey `vllm-backend`.
+  - Removed vLLM server busy-share and waiting queue metrics from `devops ai gateway load` and pool load metrics calculation.
+  - Updated `.devcontainer/devcontainer.json` Ollama endpoint to `http://ollama-16gib.llm.svc.cluster.local:11434`.
+- **Legacy segment review engine & whole-file reviewer**:
+  - Deleted legacy segment review engine and whole-file reviewer in `ai/review/runner.py`, leaving `ReviewPipelineOrchestrator` as the sole review pipeline.
+  - Deleted dead `_run_persona_loop`, segment chunking, recompose functions, and `_save_findings_json` from `ai/review/runner.py`.
+  - Deleted obsolete task prompts (`compose.md`, `paginated_review_protocol.md`, `path_review_prompt.md`, `review_output_instruction.md`).
+  - Removed compose task: `ai.tasks.compose` configuration field, `AI_TASK_COMPOSE_*` settings, `DEVOPS_CLI_AI_TASK_COMPOSE_*` environment variables, `ReviewClients.compose`, and `PersonaDefinition.compose_prompt`.
+
+### Fixed
+- **AI model pricing snapshot merging, version invalidation, and tiered request pricing**:
+  - Merged remote and custom partial pricing snapshots field-by-field onto bundled `genai-prices` dataset instead of replacing entire catalog.
+  - Preserved token extraction for both unbundled and partial bundled providers after snapshot ingestion.
+  - Recorded installed `genai_prices_version` and UTC `fetched_at` in snapshot metadata, falling back to bundled data with warning if versions mismatch.
+  - Preserved recorded fetch timestamp as `auto_update_timestamp` on `DataSnapshot`.
+  - Added `--reset` option to `devops ai cost update-pricing` to clear snapshot and caches, with mutual exclusion against `--source`.
+  - Added `--format yaml` support, base-tier rate column headers, and table captions to `devops ai cost list-pricing`.
+  - Calculated tiered request costs dynamically in `SpendGuard.record_usage` and `EmbeddingResult.cost` fallback, while honoring flat-rate caller pricing.
+- **Cloudflare tunnel route synchronization and Kubernetes URL setup preservation**:
+  - Preserved per-route `originRequest` configuration (`noTLSVerify`, `httpHostHeader`), custom catch-all ingress rules, and `warp-routing` settings during `devops cloudflare tunnel sync`.
+  - Aborted tunnel sync on GET read failure without dispatching PUT updates, avoiding full config replacement and loss of existing routes.
+  - Ensured `devops cloudflare tunnel sync --dry-run` performs zero network requests while outputting serialized GET and PUT request payloads.
+  - Matched AI gateway ingress backends via `CONST_K8S_INGRESS_SERVICE_PATTERNS` using exact service-name and namespace matching rather than substring searches.
+  - Protected pre-configured remote custom `ai.gateway_url` endpoints from being overwritten by discovered FQDNs in `_should_update_url`.
+  - Guarded valkey host and port configuration from being overwritten when configured with a non-default port.
+- **Review early exits & zero-model routing (`devops review`)**:
+  - Exited `--summary` before `ReviewPipelineOrchestrator` construction, eliminating redundant model calls and preventing the creation of spurious session directories on disk.
+  - Ensured diffs containing only routed files (such as `uv.lock`) or empty diffs with `--post` route through `_review_routed_files_only` with zero model calls and exit 0.
+- **RAG collection embedding model recording, mismatch protection, and cosine score ranking (`devops ai rag`)**:
+  - Recorded active `embedding_model` in payload for all indexed chunks across workspace and knowledge base indexing.
+  - Refused indexing into collections holding points with a different embedding model or dimension, raising permanent `EmbeddingsError` with clear instructions to clear and re-index (`devops ai rag clear --force && devops ai rag index --force`) rather than wiping data.
+  - Deleted `_handle_dim_mismatch` and prevented dimension mismatch from deleting or recreating collections during search, raising permanent `EmbeddingsError` naming collection and both dimensions.
+  - Added process-level model verification on search to fail early when a collection was indexed with a different model.
+  - Preserved raw vector cosine in `SearchResult.vector_score` while storing reciprocal rank fusion in `fused_score`, routing the reranker's vector signal through cosine score and rendering cosine beside final score in `devops ai rag query`.
+- **Monitoring Service aliases removal & Chart-owned Service direct addressing (`devops k8s`)**:
+  - Deleted plain manifest `k8s/monitoring/service-aliases.yaml` (`prometheus`, `kube-prometheus-kube-prome-prometheus`, `kube-prometheus-grafana`) to eliminate collision with Helm-managed chart Services during `deploy-stack`.
+  - Repointed all Prometheus consumers directly at `prometheus-server.monitoring.svc.cluster.local:9090`: Alloy `localPrometheus` destination, Grafana Prometheus datasource, `prometheus-ingress` backend, and TLS certificate SANs.
+  - Updated `configure-urls` and `port-forward` to target `svc/grafana` and `svc/prometheus-server` directly, removing obsolete `kube-prometheus-*` aliases.
+  - Removed `kube-prometheus-stack-grafana` from candidate secret names in `fetch_grafana_password`.
+  - Added repository-wide invariant guard test preventing plain manifest Services from sitting in Helm-managed namespaces without an explicit owned exemption.
+  - Ignored `default` AppProject in `k8s/argocd/apps/projects.yaml` under `orphanedResources.ignore` to eliminate Argo CD `OrphanedResourceWarning`.
+- **Knowledge base re-indexing on drift & Qdrant store inspection (`devops ai rag`)**:
+  - Attached installed knowledge base digest (`sha256`), `embedding_model`, and `indexed_at` metadata to all stored knowledge base points in Qdrant collections.
+  - Added autonomous lazy re-indexing before first retrieval across chat lookups, `devops ai rag query`, and MCP RAG tools whenever the collection holds zero knowledge base points or the recorded digest differs from the installed knowledge base, backed by a 30-minute failure cooldown and single warning.
+  - Updated `devops ai rag drift` to inspect per-project Qdrant vector store point counts and knowledge base digests directly, reporting drift when collections are wiped in Qdrant even under an intact local cache.
+  - Expanded `devops ai rag status` collection summary table to display point counts, embedding models, vector dimensions, knowledge base digests, and last indexed timestamps.
+  - Emitted `devops_cli_rag_points` telemetry gauge on RAG retrieval use across monitored vector collections (#974).
+
 ## [0.2.33] - 2026-10-10
 
 ### Added
