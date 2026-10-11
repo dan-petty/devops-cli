@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -24,9 +25,11 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import exit_on_error, new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
+from devops_cli.git.worktree_inventory import inventory_worktrees, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -36,6 +39,7 @@ from devops_cli.output import (
     print_warning,
     render_dry_run_result,
     track_progress,
+    write_stdout,
 )
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -372,3 +376,129 @@ def update(
             print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
+
+
+# =============================================================================
+# Subcommand Group: devops repos worktrees
+# =============================================================================
+
+worktrees_app = new_typer(help=HELP.repos.worktrees_app, no_args_is_help=True)
+app.add_typer(worktrees_app, name="worktrees")
+
+
+def _format_worktree_table_row(entry: Any) -> list[str]:
+    """Format single worktree entry for tabular display."""
+    branch = entry.branch or "(detached)"
+    contained = "contained=true" if entry.contained else "contained=false"
+    locked = (
+        f"locked=true ({entry.lock_reason})"
+        if (entry.locked and entry.lock_reason)
+        else ("locked=true" if entry.locked else "locked=false")
+    )
+    prunable = (
+        f"prunable=true ({entry.prunable_reason})"
+        if (entry.prunable and entry.prunable_reason)
+        else ("prunable=true" if entry.prunable else "prunable=false")
+    )
+    return [
+        entry.path,
+        branch,
+        str(entry.ahead),
+        str(entry.dirty),
+        contained,
+        locked,
+        prunable,
+    ]
+
+
+@worktrees_app.command("status")
+def worktrees_status(
+    repo_dir: Annotated[
+        Path | None,
+        typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.repos.worktrees_json),
+    ] = False,
+) -> None:
+    """List every worktree with commits ahead of main, dirty-path count, contained status, and flags."""
+    root = (repo_dir or find_repo_root()).resolve()
+    entries = inventory_worktrees(root)
+
+    if json_output:
+        payload = [e.model_dump() for e in entries]
+        write_stdout(json.dumps(payload, indent=2) + "\n")
+        return
+
+    rows = [_format_worktree_table_row(e) for e in entries]
+    print_table(
+        title="Git Worktrees",
+        columns=[
+            ("Worktree", "cyan"),
+            ("Branch", "green"),
+            ("Ahead", "magenta"),
+            ("Dirty", "yellow"),
+            ("Contained", "blue"),
+            ("Locked", "red"),
+            ("Prunable", "dim"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_prune_item(item: Any) -> None:
+    """Render a single prune outcome message."""
+    if item.status == "removed":
+        print_success(f"removed {item.path}", prefix=False)
+    elif item.status == "would remove":
+        print_info(f"would remove {item.path} ({item.reason})", prefix=False)
+    elif item.status == "refused":
+        print_warning(f"refused {item.path}: {item.reason}", prefix=False)
+    else:
+        print_error(f"failed to remove {item.path}: {item.reason}", prefix=False)
+
+
+@worktrees_app.command("prune")
+def worktrees_prune(
+    repo_dir: Annotated[
+        Path | None,
+        typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help=HELP.repos.worktrees_force),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.repos.worktrees_json),
+    ] = False,
+) -> None:
+    """Safely prune orphan git worktrees, dry-run by default."""
+    root = (repo_dir or find_repo_root()).resolve()
+    entries = inventory_worktrees(root)
+    is_preview = dry_run or is_dry_run()
+    report = prune_worktrees(root, entries, force=force, dry_run=is_preview)
+
+    if json_output:
+        write_stdout(json.dumps(report.model_dump(), indent=2) + "\n")
+        return
+
+    for item in report.items:
+        _render_prune_item(item)
+
+    if is_preview:
+        would_remove = len([i for i in report.items if i.status == "would remove"])
+        print_info(
+            f"Preview: {would_remove} removable, {report.refused_count} refused",
+            prefix=False,
+        )
+    else:
+        print_info(
+            f"Prune complete: {report.removed_count} removed, {report.refused_count} refused",
+            prefix=False,
+        )

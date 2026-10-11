@@ -469,6 +469,12 @@ class ReposCommandHelp:
     sync: str = "Synchronize all cloned repositories with their remotes."
     org_name: str = "GitHub organisation name."
     repo_url: str = "Repository URL (SSH or HTTPS)."
+    worktrees_app: str = "Worktree inventory, status inspection, and safe orphan reclamation."
+    worktrees_status: str = "List every worktree with commits ahead of main, dirty-path count, contained status, and flags."
+    worktrees_prune: str = "Safely prune orphan git worktrees, dry-run by default."
+    worktrees_force: str = "Remove entries regardless of clean or contained status."
+    worktrees_json: str = "Emit output as JSON."
+    worktrees_repo_dir: str = "Repository root directory."
 
 
 @dataclass(frozen=True)
