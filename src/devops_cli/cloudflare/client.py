@@ -91,14 +91,17 @@ def _parse_tunnel_config(tunnel_id: str, data: dict[str, Any]) -> CloudflareTunn
             service=str(r.get("service", "")),
             hostname=r.get("hostname"),
             path=r.get("path"),
+            origin_request=r.get("originRequest") or r.get("origin_request"),
         )
         for r in raw_ingress
         if isinstance(r, dict) and "service" in r
     ]
+    warp_routing = cfg.get("warp-routing") if isinstance(cfg, dict) else None
     return CloudflareTunnelConfig(
         tunnel_id=tunnel_id,
         version=version,
         ingress=rules,
+        warp_routing=warp_routing if isinstance(warp_routing, dict) else None,
     )
 
 
@@ -145,7 +148,11 @@ def _merge_tunnel_ingress_rules(
             merged.append(r)
             seen_keys.add(key)
 
-    merged.append(CloudflareTunnelIngressRule(service=CONST_CLOUDFLARE_CATCHALL_SERVICE))
+    existing_catchall = next((r for r in current_rules if not r.hostname and not r.path), None)
+    if existing_catchall is not None:
+        merged.append(existing_catchall)
+    else:
+        merged.append(CloudflareTunnelIngressRule(service=CONST_CLOUDFLARE_CATCHALL_SERVICE))
     return merged
 
 
@@ -508,6 +515,7 @@ class CloudflareClient:
                 "service": r.service,
                 **({"hostname": r.hostname} if r.hostname else {}),
                 **({"path": r.path} if r.path else {}),
+                **({"originRequest": r.origin_request} if r.origin_request else {}),
             }
             for r in ingress_rules
         ]
@@ -595,18 +603,14 @@ class CloudflareClient:
             raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
         resolved_id = self.resolve_tunnel_id(tunnel_id, account_id=aid)
 
-        current_rules: list[CloudflareTunnelIngressRule] = []
-        base_config: dict[str, Any] = {}
-        try:
-            raw_cfg = self._request(
-                "GET", f"accounts/{aid}/cfd_tunnel/{resolved_id}/configurations"
-            )
-            if isinstance(raw_cfg, dict):
-                base_config = dict(raw_cfg.get("config", {}) or {})
-                current_parsed = _parse_tunnel_config(resolved_id, raw_cfg)
-                current_rules = current_parsed.ingress
-        except Exception as exc:
-            logger.debug("Failed reading existing tunnel configuration: %s", exc)
+        raw_cfg = self._request("GET", f"accounts/{aid}/cfd_tunnel/{resolved_id}/configurations")
+        base_config: dict[str, Any] = (
+            dict(raw_cfg.get("config", {}) or {}) if isinstance(raw_cfg, dict) else {}
+        )
+        current_parsed = _parse_tunnel_config(
+            resolved_id, raw_cfg if isinstance(raw_cfg, dict) else {}
+        )
+        current_rules = current_parsed.ingress
 
         subs = subdomains if subdomains is not None else CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS
         target_rules: list[CloudflareTunnelIngressRule] = []

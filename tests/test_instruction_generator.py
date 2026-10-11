@@ -73,11 +73,14 @@ def test_generate_pointer_stub() -> None:
         canonical_relpath="./AGENTS.md",
         is_devops_cli=False,
     )
-    assert "# Sample — Claude Instructions" in claude_stub_generic
-    assert "Claude Code" in claude_stub_generic
-    assert "[AGENTS.md](./AGENTS.md)" in claude_stub_generic
-    assert "devops ai agents" in claude_stub_generic
-    assert "Pre-1.0 Alpha Notice" not in claude_stub_generic
+    assert (
+        "# Sample — Claude Instructions" in claude_stub_generic,
+        "Claude Code" in claude_stub_generic,
+        "@AGENTS.md" in claude_stub_generic,
+        "[AGENTS.md](./AGENTS.md)" in claude_stub_generic,
+        "devops ai agents" in claude_stub_generic,
+        "Pre-1.0 Alpha Notice" not in claude_stub_generic,
+    ) == (True, True, True, True, True, True)
 
     claude_stub_devops = generate_pointer_stub(
         title="devops-cli — Claude Instructions",
@@ -86,10 +89,13 @@ def test_generate_pointer_stub() -> None:
         canonical_relpath="./AGENTS.md",
         is_devops_cli=True,
     )
-    assert "Pre-1.0 Alpha Notice" in claude_stub_devops
-    assert "alpha software prior to release" in claude_stub_devops
-    assert "no backwards compatibility guarantees" in claude_stub_devops
-    assert "Semantic Versioning" in claude_stub_devops
+    assert (
+        "@AGENTS.md" in claude_stub_devops,
+        "Pre-1.0 Alpha Notice" in claude_stub_devops,
+        "alpha software prior to release" in claude_stub_devops,
+        "no backwards compatibility guarantees" in claude_stub_devops,
+        "Semantic Versioning" in claude_stub_devops,
+    ) == (True, True, True, True, True)
 
 
 def test_generate_agents_md_contains_required_sections() -> None:

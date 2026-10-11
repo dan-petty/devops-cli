@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
     DEFAULT_MAX_RETRIES,
@@ -86,9 +87,6 @@ def _is_transient_qdrant_error(exc: Exception) -> bool:
             "timeout",
         )
     )
-
-
-_DIM_MISMATCH_WARNED_COLLECTIONS: set[str] = set()
 
 
 def _coerce_point_id(p_id: Any) -> int | str:
@@ -367,13 +365,17 @@ class QdrantClient:
         if info:
             curr_size = info.get("vector_size")
             if isinstance(curr_size, int) and curr_size != vector_size:
-                logger.warning(
-                    "Qdrant collection '%s' vector dimension mismatch (existing: %d, required: %d). Recreating...",
-                    name,
-                    curr_size,
-                    vector_size,
+                raise EmbeddingsError(
+                    f"Qdrant collection '{name}' vector dimension mismatch (existing: {curr_size}, required: {vector_size}). "
+                    "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+                    is_transient=False,
+                    details={
+                        "collection": name[:256],
+                        "collection_dimension": curr_size,
+                        "required_dimension": vector_size,
+                        "fix": "devops ai rag clear --force && devops ai rag index --force",
+                    },
                 )
-                self.delete_collection(name)
             elif isinstance(curr_size, int):
                 self._verified_collections[name] = vector_size
                 return True
@@ -399,7 +401,6 @@ class QdrantClient:
         """Delete a collection from Qdrant."""
         self._verified_collections.pop(name, None)
         self._dim_mismatch_warned.discard(name)
-        _DIM_MISMATCH_WARNED_COLLECTIONS.discard(name)
         try:
             res = self._execute_with_retry(
                 lambda c: c.delete_collection(collection_name=name), "delete_collection", name
@@ -503,29 +504,76 @@ class QdrantClient:
                 if "not found" in err_str or "404" in err_str:
                     return []
                 if "vector dimension error" in err_str or "dimension error" in err_str:
-                    self._handle_dim_mismatch(name, exc, len(query_vector))
-                    return []
+                    clean_err = str(exc).split("Raw response content:")[0].strip()[:256]
+                    raise EmbeddingsError(
+                        f"Qdrant collection '{name}' vector dimension mismatch ({clean_err}). "
+                        "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+                        is_transient=False,
+                        details={
+                            "collection": name[:256],
+                            "query_dimension": len(query_vector),
+                            "error": clean_err,
+                            "fix": "devops ai rag clear --force && devops ai rag index --force",
+                        },
+                    ) from exc
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
 
-    def _handle_dim_mismatch(self, name: str, exc: Exception, query_dim: int) -> None:
-        """Handle vector dimension mismatch by warning once and recreating collection."""
-        if name in _DIM_MISMATCH_WARNED_COLLECTIONS:
-            return
-        clean_err = str(exc).split("Raw response content:")[0].strip()
-        logger.warning(
-            "Qdrant collection '%s' vector dimension mismatch (%s). Recreating with dimension %d...",
-            name,
-            clean_err,
-            query_dim,
-        )
+    def count_points(self, name: str, filter_payload: dict[str, Any] | None = None) -> int:
+        """Count points in a collection, optionally matching filter criteria."""
+        query_filter = _build_payload_filter(filter_payload)
+
+        def _count_op(c: NativeQdrantClient) -> Any:
+            return c.count(collection_name=name, count_filter=query_filter, exact=True)
+
         try:
-            self.delete_collection(name)
-            self.ensure_collection(name, vector_size=query_dim)
-        except Exception as recreate_err:
-            logger.debug("Failed to auto-recreate collection %s: %s", name, recreate_err)
-        _DIM_MISMATCH_WARNED_COLLECTIONS.add(name)
-        self._dim_mismatch_warned.add(name)
+            res = self._execute_with_retry(_count_op, "count_points", name)
+            return int(getattr(res, "count", 0))
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if "not found" in err_str or "404" in err_str:
+                return 0
+            logger.debug("Error counting points in collection %s: %s", name, exc)
+            raise QdrantClientError(f"Count failed in '{name}': {exc}") from exc
+
+    def scroll_points(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        limit: int = 1,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Scroll points in a collection with optional filter."""
+        query_filter = _build_payload_filter(filter_payload)
+
+        def _scroll_op(c: NativeQdrantClient) -> Any:
+            return c.scroll(
+                collection_name=name,
+                scroll_filter=query_filter,
+                limit=limit,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+            )
+
+        try:
+            res = self._execute_with_retry(_scroll_op, "scroll_points", name)
+            records = res[0] if isinstance(res, tuple) else getattr(res, "points", res)
+            return [
+                {
+                    "id": getattr(r, "id", None),
+                    "payload": getattr(r, "payload", {}) or {},
+                    "vector": getattr(r, "vector", None),
+                }
+                for r in records
+            ]
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if "not found" in err_str or "404" in err_str:
+                return []
+            logger.debug("Error scrolling points in collection %s: %s", name, exc)
+            raise QdrantClientError(f"Scroll failed in '{name}': {exc}") from exc
 
     def delete_points_by_files(
         self,

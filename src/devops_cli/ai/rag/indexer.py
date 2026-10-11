@@ -16,10 +16,12 @@ from devops_cli.ai.rag.models import CodeChunk, IndexStats
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_INDEX_CACHE_FILENAME,
     CONST_RAG_INCOMPLETE_FILE_MARKER,
+    CONST_RAG_KB_PROJECT,
     CONST_RAG_SKIPPED_LOCKFILES,
 )
 from devops_cli.config.defaults import (
@@ -31,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
 )
 from devops_cli.core.repo import is_ignored_by_git
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang.en.errors import ERRORS
 from devops_cli.telemetry import record_metric, trace_span
 
@@ -180,7 +183,14 @@ def _get_single_collection_stat(
     if not info:
         return None
     cnt = int(info.get("points_count", 0))
-    size = int(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", 0))
+    params = (
+        info.get("config", {}).get("params", {}) if isinstance(info.get("config"), dict) else {}
+    )
+    vec_params = params.get("vectors", {}) if isinstance(params, dict) else {}
+    v_size = info.get("vector_size") or (
+        vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
+    )
+    size = int(v_size or 0)
     return IndexStats(
         collection_name=coll,
         total_vectors=cnt,
@@ -291,9 +301,15 @@ def _purge_obsolete_points(
                 progress_callback("Purging obsolete vectors", processed, total_files)
 
 
-def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
+def _build_chunk_point(
+    chunk: CodeChunk,
+    vector: list[float],
+    *,
+    embedding_model: str | None = None,
+    kb_digest: str | None = None,
+) -> dict[str, Any]:
     """Construct Qdrant point dictionary with vector and chunk metadata payload."""
-    payload = {
+    payload: dict[str, Any] = {
         "file_path": chunk.file_path,
         "start_line": chunk.start_line,
         "end_line": chunk.end_line,
@@ -306,7 +322,11 @@ def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
         "symbol_names": chunk.symbol_names,
         "metadata": chunk.metadata,
         "content_hash": chunk.content_hash,
+        "indexed_at": datetime.now(UTC).isoformat(),
+        "embedding_model": embedding_model or "",
     }
+    if chunk.project_name == CONST_RAG_KB_PROJECT:
+        payload["kb_digest"] = kb_digest or ""
     return {"id": chunk.id, "vector": vector, "payload": payload}
 
 
@@ -437,6 +457,124 @@ def resolve_qdrant_client(
     )
 
 
+def _extract_collection_vector_size(info: dict[str, Any]) -> int | None:
+    """Extract vector dimension integer from Qdrant collection info dict."""
+    size = info.get("vector_size")
+    if isinstance(size, int):
+        return size
+    cfg = info.get("config")
+    if isinstance(cfg, dict):
+        params = cfg.get("params")
+        if isinstance(params, dict):
+            vectors = params.get("vectors")
+            if isinstance(vectors, dict) and isinstance(vectors.get("size"), int):
+                return int(vectors["size"])
+    return None
+
+
+def _extract_embedder_dimension(embedder: Any) -> int | None:
+    """Extract or probe vector dimension integer from embedder object."""
+    if hasattr(embedder, "dimension"):
+        dim_attr = embedder.dimension
+        try:
+            dim = dim_attr() if callable(dim_attr) else dim_attr
+            if isinstance(dim, int):
+                return dim
+        except (AttributeError, TypeError, ValueError, DevOpsCLIError) as exc:
+            logger.debug("Failed probing embedder dimension: %s", exc)
+    if hasattr(embedder, "_dimension") and isinstance(embedder._dimension, int):
+        return embedder._dimension
+    return None
+
+
+def _check_collection_point_model(
+    qdrant: Any,
+    collection_name: str,
+    configured_model: str,
+) -> None:
+    """Check that existing points in the collection were embedded by the configured model."""
+    if not hasattr(qdrant, "scroll_points"):
+        return
+    sample = qdrant.scroll_points(collection_name, limit=1, with_payload=True)
+    if not isinstance(sample, list) or not sample or not isinstance(sample[0], dict):
+        return
+    payload = sample[0].get("payload")
+    if not isinstance(payload, dict):
+        return
+    point_model = payload.get("embedding_model") or "unknown"
+    if configured_model and point_model != configured_model:
+        raise EmbeddingsError(
+            f"Qdrant collection '{collection_name}' embedding model mismatch "
+            f"(collection: {point_model}, configured: {configured_model}). "
+            "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+            exit_code=CONST_EXIT_FAILURE,
+            is_transient=False,
+            details={
+                "collection": collection_name[:256],
+                "collection_model": point_model[:256],
+                "configured_model": configured_model[:256],
+                "fix": "devops ai rag clear --force && devops ai rag index --force",
+            },
+        )
+
+
+def _check_collection_dimension(
+    embedder: Any,
+    collection_name: str,
+    configured_model: str,
+    info: dict[str, Any],
+) -> None:
+    """Check that collection vector dimension matches active embedder dimension."""
+    coll_size = _extract_collection_vector_size(info)
+    model_dim = _extract_embedder_dimension(embedder)
+    if isinstance(coll_size, int) and isinstance(model_dim, int) and coll_size != model_dim:
+        raise EmbeddingsError(
+            f"Qdrant collection '{collection_name}' vector dimension mismatch "
+            f"(collection: {coll_size}, model {configured_model}: {model_dim}). "
+            "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+            exit_code=CONST_EXIT_FAILURE,
+            is_transient=False,
+            details={
+                "collection": collection_name[:256],
+                "collection_dimension": coll_size,
+                "model_dimension": model_dim,
+                "configured_model": configured_model[:256],
+                "fix": "devops ai rag clear --force && devops ai rag index --force",
+            },
+        )
+
+
+def _verify_collection_compatibility_for_indexing(
+    qdrant: Any,
+    embedder: Any,
+    collection_name: str,
+) -> None:
+    """Refuse indexing into a collection whose points or size mismatch the active embedding model."""
+    if not hasattr(qdrant, "get_collection_info"):
+        return
+    try:
+        info = qdrant.get_collection_info(collection_name)
+    except (DevOpsCLIError, OSError) as exc:
+        logger.debug("Failed getting collection info for %s: %s", collection_name, exc)
+        return
+    if not isinstance(info, dict):
+        return
+    points_count = (
+        info.get("points_count")
+        or info.get("vectors_count")
+        or info.get("indexed_vectors_count")
+        or 0
+    )
+    if not isinstance(points_count, (int, float)) or points_count <= 0:
+        return
+    raw_model = getattr(embedder, "model", getattr(embedder, "model_name", None))
+    configured_model = raw_model if isinstance(raw_model, str) else ""
+    if not configured_model:
+        return
+    _check_collection_point_model(qdrant, collection_name, configured_model)
+    _check_collection_dimension(embedder, collection_name, configured_model, info)
+
+
 class WorkspaceIndexer:
     """Discovers, chunks, embeds, and indexes workspace source code and docs into Qdrant."""
 
@@ -559,6 +697,9 @@ class WorkspaceIndexer:
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
+        for coll_name in {self.code_collection, self.docs_collection}:
+            _verify_collection_compatibility_for_indexing(self.qdrant, self.embedder, coll_name)
+
         with trace_span(
             "ai.rag.index_workspace",
             attributes={
@@ -702,6 +843,10 @@ class WorkspaceIndexer:
         base_batch = getattr(self.embedder, "batch_size", 32)
         effective_batch_size = _calc_effective_batch_size(self.embedder, base_batch)
 
+        has_kb = any(c.project_name == CONST_RAG_KB_PROJECT for c in chunks)
+        kb_digest = knowledge_base_digest() if has_kb else ""
+        embedding_model = getattr(self.embedder, "model", "")
+
         for i in range(0, total, effective_batch_size):
             batch = chunks[i : i + effective_batch_size]
             with trace_span(
@@ -733,7 +878,12 @@ class WorkspaceIndexer:
                         details=det,
                     ) from exc
                 points = [
-                    _build_chunk_point(chunk, vec)
+                    _build_chunk_point(
+                        chunk,
+                        vec,
+                        embedding_model=embedding_model,
+                        kb_digest=kb_digest,
+                    )
                     for chunk, vec in zip(batch, embeddings, strict=False)
                 ]
                 self.qdrant.upsert_points(collection_name, points)

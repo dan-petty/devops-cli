@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import socket
 from pathlib import Path
 from typing import Any
@@ -1485,3 +1486,64 @@ def test_an_exec_with_tracing_off_sends_no_environment(tmp_path: Path, docker_en
         reset_tracer()
     exec_run = client.containers.get.return_value.exec_run
     assert exec_run.call_args.kwargs["environment"] is None
+
+
+def test_resolve_sandbox_user_rootless_and_rootful(docker_engine: Any) -> None:
+    """resolve_sandbox_user maps to 0:0 for rootless engine, uid:gid for rootful, None for root flag."""
+    from devops_cli.docker.engine import DockerEngineService
+    from devops_cli.docker.sandbox import resolve_sandbox_user
+
+    mock_client_rootless = MagicMock()
+    mock_client_rootless.info.return_value = {"SecurityOptions": ["name=rootless"]}
+
+    with docker_engine(mock_client_rootless):
+        assert (
+            resolve_sandbox_user(rootless=True),
+            resolve_sandbox_user(rootless=False),
+        ) == ("0:0", None)
+
+    DockerEngineService.reset_instance()
+    mock_client_rootful = MagicMock()
+    mock_client_rootful.info.return_value = {"SecurityOptions": []}
+
+    with docker_engine(mock_client_rootful):
+        assert (
+            resolve_sandbox_user(rootless=True),
+            resolve_sandbox_user(rootless=False),
+        ) == (f"{os.getuid()}:{os.getgid()}", None)
+
+
+def test_sandbox_create_kwargs_omits_user_when_running_as_root(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """When rootless=False (--root), create kwargs omits the 'user' key."""
+    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+
+    policy = SandboxPolicy(read_only=True)
+    deploy_cfg = SandboxDeployConfig(read_only=True, policy=policy, rootless=False)
+    engine = WorkloadSandboxEngine()
+    engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
+
+    workload_cfg = WorkloadSandboxConfig(
+        command=["sleep", "1"], read_only=True, policy=policy, rootless=False
+    )
+    runner = WorkloadSandboxRunner(workload_cfg)
+    docker_kwargs = runner._build_create_kwargs(tmp_path)
+
+    assert ("user" in engine_kwargs, "user" in docker_kwargs) == (False, False)
+
+
+def test_sandbox_dry_run_details_rootless_user_note(tmp_path: Path, docker_engine: Any) -> None:
+    """build_dry_run_details includes user mapping and note on rootless engine."""
+    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+
+    workload_cfg = WorkloadSandboxConfig(
+        command=["sleep", "1"], workspace_dir=tmp_path, rootless=True
+    )
+    runner = WorkloadSandboxRunner(workload_cfg)
+    details = runner.build_dry_run_details()
+
+    assert (
+        details["user"],
+        "rootless engine runs as container root" in details.get("note", ""),
+    ) == (f"{os.getuid()}:{os.getgid()}", True)

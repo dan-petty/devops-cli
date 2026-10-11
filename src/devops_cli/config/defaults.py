@@ -88,13 +88,6 @@ DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
 DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
-DEFAULT_VLLM_URL: str = "http://localhost:8000/v1"
-DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm-48gib.llm.svc.cluster.local:8000/v1"
-DEFAULT_VLLM_MODEL: str = "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
-DEFAULT_VLLM_SERVED_MODEL_NAME: str = "qwen3-coder:30b"
-DEFAULT_VLLM_SINGLE_CLUSTER_URL: str = "http://vllm-16gib.llm.svc.cluster.local:8000/v1"
-DEFAULT_VLLM_SINGLE_MODEL: str = "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
-DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME: str = "qwen2.5-coder-14b-instruct"
 # The default Ollama tier's Service (k8s/llm/profiles/services.yaml).
 DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-16gib"
 DEFAULT_OLLAMA_CLUSTER_URL: str = (
@@ -368,6 +361,9 @@ DEFAULT_RAG_INVESTIGATION_MAX_CHARS: int = 24000
 DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS: int = 2048  # Longer lookup queries are cut
 DEFAULT_RAG_MAX_PER_FILE: int = 8
 DEFAULT_RAG_UPSERT_BATCH_SIZE: int = 64
+DEFAULT_RAG_KB_SYNC_FAILURE_COOLDOWN_SECONDS: Final[float] = (
+    1800.0  # 30-minute cooldown on KB rebuild failure
+)
 DEFAULT_QDRANT_RETRY_ATTEMPTS: int = 3
 # `qdrant.timeout`: how long each Qdrant request, a search or an indexing upsert or delete, waits
 # per attempt. 60 s is too short for a homelab Qdrant search; 300 to 600 s suits one (#975).
@@ -719,7 +715,6 @@ DEFAULT_SANDBOX_PIDS_LIMIT: int = 256
 DEFAULT_SANDBOX_NETWORK: str = "isolated"
 DEFAULT_LOG_STREAM: str = "stdout"
 DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"
-DEFAULT_CONTAINER_ENGINE: str = "docker"
 DEFAULT_OPENAPI_SCHEMA_PATH: str = "/openapi.json"
 
 # ── Kubernetes & Argo Defaults ──────────────────────────────────────────────
@@ -861,11 +856,6 @@ DEFAULT_SECURITY_STREAM_TAIL_LINES: int = 100
 DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS: int = 86400  # 24 hours
 DEFAULT_THREAT_INTEL_BATCH_SIZE: int = 25
 
-# ── Cognitive Research & Syntopical Defaults ──────────────────────────────────
-DEFAULT_RESEARCH_DIR: str = "./.data/research"
-DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS: float = 30.0
-DEFAULT_SYNTOPICAL_MAX_SOURCES: int = 20
-
 # ── Kubernetes Informer & Service Defaults ───────────────────────────────────
 DEFAULT_K8S_CACHE_TTL_SECONDS: float = 5.0
 DEFAULT_K8S_INFORMER_RESYNC_SECONDS: float = 30.0
@@ -955,3 +945,9 @@ DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
 # ── Service Mode Defaults ─────────────────────────────────────────────────────
 DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
 DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120
+
+# ── AI Research Information Foraging Defaults ────────────────────────────────
+DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20
+DEFAULT_AI_FORAGE_MIN_SCORE: Final[float] = 0.1
+DEFAULT_AI_FORAGE_MAX_COMMITS: Final[int] = 50
+DEFAULT_AI_FORAGE_FILE_READ_CAP_BYTES: Final[int] = 65536

@@ -369,7 +369,7 @@ def deployment_gpus(api_base: str, context: str | None) -> list[GpuInfo]:
 
 
 def backend_label(api_base: str) -> str:
-    """Name a deployment by its backend host's first label, e.g. `vllm` or `ollama-0`."""
+    """Name a deployment by its backend host's first label, e.g. `ollama-16gib` or `ollama-0`."""
     host = urlparse(api_base).hostname or api_base
     return host.split(".", 1)[0]
 

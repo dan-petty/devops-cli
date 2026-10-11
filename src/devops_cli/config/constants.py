@@ -33,6 +33,7 @@ CONST_SETTINGS_CACHE_SETTLE_SECONDS: Final[float] = 2.0
 CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
+CONST_AGENTS_MD_MAX_CHARS: Final[int] = 40_000
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
 CONST_UV_LOCK_FILENAME = "uv.lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
@@ -798,6 +799,13 @@ CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {
     "X": "unknown",
 }
 CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS: Final[frozenset[str]] = frozenset({"C", "R"})
+CONST_GIT_WORKTREE_PREFIX: Final[str] = "worktree "
+CONST_GIT_HEAD_PREFIX: Final[str] = "HEAD "
+CONST_GIT_BRANCH_PREFIX: Final[str] = "branch "
+CONST_GIT_LOCKED_TOKEN: Final[str] = "locked"
+CONST_GIT_PRUNABLE_TOKEN: Final[str] = "prunable"
+CONST_GIT_DETACHED_TOKEN: Final[str] = "detached"
+CONST_GIT_BARE_TOKEN: Final[str] = "bare"
 # The same, from a pull request file's `status` in the GitHub REST API (its documented enum).
 CONST_GITHUB_PR_FILE_CHANGE_TYPES: Final[dict[str, str]] = {
     "added": "added",
@@ -1708,6 +1716,14 @@ CONST_DOCKER_BUILD_CACHE_TYPES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Podman socket paths and engine discovery constants
+CONST_PODMAN_ROOTFUL_SOCKET_PATH: Final[Path] = Path("/run/podman/podman.sock")
+CONST_RUN_USER_BASE: Final[Path] = Path("/run/user")
+CONST_PODMAN_SOCKET_RELATIVE_PATH: Final[Path] = Path("podman/podman.sock")
+CONST_DOCKER_DEFAULT_UNIX_SOCKET: Final[str] = "/var/run/docker.sock"
+CONST_PODMAN_ENGINE_COMPONENT_NAME: Final[str] = "Podman Engine"
+CONST_SECURITY_OPT_ROOTLESS: Final[str] = "name=rootless"
+
 # Sensitive host configuration and credential directories forbidden from container sandbox mounts
 CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
     {
@@ -1845,6 +1861,9 @@ CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
 
 # Duration in seconds to pause RAG lookups when circuit breaker opens
 CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS: Final[float] = 60.0
+
+# Project identifier used for bundled DevOps CLI Knowledge Base chunks in Qdrant
+CONST_RAG_KB_PROJECT: Final[str] = "devops-cli-kb"
 
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
@@ -2007,7 +2026,7 @@ CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
-CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm")
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
 CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
 CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
@@ -2356,11 +2375,6 @@ CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
     ".internal",
     ".lan",
 )
-
-CONST_RESEARCH_DIR_NAME: Final[str] = "research"
-CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20
-CONST_SYNTOPICAL_MIN_RELEVANCE: Final[float] = 0.2
-CONST_SYNTOPICAL_MAX_EXCERPT_CHARS: Final[int] = 1000
 
 # ── Kubernetes Informer & Service Constants ──────────────────────────────────
 CONST_K8S_EVENT_ADDED: Final[str] = "ADDED"
@@ -2753,6 +2767,18 @@ CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
 )
 # The statuses under which a pull request adds, modifies, renames or removes the file.
 CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
+# docs/ROADMAP.md is explicitly excluded because it is a generated view.
+CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
+    "AGENTS.md",
+    "src/devops_cli/ai/tasks/*.md",
+    "src/devops_cli/ai/knowledge_base/",
+    "common_hallucinations.json",
+)
+# Taxonomy labels that classify a pull request as addressing a defect (#697).
+CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
+# Conventional commit title pattern identifying a bug fix pull request (#697).
+CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 # `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
 # when the response carries no message.
 CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
@@ -2790,10 +2816,11 @@ CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
 CONST_K8S_INGRESS_SERVICE_PATTERNS: Final[tuple[tuple[str, str, str], ...]] = (
     ("argocd.url", "argocd", "argocd"),
     ("grafana.url", "monitoring", "grafana"),
-    ("prometheus.url", "monitoring", "prometheus"),
+    ("prometheus.url", "monitoring", "prometheus-server"),
     ("open_webui.url", "llm", "chat"),
     ("qdrant.url", "llm", "qdrant"),
     ("ai.gateway_url", "llm", "ai"),
+    ("ai.gateway_url", "llm", "llm-gateway"),
 )
 # Lines held between the stream reader and the renderer. Bounded so a producer faster than
 # the terminal cannot grow it without limit; the log buffer is the retention mechanism.
@@ -3364,3 +3391,10 @@ CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "s
 # ── Review Evidence (Ruff & Mypy) ─────────────────────────────────────────────
 CONST_DEFAULT_REVIEW_ADVISORY_RULES: Final[tuple[str, ...]] = ("BLE001",)
 CONST_COMPLEXITY_SOURCE: Final[str] = "mccabe (ruff C901)"
+
+# ── AI Research Information Foraging Constants ────────────────────────────────
+CONST_FORAGE_EDGE_TYPES: Final[tuple[str, ...]] = (
+    "import",
+    "markdown_link",
+    "git_co_change",
+)

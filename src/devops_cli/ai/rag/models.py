@@ -34,8 +34,14 @@ class SearchResult(BaseModel):
 
     chunk: CodeChunk
     score: float
+    vector_score: float = 0.0
+    fused_score: float | None = None
     rerank_score: float | None = None
     rank_factors: dict[str, float] = Field(default_factory=dict)
+
+    def model_post_init(self, __context: Any) -> None:
+        if "vector_score" not in self.model_fields_set:
+            self.vector_score = self.score
 
 
 class RAGContext(BaseModel):

@@ -136,7 +136,7 @@ def write_stream(
     """Write raw text directly to standard output or standard error stream."""
     safe_text = _sanitize_output_text(text)
     cons = get_stderr_console() if stream == "stderr" else get_console()
-    cons.print(safe_text, markup=False, highlight=False, end="", soft_wrap=True)
+    cons.print(safe_text, markup=False, highlight=False, emoji=False, end="", soft_wrap=True)
     if flush:
         file_obj = getattr(cons, "file", None)
         if file_obj and hasattr(file_obj, "flush"):
@@ -250,6 +250,7 @@ def print(  # noqa: C901
             rows=rows or [],
             border_style=border_style or DEFAULT_TABLE_BORDER_STYLE,
             box_style=box_style,
+            caption=kwargs.get("caption"),
             safe=safe,
         )
         active_console.print(rendered_table)
@@ -624,6 +625,7 @@ def print_table(
     title: str | None = None,
     border_style: str | None = DEFAULT_TABLE_BORDER_STYLE,
     box_style: Any = None,
+    caption: str | None = None,
     console: Any = None,
 ) -> None:
     """Render and print a styled table to the console."""
@@ -634,6 +636,7 @@ def print_table(
         title=title,
         border_style=border_style,
         box_style=box_style,
+        caption=caption,
         console=console,
     )
 

@@ -88,7 +88,7 @@ def test_review_cli_stage_flags_propagation() -> None:
         patch("devops_cli.commands.review._make_review_clients"),
         patch(
             "devops_cli.commands.review._prepare_path_content",
-            return_value=(["diff"], "title", "", []),
+            return_value=(["diff"], "title", []),
         ),
         patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
     ):

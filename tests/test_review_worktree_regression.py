@@ -298,7 +298,6 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
         result = _run_pr_review_workflow(
             pages=["page1"],
             title="PR #42: Test",
-            agents_md="agents",
             pull=pull,
             number=42,
             head_dir=head_dir,
@@ -345,7 +344,6 @@ def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
         result = _run_pr_review_workflow(
             pages=["page1"],
             title="PR #42: Test",
-            agents_md="agents",
             pull=pull,
             number=42,
             head_dir=head_dir,

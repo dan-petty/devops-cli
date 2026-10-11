@@ -73,6 +73,9 @@ spec:
       - group: batch
         kind: Job
         name: devops-cli-*
+      - group: argoproj.io
+        kind: AppProject
+        name: default
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject

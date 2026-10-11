@@ -1,6 +1,6 @@
 """LLM serving and GPU metrics in Prometheus (#546).
 
-Prometheus scraped no vLLM, gateway or GPU metric, so #545's imbalance was found by exec-ing
+Prometheus scraped no gateway or GPU metric, so #545's imbalance was found by exec-ing
 `nvidia-smi` in each pod, and `llm-stack.json` queried `http_requests_total`, which nothing in
 the stack exposes. That dashboard's queries are checked against captures of the exporters in
 `tests/test_stack_dashboards.py`.
@@ -70,23 +70,7 @@ def test_monitoring_scrapes_the_gateway() -> None:
 
 
 def test_network_policies_let_prometheus_reach_the_metrics_ports() -> None:
-    """Verify the vLLM servers admit the monitoring namespace, and Prometheus may leave for the
-    vLLM and gateway ports."""
-
-    def admits_monitoring(path: Path) -> bool:
-        (policy,) = _yaml_docs(path)
-        return any(
-            any(
-                src.get("namespaceSelector", {})
-                .get("matchLabels", {})
-                .get("kubernetes.io/metadata.name")
-                == "monitoring"
-                for src in rule.get("from", [])
-            )
-            and 8000 in {p["port"] for p in rule.get("ports", [])}
-            for rule in policy["spec"]["ingress"]
-        )
-
+    """Verify Prometheus may leave for the gateway metrics port."""
     (monitoring,) = _yaml_docs(K8S / "monitoring/networkpolicy.yaml")
     to_llm = {
         port["port"]
@@ -99,10 +83,7 @@ def test_network_policies_let_prometheus_reach_the_metrics_ports() -> None:
         for port in rule.get("ports", [])
     }
 
-    assert (
-        admits_monitoring(K8S / "llm/profiles/networkpolicy.yaml"),
-        {8000, 4000} <= to_llm,
-    ) == (True, True)
+    assert 4000 in to_llm
 
 
 def test_the_gateway_serves_its_prometheus_metrics() -> None:
@@ -139,21 +120,15 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
 
 
 def _fake_prometheus(expr: str) -> list[tuple[dict[str, str], float]]:
-    """Answers shaped like Prometheus's for a pool of one vLLM server and one Ollama node."""
-    vllm = "http://vllm.llm.svc.cluster.local:8000/v1"
-    ollama = "http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434/v1"
+    """Answers shaped like Prometheus's for a pool of two Ollama nodes."""
+    ollama_0 = "http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434/v1"
+    ollama_1 = "http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434/v1"
     if "litellm_deployment_total_requests_total[" in expr:
-        return [({"api_base": vllm}, 120.0), ({"api_base": ollama}, 30.0)]
+        return [({"api_base": ollama_1}, 120.0), ({"api_base": ollama_0}, 30.0)]
     if "litellm_deployment_failure_responses_total" in expr:
-        return [({"api_base": ollama}, 2.0)]
+        return [({"api_base": ollama_0}, 2.0)]
     if "litellm_llm_api_latency_metric_sum" in expr:
-        return [({"api_base": vllm}, 1.8), ({"api_base": ollama}, 0.4)]
-    if "> bool 0" in expr:
-        return [({"job": "vllm"}, 0.9)]
-    if "avg_over_time(sum by (job) (vllm:num_requests_waiting)" in expr:
-        return [({"job": "vllm"}, 0.5)]
-    if "max_over_time(sum by (job) (vllm:num_requests_waiting)" in expr:
-        return [({"job": "vllm"}, 3.0)]
+        return [({"api_base": ollama_1}, 1.8), ({"api_base": ollama_0}, 0.4)]
     gpu = {"Hostname": "gpu-node", "gpu": "0", "modelName": "RTX 3090"}
     if "DCGM_FI_DEV_GPU_UTIL" in expr:
         return [(gpu, 71.0)]
@@ -162,19 +137,15 @@ def _fake_prometheus(expr: str) -> list[tuple[dict[str, str], float]]:
     return []
 
 
-def test_pool_load_joins_gateway_and_vllm_views_of_each_backend() -> None:
-    """Verify a vLLM server's gateway and engine figures land on one row, and an Ollama node,
-    which exports nothing, has the gateway's figures only."""
+def test_pool_load_reports_views_of_each_backend() -> None:
+    """Verify each backend's gateway figures land on their respective rows."""
     load = pool_load(_fake_prometheus, "1h")
 
     assert (
-        [
-            (b.backend, b.requests, b.failures, b.mean_in_flight, b.busy_share, b.max_waiting)
-            for b in load.backends
-        ],
+        [(b.backend, b.requests, b.failures, b.mean_in_flight) for b in load.backends],
         [(g.host, g.mean_utilisation, g.peak_memory_mib) for g in load.gpus],
     ) == (
-        [("ollama-0", 30.0, 2.0, 0.4, None, None), ("vllm", 120.0, 0.0, 1.8, 0.9, 3.0)],
+        [("ollama-0", 30.0, 2.0, 0.4), ("ollama-1", 120.0, 0.0, 1.8)],
         [("gpu-node", 71.0, 20480.0)],
     )
 
@@ -212,19 +183,19 @@ def test_load_reports_the_pool_as_json(monkeypatch: pytest.MonkeyPatch) -> None:
         report["window"],
         [b["backend"] for b in report["backends"]],
         len(report["gpus"]),
-    ) == (0, "2h", ["ollama-0", "vllm"], 1)
+    ) == (0, "2h", ["ollama-0", "ollama-1"], 1)
 
 
 def test_load_table_and_an_empty_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the table shows busy shares, and a Prometheus without the pool's metrics is named
-    rather than shown as idle."""
+    """Verify the table shows GPU and backend figures, and a Prometheus without the pool's
+    metrics is named rather than shown as idle."""
     _with_prometheus(monkeypatch, _fake_prometheus)
     table = cli.invoke(app, ["ai", "gateway", "load"])
     monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout: lambda expr: [])
     empty = cli.invoke(app, ["ai", "gateway", "load"])
 
     assert (
-        (table.exit_code, "90%" in table.output, "gpu-node" in table.output),
+        (table.exit_code, "71%" in table.output, "gpu-node" in table.output),
         (empty.exit_code, "No LLM pool or GPU metrics" in empty.output),
     ) == ((0, True, True), (0, True))
 

@@ -24,6 +24,7 @@ from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
+from devops_cli.commands.ai_research import app as research_app
 from devops_cli.commands.ai_runs import announce_run
 from devops_cli.commands.ai_runs import app as runs_app
 from devops_cli.commands.analyze import app as analyze_app
@@ -140,6 +141,11 @@ app.add_typer(
     name="spend",
     help="Alias for 'cost' command.",
 )
+app.add_typer(
+    research_app,
+    name="research",
+    help=HELP.ai.research,
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -167,7 +173,7 @@ def ai_main(
 # =============================================================================
 
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
-_AI_TASKS = ("chat", "metadata", "analysis", "compose", "embedding")
+_AI_TASKS = ("chat", "metadata", "analysis", "embedding")
 
 _AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
@@ -198,6 +204,11 @@ def _try_retrieve_rag_context(
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
         from devops_cli.ai.rag.investigator import investigate_rag_context
+        from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
+        from devops_cli.commands.rag import _get_rag_components
+
+        qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+        ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
 
         ctx = investigate_rag_context(
             query,

@@ -83,11 +83,28 @@ def _run_dive_export(dive_bin: str, image_name: str, timeout: float) -> DiveAnal
     print it, so it is masked before it is cut.
     """
     failed = DiveAnalysisResult(image_name=image_name, status="failed")
+    from devops_cli.docker.engine import get_engine
+    from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerError
+
+    sub_env: dict[str, str] = {}
+    try:
+        endpoint = get_engine().resolve_host()
+        if endpoint.source != "DOCKER_HOST":
+            sub_env["DOCKER_HOST"] = endpoint.raw
+    except (DockerDaemonUnavailableError, DockerError) as exc:
+        logger.debug("Failed resolving docker host for dive: %s", exc)
+        return failed.model_copy(
+            update={"reason": masked_reason(f"docker host resolution failed: {exc}")}
+        )
+
     with tempfile.TemporaryDirectory(prefix="devops-dive-") as export_dir:
         export_path = Path(export_dir) / "dive-export.json"
         try:
             proc = run_subprocess(
-                [dive_bin, image_name, "--json", str(export_path)], timeout=timeout, check=False
+                [dive_bin, image_name, "--json", str(export_path)],
+                timeout=timeout,
+                check=False,
+                env=sub_env or None,
             )
             if proc.returncode != 0:
                 detail = (proc.stderr or proc.stdout or "").strip()

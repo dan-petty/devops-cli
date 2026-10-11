@@ -74,26 +74,6 @@ def _render_routes_table(routes: list[GatewayRoute]) -> None:
     print_table(columns=headers, rows=rows, title="LLM Gateway Virtual Model Routes")
 
 
-def _render_scale_table(outcome: dict[str, Any]) -> None:
-    """Render scale parameters for inference backend."""
-    print_section("vLLM Inference Scaling Configuration")
-    rows = [
-        ["Model", str(outcome.get("model", ""))],
-        ["Replicas", str(outcome.get("replicas", 1))],
-        ["Total VRAM (GB)", str(outcome.get("total_vram_gb", 0))],
-        ["Serving Status", str(outcome.get("status", ""))],
-    ]
-    if "tensor_parallel_size" in outcome:
-        rows.insert(2, ["Tensor Parallel Size", str(outcome["tensor_parallel_size"])])
-    if "max_model_len" in outcome:
-        rows.insert(3, ["Max Model Length", str(outcome["max_model_len"])])
-    print_table(
-        columns=["Property", "Configured Value"],
-        rows=rows,
-        title="vLLM Scale Parameters",
-    )
-
-
 @app.command("status")
 def status_cmd(
     gateway_url: Annotated[
@@ -289,50 +269,11 @@ def failover_cmd(
     print_success(f"Failover status: {outcome['status']}")
 
 
-@app.command("scale")
-def scale_cmd(
-    replicas: Annotated[
-        int | None,
-        typer.Option("--replicas", "-r", help="Replica count for backend deployment."),
-    ] = None,
-    tensor_parallel_size: Annotated[
-        int | None,
-        typer.Option(
-            "--tensor-parallel-size", "-tp", help="Tensor Parallelism degree for vLLM (e.g. 2)."
-        ),
-    ] = None,
-    apply: Annotated[
-        bool,
-        typer.Option(
-            "--apply/--no-apply",
-            help="Apply replica scale mutation to Kubernetes deployment via kubectl.",
-        ),
-    ] = False,
-    output_format: Annotated[
-        str,
-        typer.Option("--format", "-f", help="Output format: table or json."),
-    ] = "table",
-) -> None:
-    """Inspect or scale vLLM inference backend serving configuration."""
-    settings = load_settings()
-    router = GatewayRouter(settings.ai)
-    outcome = router.scale_vllm(
-        replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
-    )
-
-    resolved = normalize_format(output_format)
-    if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        emit_serialized(outcome, resolved)
-        return
-
-    _render_scale_table(outcome)
-
-
 @app.command("probe-backend")
 def probe_backend_cmd(
     backend: Annotated[
         str,
-        typer.Argument(help="Backend to probe: vllm or ollama."),
+        typer.Argument(help="Backend to probe (e.g. ollama)."),
     ],
     backend_url: Annotated[
         str | None,
@@ -554,10 +495,6 @@ def tune_cmd(
     announce_run(saved, to_stderr=not as_table)
 
 
-def _share(value: float | None) -> str:
-    return "—" if value is None else f"{value:.0%}"
-
-
 def _render_pool_load(load: PoolLoad) -> None:
     """Show each backend's and GPU's load, busiest first."""
     print_section(f" LLM Pool Load, Last {load.window} ", style="bold cyan")
@@ -569,8 +506,6 @@ def _render_pool_load(load: PoolLoad) -> None:
             ("Requests", "right"),
             ("Failures", "right"),
             ("Mean in Flight", "right"),
-            ("Busy (vLLM)", "right"),
-            ("Queue Mean / Max (vLLM)", "right"),
         ],
         rows=[
             [
@@ -578,10 +513,6 @@ def _render_pool_load(load: PoolLoad) -> None:
                 f"{b.requests:.0f}",
                 f"{b.failures:.0f}",
                 f"{b.mean_in_flight:.2f}",
-                _share(b.busy_share),
-                "—"
-                if b.mean_waiting is None
-                else f"{b.mean_waiting:.1f} / {b.max_waiting or 0:.0f}",
             ]
             for b in backends
         ],
@@ -616,8 +547,7 @@ def load_cmd(
 ) -> None:
     """Report how busy each LLM backend and GPU was over a window, from Prometheus.
 
-    Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
-    Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+    Mean in flight is the gateway's call seconds per second on each deployment.
     """
     settings = load_settings()
     if not settings.prometheus.url:
@@ -640,7 +570,7 @@ def load_cmd(
     if not load.backends and not load.gpus:
         print_warning(
             f"No LLM pool or GPU metrics in Prometheus over the last {window}; check that the "
-            "gateway, vLLM and DCGM exporter monitors are applied (k8s/monitoring)."
+            "gateway and DCGM exporter monitors are applied (k8s/monitoring)."
         )
         return
     _render_pool_load(load)

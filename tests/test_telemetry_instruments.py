@@ -368,7 +368,7 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
             provider="gateway",
             model="gpt-4o",
             server="gateway.example:4000",
-            served_by="http://vllm.llm.svc.cluster.local:8000/v1",
+            served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
             prompt_tokens=1000,
             completion_tokens=200,
             cached=cached,
@@ -384,9 +384,9 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
         sorted({(a["type"], v) for a, v in tokens}),
         (len(spend), spend[0][1] > 0, spend[0][0]["backend"]),
     ) == (
-        [("vllm", "false", 1.0), ("vllm", "true", 1.0)],
+        [("ollama-16gib", "false", 1.0), ("ollama-16gib", "true", 1.0)],
         [("completion", 200.0), ("prompt", 1000.0)],
-        (1, True, "vllm"),
+        (1, True, "ollama-16gib"),
     )
 
 
@@ -484,7 +484,7 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
     """Verify findings are counted once per persona, severity and status, and failed personas
     contribute none."""
     persona = PersonaDefinition(
-        name="devsecops", title="DevSecOps", system_prompt="", chat_prompt="", compose_prompt=""
+        name="devsecops", title="DevSecOps", system_prompt="", chat_prompt=""
     )
     findings = [
         Finding(severity="high", title="a", location="x:1", status="VERIFIED"),
@@ -526,7 +526,7 @@ def test_the_collector_adds_up_deltas_before_prometheus() -> None:
 @pytest.mark.parametrize(
     ("served_by", "name"),
     [
-        ("http://vllm.llm.svc.cluster.local:8000/v1", "vllm"),
+        ("http://ollama-16gib.llm.svc.cluster.local:11434", "ollama-16gib"),
         ("ollama-0.ollama:11434", "ollama-0"),
         (None, ""),
     ],

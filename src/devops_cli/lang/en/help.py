@@ -240,6 +240,14 @@ class AICommandHelp:
     )
     read_lines: str = "Line range for Level 2 focal window (e.g. '40:80')."
     read_symbol: str = "Target symbol name to inspect or focus on."
+    research: str = "Epistemic research, information foraging, and relational codebase exploration."
+    research_forage: str = (
+        "Forage relational information trails across codebases using semantic scent."
+    )
+    forage_anchor: str = "Starting anchor file path or keyword."
+    forage_query: str = "Inquiry text for calculating semantic information scent."
+    forage_max_nodes: str = "Maximum number of nodes to visit along the trail."
+    forage_min_score: str = "Minimum relevance scent threshold before backtracking."
 
 
 @dataclass(frozen=True)
@@ -461,6 +469,12 @@ class ReposCommandHelp:
     sync: str = "Synchronize all cloned repositories with their remotes."
     org_name: str = "GitHub organisation name."
     repo_url: str = "Repository URL (SSH or HTTPS)."
+    worktrees_app: str = "Worktree inventory, status inspection, and safe orphan reclamation."
+    worktrees_status: str = "List every worktree with commits ahead of main, dirty-path count, contained status, and flags."
+    worktrees_prune: str = "Safely prune orphan git worktrees, dry-run by default."
+    worktrees_force: str = "Remove entries regardless of clean or contained status."
+    worktrees_json: str = "Emit output as JSON."
+    worktrees_repo_dir: str = "Repository root directory."
 
 
 @dataclass(frozen=True)
@@ -836,6 +850,13 @@ class PRCommandHelp:
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )
     update_dispatch_ci: str = "Dispatch the ci.yml workflow on the head branch after updating."
+    hardening_report: str = (
+        "Audit merged defect pull requests for guardrail additions to declared hardening surfaces."
+    )
+    hardening_report_pr: str = "Audit a specific pull request by number."
+    hardening_report_fail_on_missing: str = (
+        "Exit with non-zero exit code if hardening is missing on any audited defect pull request."
+    )
 
 
 @dataclass(frozen=True)

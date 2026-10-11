@@ -21,7 +21,7 @@ from tests.llm_stream_fakes import route_llm_clients
 runner = CliRunner()
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
-VLLM = "http://vllm.example.com:8000/v1"
+REMOTE = "http://remote.example.com:8000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
 SERVED_BY_HEADER = "x-litellm-model-api-base"
 
@@ -83,7 +83,7 @@ class TestLedger:
     def test_requests_are_grouped_by_serving_backend(self, tmp_path: Path) -> None:
         """Verify the report breaks gateway calls down by backend, with tokens per request."""
         ledger = SpendLedger(db_path=tmp_path / "spend.db")
-        for served_by, completion in ((VLLM, 100), (VLLM, 300), (OLLAMA, 50), (None, 10)):
+        for served_by, completion in ((REMOTE, 100), (REMOTE, 300), (OLLAMA, 50), (None, 10)):
             _record(ledger, served_by, completion)
 
         report = ledger.get_lifetime_report()
@@ -92,7 +92,7 @@ class TestLedger:
             (b.served_by, b.request_count, b.completion_tokens_per_request, b.models)
             for b in report.backends
         ] == [
-            (VLLM, 2, 200.0, ["devops-review"]),
+            (REMOTE, 2, 200.0, ["devops-review"]),
             (OLLAMA, 1, 50.0, ["devops-review"]),
         ]
 
@@ -106,13 +106,13 @@ class TestLedger:
                 "VALUES ('2026-09-01T00:00:00+00:00', 'ollama', 'local', 'qwen')"
             )
 
-        _record(SpendLedger(db_path=db_path), VLLM, 100)
+        _record(SpendLedger(db_path=db_path), REMOTE, 100)
 
         with sqlite3.connect(db_path) as conn:
             rows = conn.execute(
                 "SELECT model, served_by FROM ai_spend_records ORDER BY id"
             ).fetchall()
-        assert rows == [("qwen", None), ("devops-review", VLLM)]
+        assert rows == [("qwen", None), ("devops-review", REMOTE)]
 
 
 class TestClient:
@@ -125,12 +125,12 @@ class TestClient:
         body = {"choices": [{"message": {"content": "OK"}}], "usage": {"completion_tokens": 1}}
         route_llm_clients(
             monkeypatch,
-            lambda request: httpx2.Response(200, json=body, headers={SERVED_BY_HEADER: VLLM}),
+            lambda request: httpx2.Response(200, json=body, headers={SERVED_BY_HEADER: REMOTE}),
         )
 
         reply = _gateway_client().chat("You are terse.", "Reply with OK.", use_cache=False)
 
-        assert (reply.served_by, [c.get("served_by") for c in spend]) == (VLLM, [VLLM])
+        assert (reply.served_by, [c.get("served_by") for c in spend]) == (REMOTE, [REMOTE])
 
     def test_response_without_the_header_has_no_serving_backend(
         self, monkeypatch: pytest.MonkeyPatch
@@ -175,7 +175,7 @@ def test_cost_command_breaks_spend_down_by_backend(
 ) -> None:
     """Verify `devops ai cost report --by backend` lists each serving backend."""
     ledger = SpendLedger(db_path=tmp_path / "spend.db")
-    _record(ledger, VLLM, 100)
+    _record(ledger, REMOTE, 100)
     _record(ledger, OLLAMA, 40)
     monkeypatch.setattr("devops_cli.commands.ai_cost.get_spend_ledger", lambda: ledger)
 
@@ -184,7 +184,7 @@ def test_cost_command_breaks_spend_down_by_backend(
 
     assert (
         table.exit_code,
-        "vllm.example.com:8000" in table.output,
+        "remote.example.com:8000" in table.output,
         "ollama-0.example.com:11434" in table.output,
         [b["served_by"] for b in json.loads(as_json.output)["backends"]],
-    ) == (0, True, True, [VLLM, OLLAMA])
+    ) == (0, True, True, [REMOTE, OLLAMA])

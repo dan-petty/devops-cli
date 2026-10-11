@@ -10,6 +10,7 @@ from devops_cli.ai.instruction_generator import (
     parse_project_metadata,
 )
 from devops_cli.ai.personas import Persona
+from devops_cli.config.constants import CONST_AGENTS_MD_MAX_CHARS
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,3 +86,11 @@ def test_instruction_stubs_byte_equal_to_generator() -> None:
         expected = generate_instruction_content(target, meta)
         actual = (_REPO_ROOT / target).read_text(encoding="utf-8")
         assert actual == expected, f"{target} differs from generator output"
+
+
+def test_agents_md_stays_within_character_budget() -> None:
+    """AGENTS.md must fit within the context budget constant, which cannot exceed 40,000 chars."""
+    assert (
+        CONST_AGENTS_MD_MAX_CHARS <= 40_000,
+        len((_REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
+    ) == (True, True)

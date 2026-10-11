@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,9 +12,8 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.networking import _collect_port_forward_services
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
-from tests.k8s_manifests import kustomized_objects
+from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
+from tests.k8s_manifests import kustomized_objects, manifest_objects
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
@@ -367,28 +365,78 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
     )
 
 
-def test_deploy_stack_applies_the_monitoring_services_the_stack_addresses() -> None:
-    """deploy-stack applies the root kustomization (`kubectl apply -k k8s/`) for every stack. No
-    chart creates the `prometheus` Service that Alloy writes to and Grafana queries, or the Services
-    `devops k8s port-forward` targets, so the root kustomization must apply them (#912)."""
+# Services declared in plain manifests that sit in a namespace where a Helm release installs.
+# Each entry maps (namespace, name) to (manifest_path, owner).
+EXEMPT_PLAIN_SERVICES: dict[tuple[str, str], tuple[str, str]] = {
+    ("otel", "jaeger"): ("k8s/otel/jaeger.yaml", "otel stack manifest"),
+    ("llm", "valkey"): ("k8s/llm/valkey.yaml", "llm stack valkey manifest"),
+    ("llm", "llm-gateway"): ("k8s/llm/gateway/service.yaml", "llm stack gateway manifest"),
+    **{
+        ("llm", f"ollama-{name}"): ("k8s/llm/profiles/services.yaml", "llm stack ollama profile")
+        for name in (
+            "16gib",
+            "24gib",
+            "32gib",
+            "48gib",
+            "64gib",
+            "72gib",
+            "96gib",
+            "128gib",
+            "fast",
+            "standard",
+            "slow",
+            "48gib-fast",
+            "48gib-slow",
+            "64gib-standard",
+            "16gib-fast",
+            "24gib-slow",
+        )
+    },
+}
+
+
+def test_no_plain_service_sits_in_a_helm_namespace_without_owned_exemption() -> None:
+    """No Service in the kustomize base, or in any plain manifest that deploy-stack applies,
+    sits in a namespace that a release in _HELM_RELEASES_BY_STACK installs into, unless an
+    exemption names its owner (#1104). The test renders no chart and keeps no hand-written
+    list of chart Service names.
+    """
+    helm_namespaces = {
+        r["namespace"] for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
+    }
+    base_services = kustomized_objects(K8S_DIR, "Service")
+    manifest_services = {
+        svc
+        for manifests in _MANIFESTS_BY_STACK.values()
+        for m in manifests
+        for svc in manifest_objects(REPO_ROOT / m, "Service")
+    }
+    colliding = {svc for svc in (base_services | manifest_services) if svc[0] in helm_namespaces}
+    exempted = set(EXEMPT_PLAIN_SERVICES)
+
+    assert (
+        sorted(colliding - exempted),
+        sorted(exempted - colliding),
+        sorted(
+            svc
+            for svc, (path, _owner) in EXEMPT_PLAIN_SERVICES.items()
+            if svc not in manifest_objects(REPO_ROOT / path, "Service")
+        ),
+    ) == ([], [], [])
+
+
+def test_monitoring_destinations_point_at_prometheus_server_service() -> None:
+    """Alloy localPrometheus and Grafana datasource point at prometheus-server (#1104)."""
     with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
         alloy_url = yaml.safe_load(f)["destinations"]["localPrometheus"]["url"]
     with open(K8S_DIR / "monitoring" / "grafana-values.yaml", encoding="utf-8") as f:
         datasources = yaml.safe_load(f)["datasources"]["datasources.yaml"]["datasources"]
     grafana_url = next(d["url"] for d in datasources if d["type"] == "prometheus")
 
-    addressed = {
-        tuple(reversed(str(urlsplit(url).hostname).split(".")[:2]))
-        for url in (alloy_url, grafana_url)
-    }
-    addressed |= {
-        (namespace, service.removeprefix("svc/"))
-        for namespace, service, _, _ in _collect_port_forward_services(["infra"], defaultdict(int))
-        if namespace == "monitoring"
-    }
-
-    helm_services = {(r["namespace"], r["name"]) for r in _HELM_RELEASES_BY_STACK.get("infra", [])}
-    assert sorted(addressed - kustomized_objects(K8S_DIR, "Service") - helm_services) == []
+    assert (alloy_url, grafana_url) == (
+        "http://prometheus-server.monitoring.svc.cluster.local:9090/api/v1/write",
+        "http://prometheus-server.monitoring.svc.cluster.local:9090",
+    )
 
 
 def test_dcgm_exporter_is_scraped_by_the_integration_and_holds_sys_admin() -> None:

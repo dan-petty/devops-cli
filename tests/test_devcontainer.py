@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -291,6 +291,36 @@ class TestDevcontainerCli:
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
+
+    def test_wait_for_docker_daemon_polls_engine_ping(self) -> None:
+        """_wait_for_docker_daemon polls get_engine().ping() without subprocess calls."""
+        from devops_cli.commands.devcontainer import _wait_for_docker_daemon
+
+        mock_engine = MagicMock()
+        mock_engine.ping.return_value = True
+
+        with (
+            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
+            patch("subprocess.run") as mock_subproc,
+        ):
+            result = _wait_for_docker_daemon(timeout_seconds=5)
+
+        assert (result, mock_engine.ping.called, mock_subproc.called) == (True, True, False)
+
+    def test_wait_for_docker_daemon_timeout(self) -> None:
+        """_wait_for_docker_daemon returns False when ping keeps failing."""
+        from devops_cli.commands.devcontainer import _wait_for_docker_daemon
+
+        mock_engine = MagicMock()
+        mock_engine.ping.return_value = False
+
+        with (
+            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
+            patch("time.sleep"),
+        ):
+            result = _wait_for_docker_daemon(timeout_seconds=0)
+
+        assert result is False
 
     def test_post_start_mcp_scaffolding_and_sync(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2006,6 +2036,67 @@ def test_auto_deploy_passes_the_stack_as_an_option_and_names_the_unlock_on_failu
     ) == (
         ["devops", "k8s", "deploy-stack", "--stack", "infra"],
         "Auto-deployed Kubernetes stack 'infra'",
+        True,
+        True,
+    )
+
+
+def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None:
+    """Verify .devcontainer/devcontainer.json ollama.endpoint addresses a valid profiles Service
+    and port that the LLM gateway routes ollama.model to (#820)."""
+    from urllib.parse import urlsplit
+
+    import yaml
+
+    repo_root = Path(__file__).resolve().parents[1]
+    dc_path = repo_root / ".devcontainer" / "devcontainer.json"
+    dc_data = json.loads(dc_path.read_text(encoding="utf-8"))
+    vscode_settings = dc_data["customizations"]["vscode"]["settings"]
+
+    endpoint = vscode_settings["ollama.endpoint"]
+    model = vscode_settings["ollama.model"]
+
+    parsed = urlsplit(endpoint)
+    svc_name = (parsed.hostname or "").split(".")[0]
+    svc_port = parsed.port
+
+    services_path = repo_root / "k8s" / "llm" / "profiles" / "services.yaml"
+    services_docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
+    services = {
+        doc["metadata"]["name"]: [p["port"] for p in doc["spec"]["ports"]]
+        for doc in services_docs
+        if doc and doc.get("kind") == "Service"
+    }
+
+    gateway_cm_path = repo_root / "k8s" / "llm" / "gateway" / "configmap.yaml"
+    gateway_cm_docs = list(yaml.safe_load_all(gateway_cm_path.read_text(encoding="utf-8")))
+    gateway_cfg = yaml.safe_load(gateway_cm_docs[0]["data"]["config.yaml"])
+
+    target_routes = [
+        item
+        for item in gateway_cfg.get("model_list", [])
+        if item.get("model_name") == model
+        or item.get("litellm_params", {}).get("model", "").endswith(model)
+    ]
+    routed_api_base = target_routes[0]["litellm_params"]["api_base"]
+    routed_svc = (urlsplit(routed_api_base).hostname or "").split(".")[0]
+
+    assert (
+        endpoint,
+        model,
+        svc_name,
+        svc_port,
+        svc_name in services,
+        svc_port in services.get(svc_name, []),
+        routed_svc in services,
+        routed_svc.startswith(svc_name),
+    ) == (
+        "http://ollama-16gib.llm.svc.cluster.local:11434",
+        "gpt-oss:20b",
+        "ollama-16gib",
+        11434,
+        True,
+        True,
         True,
         True,
     )

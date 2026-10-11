@@ -67,6 +67,16 @@ def register_test_mock_provider():
     register_provider("mock", MockProvider)
 
 
+@pytest.fixture(autouse=True)
+def reset_rag_verified_models_per_test() -> Iterator[None]:
+    """Ensure every unit test starts and ends with clean RAG verified collection models."""
+    from devops_cli.ai.rag.retriever import reset_search_verified_models
+
+    reset_search_verified_models()
+    yield
+    reset_search_verified_models()
+
+
 def _is_loopback(host: str) -> bool:
     """Report whether a connect or lookup names the loopback interface."""
     if host == "localhost":
@@ -878,11 +888,19 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.docker.engine import DockerEngineService
 
+    monkeypatch.delenv("CONTAINER_HOST", raising=False)
+    monkeypatch.delenv("CONTAINER_CONNECTION", raising=False)
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
     monkeypatch.delenv("DOCKER_TLS_VERIFY", raising=False)
     monkeypatch.delenv("DOCKER_CERT_PATH", raising=False)
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+
+    fake_run_user = tmp_path / "run_user"
+    fake_rootful = tmp_path / "run_podman" / "podman.sock"
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(fake_run_user))
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_RUN_USER_BASE", fake_run_user)
+    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", fake_rootful)
 
     endpoint_config = tmp_path / "devops_endpoint_config.yaml"
     endpoint_config.write_text(
@@ -922,6 +940,8 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     write_context.tmp_path = tmp_path  # type: ignore[attr-defined]
     write_context.config_file = config_file  # type: ignore[attr-defined]
     write_context.write_context = write_context  # type: ignore[attr-defined]
+    write_context.run_user_base = fake_run_user  # type: ignore[attr-defined]
+    write_context.rootful_socket = fake_rootful  # type: ignore[attr-defined]
     yield write_context
     DockerEngineService.reset_instance()
     reset_settings_cache()

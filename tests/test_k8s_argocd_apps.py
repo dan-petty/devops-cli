@@ -197,13 +197,18 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     for secret in CLUSTER_SECRETS:
         assert ("", "Secret", secret.name) in ignored_tuples
 
-    # deploy-stack applies it from config.yaml, so no Application owns it (#1290)
-    assert ("", "ConfigMap", "devops-cli-config") in ignored_tuples
-    assert ("", "Secret", "argocd-initial-admin-secret") in ignored_tuples
-    assert ("", "Secret", "argocd-redis") in ignored_tuples
-    assert ("", "Secret", "sh.helm.release.v1.*") in ignored_tuples
-    assert ("", "PersistentVolumeClaim", "") in ignored_tuples
-    assert ("batch", "Job", "devops-cli-*") in ignored_tuples
+    # deploy-stack applies it from config.yaml, so no Application owns it (#1290).
+    # default AppProject is created by Argo CD itself, so no Application tracks it (#1104).
+    expected_ignored = {
+        ("", "ConfigMap", "devops-cli-config"),
+        ("", "Secret", "argocd-initial-admin-secret"),
+        ("", "Secret", "argocd-redis"),
+        ("", "Secret", "sh.helm.release.v1.*"),
+        ("", "PersistentVolumeClaim", ""),
+        ("batch", "Job", "devops-cli-*"),
+        ("argoproj.io", "AppProject", "default"),
+    }
+    assert expected_ignored.issubset(ignored_tuples)
 
 
 # ── Ownership & No Duplicates ────────────────────────────────────────────────

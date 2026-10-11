@@ -141,6 +141,44 @@ devops repos sync [OPTIONS]
 | `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops repos worktrees`
+
+```bash
+devops repos worktrees COMMAND [ARGS]...
+```
+
+#### `devops repos worktrees status`
+
+**List every worktree with commits ahead of main, dirty-path count, contained status, and flags.**
+
+```bash
+devops repos worktrees status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--json` | `boolean` | - | Emit output as JSON. |
+
+#### `devops repos worktrees prune`
+
+**Safely prune orphan git worktrees, dry-run by default.**
+
+```bash
+devops repos worktrees prune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--force`, `-f` | `boolean` | - | Remove entries regardless of clean or contained status. |
+| `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Emit output as JSON. |
+
 ---
 
 ## devops ssh
@@ -4515,23 +4553,6 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
-#### `devops ai gateway scale`
-
-**Inspect or scale vLLM inference backend serving configuration.**
-
-```bash
-devops ai gateway scale [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
-| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
-| `--format`, `-f` | `string` | `table` | Output format: table or json. |
-
 #### `devops ai gateway probe-backend`
 
 **Directly probe health and latency of an inference backend.**
@@ -4544,7 +4565,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<backend>` | `string` | Yes | Backend to probe: vllm or ollama. |
+| `<backend>` | `string` | Yes | Backend to probe (e.g. ollama). |
 
 **Options:**
 
@@ -4589,8 +4610,7 @@ devops ai gateway tune [OPTIONS]
 
 Report how busy each LLM backend and GPU was over a window, from Prometheus.
 
-Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
-Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+Mean in flight is the gateway's call seconds per second on each deployment.
 
 ```bash
 devops ai gateway load [OPTIONS]
@@ -4859,11 +4879,16 @@ devops ai cost update-pricing [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
 
 #### `devops ai cost list-pricing`
 
 **List active token pricing rates per model and backend server.**
+
+List active token pricing rates per model and backend server.
+
+Rates are base-tier rates for a small call at the current time; each call is priced from its own usage and request time.
 
 ```bash
 devops ai cost list-pricing [OPTIONS]
@@ -4984,11 +5009,16 @@ devops ai spend update-pricing [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--reset` | `boolean` | - | Reset custom pricing snapshot and restore bundled catalog. |
 | `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
 
 #### `devops ai spend list-pricing`
 
 **List active token pricing rates per model and backend server.**
+
+List active token pricing rates per model and backend server.
+
+Rates are base-tier rates for a small call at the current time; each call is priced from its own usage and request time.
 
 ```bash
 devops ai spend list-pricing [OPTIONS]
@@ -5031,6 +5061,39 @@ devops ai spend reset [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+
+### `devops ai research`
+
+**Epistemic research, information foraging, and relational codebase exploration.**
+
+```bash
+devops ai research COMMAND [ARGS]...
+```
+
+#### `devops ai research forage`
+
+**Forage relational information trails across codebases using semantic scent.**
+
+```bash
+devops ai research forage [OPTIONS] <anchor>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<anchor>` | `string` | Yes | Starting anchor file path or keyword. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | `` | Inquiry text for calculating semantic information scent. |
+| `--max-nodes`, `-n` | `integer` | `20` | Maximum number of nodes to visit along the trail. |
+| `--min-score`, `-s` | `float` | `0.1` | Minimum relevance scent threshold before backtracking. |
+| `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -6241,6 +6304,24 @@ devops pr update [OPTIONS] <number>
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops pr hardening-report`
+
+**Audit merged defect pull requests for guardrail additions to declared hardening surfaces.**
+
+```bash
+devops pr hardening-report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr` | `integer` | - | Audit a specific pull request by number. |
+| `--fail-on-missing` | `boolean` | - | Exit with non-zero exit code if hardening is missing on any audited defect pull request. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
+| `--format`, `-f` | `string` | `table` | Output format (table, json) |
+
 ### `devops pr threads`
 
 ```bash
@@ -7322,6 +7403,24 @@ devops gh pr update [OPTIONS] <number>
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops gh pr hardening-report`
+
+**Audit merged defect pull requests for guardrail additions to declared hardening surfaces.**
+
+```bash
+devops gh pr hardening-report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr` | `integer` | - | Audit a specific pull request by number. |
+| `--fail-on-missing` | `boolean` | - | Exit with non-zero exit code if hardening is missing on any audited defect pull request. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
+| `--format`, `-f` | `string` | `table` | Output format (table, json) |
 
 #### `devops gh pr threads`
 

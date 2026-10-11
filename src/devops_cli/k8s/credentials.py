@@ -175,7 +175,7 @@ def fetch_grafana_password(
 ) -> str | None:
     """Fetch Grafana admin password from Kubernetes and store in keyring."""
     candidate_namespaces = namespaces or ["monitoring", "grafana", "default"]
-    candidate_secrets = ["kube-prometheus-stack-grafana", "grafana", "grafana-admin-credentials"]
+    candidate_secrets = ["grafana", "grafana-admin-credentials"]
     candidate_fields = ["admin-password", "admin_password", "password"]
 
     for ns, secret_name in itertools.product(candidate_namespaces, candidate_secrets):

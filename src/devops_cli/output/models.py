@@ -86,6 +86,7 @@ class TablePayload(BaseModel):
             title_style="bold cyan",
             header_style=self.header_style or "bold",
             show_header=self.show_header,
+            caption=self.caption,
         )
         for col in self.columns:
             _add_table_column_to_table(table, col)

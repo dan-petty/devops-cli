@@ -16,13 +16,6 @@ data:
       },
       "targets": [
         {
-          "virtual_key": "vllm-backend",
-          "provider": "openai",
-          "override_params": {
-            "model": "qwen3-coder:30b"
-          }
-        },
-        {
           "virtual_key": "ollama-coder",
           "provider": "ollama",
           "override_params": {

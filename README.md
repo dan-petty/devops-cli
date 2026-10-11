@@ -164,6 +164,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+|  | `devops repos worktrees COMMAND [ARGS]...` | Clone, synchronize, and manage organization repositories. |
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
@@ -327,6 +328,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai runs COMMAND [ARGS]...` | Benchmark and evaluation runs, kept in the data directory and shared through Valkey. |
 |  | `devops ai cost [OPTIONS] COMMAND [ARGS]...` | Track approximate lifetime spend and manage model pricing. |
 |  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
+|  | `devops ai research COMMAND [ARGS]...` | Epistemic research, information foraging, and relational codebase exploration. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
@@ -374,6 +376,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
+|  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |

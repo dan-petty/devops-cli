@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
-import genai_prices
 import pytest
-from genai_prices.data_snapshot import DataSnapshot, set_custom_snapshot
-from genai_prices.types import _providers_from_raw
+from genai_prices.data_snapshot import set_custom_snapshot
 
 from devops_cli.ai.spend.models import ModelPricing
-from devops_cli.ai.spend.pricing import PricingRegistry
+from devops_cli.ai.spend.pricing import PricingRegistry, _get_installed_genai_prices_version
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_snapshot() -> Generator[None]:
+    """Reset genai-prices process-wide custom snapshot before and after every test."""
+    set_custom_snapshot(None)
+    yield
+    set_custom_snapshot(None)
 
 
 def test_pricing_registry_offline_defaults(tmp_path: Path) -> None:
@@ -154,7 +162,9 @@ def test_pricing_registry_cost_calculation(tmp_path: Path) -> None:
 def test_pricing_registry_remote_catalog_update(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify remote synchronization using genai-prices updater."""
+    """Verify default remote synchronization fetches via httpx2, writes snapshot, and reloads."""
+    import httpx2
+
     raw = [
         {
             "id": "mock-provider",
@@ -171,34 +181,34 @@ def test_pricing_registry_remote_catalog_update(
             ],
         }
     ]
-    mock_snapshot = DataSnapshot(_providers_from_raw(raw), from_auto_update=True)
 
-    class MockUpdater:
-        def __init__(self, **kwargs: object) -> None:
-            self.request_timeout = 15.0
+    class FakeResponse:
+        content = json.dumps(raw).encode("utf-8")
 
-        def fetch(self) -> DataSnapshot:
-            return mock_snapshot
+        def raise_for_status(self) -> None:
+            pass
 
-    monkeypatch.setattr(genai_prices, "UpdatePrices", MockUpdater)
+    monkeypatch.setattr(httpx2, "get", lambda *args, **kwargs: FakeResponse())
 
-    try:
-        registry = PricingRegistry(data_dir=tmp_path)
-        count = registry.update_from_remote()
+    registry = PricingRegistry(data_dir=tmp_path)
+    res = registry.update_from_remote()
 
-        assert count == 1
-        updated_pricing = registry.get_pricing("mock-custom-model")
-        assert (
-            updated_pricing.prompt_usd_per_million,
-            updated_pricing.completion_usd_per_million,
-            updated_pricing.source,
-        ) == (
-            4.0,
-            12.0,
-            "genai_prices:mock-provider",
-        )
-    finally:
-        set_custom_snapshot(None)
+    snapshot_file = tmp_path / "ai" / "pricing_snapshot.json"
+    assert (res.source_model_count, snapshot_file.is_file()) == (1, True)
+
+    # Recreate registry after clearing process snapshot to ensure reload from disk
+    set_custom_snapshot(None)
+    reloaded = PricingRegistry(data_dir=tmp_path)
+    updated_pricing = reloaded.get_pricing("mock-custom-model")
+    assert (
+        updated_pricing.prompt_usd_per_million,
+        updated_pricing.completion_usd_per_million,
+        updated_pricing.source,
+    ) == (
+        4.0,
+        12.0,
+        "genai_prices:mock-provider",
+    )
 
 
 def test_pricing_registry_tiered_models_rates_and_costs(tmp_path: Path) -> None:
@@ -223,8 +233,6 @@ def test_pricing_registry_tiered_models_rates_and_costs(tmp_path: Path) -> None:
 
 def test_pricing_registry_update_from_file_and_persistence(tmp_path: Path) -> None:
     """Verify updating pricing from a local file persists snapshot and reloads on startup."""
-    import json
-
     custom_data = [
         {
             "id": "file-provider",
@@ -244,26 +252,345 @@ def test_pricing_registry_update_from_file_and_persistence(tmp_path: Path) -> No
     file_path = tmp_path / "custom_prices.json"
     file_path.write_text(json.dumps(custom_data), encoding="utf-8")
 
-    try:
-        registry = PricingRegistry(data_dir=tmp_path)
-        count = registry.update_from_remote(source_url=str(file_path))
-        assert count == 1
+    registry = PricingRegistry(data_dir=tmp_path)
+    res = registry.update_from_remote(source_url=str(file_path))
+    assert res.source_model_count == 1
 
-        pricing = registry.get_pricing("file-custom-model")
-        assert (pricing.prompt_usd_per_million, pricing.completion_usd_per_million) == (5.0, 15.0)
+    pricing = registry.get_pricing("file-custom-model")
+    assert (pricing.prompt_usd_per_million, pricing.completion_usd_per_million) == (5.0, 15.0)
 
-        # Verify snapshot file exists
-        assert (tmp_path / "ai" / "pricing_snapshot.json").is_file()
+    # Verify snapshot file exists
+    assert (tmp_path / "ai" / "pricing_snapshot.json").is_file()
 
-        # Recreating registry reloads the snapshot from disk
-        reloaded = PricingRegistry(data_dir=tmp_path)
-        p_reloaded = reloaded.get_pricing("file-custom-model")
-        assert (p_reloaded.prompt_usd_per_million, p_reloaded.completion_usd_per_million) == (
-            5.0,
-            15.0,
+    # Clear process-wide snapshot before building second registry to verify persistence
+    set_custom_snapshot(None)
+    reloaded = PricingRegistry(data_dir=tmp_path)
+    p_reloaded = reloaded.get_pricing("file-custom-model")
+    assert (p_reloaded.prompt_usd_per_million, p_reloaded.completion_usd_per_million) == (
+        5.0,
+        15.0,
+    )
+
+
+def test_partial_snapshot_merges_onto_bundled_data_and_keeps_prices(tmp_path: Path) -> None:
+    """Verify partial snapshot merges onto bundled data, keeps bundled models, and prices file models."""
+    custom_data = [
+        {
+            "id": "custom-unbundled-provider",
+            "name": "Custom Provider",
+            "api_pattern": ".*",
+            "model_match": {"contains": "custom-unbundled"},
+            "models": [
+                {
+                    "id": "custom-unbundled-model",
+                    "name": "Custom Model",
+                    "match": {"equals": "custom-unbundled-model"},
+                    "prices": {"input_mtok": 11.0, "output_mtok": 22.0},
+                }
+            ],
+        }
+    ]
+    file_path = tmp_path / "partial.json"
+    file_path.write_text(json.dumps(custom_data), encoding="utf-8")
+
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.update_from_remote(source_url=str(file_path))
+
+    set_custom_snapshot(None)
+    new_reg = PricingRegistry(data_dir=tmp_path)
+
+    # gpt-4o call (provider openai, pinned timestamp) costs same as with no snapshot
+    ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    cost_4o = new_reg.calculate_request_cost(
+        "gpt-4o",
+        prompt_tokens=20_000,
+        completion_tokens=2_000,
+        provider="openai",
+        request_timestamp=ts,
+    )
+    # Bundled gpt-4o price without provider has source genai_prices:openai
+    p_bundled = new_reg.get_pricing("gpt-4o", request_timestamp=ts)
+    # Custom unbundled model looked up with provider has file price
+    p_custom = new_reg.get_pricing("custom-unbundled-model", provider="custom-unbundled-provider")
+
+    assert (
+        cost_4o,
+        (p_bundled.prompt_usd_per_million, p_bundled.completion_usd_per_million, p_bundled.source),
+        (p_custom.prompt_usd_per_million, p_custom.completion_usd_per_million, p_custom.source),
+    ) == (
+        0.07,
+        (2.5, 10.0, "genai_prices:openai"),
+        (11.0, 22.0, "genai_prices:custom-unbundled-provider"),
+    )
+
+
+def test_provider_fields_merge_one_at_a_time(tmp_path: Path) -> None:
+    """Verify provider fields merge one by one, keeping bundled matchers, extractors, and other models."""
+    custom_data = [
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "api_pattern": "https://api.openai.com/v1",
+            "models": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "match": {"equals": "gpt-4o"},
+                    "prices": {"input_mtok": 99.0, "output_mtok": 199.0},
+                }
+            ],
+        }
+    ]
+    file_path = tmp_path / "openai_override.json"
+    file_path.write_text(json.dumps(custom_data), encoding="utf-8")
+
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.update_from_remote(source_url=str(file_path))
+
+    set_custom_snapshot(None)
+    new_reg = PricingRegistry(data_dir=tmp_path)
+    ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+    p_4o_with_prov = new_reg.get_pricing("gpt-4o", provider="openai", request_timestamp=ts)
+    p_4o_no_prov = new_reg.get_pricing("gpt-4o", request_timestamp=ts)
+    p_mini_with_prov = new_reg.get_pricing("gpt-4o-mini", provider="openai", request_timestamp=ts)
+    p_mini_no_prov = new_reg.get_pricing("gpt-4o-mini", request_timestamp=ts)
+
+    assert (
+        (p_4o_with_prov.prompt_usd_per_million, p_4o_with_prov.completion_usd_per_million),
+        (
+            p_4o_no_prov.prompt_usd_per_million,
+            p_4o_no_prov.completion_usd_per_million,
+            p_4o_no_prov.source,
+        ),
+        (p_mini_with_prov.prompt_usd_per_million, p_mini_with_prov.completion_usd_per_million),
+        (p_mini_no_prov.prompt_usd_per_million, p_mini_no_prov.completion_usd_per_million),
+    ) == (
+        (99.0, 199.0),
+        (99.0, 199.0, "genai_prices:openai"),
+        (0.15, 0.6),
+        (0.15, 0.6),
+    )
+
+
+def test_token_extraction_survives_partial_snapshot(tmp_path: Path) -> None:
+    """Verify pydantic_ai token extraction succeeds under partial snapshots for unbundled and bundled providers."""
+    import pydantic_ai.usage
+
+    def _extract_tokens() -> tuple[int, int]:
+        usage = pydantic_ai.usage.RequestUsage.extract(
+            {
+                "model": "gpt-4o",
+                "usage": {"prompt_tokens": 20000, "completion_tokens": 2000, "total_tokens": 22000},
+            },
+            provider="ollama",
+            provider_url="http://localhost:11434/v1",
+            provider_fallback="openai",
+            api_flavor="chat",
         )
-    finally:
-        set_custom_snapshot(None)
+        return (usage.input_tokens, usage.output_tokens)
+
+    # 1. Test with unbundled provider
+    custom_unbundled = [
+        {
+            "id": "unbundled-provider",
+            "name": "Unbundled Provider",
+            "api_pattern": ".*",
+            "models": [
+                {
+                    "id": "m1",
+                    "name": "M1",
+                    "match": {"equals": "m1"},
+                    "prices": {"input_mtok": 1.0, "output_mtok": 2.0},
+                }
+            ],
+        }
+    ]
+    f1 = tmp_path / "f1.json"
+    f1.write_text(json.dumps(custom_unbundled), encoding="utf-8")
+    r1 = PricingRegistry(data_dir=tmp_path / "d1")
+    r1.update_from_remote(source_url=str(f1))
+    tokens1 = _extract_tokens()
+
+    # 2. Test with partial openai provider
+    custom_openai = [
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "api_pattern": "https://api.openai.com/v1",
+            "models": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "match": {"equals": "gpt-4o"},
+                    "prices": {"input_mtok": 50.0, "output_mtok": 100.0},
+                }
+            ],
+        }
+    ]
+    f2 = tmp_path / "f2.json"
+    f2.write_text(json.dumps(custom_openai), encoding="utf-8")
+    r2 = PricingRegistry(data_dir=tmp_path / "d2")
+    r2.update_from_remote(source_url=str(f2))
+    tokens2 = _extract_tokens()
+
+    assert (tokens1, tokens2) == ((20000, 2000), (20000, 2000))
+
+
+def test_snapshot_records_version_and_fetch_time_and_ignores_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify snapshot records genai-prices version and fetch time, and ignores version mismatch."""
+    import logging
+
+    custom_data = [
+        {
+            "id": "version-test-provider",
+            "name": "Version Test",
+            "api_pattern": ".*",
+            "models": [
+                {
+                    "id": "v-model",
+                    "name": "V Model",
+                    "match": {"equals": "v-model"},
+                    "prices": {"input_mtok": 3.0, "output_mtok": 6.0},
+                }
+            ],
+        }
+    ]
+    f = tmp_path / "v_test.json"
+    f.write_text(json.dumps(custom_data), encoding="utf-8")
+
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.update_from_remote(source_url=str(f))
+
+    # Verify snapshot content
+    snap_path = tmp_path / "ai" / "pricing_snapshot.json"
+    snap_data = json.loads(snap_path.read_text(encoding="utf-8"))
+    assert ("genai_prices_version" in snap_data, "fetched_at" in snap_data) == (True, True)
+
+    # Monkeypatch installed version to different version
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.pricing._get_installed_genai_prices_version",
+        lambda: "99.99.99",
+    )
+    set_custom_snapshot(None)
+
+    with caplog.at_level(logging.WARNING):
+        reloaded = PricingRegistry(data_dir=tmp_path)
+
+    # The snapshot should NOT be loaded, prices come from bundled data
+    p = reloaded.get_pricing("v-model", provider="version-test-provider")
+    warning_text = caplog.text
+
+    assert (
+        p.source != "genai_prices:version-test-provider",
+        str(snap_path) in warning_text,
+        "devops ai cost update-pricing --reset" in warning_text,
+    ) == (True, True, True)
+
+
+def test_old_bare_list_snapshot_format_is_ignored_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify old snapshot format (bare list without version metadata) is ignored with warning."""
+    import logging
+
+    ai_dir = tmp_path / "ai"
+    ai_dir.mkdir(parents=True, exist_ok=True)
+    snap_file = ai_dir / "pricing_snapshot.json"
+    # Bare list format written by 9c879ae
+    snap_file.write_text(
+        json.dumps([{"id": "bare-list-prov", "name": "Bare", "api_pattern": ".*", "models": []}]),
+        encoding="utf-8",
+    )
+
+    set_custom_snapshot(None)
+    with caplog.at_level(logging.WARNING):
+        _ = PricingRegistry(data_dir=tmp_path)
+
+    warning_text = caplog.text
+    assert (
+        str(snap_file) in warning_text,
+        "devops ai cost update-pricing --reset" in warning_text,
+    ) == (True, True)
+
+
+def test_loaded_snapshot_passes_recorded_fetch_time_as_auto_update_timestamp(
+    tmp_path: Path,
+) -> None:
+    """Verify loaded snapshot preserves recorded fetch time as auto_update_timestamp."""
+    from genai_prices.data_snapshot import get_snapshot
+
+    recorded_time = datetime(2025, 6, 15, 10, 30, tzinfo=UTC)
+    snap_payload = {
+        "genai_prices_version": _get_installed_genai_prices_version(),
+        "fetched_at": recorded_time.isoformat(),
+        "providers": [
+            {
+                "id": "ts-prov",
+                "name": "TS Prov",
+                "api_pattern": ".*",
+                "models": [
+                    {
+                        "id": "ts-model",
+                        "name": "TS Model",
+                        "match": {"equals": "ts-model"},
+                        "prices": {"input_mtok": 1.0, "output_mtok": 2.0},
+                    }
+                ],
+            }
+        ],
+    }
+    ai_dir = tmp_path / "ai"
+    ai_dir.mkdir(parents=True, exist_ok=True)
+    (ai_dir / "pricing_snapshot.json").write_text(json.dumps(snap_payload), encoding="utf-8")
+
+    set_custom_snapshot(None)
+    PricingRegistry(data_dir=tmp_path)
+    current_snapshot = get_snapshot()
+
+    assert current_snapshot.timestamp == recorded_time
+
+
+def test_full_snapshot_loaded_with_source_works_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify snapshot loaded with --source operates completely offline without network requests."""
+    import httpx2
+
+    def fail_network(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Network access attempted during offline pricing resolution")
+
+    monkeypatch.setattr(httpx2, "get", fail_network)
+    monkeypatch.setattr(httpx2.Client, "request", fail_network)
+
+    custom_data = [
+        {
+            "id": "offline-prov",
+            "name": "Offline Prov",
+            "api_pattern": ".*",
+            "models": [
+                {
+                    "id": "offline-model",
+                    "name": "Offline Model",
+                    "match": {"equals": "offline-model"},
+                    "prices": {"input_mtok": 8.0, "output_mtok": 16.0},
+                }
+            ],
+        }
+    ]
+    f = tmp_path / "offline_prices.json"
+    f.write_text(json.dumps(custom_data), encoding="utf-8")
+
+    registry = PricingRegistry(data_dir=tmp_path)
+    res = registry.update_from_remote(source_url=str(f))
+    assert res.source_model_count == 1
+
+    set_custom_snapshot(None)
+    reloaded = PricingRegistry(data_dir=tmp_path)
+    p = reloaded.get_pricing("offline-model", provider="offline-prov")
+    assert (p.prompt_usd_per_million, p.completion_usd_per_million) == (8.0, 16.0)
 
 
 def test_is_local_configured_cluster_and_gateway(

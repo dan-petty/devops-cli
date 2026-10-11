@@ -33,6 +33,16 @@ def test_calculate_days_active_branches() -> None:
     )
 
 
+def test_calculate_days_active_two_days_with_larger_filter() -> None:
+    """Verify _calculate_days_active with two days of data and days_filter=30 returns 2.0 (#661)."""
+    res = _calculate_days_active(
+        "2026-09-01T00:00:00Z",
+        "2026-09-03T00:00:00Z",
+        days_filter=30,
+    )
+    assert res == 2.0
+
+
 def test_estimate_days_to_payoff_branches() -> None:
     """Verify estimate days to payoff when paid off, with zero savings, or amortizing."""
     paid_off = _estimate_days_to_payoff(True, 0.0, 10.0)

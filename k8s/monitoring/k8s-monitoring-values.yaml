@@ -9,7 +9,7 @@ cluster:
 destinations:
   localPrometheus:
     type: prometheus
-    url: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+    url: http://prometheus-server.monitoring.svc.cluster.local:9090/api/v1/write
     # Dashboards and rules key on `cluster`; the chart default would also write `k8s_cluster_name`.
     clusterLabels:
       - cluster

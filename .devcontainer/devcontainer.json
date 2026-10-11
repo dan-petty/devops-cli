@@ -125,7 +125,7 @@
           "editor.defaultFormatter": "rust-lang.rust-analyzer"
         },
         "rust-analyzer.check.command": "clippy",
-        "ollama.endpoint": "http://vllm-16gib.llm.svc.cluster.local:8000",
+        "ollama.endpoint": "http://ollama-16gib.llm.svc.cluster.local:11434",
         "ollama.model": "gpt-oss:20b"
       }
     },

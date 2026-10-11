@@ -104,3 +104,43 @@ devops repos sync [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops repos worktrees`
+
+```bash
+devops repos worktrees COMMAND [ARGS]...
+```
+
+### `devops repos worktrees status`
+
+**List every worktree with commits ahead of main, dirty-path count, contained status, and flags.**
+
+```bash
+devops repos worktrees status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--json` | `boolean` | - | Emit output as JSON. |
+
+### `devops repos worktrees prune`
+
+**Safely prune orphan git worktrees, dry-run by default.**
+
+```bash
+devops repos worktrees prune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--force`, `-f` | `boolean` | - | Remove entries regardless of clean or contained status. |
+| `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Emit output as JSON. |
+
+---

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -585,3 +586,33 @@ def test_fastmcp_docker_sign_env_handoff() -> None:
         assert "--oidc-token" not in argv
         assert "mock-secret-jwt" not in argv
         assert kwargs_called.get("env") == {"COSIGN_IDENTITY_TOKEN": "mock-secret-jwt"}
+
+
+def test_cosign_runner_sign_and_verify_passes_xdg_runtime_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CosignRunner sign and verify pass extra_allowed_env with XDG_RUNTIME_DIR."""
+    runner = CosignRunner()
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/cosign")
+    calls: list[dict[str, Any]] = []
+
+    def mock_run_subprocess(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(kwargs)
+        mock_proc = MagicMock(spec=subprocess.CompletedProcess)
+        mock_proc.returncode = 0
+        mock_proc.stdout = "{}"
+        mock_proc.stderr = ""
+        return mock_proc
+
+    with patch("devops_cli.docker.cosign.run_subprocess", side_effect=mock_run_subprocess):
+        req_sign = DockerSignRequest(image="example.com/app:1.0.0", keyless=True)
+        runner.sign_image(req_sign)
+
+        req_verify = DockerVerifyRequest(image="example.com/app:1.0.0")
+        runner.verify_image(req_verify)
+
+    assert (
+        len(calls),
+        calls[0].get("extra_allowed_env"),
+        calls[1].get("extra_allowed_env"),
+    ) == (2, {"XDG_RUNTIME_DIR"}, {"XDG_RUNTIME_DIR"})

@@ -314,3 +314,73 @@ def test_security_module_private_functions_all_have_callers() -> None:
         if sum(len(re.findall(rf"\b{name}\b", text)) for text in sources if name in text) < 2
     ]
     assert uncalled == []
+
+
+def test_syntopical_and_research_dead_settings_are_removed() -> None:
+    """The unread syntopical and research defaults and constants are deleted (#273).
+
+    Verifies that dead research settings without readers in src/ or tests/ are removed from
+    devops_cli.config.defaults and devops_cli.config.constants, preventing duplicate and
+    vestigial settings.
+    """
+    from devops_cli.config import constants, defaults
+
+    removed_defaults = (
+        "DEFAULT_RESEARCH_DIR",
+        "DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS",
+        "DEFAULT_SYNTOPICAL_MAX_SOURCES",
+    )
+    removed_constants = (
+        "CONST_RESEARCH_DIR_NAME",
+        "CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES",
+        "CONST_SYNTOPICAL_MIN_RELEVANCE",
+        "CONST_SYNTOPICAL_MAX_EXCERPT_CHARS",
+    )
+
+    defaults_present = [name for name in removed_defaults if hasattr(defaults, name)]
+    constants_present = [name for name in removed_constants if hasattr(constants, name)]
+    syntopical_defaults = [k for k in dir(defaults) if "SYNTOPICAL" in k]
+    syntopical_constants = [k for k in dir(constants) if "SYNTOPICAL" in k]
+
+    assert (
+        defaults_present,
+        constants_present,
+        syntopical_defaults,
+        syntopical_constants,
+    ) == ([], [], [], [])
+
+
+def test_vllm_dead_settings_commands_and_mcp_tools_are_removed() -> None:
+    """The vestigial vLLM defaults, settings, commands, and MCP tools are removed (#820).
+
+    Verifies that removed vLLM deployments leave no leftover settings in config/defaults or
+    settings.AISettings, no scale commands or router methods, and no ai_vllm_scale MCP tool.
+    """
+    from devops_cli.ai.gateway import GatewayRouter
+    from devops_cli.ai.mcp.server import list_mcp_tools
+    from devops_cli.commands.ai_gateway import app as ai_gateway_app
+    from devops_cli.config import constants, defaults, settings
+
+    removed_defaults = [k for k in dir(defaults) if "VLLM" in k]
+    ai_settings_has_vllm = hasattr(settings.AIConfig, "vllm_url")
+    router_has_scale = hasattr(GatewayRouter, "scale_vllm")
+    mcp_tools = [t.name for t in list_mcp_tools()]
+    mcp_has_scale = "ai_vllm_scale" in mcp_tools
+    cli_commands = [c.name for c in ai_gateway_app.registered_commands]
+    cli_has_scale = "scale" in cli_commands
+
+    assert (
+        removed_defaults,
+        ai_settings_has_vllm,
+        router_has_scale,
+        mcp_has_scale,
+        cli_has_scale,
+        constants.CONST_AI_BACKENDS,
+    ) == (
+        [],
+        False,
+        False,
+        False,
+        False,
+        ("ollama",),
+    )
