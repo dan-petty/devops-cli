@@ -68,6 +68,26 @@ def test_fetch_grafana_password_success(mock_keyring: MagicMock, mock_subproc: M
     mock_keyring.assert_called_with("grafana_password", secret_pw)
 
 
+@patch("devops_cli.k8s.credentials.run_subprocess")
+def test_fetch_grafana_password_candidates_exclude_kube_prometheus_stack_grafana(
+    mock_subproc: MagicMock,
+) -> None:
+    """fetch_grafana_password queries grafana and grafana-admin-credentials, never kube-prometheus-stack-grafana."""
+    mock_subproc.return_value = MagicMock(returncode=1, stdout="", stderr="NotFound")
+    fetch_grafana_password(namespaces=["monitoring"], save_to_keyring=False)
+
+    queried_secrets = [
+        call.args[0][3]
+        for call in mock_subproc.call_args_list
+        if len(call.args[0]) > 3 and call.args[0][:3] == ["kubectl", "get", "secret"]
+    ]
+    assert (
+        "kube-prometheus-stack-grafana" in queried_secrets,
+        "grafana" in queried_secrets,
+        "grafana-admin-credentials" in queried_secrets,
+    ) == (False, True, True)
+
+
 @patch("devops_cli.k8s.credentials.fetch_argocd_password")
 @patch("devops_cli.config.settings._keyring_get")
 def test_sync_k8s_credentials_summary(mock_keyring_get: MagicMock, mock_argocd: MagicMock) -> None:

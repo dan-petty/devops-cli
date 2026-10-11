@@ -369,7 +369,7 @@ def discover_service(
     """Find a Service in a namespace by name pattern, returning its proxy address.
 
     Chart-installed services rarely carry the bare name an operator thinks in: Prometheus
-    ships as `kube-prometheus-kube-prome-prometheus`. Matching on substrings lets the same
+    ships as `prometheus-server`. Matching on substrings lets the same
     lookup work across clusters and chart releases, which is the point of addressing a
     Service by what it is rather than by where a port-forward put it.
 

@@ -45,13 +45,15 @@ def _listing(*services: Any) -> Any:
 def test_a_chart_renamed_service_is_still_found() -> None:
     """Charts rarely install a service under the bare name an operator thinks in.
 
-    Prometheus ships as `kube-prometheus-kube-prome-prometheus`, so an exact-name lookup
-    finds nothing and the endpoint silently falls back to a hand-written localhost URL.
+    Prometheus server ships as `prometheus-server`, so an exact-name lookup
+    for `prometheus` finds nothing and the endpoint silently falls back to a hand-written localhost URL.
     """
-    with _listing(_service("kube-prometheus-kube-prome-prometheus", [_port(9090, "web")])):
-        ref = discover_service("monitoring", ("prome-prometheus", "prometheus"), ("9090",))
-    assert ref is not None
-    assert ref.describe() == "k8s://monitoring/kube-prometheus-kube-prome-prometheus:9090"
+    with _listing(_service("prometheus-server", [_port(9090, "http")])):
+        ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
+    assert (ref is not None, ref.describe() if ref else None) == (
+        True,
+        "k8s://monitoring/prometheus-server:9090",
+    )
 
 
 def test_the_most_specific_pattern_wins() -> None:
@@ -60,12 +62,11 @@ def test_the_most_specific_pattern_wins() -> None:
     A loose `prometheus` would otherwise match the node exporter or the operator.
     """
     with _listing(
-        _service("kube-prometheus-prometheus-node-exporter", [_port(9100)]),
-        _service("kube-prometheus-kube-prome-prometheus", [_port(9090, "web")]),
+        _service("prometheus-node-exporter", [_port(9100)]),
+        _service("prometheus-server", [_port(9090, "http")]),
     ):
-        ref = discover_service("monitoring", ("prome-prometheus", "prometheus"), ("9090",))
-    assert ref is not None
-    assert ref.service == "kube-prometheus-kube-prome-prometheus"
+        ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
+    assert (ref is not None, ref.service if ref else None) == (True, "prometheus-server")
 
 
 def test_a_hinted_port_is_preferred_over_the_first() -> None:

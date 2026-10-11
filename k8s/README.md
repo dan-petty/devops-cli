@@ -572,7 +572,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, monitoring Service aliases
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
@@ -611,7 +611,6 @@ k8s/
 ├── monitoring/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy and dashboards
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
-│   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana; the root kustomization lists them
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
 │   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, gateway monitors, annotation autodiscovery, CoreDNS, and the Loki and DCGM integrations)

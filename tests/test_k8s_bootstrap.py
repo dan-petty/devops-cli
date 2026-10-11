@@ -350,8 +350,8 @@ def test_configure_urls_persists_all_infra_endpoints(
         settings.jaeger.url,
     ) == (
         "http://localhost:argocd-server",
-        "http://localhost:kube-prometheus-grafana",
-        "http://localhost:kube-prometheus-kube-prome-prometheus",
+        "http://localhost:grafana",
+        "http://localhost:prometheus-server",
         "http://localhost:jaeger",
     )
 
