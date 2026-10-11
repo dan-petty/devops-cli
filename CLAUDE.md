@@ -1,5 +1,7 @@
 # devops-cli — Claude Instructions
 
+@AGENTS.md
+
 > **This file is a pointer, not the source.** Claude Code looks specifically for
 > `CLAUDE.md`, so this stub exists to redirect it. All actual instructions — project
 > overview, build/test commands, code conventions, architecture, AI features,
