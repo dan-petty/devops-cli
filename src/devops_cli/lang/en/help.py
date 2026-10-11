@@ -694,6 +694,10 @@ class DevcontainerCommandHelp:
     workspace_dir: str = "Path to workspace directory containing .devcontainer."
     config_file: str = "Direct path to devcontainer.json."
     validate_dry_run: str = "Simulate DevContainer manifest validation."
+    validate_oci_labels: str = "Raw newline-separated or JSON OCI labels to inspect and validate."
+    validate_expected_source: str = (
+        "Expected canonical repository URL for org.opencontainers.image.source."
+    )
     run_post_create: str = "Execute post-create setup tasks."
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."

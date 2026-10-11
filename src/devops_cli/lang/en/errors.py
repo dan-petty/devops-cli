@@ -126,6 +126,11 @@ class DevcontainerErrorMessages:
     manifest_not_found: str = "DevContainer manifest not found: {path}"
     parse_failed: str = "Failed to parse DevContainer manifest JSON in {path}: {exc}"
     validation_failed: str = "DevContainer manifest validation failed for {path}:"
+    oci_source_mismatch: str = (
+        "OCI label org.opencontainers.image.source mismatch: expected '{expected}', got '{actual}'"
+    )
+    oci_label_missing: str = "Missing required OCI label: '{label}'"
+    oci_label_empty: str = "OCI label '{label}' has empty value"
     no_devcontainer_found: str = "No devcontainer.json found: {path}"
     invalid_json: str = "Invalid JSON in {path}: {exc}"
     keyring_unavailable: str = (
