@@ -567,7 +567,10 @@ def _verify_collection_compatibility_for_indexing(
     )
     if not isinstance(points_count, (int, float)) or points_count <= 0:
         return
-    configured_model = str(getattr(embedder, "model", getattr(embedder, "model_name", "")) or "")
+    raw_model = getattr(embedder, "model", getattr(embedder, "model_name", None))
+    configured_model = raw_model if isinstance(raw_model, str) else ""
+    if not configured_model:
+        return
     _check_collection_point_model(qdrant, collection_name, configured_model)
     _check_collection_dimension(embedder, collection_name, configured_model, info)
 

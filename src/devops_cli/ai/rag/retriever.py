@@ -258,7 +258,7 @@ def _expand_persona_rag_query(query: str, persona: str) -> tuple[str, str | None
     return query, None
 
 
-_SEARCH_VERIFIED_MODELS: dict[str, str] = {}
+_SEARCH_VERIFIED_MODELS: dict[tuple[str, str], str] = {}
 
 
 def reset_search_verified_models() -> None:
@@ -340,14 +340,15 @@ def _verify_single_collection_for_search(
     configured_model: str,
 ) -> None:
     """Check once per process that a collection's points were created with the configured model."""
-    if collection_name in _SEARCH_VERIFIED_MODELS:
-        verified_model = _SEARCH_VERIFIED_MODELS[collection_name]
+    key = (str(getattr(qdrant, "base_url", id(qdrant))), collection_name)
+    if key in _SEARCH_VERIFIED_MODELS:
+        verified_model = _SEARCH_VERIFIED_MODELS[key]
         if verified_model and configured_model and verified_model != configured_model:
             _raise_model_mismatch(collection_name, verified_model, configured_model)
         return
 
     recorded_model = _inspect_collection_model(qdrant, collection_name)
-    _SEARCH_VERIFIED_MODELS[collection_name] = recorded_model
+    _SEARCH_VERIFIED_MODELS[key] = recorded_model
     if recorded_model and configured_model and recorded_model != configured_model:
         _raise_model_mismatch(collection_name, recorded_model, configured_model)
 
@@ -419,9 +420,10 @@ class SemanticRetriever:
 
     def _verify_collections_for_search(self, collections: Sequence[str]) -> None:
         """Verify once per process that collections' points match active query model."""
-        configured_model = str(
-            getattr(self.embedder, "model", getattr(self.embedder, "model_name", "")) or ""
-        )
+        raw_model = getattr(self.embedder, "model", getattr(self.embedder, "model_name", None))
+        configured_model = raw_model if isinstance(raw_model, str) else ""
+        if not configured_model:
+            return
         for coll_name in collections:
             _verify_single_collection_for_search(self.qdrant, coll_name, configured_model)
 
