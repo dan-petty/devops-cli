@@ -2800,6 +2800,7 @@ CONST_K8S_INGRESS_SERVICE_PATTERNS: Final[tuple[tuple[str, str, str], ...]] = (
     ("open_webui.url", "llm", "chat"),
     ("qdrant.url", "llm", "qdrant"),
     ("ai.gateway_url", "llm", "ai"),
+    ("ai.gateway_url", "llm", "llm-gateway"),
 )
 # Lines held between the stream reader and the renderer. Bounded so a producer faster than
 # the terminal cannot grow it without limit; the log buffer is the retention mechanism.
