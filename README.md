@@ -376,6 +376,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
+|  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |

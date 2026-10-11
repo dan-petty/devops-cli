@@ -1008,6 +1008,24 @@ devops gh pr update [OPTIONS] <number>
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops gh pr hardening-report`
+
+**Audit merged defect pull requests for guardrail additions to declared hardening surfaces.**
+
+```bash
+devops gh pr hardening-report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr` | `integer` | - | Audit a specific pull request by number. |
+| `--fail-on-missing` | `boolean` | - | Exit with non-zero exit code if hardening is missing on any audited defect pull request. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
+| `--format`, `-f` | `string` | `table` | Output format (table, json) |
+
 ### `devops gh pr threads`
 
 ```bash
