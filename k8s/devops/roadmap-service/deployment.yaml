@@ -7,7 +7,9 @@ metadata:
     app.kubernetes.io/name: roadmap-service
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  replicas: 1
+  # Held at 0 while the machine account is suspended (#1562). Do not raise it until
+  # the account is reinstated or the jobs act as a GitHub App.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
