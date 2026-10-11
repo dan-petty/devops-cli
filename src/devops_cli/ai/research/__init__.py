@@ -16,26 +16,42 @@ from devops_cli.ai.research.marginalia import (
 )
 from devops_cli.ai.research.models import (
     BacktrackEvent,
+    ClarifyingQuestion,
+    CodeLookupInstruction,
     ForageEdge,
     ForageNode,
     ForageTrail,
+    KnowledgeGap,
+    KnowledgeGapType,
     MarginaliaRecord,
     MarginaliaType,
+    SocraticInquiryResult,
+)
+from devops_cli.ai.research.socratic import (
+    SocraticFormulator,
+    render_socratic_markdown,
 )
 
 __all__ = [
     "BacktrackEvent",
+    "ClarifyingQuestion",
+    "CodeLookupInstruction",
     "ForageCrawler",
     "ForageEdge",
     "ForageNode",
     "ForageTrail",
+    "KnowledgeGap",
+    "KnowledgeGapType",
     "MarginaliaRecord",
     "MarginaliaType",
+    "SocraticFormulator",
+    "SocraticInquiryResult",
     "annotate_file",
     "extract_git_co_changes",
     "extract_markdown_links",
     "extract_python_imports",
     "get_marginalia_path",
     "read_marginalia",
+    "render_socratic_markdown",
     "write_marginalia",
 ]

@@ -3407,3 +3407,15 @@ CONST_MARGINALIA_TYPES: Final[tuple[str, ...]] = (
     "QUESTION",
     "TODO",
 )
+
+# ── AI Research Socratic Inquiry ──────────────────────────────────────────────
+CONST_SOCRATIC_GAP_TYPES: Final[tuple[str, ...]] = (
+    "GAP",
+    "AMBIGUITY",
+    "UNDERSPECIFIED_CONTRACT",
+)
+CONST_SOCRATIC_LOOKUP_TYPES: Final[tuple[str, ...]] = (
+    "file",
+    "symbol",
+    "search",
+)

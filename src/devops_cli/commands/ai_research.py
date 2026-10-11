@@ -11,10 +11,19 @@ import yaml
 
 from devops_cli.ai.research.crawler import ForageCrawler
 from devops_cli.ai.research.marginalia import annotate_file, read_marginalia
-from devops_cli.ai.research.models import ForageTrail, MarginaliaRecord
+from devops_cli.ai.research.models import (
+    ForageTrail,
+    MarginaliaRecord,
+    SocraticInquiryResult,
+)
+from devops_cli.ai.research.socratic import (
+    SocraticFormulator,
+    render_socratic_markdown,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_FORAGE_MAX_NODES,
     DEFAULT_AI_FORAGE_MIN_SCORE,
+    DEFAULT_AI_SOCRATIC_MAX_PROBES,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, find_worktree_root
@@ -326,3 +335,169 @@ def annotate_cmd(
 
     records = read_marginalia(path, repo_root=repo_root)
     _emit_marginalia_records(records, format.lower(), path)
+
+
+def _render_socratic_gaps_table(result: SocraticInquiryResult) -> Table:
+    table = Table(
+        title="Identified Knowledge Gaps & Underspecified Contracts",
+        show_header=True,
+        header_style="bold red",
+    )
+    table.add_column("Type", style="bold yellow")
+    table.add_column("Description", style="white")
+    table.add_column("Rationale", style="dim")
+    for gap in result.gaps:
+        table.add_row(gap.type, gap.description, gap.rationale)
+    return table
+
+
+def _render_socratic_questions_table(result: SocraticInquiryResult) -> Table:
+    table = Table(
+        title="Targeted Clarifying Questions (Minimal Diagnostic Probes)",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Question", style="bold green")
+    table.add_column("Target Gap", style="yellow")
+    table.add_column("Rationale", style="dim")
+    for i, q in enumerate(result.questions, start=1):
+        table.add_row(str(i), q.question, q.target_gap, q.rationale)
+    return table
+
+
+def _render_socratic_lookups_table(result: SocraticInquiryResult) -> Table:
+    table = Table(
+        title="Targeted Code Lookup Instructions",
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Type", style="cyan")
+    table.add_column("Target", style="bold white")
+    table.add_column("Target Gap", style="yellow")
+    table.add_column("Rationale", style="dim")
+    for i, lk in enumerate(result.lookups, start=1):
+        table.add_row(str(i), lk.lookup_type, lk.target, lk.target_gap, lk.rationale)
+    return table
+
+
+def _display_socratic_summary(result: SocraticInquiryResult) -> None:
+    console = get_console()
+    summary_text = (
+        f"[bold]Task:[/bold] {result.task}\n"
+        f"[bold]Gaps Identified:[/bold] {len(result.gaps)}  |  "
+        f"[bold]Clarifying Questions:[/bold] {len(result.questions)}  |  "
+        f"[bold]Code Lookups:[/bold] {len(result.lookups)}"
+    )
+    if result.summary:
+        summary_text += f"\n\n[bold]Metacognitive Summary:[/bold]\n{result.summary}"
+
+    console.print(
+        Panel(
+            summary_text,
+            title="[bold green]Socratic Metacognitive Analysis[/bold green]",
+            expand=False,
+        )
+    )
+    if result.gaps:
+        console.print(_render_socratic_gaps_table(result))
+    if result.questions:
+        console.print(_render_socratic_questions_table(result))
+    if result.lookups:
+        console.print(_render_socratic_lookups_table(result))
+
+
+def _emit_socratic_result(result: SocraticInquiryResult, fmt: str) -> None:
+    if fmt == "json":
+        write_stdout(result.model_dump_json(indent=2))
+        return
+    if fmt == "yaml":
+        write_stdout(yaml.safe_dump(result.model_dump(), sort_keys=False, allow_unicode=True))
+        return
+    if fmt in ("markdown", "md"):
+        write_stdout(render_socratic_markdown(result))
+        return
+    _display_socratic_summary(result)
+
+
+@app.command(name="socratic")
+def socratic_cmd(
+    task: Annotated[
+        str | None,
+        typer.Argument(
+            help=HELP.ai.socratic_task,
+        ),
+    ] = None,
+    task_opt: Annotated[
+        str | None,
+        typer.Option(
+            "--task",
+            "-t",
+            help=HELP.ai.socratic_task,
+        ),
+    ] = None,
+    context: Annotated[
+        str | None,
+        typer.Option(
+            "--context",
+            "-c",
+            help=HELP.ai.socratic_context,
+        ),
+    ] = None,
+    max_probes: Annotated[
+        int,
+        typer.Option(
+            "--max-probes",
+            "-n",
+            help=HELP.ai.socratic_max_probes,
+        ),
+    ] = DEFAULT_AI_SOCRATIC_MAX_PROBES,
+    format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = "text",
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=HELP.options.dry_run,
+        ),
+    ] = False,
+) -> None:
+    """Metacognitive Socratic inquiry identifying knowledge gaps, ambiguities, and probes."""
+    effective_task = task_opt or task
+    if not effective_task or not effective_task.strip():
+        print_error("A task description must be provided via argument or --task.")
+        raise typer.Exit(code=1)
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai research socratic",
+            action="formulate_socratic_inquiry",
+            details={
+                "task": effective_task,
+                "context": context,
+                "max_probes": max_probes,
+                "format": format,
+            },
+        )
+        return
+
+    repo_root = find_worktree_root(Path.cwd()) or find_repo_root(Path.cwd())
+    formulator = SocraticFormulator(max_probes=max_probes)
+    try:
+        result = formulator.formulate(
+            task=effective_task,
+            context=context,
+            repo_root=repo_root,
+        )
+    except Exception as exc:
+        print_error(f"Socratic inquiry failed: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    _emit_socratic_result(result, format.lower())

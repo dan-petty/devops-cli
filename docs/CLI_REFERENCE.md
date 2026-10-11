@@ -5120,6 +5120,30 @@ devops ai research annotate [OPTIONS] <path>
 | `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai research socratic`
+
+**Metacognitive Socratic inquiry identifying knowledge gaps, ambiguities, and probes.**
+
+```bash
+devops ai research socratic [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | No | Task description or objective to analyze for knowledge gaps. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--task`, `-t` | `string` | - | Task description or objective to analyze for knowledge gaps. |
+| `--context`, `-c` | `string` | - | Optional additional context, instructions, or code snippets. |
+| `--max-probes`, `-n` | `integer` | `5` | Maximum number of clarifying questions and code lookups to emit. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops review
