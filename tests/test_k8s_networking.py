@@ -278,14 +278,14 @@ def test_is_fqdn_url() -> None:
 
 
 def test_should_update_url_preserves_fqdn() -> None:
-    """_should_update_url forbids downgrading FQDN URLs to NodePort IPs or loopback."""
+    """_should_update_url forbids downgrading FQDN URLs or overwriting existing remote FQDN endpoints."""
     results = (
         _should_update_url("https://argocd.example.com", "http://192.0.2.4:30500"),
         _should_update_url("https://argocd.example.com", "http://localhost:8080"),
         _should_update_url("https://argocd.example.com", "https://argocd.example.com"),
         _should_update_url("https://argocd.example.com", "https://new-argocd.example.com"),
     )
-    assert results == (False, False, True, True)
+    assert results == (False, False, True, False)
 
 
 def test_select_best_ingress_host() -> None:
@@ -407,3 +407,64 @@ def test_configure_urls_fqdn_resolves_prometheus_server_ingress() -> None:
         "https://prometheus.example.com",
         "https://grafana.example.com",
     )
+
+
+def test_configure_fqdn_gateway_exact_pattern_match() -> None:
+    """Gateway discovery matches ingress services using CONST_K8S_INGRESS_SERVICE_PATTERNS with exact matches."""
+    from devops_cli.commands.k8s.networking import _configure_fqdn_gateway
+
+    ingress_map = {
+        "llm:ai-docs": ["ai-docs.example.com"],
+        "llm:ai": ["ai.example.com"],
+    }
+    settings = Settings()
+    configured: dict[str, str] = {}
+    _configure_fqdn_gateway(settings, configured, ingress_map, domain="example.com")
+
+    assert (
+        configured.get("ai.gateway_url"),
+        settings.ai.gateway_url,
+    ) == (
+        "https://ai.example.com/v1",
+        "https://ai.example.com/v1",
+    )
+
+
+def test_configure_fqdn_gateway_preserves_remote_custom_gateway_url() -> None:
+    """_should_update_url does not overwrite a remote custom ai.gateway_url with a discovered FQDN."""
+    from devops_cli.commands.k8s.networking import _configure_fqdn_gateway
+
+    ingress_map = {
+        "llm:ai": ["discovered-ai.example.com"],
+    }
+    settings = Settings()
+    settings.ai.gateway_url = "https://example.com/v1"
+    configured: dict[str, str] = {}
+    _configure_fqdn_gateway(settings, configured, ingress_map, domain="example.com")
+
+    assert (
+        settings.ai.gateway_url,
+        "ai.gateway_url" in configured,
+    ) == (
+        "https://example.com/v1",
+        False,
+    )
+
+
+def test_should_update_valkey_preserves_non_default_port() -> None:
+    """_should_update_valkey ensures a valkey URL with a non-default port is not overwritten."""
+    from devops_cli.commands.k8s.networking import _should_update_valkey
+
+    settings_custom_port = Settings()
+    settings_custom_port.valkey.port = 6380
+    settings_custom_port.valkey.url = "tcp://localhost:6380"
+
+    settings_default_port = Settings()
+    settings_default_port.valkey.port = 6379
+    settings_default_port.valkey.url = None
+
+    results = (
+        _should_update_valkey(settings_custom_port, "tcp://localhost:6379"),
+        _should_update_valkey(settings_default_port, "tcp://localhost:6379"),
+    )
+    assert results == (False, True)

@@ -9,13 +9,14 @@ import typer
 from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.config.constants import (
     CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
+    CONST_CLOUDFLARE_CATCHALL_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
     CONST_CLOUDFLARE_RECORD_COMMENT,
 )
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import is_dry_run, mark_dry_run_invocation
 from devops_cli.exceptions.cloudflare import CloudflareAuthError, CloudflareError
 from devops_cli.lang import HELP
 from devops_cli.models.cloudflare import CloudflareDNSRecord, CloudflareTunnelIngressRule
@@ -632,14 +633,36 @@ def tunnel_sync(
     subs = _parse_subdomains_arg(subdomains)
 
     if dry_run or is_dry_run():
-        current_ingress: list[CloudflareTunnelIngressRule] | None = None
-        try:
-            client = _resolve_client(settings)
-            cfg = client.get_tunnel_configuration(eff_tunnel, account_id=account_id)
-            current_ingress = cfg.ingress
-        except Exception:
-            current_ingress = None
-        _preview_tunnel_sync(eff_domain, eff_tunnel, service, subs, current_ingress=current_ingress)
+        mark_dry_run_invocation(True)
+        _preview_tunnel_sync(eff_domain, eff_tunnel, service, subs, current_ingress=None)
+        aid = account_id or settings.cloudflare.account_id or "<account-id>"
+        get_payload = {
+            "method": "GET",
+            "url": f"accounts/{aid}/cfd_tunnel/{eff_tunnel}/configurations",
+        }
+        put_ingress: list[dict[str, Any]] = [
+            {
+                "service": service,
+                "hostname": (
+                    eff_domain
+                    if sub == "@"
+                    else (f"*.{eff_domain}" if sub == "*" else f"{sub}.{eff_domain}")
+                ),
+            }
+            for sub in subs
+        ]
+        put_ingress.append({"service": CONST_CLOUDFLARE_CATCHALL_SERVICE})
+        put_payload = {
+            "method": "PUT",
+            "url": f"accounts/{aid}/cfd_tunnel/{eff_tunnel}/configurations",
+            "body": {
+                "config": {
+                    "ingress": put_ingress,
+                }
+            },
+        }
+        write_stdout(f"GET: {format_json(get_payload)}\n")
+        write_stdout(f"PUT: {format_json(put_payload)}\n")
         return
 
     try:

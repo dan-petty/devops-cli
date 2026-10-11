@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from typer.testing import CliRunner
 from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.commands.cloudflare import app
 from devops_cli.config.settings import Settings
-from devops_cli.exceptions.cloudflare import CloudflareAuthError
+from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
 from devops_cli.models.cloudflare import (
     CloudflareAccessApplication,
     CloudflareAccessPolicy,
@@ -506,6 +507,145 @@ def test_cloudflare_client_sync_tunnel_routes_preserves_rules() -> None:
             subdomains=["@"],
         )
     assert (len(cfg.ingress), mock_update.call_count) == (3, 1)
+
+
+def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_routing() -> None:
+    """Verify sync_tunnel_routes PUT payload preserves originRequest, custom catch-all, and warp-routing."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    existing_cfg = {
+        "config": {
+            "warp-routing": {"enabled": True},
+            "ingress": [
+                {
+                    "hostname": "custom.example.com",
+                    "service": "http://custom:8080",
+                    "originRequest": {
+                        "noTLSVerify": True,
+                        "httpHostHeader": "custom.example.com",
+                    },
+                },
+                {"service": "http://custom-catchall:8080"},
+            ],
+        }
+    }
+    requests_sent: list[tuple[str, str, Any]] = []
+
+    def fake_request(method: str, path: str, **kwargs: Any) -> Any:
+        requests_sent.append((method, path, kwargs.get("json_data")))
+        if method == "GET":
+            return existing_cfg
+        return {
+            "config": kwargs.get("json_data", {}).get("config", {}),
+            "version": 2,
+        }
+
+    with (
+        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
+        patch.object(client, "_request", side_effect=fake_request),
+    ):
+        client.sync_tunnel_routes(
+            tunnel_id="tunnel-1",
+            domain="example.com",
+            service="http://traefik:80",
+            subdomains=["@"],
+        )
+
+    put_calls = [c for c in requests_sent if c[0] == "PUT"]
+    put_body = put_calls[0][2] if put_calls else {}
+    expected_put = {
+        "config": {
+            "warp-routing": {"enabled": True},
+            "ingress": [
+                {
+                    "service": "http://custom:8080",
+                    "hostname": "custom.example.com",
+                    "originRequest": {
+                        "noTLSVerify": True,
+                        "httpHostHeader": "custom.example.com",
+                    },
+                },
+                {
+                    "service": "http://traefik:80",
+                    "hostname": "example.com",
+                },
+                {"service": "http://custom-catchall:8080"},
+            ],
+        }
+    }
+    assert (len(put_calls), put_body) == (1, expected_put)
+
+
+def test_cloudflare_tunnel_sync_aborts_on_get_failure(mock_settings: Settings) -> None:
+    """When GET of current tunnel config fails, sync raises an error and sends no PUT request."""
+    mock_client = MagicMock()
+    mock_client.sync_tunnel_routes.side_effect = CloudflareAPIError("Failed reading tunnel config")
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        result = runner.invoke(app, ["tunnel", "sync"])
+        assert (
+            result.exit_code != 0,
+            mock_client.update_tunnel_configuration.called,
+            "Failed reading tunnel config" in result.output,
+        ) == (True, False, True)
+
+
+def test_cloudflare_client_sync_tunnel_routes_aborts_on_get_failure() -> None:
+    """CloudflareClient.sync_tunnel_routes raises CloudflareAPIError on GET failure and does not call PUT."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    with (
+        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
+        patch.object(client, "_request", side_effect=CloudflareAPIError("Network timeout")),
+        patch.object(client, "update_tunnel_configuration") as mock_update,
+    ):
+        with pytest.raises(CloudflareAPIError, match="Network timeout"):
+            client.sync_tunnel_routes(tunnel_id="tunnel-1", domain="example.com")
+        assert mock_update.called is False
+
+
+def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(mock_settings: Settings) -> None:
+    """--dry-run makes zero network requests (neither GET nor PUT) and prints serialized payloads."""
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("httpx2.Client.request") as mock_request,
+    ):
+        result = runner.invoke(app, ["tunnel", "sync", "--dry-run", "--subdomains", "@,chat"])
+        assert (
+            result.exit_code,
+            mock_request.call_count,
+            "GET:" in result.output,
+            "PUT:" in result.output,
+            "accounts/test-account-123/cfd_tunnel/homelab/configurations" in result.output,
+        ) == (0, 0, True, True, True)
+
+
+def test_cloudflare_client_resolve_tunnel_id_filters_deleted_tunnels() -> None:
+    """resolve_tunnel_id excludes tunnels matching deleted-tunnel criteria."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    tunnels_resp = [
+        {
+            "id": "deleted-uuid-1",
+            "name": "my-tunnel",
+            "deleted_at": "2026-01-01T00:00:00Z",
+            "is_deleted": True,
+        },
+        {
+            "id": "deleted-uuid-2",
+            "name": "my-tunnel",
+            "deleted_at": "2026-02-01T00:00:00Z",
+            "is_deleted": False,
+        },
+        {
+            "id": "active-uuid-3",
+            "name": "my-tunnel",
+            "deleted_at": None,
+            "is_deleted": False,
+        },
+    ]
+    with patch.object(client, "_request", return_value=tunnels_resp):
+        resolved = client.resolve_tunnel_id("my-tunnel")
+        assert resolved == "active-uuid-3"
 
 
 def test_cli_cloudflare_dns_delete_not_found(mock_settings: Settings) -> None:

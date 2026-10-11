@@ -46,21 +46,23 @@ class CloudflareDNSRecord(BaseModel):
 class CloudflareTunnelIngressRule(BaseModel):
     """Cloudflare Zero Trust tunnel ingress rule."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     service: str
     hostname: str | None = None
     path: str | None = None
+    origin_request: dict[str, Any] | None = Field(default=None, alias="originRequest")
 
 
 class CloudflareTunnelConfig(BaseModel):
     """Cloudflare Zero Trust tunnel configuration payload."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     tunnel_id: str
     version: int = 1
     ingress: list[CloudflareTunnelIngressRule] = Field(default_factory=list)
+    warp_routing: dict[str, Any] | None = Field(default=None, alias="warp-routing")
 
 
 class CloudflareAccessApplication(BaseModel):

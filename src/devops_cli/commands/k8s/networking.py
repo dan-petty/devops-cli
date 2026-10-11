@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_K8S_INGRESS_SERVICE_PATTERNS,
     CONST_LOCAL_DOMAIN_SUFFIXES,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
@@ -294,10 +295,10 @@ def _should_update_url(
         return False
     if not existing_url or existing_url == default_url or existing_url == new_url:
         return True
-    if _is_fqdn_url(existing_url) and not _is_fqdn_url(new_url):
-        return False
     existing_host = urlparse(existing_url).hostname or ""
     new_host = urlparse(new_url).hostname or ""
+    if _is_fqdn_url(existing_url) and existing_host.lower() != new_host.lower():
+        return False
     return not (not is_loopback_host(existing_host) and is_loopback_host(new_host))
 
 
@@ -451,6 +452,24 @@ def _configure_infra_stack_urls(
             configured["otel.endpoint"] = otel_url
 
 
+def _has_non_default_valkey_port(valkey_cfg: Any, existing_url: str | None) -> bool:
+    """Check if configured valkey port differs from default 6379."""
+    from urllib.parse import urlparse
+
+    cfg_port = getattr(valkey_cfg, "port", None)
+    if cfg_port is not None:
+        try:
+            if int(cfg_port) != 6379:
+                return True
+        except ValueError, TypeError:
+            pass
+    if existing_url:
+        p_port = urlparse(existing_url).port
+        if p_port is not None and p_port != 6379:
+            return True
+    return False
+
+
 def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
     """Determine whether detected valkey_url should update valkey host/port configuration."""
     from urllib.parse import urlparse
@@ -462,6 +481,8 @@ def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
         return True
 
     existing_url = getattr(valkey_cfg, "url", None)
+    if _has_non_default_valkey_port(valkey_cfg, existing_url):
+        return False
     if existing_url and not _should_update_url(existing_url, valkey_url):
         return False
 
@@ -772,6 +793,25 @@ def _update_task_gateway_urls(settings: Any, full_gw: str) -> None:
                 dotted_set(settings, f"ai.tasks.{task_name}.api_base_url", full_gw)
 
 
+def _find_gateway_ingress_url(
+    ingress_map: dict[str, list[str]],
+    preferred_domain: str | None = None,
+) -> str | None:
+    """Find AI gateway URL using CONST_K8S_INGRESS_SERVICE_PATTERNS with exact matching."""
+    import httpx2
+
+    for setting_key, ns, svc in CONST_K8S_INGRESS_SERVICE_PATTERNS:
+        if setting_key != "ai.gateway_url":
+            continue
+        exact_key = f"{ns}:{svc}"
+        hosts = ingress_map.get(exact_key) or ingress_map.get(svc)
+        if hosts:
+            chosen = _select_best_ingress_host(hosts, preferred_domain=preferred_domain)
+            if chosen:
+                return str(httpx2.URL(scheme="https", host=chosen))
+    return None
+
+
 def _configure_fqdn_gateway(
     settings: Any,
     configured: dict[str, str],
@@ -781,11 +821,7 @@ def _configure_fqdn_gateway(
     """Configure AI gateway URL from discovered ingress endpoints."""
     from devops_cli.config.settings import dotted_set
 
-    gw_url = _find_service_ingress_url(
-        "ai", ingress_map, preferred_domain=domain, namespace="llm"
-    ) or _find_service_ingress_url(
-        "llm-gateway", ingress_map, preferred_domain=domain, namespace="llm"
-    )
+    gw_url = _find_gateway_ingress_url(ingress_map, preferred_domain=domain)
     if gw_url:
         full_gw = f"{gw_url}/v1"
         existing_gw = getattr(getattr(settings, "ai", None), "gateway_url", None)
