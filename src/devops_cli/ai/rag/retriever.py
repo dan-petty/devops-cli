@@ -5,17 +5,18 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.lexical import bm25_scores
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.ai.rag.reranker import SearchReranker
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
@@ -24,6 +25,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.telemetry import ContextPropagatingThread, trace_span
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, emit
 
@@ -180,6 +182,7 @@ def _project_search_results(raw_results: list[dict[str, Any]]) -> list[SearchRes
                     content_hash=str(payload.get("content_hash", "")),
                 ),
                 score=float(point.get("score", 0.0)),
+                vector_score=float(point.get("score", 0.0)),
             )
         )
     return results
@@ -233,6 +236,7 @@ def reciprocal_rank_fusion(
     fused: list[SearchResult] = []
     for cid in sorted_ids:
         item = chunk_map[cid]
+        item.fused_score = scores[cid]
         item.score = scores[cid]
         fused.append(item)
     return fused
@@ -252,6 +256,101 @@ def _expand_persona_rag_query(query: str, persona: str) -> tuple[str, str | None
     if "audit" in persona_lower:
         return f"{query} compliance logging error handling telemetry reliability", None
     return query, None
+
+
+_SEARCH_VERIFIED_MODELS: dict[tuple[str, str], str] = {}
+
+
+def reset_search_verified_models() -> None:
+    """Clear the in-process cache of verified collection embedding models."""
+    _SEARCH_VERIFIED_MODELS.clear()
+
+
+def _fetch_collection_sample_payload(qdrant: Any, collection_name: str) -> dict[str, Any] | None:
+    """Fetch the payload of the first point in a collection, or None if unavailable."""
+    if not hasattr(qdrant, "scroll_points"):
+        return None
+    try:
+        sample = qdrant.scroll_points(collection_name, limit=1, with_payload=True)
+    except (DevOpsCLIError, OSError) as exc:
+        logger.debug("Failed scrolling points from %s: %s", collection_name, exc)
+        return None
+    if isinstance(sample, list) and sample and isinstance(sample[0], dict):
+        payload = sample[0].get("payload")
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _collection_has_points(qdrant: Any, collection_name: str) -> bool:
+    """Determine whether a collection exists and contains any points."""
+    if not hasattr(qdrant, "get_collection_info"):
+        return False
+    try:
+        info = qdrant.get_collection_info(collection_name)
+    except (DevOpsCLIError, OSError) as exc:
+        logger.debug("Failed getting collection info for %s: %s", collection_name, exc)
+        return False
+    if not isinstance(info, dict):
+        return False
+    count = (
+        info.get("points_count")
+        or info.get("vectors_count")
+        or info.get("indexed_vectors_count")
+        or 0
+    )
+    return isinstance(count, (int, float)) and count > 0
+
+
+def _inspect_collection_model(qdrant: Any, collection_name: str) -> str:
+    """Inspect and return the embedding model recorded in the collection points, if any."""
+    if not _collection_has_points(qdrant, collection_name):
+        return ""
+    payload = _fetch_collection_sample_payload(qdrant, collection_name)
+    if not payload:
+        return ""
+    model = payload.get("embedding_model")
+    return model if isinstance(model, str) else ""
+
+
+def _raise_model_mismatch(
+    collection_name: str,
+    coll_model: str,
+    configured_model: str,
+) -> None:
+    """Raise a permanent EmbeddingsError for an embedding model mismatch."""
+    raise EmbeddingsError(
+        f"Qdrant collection '{collection_name}' embedding model mismatch "
+        f"(collection: {coll_model}, configured: {configured_model}). "
+        "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+        exit_code=CONST_EXIT_FAILURE,
+        is_transient=False,
+        details={
+            "collection": collection_name[:256],
+            "collection_model": coll_model[:256],
+            "configured_model": configured_model[:256],
+            "fix": "devops ai rag clear --force && devops ai rag index --force",
+        },
+    )
+
+
+def _verify_single_collection_for_search(
+    qdrant: Any,
+    collection_name: str,
+    configured_model: str,
+) -> None:
+    """Check once per process that a collection's points were created with the configured model."""
+    key = (str(getattr(qdrant, "base_url", id(qdrant))), collection_name)
+    if key in _SEARCH_VERIFIED_MODELS:
+        verified_model = _SEARCH_VERIFIED_MODELS[key]
+        if verified_model and configured_model and verified_model != configured_model:
+            _raise_model_mismatch(collection_name, verified_model, configured_model)
+        return
+
+    recorded_model = _inspect_collection_model(qdrant, collection_name)
+    _SEARCH_VERIFIED_MODELS[key] = recorded_model
+    if recorded_model and configured_model and recorded_model != configured_model:
+        _raise_model_mismatch(collection_name, recorded_model, configured_model)
 
 
 class SemanticRetriever:
@@ -319,6 +418,15 @@ class SemanticRetriever:
         threshold = max(0.0, min(raw_threshold, 1.0)) if raw_threshold is not None else None
         return k, fetch_limit, threshold
 
+    def _verify_collections_for_search(self, collections: Sequence[str]) -> None:
+        """Verify once per process that collections' points match active query model."""
+        raw_model = getattr(self.embedder, "model", getattr(self.embedder, "model_name", None))
+        configured_model = raw_model if isinstance(raw_model, str) else ""
+        if not configured_model:
+            return
+        for coll_name in collections:
+            _verify_single_collection_for_search(self.qdrant, coll_name, configured_model)
+
     def search(
         self,
         query: str,
@@ -345,6 +453,7 @@ class SemanticRetriever:
 
         Raises EmbeddingsError when the query cannot be embedded.
         """
+        target_collections = self._resolve_collections(collection, category)
         k, fetch_limit, threshold = self._search_limits(top_k, score_threshold, rerank=rerank)
 
         with (
@@ -361,10 +470,10 @@ class SemanticRetriever:
         ):
             with _timed_stage("embedding"):
                 query_vec = _embed_search_query(self.embedder, query)
-            target_collections = self._resolve_collections(collection, category)
             search_span.set_attribute("rag.collections", target_collections)
 
             active_filter = _build_rag_filter_payload(file_filter, project, language, category)
+            self._verify_collections_for_search(target_collections)
             with _timed_stage("search"):
                 raw_results = _search_collections(
                     self.qdrant,
@@ -385,6 +494,7 @@ class SemanticRetriever:
             search_span.set_attribute("rag.results_count", len(final_results))
             if final_results:
                 search_span.set_attribute("rag.top_score", final_results[0].score)
+                search_span.set_attribute("rag.top_vector_score", final_results[0].vector_score)
             return final_results
 
     def filter_and_validate_results(

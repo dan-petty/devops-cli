@@ -434,10 +434,12 @@ def search(
     for idx, r in enumerate(results, 1):
         chunk = r.chunk
         proj_tag = f"[{chunk.project_name}] " if chunk.project_name != "default" else ""
+        final_score = r.rerank_score if r.rerank_score is not None else r.score
         title = (
             f"[bold cyan]#{idx}[/bold cyan] {proj_tag}[green]{chunk.file_path}[/green]:"
             f"[yellow]{chunk.start_line}-{chunk.end_line}[/yellow] "
-            f"([blue]{chunk.language}[/blue], Score: [magenta]{r.score:.3f}[/magenta])"
+            f"([blue]{chunk.language}[/blue], Score: [magenta]{final_score:.3f}[/magenta], "
+            f"Cosine: [magenta]{r.vector_score:.3f}[/magenta])"
         )
         if chunk.section_path:
             title += f" [dim]path: {' > '.join(chunk.section_path)}[/dim]"

@@ -52,7 +52,7 @@
   "src/devops_cli/ai/rag/investigator.py": 2,
   "src/devops_cli/ai/rag/library_store.py": 4,
   "src/devops_cli/ai/rag/metadata.py": 2,
-  "src/devops_cli/ai/rag/qdrant.py": 4,
+  "src/devops_cli/ai/rag/qdrant.py": 3,
   "src/devops_cli/ai/rag/retriever.py": 1,
   "src/devops_cli/ai/repomap.py": 2,
   "src/devops_cli/ai/response_cache.py": 4,

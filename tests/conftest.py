@@ -67,6 +67,16 @@ def register_test_mock_provider():
     register_provider("mock", MockProvider)
 
 
+@pytest.fixture(autouse=True)
+def reset_rag_verified_models_per_test() -> Iterator[None]:
+    """Ensure every unit test starts and ends with clean RAG verified collection models."""
+    from devops_cli.ai.rag.retriever import reset_search_verified_models
+
+    reset_search_verified_models()
+    yield
+    reset_search_verified_models()
+
+
 def _is_loopback(host: str) -> bool:
     """Report whether a connect or lookup names the loopback interface."""
     if host == "localhost":

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.qdrant import QdrantClient
 
 
@@ -75,7 +75,7 @@ def test_qdrant_upsert_and_search() -> None:
     assert results[0]["payload"]["file_path"] == "src/main.py"
 
 
-def test_qdrant_upsert_auto_ensures_collection_and_recreates_on_dimension_mismatch() -> None:
+def test_qdrant_upsert_dimension_mismatch_fails_without_recreating() -> None:
     client = QdrantClient("http://localhost:6333", allow_private_network=True)
     mock_native = MagicMock()
     # Simulate existing collection with 768 dims
@@ -88,15 +88,19 @@ def test_qdrant_upsert_auto_ensures_collection_and_recreates_on_dimension_mismat
 
     # Upsert with 1024 dims
     points = [{"id": "1", "vector": [0.1] * 1024, "payload": {"file_path": "src/main.py"}}]
-    upserted = client.upsert_points("devops_code", points)
+    with pytest.raises(EmbeddingsError) as exc_info:
+        client.upsert_points("devops_code", points)
 
-    # Must delete old 768 collection and recreate with 1024
-    mock_native.delete_collection.assert_called_with(collection_name="devops_code")
-    mock_native.create_collection.assert_called_once()
-    assert upserted == 1
+    assert (
+        exc_info.value.is_transient is False
+        and "768" in str(exc_info.value)
+        and "1024" in str(exc_info.value)
+    )
+    mock_native.delete_collection.assert_not_called()
+    mock_native.create_collection.assert_not_called()
 
 
-def test_qdrant_search_dimension_mismatch_warns_once(caplog: pytest.LogCaptureFixture) -> None:
+def test_qdrant_search_dimension_mismatch_raises_permanent_error() -> None:
     client = QdrantClient("http://localhost:6333", allow_private_network=True)
     mock_native = MagicMock()
     mock_native.query_points.side_effect = Exception(
@@ -104,14 +108,16 @@ def test_qdrant_search_dimension_mismatch_warns_once(caplog: pytest.LogCaptureFi
     )
     client._client = mock_native
 
-    with caplog.at_level(logging.WARNING):
-        res1 = client.search_points("devops_code", query_vector=[0.1] * 1024)
-        res2 = client.search_points("devops_code", query_vector=[0.1] * 1024)
+    with pytest.raises(EmbeddingsError) as exc_info:
+        client.search_points("devops_code", query_vector=[0.1] * 1024)
 
-    assert res1 == []
-    assert res2 == []
-    warn_msgs = [r.message for r in caplog.records if "dimension mismatch" in r.message]
-    assert len(warn_msgs) == 1
+    assert (
+        exc_info.value.is_transient is False
+        and "768" in str(exc_info.value)
+        and "1024" in str(exc_info.value)
+    )
+    mock_native.delete_collection.assert_not_called()
+    mock_native.create_collection.assert_not_called()
 
 
 def test_qdrant_delete_collection() -> None:
