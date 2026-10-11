@@ -260,6 +260,15 @@ class AICommandHelp:
     socratic_task: str = "Task description or objective to analyze for knowledge gaps."
     socratic_context: str = "Optional additional context, instructions, or code snippets."
     socratic_max_probes: str = "Maximum number of clarifying questions and code lookups to emit."
+    research_model: str = (
+        "Synthesize and progressively distill research observations into a living mental model."
+    )
+    model_topic: str = "Research topic or subject to synthesize a mental model for."
+    model_observations: str = (
+        "New observations, notes, or raw findings to incorporate into the model."
+    )
+    model_file: str = "Path to file containing raw observations to synthesize."
+    model_show: str = "Display the existing mental model without incorporating new observations."
 
 
 @dataclass(frozen=True)

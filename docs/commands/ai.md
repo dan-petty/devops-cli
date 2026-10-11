@@ -2163,4 +2163,28 @@ devops ai research socratic [OPTIONS] <task>
 | `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai research model`
+
+**Progressively synthesize and distill research observations into a living mental model.**
+
+```bash
+devops ai research model [OPTIONS] <topic>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<topic>` | `string` | Yes | Research topic or subject to synthesize a mental model for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--observations`, `-o`, `--notes` | `string` | - | New observations, notes, or raw findings to incorporate into the model. |
+| `--file`, `-F` | `path` | - | Path to file containing raw observations to synthesize. |
+| `--show`, `-s` | `boolean` | - | Display the existing mental model without incorporating new observations. |
+| `--format`, `-f` | `string` | `yaml` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
