@@ -254,6 +254,12 @@ class AICommandHelp:
     annotate_content: str = "Annotation observation, hypothesis, or note text."
     annotate_anchor: str = "Anchor reference: file path, AST node id, or line range."
     annotate_list: str = "List existing marginalia annotations without adding a new one."
+    research_socratic: str = (
+        "Formulate socratic inquiries, identify knowledge gaps, and emit minimal diagnostic probes."
+    )
+    socratic_task: str = "Task description or objective to analyze for knowledge gaps."
+    socratic_context: str = "Optional additional context, instructions, or code snippets."
+    socratic_max_probes: str = "Maximum number of clarifying questions and code lookups to emit."
 
 
 @dataclass(frozen=True)

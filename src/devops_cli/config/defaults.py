@@ -954,3 +954,6 @@ DEFAULT_AI_FORAGE_FILE_READ_CAP_BYTES: Final[int] = 65536
 
 # ── AI Research Marginalia Defaults ───────────────────────────────────────────
 DEFAULT_MARGINALIA_DIR: Final[str] = ".data/marginalia"
+
+# ── AI Research Socratic Inquiry Defaults ─────────────────────────────────────
+DEFAULT_AI_SOCRATIC_MAX_PROBES: Final[int] = 5

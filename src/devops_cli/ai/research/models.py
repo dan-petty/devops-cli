@@ -111,3 +111,77 @@ class ForageTrail(BaseModel):
         default_factory=list,
         description="Nodes ranked by relevance scent score.",
     )
+
+
+class KnowledgeGapType(StrEnum):
+    """Classification of epistemic uncertainty."""
+
+    GAP = "GAP"
+    AMBIGUITY = "AMBIGUITY"
+    UNDERSPECIFIED_CONTRACT = "UNDERSPECIFIED_CONTRACT"
+
+
+class KnowledgeGap(BaseModel):
+    """An identified gap, ambiguity, or underspecified contract in task requirements."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type: Literal["GAP", "AMBIGUITY", "UNDERSPECIFIED_CONTRACT"] = Field(
+        description="Classification of uncertainty: GAP, AMBIGUITY, or UNDERSPECIFIED_CONTRACT."
+    )
+    description: str = Field(
+        description="Description of what is missing, uncertain, or underspecified."
+    )
+    rationale: str = Field(
+        description="Short rationale explaining why this uncertainty impedes execution."
+    )
+
+
+class ClarifyingQuestion(BaseModel):
+    """A concise, targeted diagnostic question to eliminate uncertainty."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    question: str = Field(
+        description="Concise, targeted clarifying question addressing a specific gap."
+    )
+    target_gap: str = Field(description="The gap, ambiguity, or contract this question clarifies.")
+    rationale: str = Field(
+        description="Rationale explaining why answering this question eliminates uncertainty."
+    )
+
+
+class CodeLookupInstruction(BaseModel):
+    """A concrete instruction to inspect code or symbols to resolve a gap."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    target: str = Field(description="Concrete file path, symbol name, or search term to inspect.")
+    lookup_type: Literal["file", "symbol", "search"] = Field(
+        description="Type of lookup: file, symbol, or search."
+    )
+    rationale: str = Field(description="Information to extract from this code inspection.")
+    target_gap: str = Field(description="The gap or contract this lookup resolves.")
+
+
+class SocraticInquiryResult(BaseModel):
+    """Structured output of metacognitive Socratic inquiry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task: str = Field(description="Task description analyzed.")
+    summary: str = Field(
+        default="", description="Metacognitive summary of epistemic knowledge state."
+    )
+    gaps: list[KnowledgeGap] = Field(
+        default_factory=list,
+        description="Identified knowledge gaps, ambiguities, and underspecified contracts.",
+    )
+    questions: list[ClarifyingQuestion] = Field(
+        default_factory=list,
+        description="Targeted clarifying questions bounded by max_probes.",
+    )
+    lookups: list[CodeLookupInstruction] = Field(
+        default_factory=list,
+        description="Targeted code lookup instructions bounded by max_probes.",
+    )
