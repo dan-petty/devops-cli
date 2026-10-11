@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -16,6 +17,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -28,6 +30,8 @@ from devops_cli.output import (
     progress_context,
     render_dry_run_result,
 )
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.rag.app,
@@ -392,6 +396,7 @@ def search(
         raise typer.Exit(1)
 
     from devops_cli.ai.rag.embeddings import EmbeddingsError
+    from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
     from devops_cli.ai.rag.retriever import SemanticRetriever
 
     retriever = SemanticRetriever(
@@ -404,6 +409,7 @@ def search(
     )
 
     with exit_on_error(EmbeddingsError):
+        ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
         results = retriever.search(
             query,
             top_k=top_k,
@@ -453,29 +459,75 @@ def search(
 # =============================================================================
 
 
+def _extract_payload_field(sample_pts: Any, field: str) -> str | None:
+    if isinstance(sample_pts, list) and sample_pts and isinstance(sample_pts[0], dict):
+        payload = sample_pts[0].get("payload")
+        if isinstance(payload, dict):
+            val = payload.get(field)
+            return str(val) if isinstance(val, str) else None
+    return None
+
+
+def _render_collection_row(qdrant: Any, coll_name: str) -> list[str]:
+    """Extract summary row for a single collection."""
+    from devops_cli.config.constants import CONST_RAG_KB_PROJECT
+
+    info = qdrant.get_collection_info(coll_name) if hasattr(qdrant, "get_collection_info") else {}
+    pts = (
+        info.get("points_count")
+        or info.get("vectors_count")
+        or info.get("indexed_vectors_count")
+        or 0
+    )
+    params = (
+        info.get("config", {}).get("params", {}) if isinstance(info.get("config"), dict) else {}
+    )
+    vec_params = params.get("vectors", {}) if isinstance(params, dict) else {}
+    v_size = info.get("vector_size") or (
+        vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
+    )
+    c_status = info.get("status", "ok")
+
+    model, last_indexed, kb_digest = "—", "—", "—"
+    if hasattr(qdrant, "scroll_points") and pts > 0:
+        try:
+            sample = qdrant.scroll_points(coll_name, limit=1)
+            model = _extract_payload_field(sample, "embedding_model") or "—"
+            idx_at = _extract_payload_field(sample, "indexed_at")
+            last_indexed = idx_at[:19].replace("T", " ") if idx_at else "—"
+
+            kb_sample = qdrant.scroll_points(
+                coll_name, filter_payload={"project_name": CONST_RAG_KB_PROJECT}, limit=1
+            )
+            raw_kb = _extract_payload_field(kb_sample, "kb_digest")
+            kb_digest = raw_kb[:16] if raw_kb else "—"
+        except (
+            DevOpsCLIError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            logger.debug("Failed extracting metadata for collection %s: %s", coll_name, exc)
+
+    return [coll_name, str(pts), model, str(v_size), kb_digest, last_indexed, str(c_status)]
+
+
 def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
     """Build and print summary table of active Qdrant vector collections."""
-    rows: list[list[str]] = []
-    for coll_name in collections:
-        info = qdrant.get_collection_info(coll_name)
-        pts = (
-            info.get("points_count")
-            or info.get("vectors_count")
-            or info.get("indexed_vectors_count")
-            or 0
-        )
-        params = info.get("config", {}).get("params", {})
-        vec_params = params.get("vectors", {})
-        v_size = vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
-        c_status = info.get("status", "ok")
-        rows.append([coll_name, str(pts), str(v_size), c_status])
+    rows = [_render_collection_row(qdrant, coll_name) for coll_name in collections]
 
     print_table(
         title="Active Vector Collections",
         columns=[
             ("Collection", "cyan"),
-            ("Vectors Count", "right"),
-            ("Vector Size", "right"),
+            ("Points", "right"),
+            "Embedding Model",
+            ("Dimension", "right"),
+            "KB Digest",
+            "Last Indexed",
             "Status",
         ],
         rows=rows,
@@ -617,6 +669,8 @@ def _render_drift_report(report: Any, json_output: bool) -> None:
         print_warning(
             f"Git commit HEAD has drifted from indexed commit: {report.last_indexed_commit} -> {report.current_head_commit}"
         )
+    if getattr(report, "kb_drift", False):
+        print_warning("Knowledge base index digest in Qdrant has drifted from installed KB.")
     _print_drift_file_lists(report)
     if report.reindexed_files > 0:
         print_success(f"Auto-synced {report.reindexed_files} file(s) into Qdrant.")

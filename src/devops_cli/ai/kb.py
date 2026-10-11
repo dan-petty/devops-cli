@@ -23,6 +23,27 @@ def get_knowledge_base_dir() -> Path:
     return _KB_DIR
 
 
+def knowledge_base_digest(kb_dir: Path | None = None) -> str:
+    """Compute SHA-256 digest over sorted relative paths and contents of the bundled knowledge base."""
+    import hashlib
+
+    base = (kb_dir or get_knowledge_base_dir()).resolve()
+    if not base.is_dir():
+        return ""
+    hasher = hashlib.sha256()
+    files = sorted(p for p in base.rglob("*") if p.is_file() and not p.name.startswith("."))
+    for p in files:
+        rel_posix = p.relative_to(base).as_posix()
+        hasher.update(rel_posix.encode("utf-8"))
+        hasher.update(b"\0")
+        try:
+            hasher.update(p.read_bytes())
+        except OSError as exc:
+            logger.debug("Failed reading KB file %s for digest: %s", p, exc)
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
 def list_knowledge_base_articles(category: str | None = None) -> list[Path]:
     """Discover all markdown articles in the bundled knowledge base.
 

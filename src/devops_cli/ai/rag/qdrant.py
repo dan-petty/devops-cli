@@ -527,6 +527,62 @@ class QdrantClient:
         _DIM_MISMATCH_WARNED_COLLECTIONS.add(name)
         self._dim_mismatch_warned.add(name)
 
+    def count_points(self, name: str, filter_payload: dict[str, Any] | None = None) -> int:
+        """Count points in a collection, optionally matching filter criteria."""
+        query_filter = _build_payload_filter(filter_payload)
+
+        def _count_op(c: NativeQdrantClient) -> Any:
+            return c.count(collection_name=name, count_filter=query_filter, exact=True)
+
+        try:
+            res = self._execute_with_retry(_count_op, "count_points", name)
+            return int(getattr(res, "count", 0))
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if "not found" in err_str or "404" in err_str:
+                return 0
+            logger.debug("Error counting points in collection %s: %s", name, exc)
+            raise QdrantClientError(f"Count failed in '{name}': {exc}") from exc
+
+    def scroll_points(
+        self,
+        name: str,
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        limit: int = 1,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Scroll points in a collection with optional filter."""
+        query_filter = _build_payload_filter(filter_payload)
+
+        def _scroll_op(c: NativeQdrantClient) -> Any:
+            return c.scroll(
+                collection_name=name,
+                scroll_filter=query_filter,
+                limit=limit,
+                with_payload=with_payload,
+                with_vectors=with_vectors,
+            )
+
+        try:
+            res = self._execute_with_retry(_scroll_op, "scroll_points", name)
+            records = res[0] if isinstance(res, tuple) else getattr(res, "points", res)
+            return [
+                {
+                    "id": getattr(r, "id", None),
+                    "payload": getattr(r, "payload", {}) or {},
+                    "vector": getattr(r, "vector", None),
+                }
+                for r in records
+            ]
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if "not found" in err_str or "404" in err_str:
+                return []
+            logger.debug("Error scrolling points in collection %s: %s", name, exc)
+            raise QdrantClientError(f"Scroll failed in '{name}': {exc}") from exc
+
     def delete_points_by_files(
         self,
         name: str,

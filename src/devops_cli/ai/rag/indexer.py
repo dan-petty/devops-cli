@@ -16,10 +16,12 @@ from devops_cli.ai.rag.models import CodeChunk, IndexStats
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_INDEX_CACHE_FILENAME,
     CONST_RAG_INCOMPLETE_FILE_MARKER,
+    CONST_RAG_KB_PROJECT,
     CONST_RAG_SKIPPED_LOCKFILES,
 )
 from devops_cli.config.defaults import (
@@ -180,7 +182,14 @@ def _get_single_collection_stat(
     if not info:
         return None
     cnt = int(info.get("points_count", 0))
-    size = int(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", 0))
+    params = (
+        info.get("config", {}).get("params", {}) if isinstance(info.get("config"), dict) else {}
+    )
+    vec_params = params.get("vectors", {}) if isinstance(params, dict) else {}
+    v_size = info.get("vector_size") or (
+        vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
+    )
+    size = int(v_size or 0)
     return IndexStats(
         collection_name=coll,
         total_vectors=cnt,
@@ -291,9 +300,15 @@ def _purge_obsolete_points(
                 progress_callback("Purging obsolete vectors", processed, total_files)
 
 
-def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
+def _build_chunk_point(
+    chunk: CodeChunk,
+    vector: list[float],
+    *,
+    embedding_model: str | None = None,
+    kb_digest: str | None = None,
+) -> dict[str, Any]:
     """Construct Qdrant point dictionary with vector and chunk metadata payload."""
-    payload = {
+    payload: dict[str, Any] = {
         "file_path": chunk.file_path,
         "start_line": chunk.start_line,
         "end_line": chunk.end_line,
@@ -306,7 +321,12 @@ def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
         "symbol_names": chunk.symbol_names,
         "metadata": chunk.metadata,
         "content_hash": chunk.content_hash,
+        "indexed_at": datetime.now(UTC).isoformat(),
     }
+    if embedding_model:
+        payload["embedding_model"] = embedding_model
+    if chunk.project_name == CONST_RAG_KB_PROJECT:
+        payload["kb_digest"] = kb_digest or ""
     return {"id": chunk.id, "vector": vector, "payload": payload}
 
 
@@ -702,6 +722,10 @@ class WorkspaceIndexer:
         base_batch = getattr(self.embedder, "batch_size", 32)
         effective_batch_size = _calc_effective_batch_size(self.embedder, base_batch)
 
+        has_kb = any(c.project_name == CONST_RAG_KB_PROJECT for c in chunks)
+        kb_digest = knowledge_base_digest() if has_kb else ""
+        embedding_model = getattr(self.embedder, "model", "")
+
         for i in range(0, total, effective_batch_size):
             batch = chunks[i : i + effective_batch_size]
             with trace_span(
@@ -733,7 +757,12 @@ class WorkspaceIndexer:
                         details=det,
                     ) from exc
                 points = [
-                    _build_chunk_point(chunk, vec)
+                    _build_chunk_point(
+                        chunk,
+                        vec,
+                        embedding_model=embedding_model,
+                        kb_digest=kb_digest,
+                    )
                     for chunk, vec in zip(batch, embeddings, strict=False)
                 ]
                 self.qdrant.upsert_points(collection_name, points)

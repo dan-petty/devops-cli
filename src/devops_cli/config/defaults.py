@@ -361,6 +361,9 @@ DEFAULT_RAG_INVESTIGATION_MAX_CHARS: int = 24000
 DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS: int = 2048  # Longer lookup queries are cut
 DEFAULT_RAG_MAX_PER_FILE: int = 8
 DEFAULT_RAG_UPSERT_BATCH_SIZE: int = 64
+DEFAULT_RAG_KB_SYNC_FAILURE_COOLDOWN_SECONDS: Final[float] = (
+    1800.0  # 30-minute cooldown on KB rebuild failure
+)
 DEFAULT_QDRANT_RETRY_ATTEMPTS: int = 3
 # `qdrant.timeout`: how long each Qdrant request, a search or an indexing upsert or delete, waits
 # per attempt. 60 s is too short for a homelab Qdrant search; 300 to 600 s suits one (#975).

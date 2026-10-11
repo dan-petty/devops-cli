@@ -14,12 +14,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.indexer import WorkspaceIndexer, detect_project_name
+from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 from devops_cli.config.defaults import (
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
 )
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,9 @@ class RAGDriftReport(BaseModel):
     current_head_commit: str | None = None
     drift_score: float = 0.0
     reindexed_files: int = 0
+    kb_drift: bool = False
+    installed_kb_digest: str | None = None
+    recorded_kb_digest: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert report to dictionary representation."""
@@ -188,6 +194,111 @@ def _scan_all_files(
     return stale_files, new_files, active_paths
 
 
+def _count_collection_project_points(qdrant: Any, coll: str, project: str) -> int:
+    """Count points for a specific project in a single collection."""
+    if hasattr(qdrant, "count_points"):
+        try:
+            cnt = qdrant.count_points(coll, filter_payload={"project_name": project})
+            if isinstance(cnt, int):
+                return cnt
+        except (
+            DevOpsCLIError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            logger.debug("Failed counting points for %s in %s: %s", project, coll, exc)
+            return 0
+    if hasattr(qdrant, "get_collection_info"):
+        try:
+            info = qdrant.get_collection_info(coll)
+            if isinstance(info, dict):
+                pts = info.get("points_count", 0)
+                return int(pts) if isinstance(pts, (int, float)) else 0
+        except (
+            DevOpsCLIError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            logger.debug("Failed fetching collection info for %s: %s", coll, exc)
+    return 0
+
+
+def _check_qdrant_kb_digest_drift(
+    qdrant: Any, docs_collection: str
+) -> tuple[bool, str | None, str | None]:
+    """Check if Qdrant knowledge base digest matches the installed knowledge base."""
+    inst_digest = knowledge_base_digest()
+    if not hasattr(qdrant, "scroll_points"):
+        return False, inst_digest, None
+    try:
+        records = qdrant.scroll_points(
+            docs_collection,
+            filter_payload={"project_name": CONST_RAG_KB_PROJECT},
+            limit=1,
+        )
+        if isinstance(records, list) and records and isinstance(records[0], dict):
+            payload = records[0].get("payload")
+            rec = payload.get("kb_digest") if isinstance(payload, dict) else None
+            rec_digest = rec if isinstance(rec, str) else None
+            kb_drift = bool(inst_digest and rec_digest and rec_digest != inst_digest)
+            return kb_drift, inst_digest, rec_digest
+        return bool(inst_digest), inst_digest, None
+    except (
+        DevOpsCLIError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+        TypeError,
+    ) as exc:
+        logger.debug("Failed scrolling KB points for digest check: %s", exc)
+        return False, inst_digest, None
+
+
+def _inspect_qdrant_drift(
+    indexer: WorkspaceIndexer,
+    project: str,
+    active_paths: set[str],
+    stale_files: list[str],
+) -> tuple[list[str], bool, str | None, str | None]:
+    """Check Qdrant vector store point counts and KB digest to detect store-level drift."""
+    qdrant = getattr(indexer, "qdrant", None)
+    if qdrant is None or not hasattr(qdrant, "is_alive"):
+        return stale_files, False, None, None
+    alive = qdrant.is_alive()
+    if not isinstance(alive, bool) or not alive:
+        return stale_files, False, None, None
+
+    updated_stale = list(stale_files)
+    collections = (indexer.code_collection, indexer.docs_collection)
+    qdrant_points = sum(_count_collection_project_points(qdrant, c, project) for c in collections)
+
+    if qdrant_points == 0 and active_paths:
+        updated_stale = sorted(set(updated_stale) | active_paths)
+
+    kb_drift, inst_digest, rec_digest = _check_qdrant_kb_digest_drift(
+        qdrant, indexer.docs_collection
+    )
+    if not isinstance(inst_digest, str):
+        inst_digest = None
+    if not isinstance(rec_digest, str):
+        rec_digest = None
+
+    if project == CONST_RAG_KB_PROJECT and kb_drift and active_paths:
+        updated_stale = sorted(set(updated_stale) | active_paths)
+
+    return updated_stale, kb_drift, inst_digest, rec_digest
+
+
 class RAGDriftDetector:
     """Detects vector index staleness and manages autonomous RAG re-indexing."""
 
@@ -208,7 +319,7 @@ class RAGDriftDetector:
         last_indexed_commit: str | None = None,
         current_commit: str | None = None,
     ) -> RAGDriftReport:
-        """Analyze workspace files and detect drift against vector index cache."""
+        """Analyze workspace files and detect drift against vector index cache and Qdrant."""
         with trace_span("rag.drift_detection", attributes={"rag.root_dir": str(self.root_dir)}):
             cache = current_cache if current_cache is not None else self.indexer._load_cache()
             files = self.indexer.collect_files(self.root_dir)
@@ -220,18 +331,24 @@ class RAGDriftDetector:
             stale_files, new_files, active_paths = _scan_all_files(
                 files, self.root_dir, self.project, cache
             )
-
             deleted_files = _find_deleted_files(cache, self.project, active_paths)
+
+            stale_files, kb_drift, inst_digest, rec_digest = _inspect_qdrant_drift(
+                self.indexer, self.project, active_paths, stale_files
+            )
+
             total_active = len(files)
             synced = total_active - len(stale_files) - len(new_files)
 
             drift_score = _calculate_drift_score(
                 total_active, len(stale_files), len(new_files), len(deleted_files)
             )
+            if kb_drift and self.project == CONST_RAG_KB_PROJECT:
+                drift_score = max(drift_score, 1.0)
 
             record_metric(
                 "devops_cli_rag_drift_detected_total",
-                1.0 if (drift_score > 0 or git_drift) else 0.0,
+                1.0 if (drift_score > 0 or git_drift or kb_drift) else 0.0,
                 attributes={"project": self.project},
             )
             record_metric(
@@ -253,6 +370,9 @@ class RAGDriftDetector:
                 last_indexed_commit=last_commit,
                 current_head_commit=cur_commit,
                 drift_score=drift_score,
+                kb_drift=kb_drift,
+                installed_kb_digest=inst_digest,
+                recorded_kb_digest=rec_digest,
             )
 
     def detect_and_sync(self, auto_sync: bool = False) -> RAGDriftReport:
