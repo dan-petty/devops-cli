@@ -3359,3 +3359,10 @@ CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "s
 # ── Review Evidence (Ruff & Mypy) ─────────────────────────────────────────────
 CONST_DEFAULT_REVIEW_ADVISORY_RULES: Final[tuple[str, ...]] = ("BLE001",)
 CONST_COMPLEXITY_SOURCE: Final[str] = "mccabe (ruff C901)"
+
+# ── AI Research Information Foraging Constants ────────────────────────────────
+CONST_FORAGE_EDGE_TYPES: Final[tuple[str, ...]] = (
+    "import",
+    "markdown_link",
+    "git_co_change",
+)

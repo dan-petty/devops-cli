@@ -240,6 +240,14 @@ class AICommandHelp:
     )
     read_lines: str = "Line range for Level 2 focal window (e.g. '40:80')."
     read_symbol: str = "Target symbol name to inspect or focus on."
+    research: str = "Epistemic research, information foraging, and relational codebase exploration."
+    research_forage: str = (
+        "Forage relational information trails across codebases using semantic scent."
+    )
+    forage_anchor: str = "Starting anchor file path or keyword."
+    forage_query: str = "Inquiry text for calculating semantic information scent."
+    forage_max_nodes: str = "Maximum number of nodes to visit along the trail."
+    forage_min_score: str = "Minimum relevance scent threshold before backtracking."
 
 
 @dataclass(frozen=True)

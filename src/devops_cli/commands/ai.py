@@ -24,6 +24,7 @@ from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
+from devops_cli.commands.ai_research import app as research_app
 from devops_cli.commands.ai_runs import announce_run
 from devops_cli.commands.ai_runs import app as runs_app
 from devops_cli.commands.analyze import app as analyze_app
@@ -139,6 +140,11 @@ app.add_typer(
     cost_app,
     name="spend",
     help="Alias for 'cost' command.",
+)
+app.add_typer(
+    research_app,
+    name="research",
+    help=HELP.ai.research,
 )
 
 

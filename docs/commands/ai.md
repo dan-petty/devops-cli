@@ -2070,3 +2070,38 @@ devops ai spend reset [OPTIONS]
 | `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
 
 ---
+
+## `devops ai research`
+
+**Epistemic research, information foraging, and relational codebase exploration.**
+
+```bash
+devops ai research COMMAND [ARGS]...
+```
+
+### `devops ai research forage`
+
+**Forage relational information trails across codebases using semantic scent.**
+
+```bash
+devops ai research forage [OPTIONS] <anchor>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<anchor>` | `string` | Yes | Starting anchor file path or keyword. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | `` | Inquiry text for calculating semantic information scent. |
+| `--max-nodes`, `-n` | `integer` | `20` | Maximum number of nodes to visit along the trail. |
+| `--min-score`, `-s` | `float` | `0.1` | Minimum relevance scent threshold before backtracking. |
+| `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
