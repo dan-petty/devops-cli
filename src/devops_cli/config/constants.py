@@ -3419,3 +3419,17 @@ CONST_SOCRATIC_LOOKUP_TYPES: Final[tuple[str, ...]] = (
     "symbol",
     "search",
 )
+
+# ── AI Research Mental Model & Causal Graph ───────────────────────────────────
+CONST_CAUSAL_NODE_TYPES: Final[tuple[str, ...]] = (
+    "cause",
+    "effect",
+    "mediator",
+    "outcome",
+)
+CONST_CAUSAL_RELATIONSHIPS: Final[tuple[str, ...]] = (
+    "causes",
+    "inhibits",
+    "triggers",
+    "mediates",
+)

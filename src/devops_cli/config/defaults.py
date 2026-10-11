@@ -957,3 +957,6 @@ DEFAULT_MARGINALIA_DIR: Final[str] = ".data/marginalia"
 
 # ── AI Research Socratic Inquiry Defaults ─────────────────────────────────────
 DEFAULT_AI_SOCRATIC_MAX_PROBES: Final[int] = 5
+
+# ── AI Research Mental Model Defaults ─────────────────────────────────────────
+DEFAULT_AI_RESEARCH_DIR: Final[str] = ".data/research"
