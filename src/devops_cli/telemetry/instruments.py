@@ -124,6 +124,12 @@ QDRANT_RETRIES_TOTAL = Instrument(
     "1",
     "Qdrant requests retried after a transient error, by operation and error type",
 )
+RAG_POINTS = Instrument(
+    "devops_cli_rag_points",
+    InstrumentKind.GAUGE,
+    "1",
+    "Points stored in RAG vector collections, by collection",
+)
 
 _DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
 
@@ -236,6 +242,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
+    RAG_POINTS,
     PROJECT_RELEASES_TOTAL,
     PROJECT_COMMITS_TOTAL,
     PROJECT_PRS_TOTAL,
@@ -310,6 +317,7 @@ __all__ = [
     "PROJECT_TRAFFIC_VIEWS_TOTAL",
     "PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL",
     "QDRANT_RETRIES_TOTAL",
+    "RAG_POINTS",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
     "UPSTREAM_COMPONENT_STATUS",

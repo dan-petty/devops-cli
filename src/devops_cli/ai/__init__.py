@@ -453,6 +453,7 @@ def __getattr__(name: str) -> Any:  # noqa: C901
         "KnowledgeBaseStats",
         "get_knowledge_base_dir",
         "get_knowledge_base_stats",
+        "knowledge_base_digest",
         "list_knowledge_base_articles",
         "load_kb_article",
     }:
@@ -1062,6 +1063,7 @@ __all__ = [
     "is_tier_satisfied",
     "is_toolset",
     "json_lines",
+    "knowledge_base_digest",
     "limit_model_concurrency",
     "list_knowledge_base_articles",
     "load_devops_mcp_toolsets",

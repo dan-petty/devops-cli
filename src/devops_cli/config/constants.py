@@ -1846,6 +1846,9 @@ CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
 # Duration in seconds to pause RAG lookups when circuit breaker opens
 CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS: Final[float] = 60.0
 
+# Project identifier used for bundled DevOps CLI Knowledge Base chunks in Qdrant
+CONST_RAG_KB_PROJECT: Final[str] = "devops-cli-kb"
+
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
     {"k8s-monitoring", "dcgm-exporter"}

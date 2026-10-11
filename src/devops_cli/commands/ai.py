@@ -204,6 +204,11 @@ def _try_retrieve_rag_context(
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
         from devops_cli.ai.rag.investigator import investigate_rag_context
+        from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
+        from devops_cli.commands.rag import _get_rag_components
+
+        qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+        ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
 
         ctx = investigate_rag_context(
             query,

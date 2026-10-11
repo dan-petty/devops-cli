@@ -9,6 +9,7 @@ from devops_cli.ai.rag.investigator import (
     format_rag_investigation_for_prompt,
     investigate_rag_context,
 )
+from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
 from devops_cli.ai.rag.library_store import LibraryVectorStore
 from devops_cli.ai.rag.models import CodeChunk, IndexStats, RAGContext, SearchResult
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
@@ -28,6 +29,7 @@ __all__ = [
     "SemanticChunker",
     "SemanticRetriever",
     "WorkspaceIndexer",
+    "ensure_knowledge_base_ready",
     "format_rag_investigation_for_prompt",
     "investigate_rag_context",
     "resolve_qdrant_client",

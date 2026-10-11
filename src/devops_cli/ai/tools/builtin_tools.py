@@ -384,12 +384,18 @@ def rag_search(
         if not qdrant.is_alive():
             return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
 
+        from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
+
         embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        code_coll = f"{prefix}_code"
+        docs_coll = f"{prefix}_docs"
+        ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
+
         retriever = SemanticRetriever(
             qdrant=qdrant,
             embedder=embedder,
-            code_collection=f"{prefix}_code",
-            docs_collection=f"{prefix}_docs",
+            code_collection=code_coll,
+            docs_collection=docs_coll,
             default_top_k=top_k,
         )
         context = retriever.retrieve_context(
