@@ -798,6 +798,13 @@ CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {
     "X": "unknown",
 }
 CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS: Final[frozenset[str]] = frozenset({"C", "R"})
+CONST_GIT_WORKTREE_PREFIX: Final[str] = "worktree "
+CONST_GIT_HEAD_PREFIX: Final[str] = "HEAD "
+CONST_GIT_BRANCH_PREFIX: Final[str] = "branch "
+CONST_GIT_LOCKED_TOKEN: Final[str] = "locked"
+CONST_GIT_PRUNABLE_TOKEN: Final[str] = "prunable"
+CONST_GIT_DETACHED_TOKEN: Final[str] = "detached"
+CONST_GIT_BARE_TOKEN: Final[str] = "bare"
 # The same, from a pull request file's `status` in the GitHub REST API (its documented enum).
 CONST_GITHUB_PR_FILE_CHANGE_TYPES: Final[dict[str, str]] = {
     "added": "added",

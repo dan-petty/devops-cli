@@ -164,6 +164,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+|  | `devops repos worktrees COMMAND [ARGS]...` | Clone, synchronize, and manage organization repositories. |
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |

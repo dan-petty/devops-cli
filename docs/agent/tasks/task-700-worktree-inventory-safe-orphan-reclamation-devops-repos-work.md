@@ -1,23 +1,29 @@
 # Task 700: Worktree Inventory & Safe Orphan Reclamation (`devops repos worktrees`)
 
 **Issue**: [#700](https://github.com/dan-petty/devops-cli/issues/700)
-**Status**: Backlog
-**Milestone**: `v0.2.24`
+**Status**: Done
+**Milestone**: `v0.2.34`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
+**Feasibility**: Verified with `git worktree list --porcelain -z` and `git for-each-ref --contains` across local repository worktrees.
 
 ---
 
 ## 1. Description & Objectives
 
-Nothing in `src/` runs `git worktree`; the only hit, `ci/cache.py:168`, parses status porcelain. `delegate_task` (`ai/harness/workflow.py:280`) hands a sub-agent no workspace and the harness `Shell` defaults to `cwd='.'` (`ai/harness/shell.py:110`), so subagents share the caller's checkout — yet worktrees still accumulate. An external harness left five `worktree-wf_*` checkouts under `.claude/worktrees/`, each clean, one commit ahead of `main`, with a tip on no other local or remote ref, and this tool cannot list them. git itself reports `locked` and `prunable` per entry and `prune --expire` handles missing directories; what it cannot say is whether a checkout still holds unmerged work. vibes `patterns/collision-free-worktree-fleet-allocation.md` names zombie-checkout accumulation as one of four hazards and prescribes leased, TTL-bounded worktrees with automated pruning.
+External harnesses and multi-agent workflows leave behind worktree checkouts that accumulate over time. While git itself reports `locked` and `prunable` states, it cannot determine whether an orphan checkout holds unmerged commits or dirty modifications.
+
+This deliverable implements the `devops repos worktrees` command group with:
+1. `devops repos worktrees status`: lists every worktree in the repository with per-entry commits ahead of main, dirty-path count, whether any other local or remote ref contains the tip, and git's `locked` and `prunable` status.
+2. `devops repos worktrees status --json`: emits a typed JSON array containing `ahead` (int), `dirty` (int), `contained` (bool), `locked` (bool), and `prunable` (bool).
+3. `devops repos worktrees prune`: dry-run preview by default; without `--force`, removes only clean and contained entries, refusing dirty, unmerged, locked, or main worktrees.
+4. `devops repos worktrees prune --force`: removes worktrees regardless of clean or unmerged status, cleaning up metadata with `git worktree prune`.
+5. NUL-separated parsing via `git worktree list --porcelain -z` per the #1440 convention, cleanly preserving paths with newline bytes.
 
 #### Key Deliverables:
-- Context & Rationale*: Nothing in `src/` runs `git worktree`; the only hit, `ci/cache.py:168`, parses status porcelain. `delegate_task` (`ai/harness/workflow.py:280`) hands a sub-agent no workspace and the harness `Shell` defaults to `cwd='.'` (`ai/harness/shell.py:110`), so subagents share the caller's checkout — yet worktrees still accumulate. An external harness left five `worktree-wf_*` checkouts under `.claude/worktrees/`, each clean, one commit ahead of `main`, with a tip on no other local or remote ref, and this tool cannot list them. git itself reports `locked` and `prunable` per entry and `prune --expire` handles missing directories; what it cannot say is whether a checkout still holds unmerged work. vibes `patterns/collision-free-worktree-fleet-allocation.md` names zombie-checkout accumulation as one of four hazards and prescribes leased, TTL-bounded worktrees with automated pruning.
-- Deliverable*: A `devops repos worktrees` group, `status` first: parse `git worktree list --porcelain` (shell out through `core/process.run_subprocess`; GitPython 3.1.62 has no worktree API, only `WorkTreeRepositoryUnsupported`) and add per entry commits ahead of `main`, dirty-path count, whether any other ref contains the tip, and git's own `locked`/`prunable` flags. Then `prune`, dry-run by default: remove only entries that are clean and contained elsewhere, refuse everything else without `--force`, finish with `git worktree prune`. Use `git worktree lock --reason` as the owner marker so plain git sees it. Port nothing from `examples/worktree-swarm-arbiter/worktree_arbiter.py`: its lock wait is a fixed 5 x 50 ms loop and `process_group_id` is hard-coded 0, so its killpg branch never fires. The lease registry (pgid, expiry, heartbeat on the `SandboxRegistry._file_lock` seam, `sandbox/registry.py:40`) with SIGTERM-to-SIGKILL release via `_terminate_process_group` (`ai/harness/shell.py:293`) is a later v0.3.1 extension of `devops ai shadow`, and the `index.lock` retry belongs in `ai/retries` on `tenacity` as separate hygiene; both reuse this command's refusal rules.
-- Constraint*: Reclamation deletes commits. Every orphan measured here holds a commit on no other ref, so a TTL-driven `remove --force` plus `branch -D` would have destroyed five commits; the refusal rule is the deliverable, not an option. Placement: `find_top_level_repo_root` (`core/repo.py:45-57`) returns `candidates[-1]`, so a worktree nested inside the repository resolves to the main checkout and `devops ci` run there would aim `_clean_coverage_artifacts` (`commands/ci.py:159`) at the main checkout's `.data/.coverage*`. New worktrees follow the outside-the-tree convention the numbered feature worktrees already use; changing the resolver is a separate decision. Data tier: unmerged `fix/553-shared-data-dir` deliberately shares one data directory across worktrees, the reverse of vibes' per-worktree `DEVOPS_CLI_DATA_DIR` recipe, which must not be ported.
-- Measured*: `git worktree list --porcelain | grep -c '^worktree '` = 13 today; the count has differed in every session that measured it, so it stays out of the prose. For each `worktree-wf_*` branch, `git rev-list --count main..<branch>` = 1 and `git for-each-ref --contains <tip> refs/heads refs/remotes` lists 0 refs other than the branch itself. `git -C <worktree> status --porcelain | wc -l` = 0 for every one. `timeout 60 du -sh .claude/worktrees` timed out, so no size is claimed.
-- Source*: vibes `patterns/collision-free-worktree-fleet-allocation.md`, `patterns/multi-agent-codebase-concurrency.md`, `observations/systems/06-multi-agent-concurrency-shared-workspace-hazards-and-swarm-coordination.md`, `examples/worktree-swarm-arbiter/worktree_arbiter.py`, `examples/worktree-swarm-arbiter/README.md`
-- Unit and integration test coverage with structural tuple equality assertions.
-- Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
-- 100% passing across Gated CI validation suite (`uv run devops ci`).
+- [x] NUL-separated porcelain worktree list parser (`parse_worktree_porcelain_z` in `src/devops_cli/git/worktree_inventory.py`).
+- [x] Ahead-of-main calculation (`count_commits_ahead_of_main`), dirty path counting (`count_dirty_paths`), and other-ref containment verification (`is_tip_contained_in_other_ref`).
+- [x] Safe prune evaluator (`evaluate_prune_candidates` and `prune_worktrees`), refusing unmerged/dirty checkouts without `--force` and invoking `git worktree prune` on completion.
+- [x] CLI commands `devops repos worktrees status` and `devops repos worktrees prune` with `--json`, `--force`, `--dry-run`, and `--repo-dir` flags in `src/devops_cli/commands/repos.py`.
+- [x] Unit and integration test suite in `tests/test_repos_worktrees.py` covering all 8 acceptance criteria.
+- [x] Maintained cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
