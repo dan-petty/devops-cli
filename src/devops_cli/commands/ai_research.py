@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 
 from devops_cli.ai.research.crawler import ForageCrawler
-from devops_cli.ai.research.models import ForageTrail
+from devops_cli.ai.research.marginalia import annotate_file, read_marginalia
+from devops_cli.ai.research.models import ForageTrail, MarginaliaRecord
 from devops_cli.config.defaults import (
     DEFAULT_AI_FORAGE_MAX_NODES,
     DEFAULT_AI_FORAGE_MIN_SCORE,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import find_worktree_root
+from devops_cli.core.repo import find_repo_root, find_worktree_root
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -78,6 +81,29 @@ def _render_backtrack_table(trail: ForageTrail) -> Table:
     return table
 
 
+def _render_marginalia_table(records: list[MarginaliaRecord], title: str) -> Table:
+    table = Table(
+        title=title,
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Type", style="bold yellow")
+    table.add_column("Anchor", style="cyan")
+    table.add_column("Created", style="dim")
+    table.add_column("Content", style="green")
+
+    for i, rec in enumerate(records, start=1):
+        table.add_row(
+            str(i),
+            rec.type,
+            rec.anchor,
+            rec.created_at[:19].replace("T", " "),
+            rec.content,
+        )
+    return table
+
+
 def _display_forage_summary(trail: ForageTrail) -> None:
     console = get_console()
     console.print(
@@ -95,6 +121,15 @@ def _display_forage_summary(trail: ForageTrail) -> None:
     console.print(_render_forage_trail_table(trail))
     if trail.backtrack_events:
         console.print(_render_backtrack_table(trail))
+
+    for node in trail.visited_nodes:
+        if node.marginalia:
+            console.print(
+                _render_marginalia_table(
+                    node.marginalia,
+                    f"Active Marginalia Surfaced for: {node.path}",
+                )
+            )
 
 
 @app.command(name="forage")
@@ -181,3 +216,113 @@ def forage_cmd(
         write_stdout(trail.model_dump_json(indent=2))
     else:
         _display_forage_summary(trail)
+
+
+def _emit_marginalia_records(records: list[MarginaliaRecord], fmt: str, path: str) -> None:
+    if fmt == "json":
+        write_stdout(json.dumps([r.model_dump() for r in records], indent=2, ensure_ascii=False))
+        return
+    if fmt == "yaml":
+        write_stdout(
+            yaml.safe_dump([r.model_dump() for r in records], sort_keys=False, allow_unicode=True)
+        )
+        return
+
+    console = get_console()
+    if not records:
+        console.print(f"[dim]No marginalia found for {path}.[/dim]")
+    else:
+        console.print(_render_marginalia_table(records, f"Marginalia Annotations: {path}"))
+
+
+@app.command(name="annotate")
+def annotate_cmd(
+    path: Annotated[
+        str,
+        typer.Argument(
+            help=HELP.ai.annotate_path,
+        ),
+    ],
+    type: Annotated[
+        str | None,
+        typer.Option(
+            "--type",
+            "-t",
+            help=HELP.ai.annotate_type,
+        ),
+    ] = None,
+    content: Annotated[
+        str | None,
+        typer.Option(
+            "--content",
+            "-c",
+            "--note",
+            help=HELP.ai.annotate_content,
+        ),
+    ] = None,
+    anchor: Annotated[
+        str | None,
+        typer.Option(
+            "--anchor",
+            "-a",
+            help=HELP.ai.annotate_anchor,
+        ),
+    ] = None,
+    list_only: Annotated[
+        bool,
+        typer.Option(
+            "--list",
+            "-l",
+            help=HELP.ai.annotate_list,
+        ),
+    ] = False,
+    format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = "text",
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=HELP.options.dry_run,
+        ),
+    ] = False,
+) -> None:
+    """Record or view active marginalia annotations anchored to files, AST nodes, or ranges."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai research annotate",
+            action="record_or_read_marginalia",
+            details={
+                "path": path,
+                "type": type,
+                "content": content,
+                "anchor": anchor,
+                "list_only": list_only,
+            },
+        )
+        return
+
+    repo_root = find_worktree_root(Path.cwd()) or find_repo_root(Path.cwd())
+
+    if not list_only:
+        ann_type = type or "TODO"
+        ann_content = content if content is not None else f"Inspect {Path(path).name}"
+        try:
+            annotate_file(
+                file_path=path,
+                type=ann_type,
+                content=ann_content,
+                anchor=anchor,
+                repo_root=repo_root,
+            )
+        except ValueError as exc:
+            print_error(str(exc))
+            raise typer.Exit(code=1) from exc
+
+    records = read_marginalia(path, repo_root=repo_root)
+    _emit_marginalia_records(records, format.lower(), path)

@@ -2,9 +2,38 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class MarginaliaType(StrEnum):
+    """Supported marginalia annotation types."""
+
+    ASSUMPTION = "ASSUMPTION"
+    HYPOTHESIS = "HYPOTHESIS"
+    CONTRADICTION = "CONTRADICTION"
+    QUESTION = "QUESTION"
+    TODO = "TODO"
+
+
+class MarginaliaRecord(BaseModel):
+    """A file-anchored observation, hypothesis, contradiction, question, or note."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    file_path: str = Field(description="File path relative to repo root.")
+    file_hash: str = Field(description="SHA-256 digest of normalized relative file path.")
+    type: Literal["ASSUMPTION", "HYPOTHESIS", "CONTRADICTION", "QUESTION", "TODO"] = Field(
+        description="Marginalia annotation classification."
+    )
+    content: str = Field(description="Annotation text or observation.")
+    anchor: str = Field(description="Anchor reference: file path, AST node id, or line range.")
+    created_at: str = Field(description="ISO 8601 UTC timestamp of creation.")
+    session_id: str | None = Field(
+        default=None, description="Optional active session or agent run ID."
+    )
 
 
 class ForageEdge(BaseModel):
@@ -37,6 +66,10 @@ class ForageNode(BaseModel):
     depth: int = Field(default=0, description="Hop distance from the starting anchor.")
     edge_type: str | None = Field(default=None, description="Edge type that led to this node.")
     detail: str = Field(default="", description="Edge detail that led to this node.")
+    marginalia: list[MarginaliaRecord] = Field(
+        default_factory=list,
+        description="Prior marginalia annotations attached to this file.",
+    )
 
 
 class BacktrackEvent(BaseModel):

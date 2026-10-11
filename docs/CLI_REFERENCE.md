@@ -5095,6 +5095,31 @@ devops ai research forage [OPTIONS] <anchor>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai research annotate`
+
+**Record or view active marginalia annotations anchored to files, AST nodes, or ranges.**
+
+```bash
+devops ai research annotate [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Target file path to annotate or inspect marginalia. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Annotation type (ASSUMPTION, HYPOTHESIS, CONTRADICTION, QUESTION, TODO). |
+| `--content`, `-c`, `--note` | `string` | - | Annotation observation, hypothesis, or note text. |
+| `--anchor`, `-a` | `string` | - | Anchor reference: file path, AST node id, or line range. |
+| `--list`, `-l` | `boolean` | - | List existing marginalia annotations without adding a new one. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops review

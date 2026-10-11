@@ -3398,3 +3398,12 @@ CONST_FORAGE_EDGE_TYPES: Final[tuple[str, ...]] = (
     "markdown_link",
     "git_co_change",
 )
+
+# ── AI Research Marginalia & Epistemic Scratchpad ─────────────────────────────
+CONST_MARGINALIA_TYPES: Final[tuple[str, ...]] = (
+    "ASSUMPTION",
+    "HYPOTHESIS",
+    "CONTRADICTION",
+    "QUESTION",
+    "TODO",
+)

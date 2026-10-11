@@ -11,6 +11,7 @@ from devops_cli.ai.research.edges import (
     extract_markdown_links,
     extract_python_imports,
 )
+from devops_cli.ai.research.marginalia import read_marginalia
 from devops_cli.ai.research.models import (
     BacktrackEvent,
     ForageEdge,
@@ -175,6 +176,7 @@ class ForageCrawler:
 
             visited.add(current_node)
             score = -neg_score
+            node_marginalia = read_marginalia(current_node, self.repo_root)
             visited_nodes.append(
                 ForageNode(
                     path=current_node,
@@ -182,8 +184,10 @@ class ForageCrawler:
                     depth=depth,
                     edge_type=inbound_edge.edge_type if inbound_edge else None,
                     detail=inbound_edge.detail if inbound_edge else "",
+                    marginalia=node_marginalia,
                 )
             )
+
             if inbound_edge:
                 ledger_edges.append(inbound_edge)
 
