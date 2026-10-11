@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -291,6 +291,36 @@ class TestDevcontainerCli:
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
+
+    def test_wait_for_docker_daemon_polls_engine_ping(self) -> None:
+        """_wait_for_docker_daemon polls get_engine().ping() without subprocess calls."""
+        from devops_cli.commands.devcontainer import _wait_for_docker_daemon
+
+        mock_engine = MagicMock()
+        mock_engine.ping.return_value = True
+
+        with (
+            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
+            patch("subprocess.run") as mock_subproc,
+        ):
+            result = _wait_for_docker_daemon(timeout_seconds=5)
+
+        assert (result, mock_engine.ping.called, mock_subproc.called) == (True, True, False)
+
+    def test_wait_for_docker_daemon_timeout(self) -> None:
+        """_wait_for_docker_daemon returns False when ping keeps failing."""
+        from devops_cli.commands.devcontainer import _wait_for_docker_daemon
+
+        mock_engine = MagicMock()
+        mock_engine.ping.return_value = False
+
+        with (
+            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
+            patch("time.sleep"),
+        ):
+            result = _wait_for_docker_daemon(timeout_seconds=0)
+
+        assert result is False
 
     def test_post_start_mcp_scaffolding_and_sync(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

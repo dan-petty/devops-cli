@@ -1708,6 +1708,14 @@ CONST_DOCKER_BUILD_CACHE_TYPES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Podman socket paths and engine discovery constants
+CONST_PODMAN_ROOTFUL_SOCKET_PATH: Final[Path] = Path("/run/podman/podman.sock")
+CONST_RUN_USER_BASE: Final[Path] = Path("/run/user")
+CONST_PODMAN_SOCKET_RELATIVE_PATH: Final[Path] = Path("podman/podman.sock")
+CONST_DOCKER_DEFAULT_UNIX_SOCKET: Final[str] = "/var/run/docker.sock"
+CONST_PODMAN_ENGINE_COMPONENT_NAME: Final[str] = "Podman Engine"
+CONST_SECURITY_OPT_ROOTLESS: Final[str] = "name=rootless"
+
 # Sensitive host configuration and credential directories forbidden from container sandbox mounts
 CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
     {

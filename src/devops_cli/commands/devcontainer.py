@@ -934,12 +934,11 @@ def _configure_git_signing_for_workspace(workspace_dir: Path, key_path: Path) ->
 
 def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
     """Poll for Docker daemon availability up to timeout_seconds."""
-    if not shutil.which("docker"):
-        return False
+    from devops_cli.docker.engine import get_engine
+
     start_time = time.monotonic()
     while time.monotonic() - start_time < timeout_seconds:
-        res = run_subprocess(["docker", "info"], check=False, quiet=True)
-        if res.returncode == 0:
+        if get_engine().ping():
             return True
         time.sleep(2)
     return False

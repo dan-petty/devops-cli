@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -224,3 +224,36 @@ def test_dive_scanner_reads_the_export_and_flags_an_inefficient_image(
         ["my-app:v1:efficiency"],
         False,
     )
+
+
+def test_dive_passes_docker_host_when_endpoint_not_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dive sets DOCKER_HOST in subprocess env when resolved endpoint is not from DOCKER_HOST."""
+    monkeypatch.chdir(tmp_path)
+    captured_envs: list[dict[str, str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if kwargs.get("env"):
+            captured_envs.append(kwargs["env"])
+        return _writes_export(_DIVE_EXPORT)(cmd)
+
+    mock_endpoint = MagicMock()
+    mock_endpoint.source = "/run/user/1000/podman/podman.sock"
+    mock_endpoint.raw = "unix:///run/user/1000/podman/podman.sock"
+
+    mock_engine = MagicMock()
+    mock_engine.resolve_host.return_value = mock_endpoint
+
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/dive"),
+        patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        analysis = run_dive_analysis("my-app:v1")
+
+    assert (
+        analysis.status,
+        len(captured_envs) > 0,
+        captured_envs[0].get("DOCKER_HOST"),
+    ) == ("ran", True, "unix:///run/user/1000/podman/podman.sock")

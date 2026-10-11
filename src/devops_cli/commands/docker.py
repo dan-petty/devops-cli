@@ -352,6 +352,9 @@ def build_cache(
         return
 
     engine = _engine()
+    if engine.is_podman():
+        print_error(ERRORS.docker.podman_no_build_cache, prefix=False, safe=True)
+        raise typer.Exit(1)
     report = engine.build_cache()
 
     if json_output:

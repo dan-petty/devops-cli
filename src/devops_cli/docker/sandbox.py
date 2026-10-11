@@ -24,7 +24,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.docker.engine import decode_stream as _decode_logs
 from devops_cli.docker.engine import get_engine
-from devops_cli.exceptions.docker import DockerSandboxError
+from devops_cli.exceptions.docker import DockerError, DockerSandboxError
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.sandbox.engine import validate_sandbox_workspace
 from devops_cli.sandbox.models import (
@@ -45,6 +45,20 @@ def _ensure_internal_network() -> None:
             f"Cannot provision internal sandbox network '{CONST_SANDBOX_DOCKER_INTERNAL_NET}'; "
             "the Docker daemon is unreachable or refused the request."
         )
+
+
+def resolve_sandbox_user(rootless: bool) -> str | None:
+    """Resolve container user string based on rootless configuration and engine mode."""
+    if not rootless:
+        return None
+    try:
+        if get_engine().is_rootless():
+            return "0:0"
+    except (DockerError, OSError) as exc:
+        logger.debug("Failed querying engine rootless status for sandbox user: %s", exc)
+    if hasattr(os, "getuid"):
+        return f"{os.getuid()}:{os.getgid()}"
+    return None
 
 
 class WorkloadSandboxConfig(BaseModel):
@@ -161,6 +175,7 @@ class WorkloadSandboxRunner:
             "network_mode": self.config.network_mode,
             "network_config": self.config.network_config.model_dump(),
             "user": user_str,
+            "note": "A rootless engine runs as container root (the host user).",
         }
 
     def _validate_workspace_dir(self) -> Path:
@@ -220,25 +235,23 @@ class WorkloadSandboxRunner:
         traces is parented to the span that runs it.
         """
         mount_mode = "ro" if self.config.read_only else "rw"
-        user_str = (
-            f"{os.getuid()}:{os.getgid()}"
-            if self.config.rootless and hasattr(os, "getuid")
-            else None
-        )
+        user_str = resolve_sandbox_user(self.config.rootless)
         network = self._network_create_kwargs()
         get_tracer().inject_trace_env(network["environment"])
-        return {
+        kwargs: dict[str, Any] = {
             "image": self.config.image,
             "command": self.config.command,
             "working_dir": "/workspace",
             "volumes": {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}},
-            "user": user_str,
             "mem_limit": self.config.memory_limit,
             "nano_cpus": int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None,
             "detach": True,
             **self.config.policy.to_docker_security_kwargs(read_only=self.config.read_only),
             **network,
         }
+        if user_str is not None:
+            kwargs["user"] = user_str
+        return kwargs
 
     def _collect_output(self, container: Any) -> tuple[int, str, str]:
         """Run the container to completion and drain its stdout and stderr streams."""
