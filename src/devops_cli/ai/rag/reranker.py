@@ -190,7 +190,7 @@ class SearchReranker:
             query, query_tokens, chunk, is_doc_intent, is_code_intent, is_qa_intent
         )
 
-        base_vector_score = max(0.0, min(1.0, r.score))
+        base_vector_score = max(0.0, min(1.0, r.vector_score or 0.0))
         fused_score = (
             (self.vector_weight * base_vector_score)
             + (self.lexical_weight * token_overlap)
@@ -204,6 +204,7 @@ class SearchReranker:
         fused_score = max(0.0, min(1.0, fused_score))
 
         r.rerank_score = round(fused_score, 4)
+        r.score = r.rerank_score
         r.rank_factors = {
             "vector": round(base_vector_score, 4),
             "lexical": round(token_overlap, 4),

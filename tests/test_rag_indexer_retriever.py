@@ -19,6 +19,7 @@ class FakeQdrantClient(QdrantClient):
     def __init__(self) -> None:
         super().__init__("http://localhost:6333", allow_private_network=True)
         self.collections: dict[str, list[dict]] = {}
+        self.vector_sizes: dict[str, int] = {}
 
     def is_alive(self) -> bool:
         return True
@@ -26,15 +27,30 @@ class FakeQdrantClient(QdrantClient):
     def ensure_collection(self, name: str, vector_size: int, distance: str = "Cosine") -> bool:
         if name not in self.collections:
             self.collections[name] = []
+        self.vector_sizes[name] = vector_size
         return True
 
     def get_collection_info(self, name: str) -> dict:
         if name in self.collections:
+            size = self.vector_sizes.get(name, 4)
             return {
                 "points_count": len(self.collections[name]),
-                "config": {"params": {"vectors": {"size": 384}}},
+                "vector_size": size,
+                "config": {"params": {"vectors": {"size": size}}},
             }
         return {}
+
+    def scroll_points(
+        self,
+        name: str,
+        filter_payload: dict | None = None,
+        *,
+        limit: int = 1,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list[dict]:
+        pts = self.collections.get(name, [])
+        return pts[:limit]
 
     def upsert_points(self, name: str, points: list[dict], *, batch_size: int = 64) -> int:
         if name not in self.collections:
@@ -94,6 +110,7 @@ class FixedVectorEngine(EmbeddingsEngine):
 
     def __init__(self) -> None:
         super().__init__(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+        self._dimension = 4
 
     def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
         return [[1.0, 0.0, 0.0, 0.0] for _ in prefixed_miss]

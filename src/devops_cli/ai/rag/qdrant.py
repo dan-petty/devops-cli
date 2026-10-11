@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
     DEFAULT_MAX_RETRIES,
@@ -86,9 +87,6 @@ def _is_transient_qdrant_error(exc: Exception) -> bool:
             "timeout",
         )
     )
-
-
-_DIM_MISMATCH_WARNED_COLLECTIONS: set[str] = set()
 
 
 def _coerce_point_id(p_id: Any) -> int | str:
@@ -367,13 +365,17 @@ class QdrantClient:
         if info:
             curr_size = info.get("vector_size")
             if isinstance(curr_size, int) and curr_size != vector_size:
-                logger.warning(
-                    "Qdrant collection '%s' vector dimension mismatch (existing: %d, required: %d). Recreating...",
-                    name,
-                    curr_size,
-                    vector_size,
+                raise EmbeddingsError(
+                    f"Qdrant collection '{name}' vector dimension mismatch (existing: {curr_size}, required: {vector_size}). "
+                    "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+                    is_transient=False,
+                    details={
+                        "collection": name[:256],
+                        "collection_dimension": curr_size,
+                        "required_dimension": vector_size,
+                        "fix": "devops ai rag clear --force && devops ai rag index --force",
+                    },
                 )
-                self.delete_collection(name)
             elif isinstance(curr_size, int):
                 self._verified_collections[name] = vector_size
                 return True
@@ -399,7 +401,6 @@ class QdrantClient:
         """Delete a collection from Qdrant."""
         self._verified_collections.pop(name, None)
         self._dim_mismatch_warned.discard(name)
-        _DIM_MISMATCH_WARNED_COLLECTIONS.discard(name)
         try:
             res = self._execute_with_retry(
                 lambda c: c.delete_collection(collection_name=name), "delete_collection", name
@@ -503,29 +504,20 @@ class QdrantClient:
                 if "not found" in err_str or "404" in err_str:
                     return []
                 if "vector dimension error" in err_str or "dimension error" in err_str:
-                    self._handle_dim_mismatch(name, exc, len(query_vector))
-                    return []
+                    clean_err = str(exc).split("Raw response content:")[0].strip()[:256]
+                    raise EmbeddingsError(
+                        f"Qdrant collection '{name}' vector dimension mismatch ({clean_err}). "
+                        "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
+                        is_transient=False,
+                        details={
+                            "collection": name[:256],
+                            "query_dimension": len(query_vector),
+                            "error": clean_err,
+                            "fix": "devops ai rag clear --force && devops ai rag index --force",
+                        },
+                    ) from exc
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
-
-    def _handle_dim_mismatch(self, name: str, exc: Exception, query_dim: int) -> None:
-        """Handle vector dimension mismatch by warning once and recreating collection."""
-        if name in _DIM_MISMATCH_WARNED_COLLECTIONS:
-            return
-        clean_err = str(exc).split("Raw response content:")[0].strip()
-        logger.warning(
-            "Qdrant collection '%s' vector dimension mismatch (%s). Recreating with dimension %d...",
-            name,
-            clean_err,
-            query_dim,
-        )
-        try:
-            self.delete_collection(name)
-            self.ensure_collection(name, vector_size=query_dim)
-        except Exception as recreate_err:
-            logger.debug("Failed to auto-recreate collection %s: %s", name, recreate_err)
-        _DIM_MISMATCH_WARNED_COLLECTIONS.add(name)
-        self._dim_mismatch_warned.add(name)
 
     def count_points(self, name: str, filter_payload: dict[str, Any] | None = None) -> int:
         """Count points in a collection, optionally matching filter criteria."""
