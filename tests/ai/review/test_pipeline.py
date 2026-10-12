@@ -182,3 +182,89 @@ def test_a_review_caps_the_scanner_findings_it_reports(
     reported = orchestrator._run_static_scanners(["tests/test_app.py"])
 
     assert [f.severity for f in reported["tests/test_app.py"]] == ["LOW"]
+
+
+def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fake Semgrep and Bandit results with absolute paths come out as src/app.py:12 in
+    findings.json and review.md, with no absolute path in the description."""
+    from devops_cli.ai.review_schema import FileReviewPayload
+    from devops_cli.security.base import ScanOutcome
+
+    repo = tmp_path / "repo"
+    src_dir = repo / "src"
+    src_dir.mkdir(parents=True)
+    app_file = src_dir / "app.py"
+    app_lines = [f"# line {i}" for i in range(1, 12)] + [
+        "subprocess.call('ls', shell=True)",
+        "# line 13",
+        "# line 14",
+    ]
+    app_file.write_text("\n".join(app_lines) + "\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
+
+    abs_app = str(app_file.resolve())
+    bandit_finding = Finding(
+        title="[B602] subprocess call with shell=True identified",
+        location=f"{abs_app}:12",
+        description=f"Bandit flaw at {abs_app}:12 with shell=True",
+        severity="HIGH",
+    )
+    semgrep_finding = Finding(
+        title="[python.lang.subprocess] Subprocess call",
+        location=f"{abs_app}:12",
+        description=f"Semgrep AST flaw at {abs_app}:12: call",
+        severity="HIGH",
+    )
+
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan",
+        lambda *_, **__: ScanOutcome("ran", [bandit_finding]),
+    )
+    monkeypatch.setattr(
+        "devops_cli.security.semgrep.run_semgrep_scan",
+        lambda *_, **__: ScanOutcome("ran", [semgrep_finding]),
+    )
+    for scan in (
+        "_scan_kubernetes_manifests",
+        "_scan_container_and_lockfiles",
+        "_scan_secrets",
+    ):
+        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="s788", target_dir=repo)
+    reported = orchestrator._run_static_scanners(["src/app.py"])
+
+    findings_for_file = reported.get("src/app.py", [])
+    locations = [f.location for f in findings_for_file]
+    descriptions = [f.description for f in findings_for_file]
+
+    payloads = [
+        FileReviewPayload(
+            file_path="src/app.py",
+            findings=findings_for_file,
+            language="python",
+            coverage=None,
+        )
+    ]
+    orchestrator.generate_consolidated_report(payloads)
+
+    findings_json = (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    review_md = (orchestrator.session_dir / "review.md").read_text(encoding="utf-8")
+
+    assert (
+        locations,
+        all(abs_app not in d for d in descriptions),
+        "src/app.py:12" in findings_json,
+        abs_app in findings_json,
+        "src/app.py:12" in review_md,
+        abs_app in review_md,
+    ) == (
+        ["src/app.py:12", "src/app.py:12"],
+        True,
+        True,
+        False,
+        True,
+        False,
+    )
