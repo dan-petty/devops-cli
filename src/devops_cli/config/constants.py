@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -3453,3 +3453,97 @@ CONST_CAUSAL_RELATIONSHIPS: Final[tuple[str, ...]] = (
     "triggers",
     "mediates",
 )
+
+# ── AI Research Cross-Domain Analogies ────────────────────────────────────────
+CONST_STRUCTURAL_PATTERNS: Final[tuple[str, ...]] = (
+    "Exponential Backoff & Retry Loop",
+    "Write-Ahead Logging & Journaling",
+    "Circuit Breaker & Fallback",
+    "Reconciliation Loop (Convergence)",
+    "Event Sourcing & Stream Projection",
+    "Heartbeat & Lease Renewal",
+    "Token Bucket Rate Limiting",
+    "Two-Phase Commit & Consensus",
+    "Bulkhead & Compartment Isolation",
+    "Idempotency Key & Deduplication",
+)
+CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
+    "Exponential Backoff & Retry Loop": {
+        "description": "Transient failure absorption via progressive delay, jitter, and bounded retry attempts.",
+        "mechanisms": (
+            "backoff",
+            "retry",
+            "jitter",
+            "interval",
+            "attempt",
+            "exponential",
+            "transient",
+        ),
+    },
+    "Write-Ahead Logging & Journaling": {
+        "description": "Durability and crash recovery via append-only commit records prior to state mutation.",
+        "mechanisms": ("wal", "journal", "write_ahead", "log", "append", "replay", "recovery"),
+    },
+    "Circuit Breaker & Fallback": {
+        "description": "Cascade failure mitigation via state transitions (closed, open, half-open) and degradation.",
+        "mechanisms": (
+            "circuit_breaker",
+            "trip",
+            "half_open",
+            "fallback",
+            "threshold",
+            "degradation",
+        ),
+    },
+    "Reconciliation Loop (Convergence)": {
+        "description": "Continuous state alignment driving observed reality toward declared desired specification.",
+        "mechanisms": (
+            "reconcile",
+            "desired",
+            "observed",
+            "actual",
+            "drift",
+            "convergence",
+            "controller",
+        ),
+    },
+    "Event Sourcing & Stream Projection": {
+        "description": "Derivation of current state through sequential replay of immutable domain events.",
+        "mechanisms": (
+            "event_sourcing",
+            "event_stream",
+            "projection",
+            "immutable",
+            "replay",
+            "pubsub",
+        ),
+    },
+    "Heartbeat & Lease Renewal": {
+        "description": "Distributed node liveness tracking and leader coordination via periodic lease renewal.",
+        "mechanisms": (
+            "heartbeat",
+            "lease",
+            "ttl",
+            "liveness",
+            "renewal",
+            "watchdog",
+            "health_check",
+        ),
+    },
+    "Token Bucket Rate Limiting": {
+        "description": "Traffic smoothing and resource protection via capacity bursts and refill rate pacing.",
+        "mechanisms": ("token_bucket", "refill", "capacity", "burst", "rate_limit", "throttling"),
+    },
+    "Two-Phase Commit & Consensus": {
+        "description": "Atomic multi-node distributed transactions through prepare, vote, and commit phases.",
+        "mechanisms": ("two_phase", "prepare", "commit", "consensus", "quorum", "vote", "atomic"),
+    },
+    "Bulkhead & Compartment Isolation": {
+        "description": "Failure containment through resource partition pools and quota boundaries.",
+        "mechanisms": ("bulkhead", "pool", "compartment", "quota", "partition", "isolation"),
+    },
+    "Idempotency Key & Deduplication": {
+        "description": "Safe operation retry via deterministic idempotency keys and sliding deduplication windows.",
+        "mechanisms": ("idempotency", "deduplication", "replay_prevention", "token", "unique_key"),
+    },
+}

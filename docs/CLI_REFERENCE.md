@@ -5201,6 +5201,26 @@ devops ai research model [OPTIONS] <topic>
 | `--format`, `-f` | `string` | `yaml` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai research analogies`
+
+**Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base.**
+
+```bash
+devops ai research analogies [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | - | Optional query or focus topic to filter analogical patterns. |
+| `--domain`, `-d` | `string` | - | Filter analogies originating from a specific source domain. |
+| `--target-domain` | `string` | - | Filter analogies matching a specific target domain. |
+| `--min-score`, `-s` | `float` | `0.5` | Minimum confidence score for returned analogies (0.0 to 1.0). |
+| `--limit`, `-n` | `integer` | `10` | Maximum number of analogy pairs to surface. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops review

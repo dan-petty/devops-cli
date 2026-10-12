@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import yaml
 
+from devops_cli.ai.research.analogies import (
+    AnalogicalPatternRetriever,
+    render_analogies_markdown,
+    render_analogies_table,
+)
 from devops_cli.ai.research.crawler import ForageCrawler
 from devops_cli.ai.research.marginalia import annotate_file, read_marginalia
 from devops_cli.ai.research.mental_model import (
@@ -18,6 +23,7 @@ from devops_cli.ai.research.mental_model import (
     save_mental_model,
 )
 from devops_cli.ai.research.models import (
+    CrossDomainAnalogy,
     ForageTrail,
     MarginaliaRecord,
     MentalModel,
@@ -28,6 +34,8 @@ from devops_cli.ai.research.socratic import (
     render_socratic_markdown,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_ANALOGIES_LIMIT,
+    DEFAULT_AI_ANALOGIES_MIN_SCORE,
     DEFAULT_AI_FORAGE_MAX_NODES,
     DEFAULT_AI_FORAGE_MIN_SCORE,
     DEFAULT_AI_SOCRATIC_MAX_PROBES,
@@ -35,6 +43,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, find_worktree_root
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP
 from devops_cli.output import (
     Panel,
@@ -718,3 +727,130 @@ def model_cmd(
     saved_path = save_mental_model(updated_model, repo_root=repo_root)
     get_console().print(f"[dim]Mental model saved to: {saved_path}[/dim]")
     _emit_mental_model(updated_model, format.lower())
+
+
+def _resolve_qdrant_client() -> Any | None:
+    """Safely resolve configured Qdrant client without failing if unconfigured or offline."""
+    try:
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.config.settings import get_qdrant_api_key, load_settings
+
+        settings = load_settings()
+        qdrant_url = settings.qdrant.url or "http://localhost:6333"
+        return QdrantClient(
+            base_url=qdrant_url,
+            api_key=get_qdrant_api_key(settings),
+            allow_private_network=settings.ai.allow_private_network,
+            timeout=settings.qdrant.timeout,
+        )
+    except DevOpsCLIError, OSError, RuntimeError, ValueError:
+        return None
+
+
+def _emit_analogies_result(analogies: list[CrossDomainAnalogy], fmt: str) -> None:
+    """Format and write analogy retrieval results to stdout."""
+    if fmt == "json":
+        data = [a.model_dump() for a in analogies]
+        write_stdout(json.dumps(data, indent=2))
+        return
+    if fmt == "yaml":
+        data = [a.model_dump() for a in analogies]
+        write_stdout(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+        return
+    if fmt in ("markdown", "md"):
+        write_stdout(render_analogies_markdown(analogies))
+        return
+    if not analogies:
+        get_console().print("[yellow]No cross-domain analogies found matching criteria.[/yellow]")
+        return
+    get_console().print(render_analogies_table(analogies))
+
+
+@app.command(name="analogies")
+def analogies_cmd(
+    query: Annotated[
+        str | None,
+        typer.Option(
+            "--query",
+            "-q",
+            help=HELP.ai.analogies_query,
+        ),
+    ] = None,
+    domain: Annotated[
+        str | None,
+        typer.Option(
+            "--domain",
+            "-d",
+            help=HELP.ai.analogies_domain,
+        ),
+    ] = None,
+    target_domain: Annotated[
+        str | None,
+        typer.Option(
+            "--target-domain",
+            help=HELP.ai.analogies_target_domain,
+        ),
+    ] = None,
+    min_score: Annotated[
+        float,
+        typer.Option(
+            "--min-score",
+            "-s",
+            help=HELP.ai.analogies_min_score,
+        ),
+    ] = DEFAULT_AI_ANALOGIES_MIN_SCORE,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            "-n",
+            help=HELP.ai.analogies_limit,
+        ),
+    ] = DEFAULT_AI_ANALOGIES_LIMIT,
+    format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=HELP.options.dry_run,
+        ),
+    ] = False,
+) -> None:
+    """Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai research analogies",
+            action="retrieve_analogies",
+            details={
+                "query": query,
+                "domain": domain,
+                "target_domain": target_domain,
+                "min_score": min_score,
+                "limit": limit,
+                "format": format,
+            },
+        )
+        return
+
+    qdrant = _resolve_qdrant_client()
+    retriever = AnalogicalPatternRetriever(qdrant=qdrant)
+    try:
+        analogies = retriever.retrieve_analogies(
+            query=query,
+            source_domain=domain,
+            target_domain=target_domain,
+            min_score=min_score,
+            limit=limit,
+        )
+    except (DevOpsCLIError, OSError, RuntimeError, ValueError) as exc:
+        print_error(f"Analogical pattern retrieval failed: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    _emit_analogies_result(analogies, format.lower())

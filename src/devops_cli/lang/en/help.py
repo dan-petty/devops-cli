@@ -269,6 +269,12 @@ class AICommandHelp:
     )
     model_file: str = "Path to file containing raw observations to synthesize."
     model_show: str = "Display the existing mental model without incorporating new observations."
+    research_analogies: str = "Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base."
+    analogies_query: str = "Optional query or focus topic to filter analogical patterns."
+    analogies_domain: str = "Filter analogies originating from a specific source domain."
+    analogies_target_domain: str = "Filter analogies matching a specific target domain."
+    analogies_min_score: str = "Minimum confidence score for returned analogies (0.0 to 1.0)."
+    analogies_limit: str = "Maximum number of analogy pairs to surface."
 
 
 @dataclass(frozen=True)

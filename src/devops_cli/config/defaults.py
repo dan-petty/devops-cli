@@ -960,3 +960,7 @@ DEFAULT_AI_SOCRATIC_MAX_PROBES: Final[int] = 5
 
 # ── AI Research Mental Model Defaults ─────────────────────────────────────────
 DEFAULT_AI_RESEARCH_DIR: Final[str] = ".data/research"
+
+# ── AI Research Analogies Defaults ─────────────────────────────────────────────
+DEFAULT_AI_ANALOGIES_MIN_SCORE: Final[float] = 0.5
+DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
