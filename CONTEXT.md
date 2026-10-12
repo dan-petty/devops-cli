@@ -72,6 +72,10 @@ _Avoid_: active milestone, air-locked milestone
 A later release whose scope is tentative and can be reshuffled freely until it becomes the current release.
 _Avoid_: scheduled milestone, future milestone
 
+**Release growth**:
+The items that joined a release after its start, were turned away, descoped or trimmed, as the job's tally counts them.
+
+
 **Backlog**:
 The single prioritized pool of items not assigned to any release.
 _Avoid_: icebox, triage queue

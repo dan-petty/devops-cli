@@ -552,6 +552,7 @@ def _run_reprioritize_adapter(
     from devops_cli.roadmap.config import read_roadmap_config
     from devops_cli.roadmap.reprioritize import (
         apply_reprioritization,
+        emit_reprioritize_telemetry,
         plan_reprioritization,
     )
 
@@ -560,6 +561,7 @@ def _run_reprioritize_adapter(
     plan = plan_reprioritization(store, repo=repo, config=active_config, now=now)
     if plan.has_writes:
         apply_reprioritization(store, plan)
+    emit_reprioritize_telemetry(plan, applied=plan.has_writes)
     actor = _current_actor(store)
     changes = tuple(
         Change(

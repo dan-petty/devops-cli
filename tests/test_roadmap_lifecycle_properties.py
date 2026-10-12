@@ -157,6 +157,9 @@ INVARIANTS = MappingProxyType(
             "Reprioritization: a change the job begins is finished, with its reason comment, by "
             "the run that begins it or by the next one."
         ),
+        "tally": (
+            "Release growth: each item's tally counts every reason comment the job posted on it."
+        ),
     }
 )
 
@@ -1227,6 +1230,32 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             for item in members
         ), INVARIANTS["above_cap"]
 
+    @invariant()
+    def tally_matches_reason_comments(self) -> None:
+        """Release growth: each item's tally counts every reason comment the job posted on it."""
+        if self.outstanding is not None:
+            return
+        from collections import Counter
+
+        from devops_cli.roadmap.reprioritize import _TALLY_ADAPTER, Reason
+
+        valid_milestones = {r.number for r in self.store.releases()}
+        job_comments = Counter(
+            w.number
+            for w in self.store.job_writes()
+            if w.operation == "comment" and w.number is not None
+        )
+        for item in self.store.items():
+            raw = item.job_record.get(JobMark.TALLY)
+            entries = _TALLY_ADAPTER.validate_json(raw) if raw else []
+            assert len(entries) == job_comments[item.number], INVARIANTS["tally"]
+            for entry in entries:
+                assert (
+                    len(entry) >= 2
+                    and entry[0] in valid_milestones
+                    and entry[1] in Reason._value2member_map_
+                ), INVARIANTS["tally"]
+
 
 TestRoadmapLifecycle = RoadmapLifecycle.TestCase
 TestRoadmapLifecycle.settings = SETTINGS
@@ -1244,7 +1273,7 @@ def context_terms() -> set[str]:
 def test_each_invariant_message_starts_with_a_term_context_md_defines() -> None:
     terms = context_terms()
     leading = {message.split(":", 1)[0] for message in INVARIANTS.values()}
-    assert (leading - terms, len(INVARIANTS)) == (set(), 17)
+    assert (leading - terms, len(INVARIANTS)) == (set(), 18)
 
 
 def test_the_gate_settings_keep_shrinking_and_need_no_database() -> None:

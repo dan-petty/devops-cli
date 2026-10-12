@@ -1366,6 +1366,11 @@ class RoadmapMessages:
     )
     reprioritize_changes: str = "## Changes"
     reprioritize_release_writes: str = "## Releases and branches"
+    reprioritize_growth: str = "## Release growth"
+    reprioritize_growth_line: str = (
+        "- {release}: {start} at start; joined {joined}{joined_detail}; "
+        "descoped {descoped}{descoped_detail}; start: {start_detail}"
+    )
     reprioritize_records: str = "## Admitted set"
     reprioritize_admits: str = "- {release} admits {items}."
     reprioritize_cleared: str = (
