@@ -229,7 +229,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_gateway_review_pool_spans_ollama_backends(self) -> None:
-        """Verify devops-review shares requests across Ollama backends with appropriate weights and zero retries."""
+        """Verify devops-review shares requests across Ollama backends with zero retries and no weights."""
         deployments = _deployments("devops-review")
         weights = {
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
@@ -240,9 +240,9 @@ class TestK8sLLMGatewayManifests:
             retries,
         ) == (
             {
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
-                "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 6,
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434": None,
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434": None,
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434": None,
             },
             [0, 0, 0],
         )
@@ -250,7 +250,7 @@ class TestK8sLLMGatewayManifests:
     @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
     def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
         """Verify each model devops-review serves can be pinned: its own group copies that model's
-        devops-review deployments (model, backend and weight, in order) with no window that would
+        devops-review deployments (model and backend, in order) with no window that would
         route it differently from the pool, and no fallback reaches or leaves it (#475).
 
         No other group gives that backend model a window either. LiteLLM v1.103.0 writes a
@@ -285,7 +285,7 @@ class TestK8sLLMGatewayManifests:
         ) == (
             True,
             _routes(review),
-            [(["litellm_params", "model_name"], ["api_base", "model", "num_retries", "weight"])]
+            [(["litellm_params", "model_name"], ["api_base", "model", "num_retries"])]
             * len(review),
             False,
             [],
