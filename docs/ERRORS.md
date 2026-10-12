@@ -141,3 +141,4 @@ names the class each row describes. One code never maps to two exit statuses.
 | `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
 | `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |
+| `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |

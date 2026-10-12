@@ -442,6 +442,16 @@ class K8sCommandHelp:
     security_severity: str = "Minimum severity filter threshold (Notice, Warning, Error, Critical)."
     security_duration: str = "Observation streaming window duration in seconds."
     security_simulate: str = "Generate simulated kernel eBPF security anomalies for testing."
+    volume_app: str = "PersistentVolume inspection, maintenance, and safe orphan reclamation."
+    volume_reclaim: str = (
+        "Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts."
+    )
+    volume_reclaim_name: str = "Name of the PersistentVolume to reclaim."
+    volume_reclaim_dry_run: str = "Simulate volume reclaim and print planned Kubernetes API operations without network requests."
+    volume_reclaim_yes: str = (
+        "Confirm reclamation without interactive prompt (required in non-interactive sessions)."
+    )
+    volume_reclaim_patch: str = "Patch volume finalizers instead of issuing a DELETE request."
 
 
 @dataclass(frozen=True)

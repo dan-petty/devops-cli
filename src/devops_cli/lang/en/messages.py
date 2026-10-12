@@ -357,6 +357,9 @@ class K8sMessages:
     table_title_nodes: str = "Nodes"
     node_ready: str = "Ready"
     node_not_ready: str = "NotReady"
+    volume_reclaimed: str = "PersistentVolume '{name}' {action} successfully."
+    volume_reclaim_aborted: str = "PersistentVolume '{name}' reclaim aborted."
+    volume_reclaim_dry_run_heading: str = "Planned Kubernetes Volume Reclaim API Requests:"
 
 
 @dataclass(frozen=True)

@@ -50,6 +50,17 @@ class K8sErrorMessages:
     context_not_found: str = "Kubernetes context '{context}' was not found."
     resource_lookup_failed: str = "Failed to lookup Kubernetes {resource}: {exc}"
     port_forward_failed: str = "Port-forwarding to {service}:{port} failed: {exc}"
+    volume_not_found: str = "PersistentVolume '{name}' not found."
+    volume_not_orphaned_phase: str = (
+        "PersistentVolume '{name}' phase is '{phase}' (must be Released or Failed)."
+    )
+    volume_not_orphaned_claim: str = (
+        "PersistentVolumeClaim '{namespace}/{claim}' referenced by '{name}' still exists."
+    )
+    volume_not_orphaned_mount: str = "Pod '{namespace}/{pod}' mounts volume '{name}'."
+    volume_reclaim_non_interactive: str = (
+        "Non-interactive session requires --yes to confirm PersistentVolume reclaim."
+    )
 
 
 @dataclass(frozen=True)
