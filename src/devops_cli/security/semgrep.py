@@ -24,6 +24,7 @@ from devops_cli.security.base import (
     ScanOutcome,
     materialize_targets,
     merge_outcomes,
+    relativize_scan_path,
 )
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -56,15 +57,22 @@ def _build_semgrep_fix_hints(check_id: str, metadata: dict[str, Any]) -> str:
     return ". ".join(hints)
 
 
-def _parse_semgrep_result(res: dict[str, Any], default_path: str = "") -> Finding:
+def _parse_semgrep_result(
+    res: dict[str, Any],
+    default_path: str = "",
+    scan_root: Path | str | None = None,
+) -> Finding:
     """Convert a single Semgrep JSON result dictionary into a Finding model."""
     check_id = str(res.get("check_id") or "SEMGREP")
-    path_str = str(res.get("path") or default_path or "workspace")
+    raw_path = str(res.get("path") or default_path or "workspace")
+    path_str = relativize_scan_path(raw_path, scan_root) if scan_root else raw_path
     start_line = res.get("start", {}).get("line")
     end_line = res.get("end", {}).get("line")
 
     extra: dict[str, Any] = res.get("extra") or {}
     raw_msg = mask_secrets(str(extra.get("message") or MESSAGES.scan.semgrep_default_message))
+    if raw_path and raw_path != path_str and raw_path in raw_msg:
+        raw_msg = raw_msg.replace(raw_path, path_str)
     raw_sev = str(extra.get("severity") or "MEDIUM").upper()
     sev = _SEMGREP_SEVERITY_MAP.get(raw_sev, raw_sev)
 
@@ -81,11 +89,15 @@ def _parse_semgrep_result(res: dict[str, Any], default_path: str = "") -> Findin
     )
 
 
-def parse_semgrep_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
+def parse_semgrep_json(
+    data: dict[str, Any],
+    target_path: str = "",
+    scan_root: Path | str | None = None,
+) -> list[Finding]:
     """Parse Semgrep JSON output into canonical Finding models."""
     results = data.get("results") or []
     return [
-        _parse_semgrep_result(res, default_path=target_path)
+        _parse_semgrep_result(res, default_path=target_path, scan_root=scan_root)
         for res in results
         if isinstance(res, dict)
     ]
@@ -199,10 +211,26 @@ class SemgrepScanner(BaseSecurityScanner):
         return [_build_dry_run_finding(target_desc)]
 
 
+def _sanitize_semgrep_origin_result(
+    res: dict[str, Any],
+    staged: MaterializedTargets,
+) -> dict[str, Any]:
+    """Relativize a Semgrep result path and message to the scanned tree."""
+    orig_p = str(res.get("path") or "")
+    rel_p = staged.tree_path(orig_p)
+    updated = {**res, "path": rel_p}
+    extra = res.get("extra")
+    if isinstance(extra, dict) and orig_p and orig_p != rel_p:
+        msg = extra.get("message")
+        if isinstance(msg, str) and orig_p in msg:
+            updated["extra"] = {**extra, "message": msg.replace(orig_p, rel_p)}
+    return updated
+
+
 def _reported_at_origin(data: dict[str, Any], staged: MaterializedTargets) -> dict[str, Any]:
     """Semgrep's report with each result's path, as its command named it, in the scanned tree."""
     results = [
-        {**res, "path": staged.origin(str(res.get("path") or ""))}
+        _sanitize_semgrep_origin_result(res, staged)
         for res in data.get("results") or []
         if isinstance(res, dict)
     ]

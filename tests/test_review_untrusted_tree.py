@@ -736,7 +736,6 @@ def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
         findings = orchestrator._run_static_scanners(reviewed)
 
-    root = hostile_repo.resolve()
     assert (
         [name for name in targets if name.startswith("-")],
         sorted(os.path.normpath(name) for name in targets),
@@ -745,7 +744,7 @@ def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
     ) == (
         [],
         sorted(reviewed),
-        sorted(f"{root / name}:1" for name in reviewed),
+        sorted(f"{name}:1" for name in reviewed),
         {""},
     )
 
