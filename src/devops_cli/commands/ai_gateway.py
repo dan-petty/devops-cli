@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -574,3 +575,67 @@ def load_cmd(
         )
         return
     _render_pool_load(load)
+
+
+@app.command("render")
+def render_cmd(
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Write rendered gateway configuration to file."),
+    ] = False,
+    configmap_path: Annotated[
+        Path | None,
+        typer.Option("--configmap", help="Path to gateway configmap YAML."),
+    ] = None,
+    profiles_path: Annotated[
+        Path | None,
+        typer.Option("--profiles", help="Path to Ollama profiles YAML."),
+    ] = None,
+    services_path: Annotated[
+        Path | None,
+        typer.Option("--services", help="Path to LLM services YAML."),
+    ] = None,
+) -> None:
+    """Render LLM gateway configuration from Ollama profiles and services, showing unified diff."""
+    import sys
+
+    from devops_cli.ai.gateway_render import (
+        diff_gateway_config,
+        load_service_context_lengths,
+        load_tier_context_lengths,
+        render_gateway_config,
+    )
+    from devops_cli.config.defaults import (
+        DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH,
+        DEFAULT_LLM_PROFILES_PATH,
+        DEFAULT_LLM_SERVICES_PATH,
+    )
+
+    target_cm = configmap_path or DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH
+    target_prof = profiles_path or DEFAULT_LLM_PROFILES_PATH
+    target_svc = services_path or DEFAULT_LLM_SERVICES_PATH
+
+    if not target_cm.is_file():
+        print_error(f"ConfigMap file not found: {target_cm}", prefix=False)
+        raise typer.Exit(1)
+    if not target_prof.is_file():
+        print_error(f"Profiles file not found: {target_prof}", prefix=False)
+        raise typer.Exit(1)
+    if not target_svc.is_file():
+        print_error(f"Services file not found: {target_svc}", prefix=False)
+        raise typer.Exit(1)
+
+    tier_lengths = load_tier_context_lengths(target_prof)
+    svc_lengths = load_service_context_lengths(target_svc, tier_lengths)
+    current_content = target_cm.read_text(encoding="utf-8")
+    rendered_content = render_gateway_config(current_content, svc_lengths)
+    diff = diff_gateway_config(current_content, rendered_content, filename=target_cm.name)
+
+    if not diff:
+        print_info(f"Gateway configuration at {target_cm} is already up to date.", prefix=False)
+        return
+
+    sys.stdout.write(diff)
+    if apply:
+        target_cm.write_text(rendered_content, encoding="utf-8")
+        print_info(f"Wrote rendered gateway configuration to {target_cm}.", prefix=False)

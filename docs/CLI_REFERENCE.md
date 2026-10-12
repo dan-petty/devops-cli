@@ -4656,6 +4656,23 @@ devops ai gateway load [OPTIONS]
 | `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+#### `devops ai gateway render`
+
+**Render LLM gateway configuration from Ollama profiles and services, showing unified diff.**
+
+```bash
+devops ai gateway render [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--apply` | `boolean` | - | Write rendered gateway configuration to file. |
+| `--configmap` | `path` | - | Path to gateway configmap YAML. |
+| `--profiles` | `path` | - | Path to Ollama profiles YAML. |
+| `--services` | `path` | - | Path to LLM services YAML. |
+
 ### `devops ai runs`
 
 **Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**
