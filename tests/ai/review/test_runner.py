@@ -11,12 +11,16 @@ import pytest
 
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.personas import Persona
+from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _check_and_warn_perimeter_changes,
     _execute_review_workflow,
+    _record_review_metrics,
+    _run_orchestrator_review,
+    format_pr_review_comment,
 )
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -24,6 +28,9 @@ from devops_cli.ai.review_schema import (
     derive_recommendation,
 )
 from devops_cli.config.constants import CONST_REVIEW_CONFIG_FILE
+from devops_cli.review.anchors import ToolAnchor
+from devops_cli.review.finding import Finding as AdmittedFinding
+from devops_cli.review.state import FindingState
 
 _RUNNER = """import textwrap
 
@@ -256,3 +263,145 @@ def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: 
         derive_recommendation([unverified_high]),
         derive_recommendation([invalidated_high]),
     ) == (1, "Unverified SQL Injection", "UNVERIFIED", "REQUEST CHANGES", "APPROVE")
+
+
+def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reporting(
+    tmp_path: Path,
+) -> None:
+    """Verify #791: real _run_orchestrator_review output feeds PR comment and metrics
+    with and without --no-reporting, preserving persona labels."""
+    repo = _checkout(tmp_path / "repo", {"app.py": "import os\nprint('hello')\n"})
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-791-rep",
+        session_dir=tmp_path / "session",
+        llm_client=mock_client,
+        target_dir=repo,
+    )
+    qa_finding = SavedFinding(
+        title="Unverified Test Coverage Gap",
+        severity="MEDIUM",
+        status="VERIFIED",
+        verified=True,
+        verified_by="llm",
+        reportable=True,
+        location="app.py:2",
+        description="Missing unit tests",
+        fix="Add test cases",
+        persona="qa",
+        persona_title="QA Engineer",
+    )
+    admitted = AdmittedFinding(
+        anchor=ToolAnchor(run_id="bandit", result_index=0, rule_id="B602"),
+        tool="bandit",
+        rule_id="B602",
+        path="app.py",
+        line=1,
+        message="subprocess shell=True",
+        severity="HIGH",
+        severity_derivation="rule",
+        state=FindingState.OPEN,
+        fingerprint_v2="fp791",
+    )
+    orchestrator.admitted_scanner_findings = [admitted]
+
+    flags_no_rep = resolve_stage_flags(
+        no_reporting=True, no_persona_review=True, no_static_scan=True
+    )
+    with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
+        results_no_rep = _run_orchestrator_review(
+            orchestrator,
+            ["app.py"],
+            {},
+            repo,
+            ["app.py"],
+            ["qa"],
+            Persona.DEVSECOPS,
+            stage_flags=flags_no_rep,
+        )
+
+    comment_no_rep = format_pr_review_comment(results_no_rep, files=["app.py"])
+    with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
+        _record_review_metrics(results_no_rep, 12.0, "pr")
+        metrics_no_rep = [
+            (call.args[1], call.args[2])
+            for call in mock_emit.call_args_list
+            if call.args[0].name == "devops_cli_findings_total"
+        ]
+
+    flags_rep = resolve_stage_flags(no_reporting=False, no_persona_review=True, no_static_scan=True)
+    with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
+        results_rep = _run_orchestrator_review(
+            orchestrator,
+            ["app.py"],
+            {},
+            repo,
+            ["app.py"],
+            ["qa"],
+            Persona.DEVSECOPS,
+            stage_flags=flags_rep,
+        )
+
+    comment_rep = format_pr_review_comment(results_rep, files=["app.py"])
+    with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
+        _record_review_metrics(results_rep, 15.0, "pr")
+        metrics_rep = [
+            (call.args[1], call.args[2])
+            for call in mock_emit.call_args_list
+            if call.args[0].name == "devops_cli_findings_total"
+        ]
+
+    assert (
+        "Zero findings identified." in comment_no_rep,
+        "Unverified Test Coverage Gap" in comment_no_rep,
+        "[bandit] B602" in comment_no_rep,
+        metrics_no_rep,
+        "Zero findings identified." in comment_rep,
+        "Unverified Test Coverage Gap" in comment_rep,
+        metrics_rep,
+    ) == (
+        False,
+        True,
+        True,
+        [
+            (1, {"persona": "qa", "severity": "MEDIUM", "status": "VERIFIED"}),
+            (1, {"persona": "devsecops", "severity": "HIGH", "status": "VERIFIED"}),
+        ],
+        False,
+        True,
+        [(1, {"persona": "qa", "severity": "MEDIUM", "status": "VERIFIED"})],
+    )
+
+
+def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
+    tmp_path: Path,
+) -> None:
+    """Verify #657 constraint via real _run_orchestrator_review: --no-static-scan with zero
+    findings emits Analyzers: None."""
+    repo = _checkout(tmp_path / "repo", {"app.py": "x = 1\n"})
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-791-scanners",
+        session_dir=tmp_path / "session",
+        llm_client=mock_client,
+        target_dir=repo,
+    )
+    flags = resolve_stage_flags(no_static_scan=True, no_persona_review=True, no_reporting=True)
+    results = _run_orchestrator_review(
+        orchestrator,
+        ["app.py"],
+        {},
+        repo,
+        ["app.py"],
+        ["devsecops"],
+        None,
+        stage_flags=flags,
+    )
+    comment = format_pr_review_comment(results, files=["app.py"])
+
+    assert (
+        "Zero findings identified." in comment,
+        "- **Analyzers:** None" in comment,
+    ) == (True, True)
