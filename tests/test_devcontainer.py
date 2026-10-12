@@ -2100,3 +2100,170 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
         True,
         True,
     )
+
+
+def test_validate_oci_image_labels_valid_newline_format() -> None:
+    """Verify validate_oci_image_labels successfully parses and validates newline-separated labels."""
+    from devops_cli.commands.devcontainer import validate_oci_image_labels
+
+    raw = """
+org.opencontainers.image.title=devops-cli-service
+org.opencontainers.image.description=DevOps CLI Service runtime
+org.opencontainers.image.licenses=MIT
+org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
+org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
+org.opencontainers.image.version=v0.2.35
+org.opencontainers.image.revision=0123456789abcdef
+org.opencontainers.image.created=2026-10-11T20:00:00Z
+"""
+    labels, errors = validate_oci_image_labels(raw)
+    assert (
+        errors,
+        len(labels),
+        labels["org.opencontainers.image.title"],
+        labels["org.opencontainers.image.source"],
+    ) == (
+        [],
+        8,
+        "devops-cli-service",
+        "https://github.com/dan-petty/devops-cli",
+    )
+
+
+def test_validate_oci_image_labels_valid_json_format() -> None:
+    """Verify validate_oci_image_labels successfully parses and validates JSON formatted labels."""
+    from devops_cli.commands.devcontainer import validate_oci_image_labels
+
+    payload = json.dumps(
+        {
+            "labels": {
+                "org.opencontainers.image.title": "devops-cli-devcontainer",
+                "org.opencontainers.image.description": "DevOps CLI workstation container",
+                "org.opencontainers.image.licenses": "MIT",
+                "org.opencontainers.image.documentation": "https://github.com/dan-petty/devops-cli/blob/main/README.md",
+                "org.opencontainers.image.source": "https://github.com/dan-petty/devops-cli",
+                "org.opencontainers.image.version": "v0.2.35",
+                "org.opencontainers.image.revision": "fedcba9876543210",
+                "org.opencontainers.image.created": "2026-10-11T21:00:00Z",
+            }
+        }
+    )
+    labels, errors = validate_oci_image_labels(payload)
+    assert (
+        errors,
+        len(labels),
+        labels["org.opencontainers.image.title"],
+    ) == (
+        [],
+        8,
+        "devops-cli-devcontainer",
+    )
+
+
+def test_validate_oci_image_labels_missing_and_empty() -> None:
+    """Verify validate_oci_image_labels catches missing required labels and empty values."""
+    from devops_cli.commands.devcontainer import validate_oci_image_labels
+
+    raw = (
+        "org.opencontainers.image.title=devops-cli-service\n"
+        "org.opencontainers.image.description=   \n"
+        "org.opencontainers.image.source=https://github.com/dan-petty/devops-cli\n"
+    )
+    labels, errors = validate_oci_image_labels(raw)
+    assert (
+        len(labels),
+        any("empty value" in err and "description" in err for err in errors),
+        any("Missing required OCI label" in err and "documentation" in err for err in errors),
+    ) == (
+        3,
+        True,
+        True,
+    )
+
+
+def test_validate_oci_image_labels_source_mismatch() -> None:
+    """Verify validate_oci_image_labels detects source repository mismatch."""
+    from devops_cli.commands.devcontainer import validate_oci_image_labels
+
+    raw = """
+org.opencontainers.image.title=devops-cli-service
+org.opencontainers.image.description=DevOps CLI Service runtime
+org.opencontainers.image.licenses=MIT
+org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
+org.opencontainers.image.source=https://github.com/malicious/fork
+org.opencontainers.image.version=v0.2.35
+org.opencontainers.image.revision=0123456789abcdef
+org.opencontainers.image.created=2026-10-11T20:00:00Z
+"""
+    labels, errors = validate_oci_image_labels(raw)
+    assert (
+        len(labels),
+        len(errors),
+        "mismatch" in errors[0],
+        "https://github.com/malicious/fork" in errors[0],
+    ) == (
+        8,
+        1,
+        True,
+        True,
+    )
+
+
+def test_devcontainer_validate_cli_with_oci_labels_success(runner: CliRunner) -> None:
+    """Verify CLI devops devcontainer validate with valid --oci-labels succeeds."""
+    raw = """
+org.opencontainers.image.title=devops-cli-service
+org.opencontainers.image.description=DevOps CLI Service runtime
+org.opencontainers.image.licenses=MIT
+org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
+org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
+org.opencontainers.image.version=v0.2.35
+org.opencontainers.image.revision=0123456789abcdef
+org.opencontainers.image.created=2026-10-11T20:00:00Z
+"""
+    result = runner.invoke(app, ["validate", "--oci-labels", raw])
+    assert (
+        result.exit_code,
+        "OCI image labels are valid" in result.output,
+        "8 labels verified" in result.output,
+    ) == (0, True, True)
+
+
+def test_devcontainer_validate_cli_with_oci_labels_failure(runner: CliRunner) -> None:
+    """Verify CLI devops devcontainer validate fails when OCI source mismatches."""
+    raw = """
+org.opencontainers.image.title=devops-cli-service
+org.opencontainers.image.description=DevOps CLI Service runtime
+org.opencontainers.image.licenses=MIT
+org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
+org.opencontainers.image.source=https://github.com/untrusted/repo
+org.opencontainers.image.version=v0.2.35
+org.opencontainers.image.revision=0123456789abcdef
+org.opencontainers.image.created=2026-10-11T20:00:00Z
+"""
+    result = runner.invoke(app, ["validate", "--oci-labels", raw])
+    assert (
+        result.exit_code,
+        "OCI image label validation failed" in result.output,
+        "mismatch" in result.output,
+    ) == (1, True, True)
+
+
+def test_devcontainer_validate_cli_dry_run_with_oci(runner: CliRunner) -> None:
+    """Verify CLI devops devcontainer validate --dry-run reports OCI validation intent."""
+    result = runner.invoke(
+        app,
+        ["validate", "--oci-labels", "key=val", "--dry-run"],
+    )
+    payload = json.loads(result.output[result.output.find("{") :])
+    assert (
+        result.exit_code,
+        payload["action"],
+        payload["details"]["oci_labels_provided"],
+        payload["details"]["expected_source"],
+    ) == (
+        0,
+        "validate_devcontainer_manifest",
+        True,
+        "https://github.com/dan-petty/devops-cli",
+    )

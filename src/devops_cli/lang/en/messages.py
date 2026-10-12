@@ -960,6 +960,8 @@ class DevcontainerMessages:
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"
     manifest_validation_failed: str = "✗ DevContainer manifest validation failed for {path}:"
+    oci_labels_valid: str = "✓ OCI image labels are valid ({count} labels verified)."
+    oci_labels_failed: str = "✗ OCI image label validation failed:"
     status_table_title: str = "Devcontainer Status"
     col_repository: str = "Repository"
     status_configured: str = "✓ configured"

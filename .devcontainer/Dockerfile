@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Install standalone uv and uvx binaries into /usr/local/bin pinned to release
-COPY --from=ghcr.io/astral-sh/uv:0.12.16 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
 
 # Pre-install dependencies from lockfile for optimal Docker layer caching in CI
 COPY pyproject.toml uv.lock /tmp/devops-cli/

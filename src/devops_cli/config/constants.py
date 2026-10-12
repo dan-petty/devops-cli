@@ -340,6 +340,17 @@ CONST_DEVCONTAINER_CLAUDE_EXTENSION: Final[str] = "anthropic.claude-code"
 CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
     "ghcr.io/anthropics/devcontainer-features/claude-code:1"
 )
+CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
+CONST_REQUIRED_OCI_IMAGE_LABELS: Final[tuple[str, ...]] = (
+    "org.opencontainers.image.source",
+    "org.opencontainers.image.description",
+    "org.opencontainers.image.licenses",
+    "org.opencontainers.image.title",
+    "org.opencontainers.image.revision",
+    "org.opencontainers.image.version",
+    "org.opencontainers.image.created",
+    "org.opencontainers.image.documentation",
+)
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
 CONST_KEYRING_PACKAGES: Final[tuple[str, ...]] = ("gnome-keyring", "dbus-x11")

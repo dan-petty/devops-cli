@@ -68,6 +68,8 @@ devops devcontainer validate [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
 | `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
+| `--oci-labels` | `string` | - | Raw newline-separated or JSON OCI labels to inspect and validate. |
+| `--expected-source` | `string` | - | Expected canonical repository URL for org.opencontainers.image.source. |
 | `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ---

@@ -2,6 +2,7 @@
 FROM ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
 
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS builder
+ARG TARGETARCH=amd64
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -15,9 +16,12 @@ COPY src/ ./src/
 RUN uv sync --locked --no-dev --no-editable
 
 ADD --checksum=sha256:bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386 \
-    https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz /tmp/gh.tar.gz
-RUN tar -xzf /tmp/gh.tar.gz -C /tmp && \
-    install -m 755 /tmp/gh_2.102.0_linux_amd64/bin/gh /usr/local/bin/gh
+    https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz /tmp/gh_amd64.tar.gz
+ADD --checksum=sha256:7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484 \
+    https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_arm64.tar.gz /tmp/gh_arm64.tar.gz
+RUN tar -xzf "/tmp/gh_${TARGETARCH}.tar.gz" -C /tmp && \
+    install -m 755 "/tmp/gh_2.102.0_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
+    rm -rf /tmp/gh*
 
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 

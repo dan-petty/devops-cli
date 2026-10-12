@@ -892,6 +892,91 @@ def test_service_image_release_job_invariants() -> None:
     )
 
 
+def test_devcontainer_release_job_invariants() -> None:
+    """release.yml publishes the DevContainer image only from main, after the release job.
+
+    It builds multi-architecture manifests (linux/amd64, linux/arm64), validates OCI image
+    metadata pre-publish, pushes by digest, attests SLSA provenance, and tags vX.Y.Z and latest.
+    """
+    import yaml
+
+    release_wf = (
+        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+    )
+    job = release_wf["jobs"]["devcontainer"]
+    steps = job["steps"]
+
+    assert (
+        job["if"],
+        job.get("needs"),
+        job.get("permissions"),
+        job.get("env", {}).get("DEVCONTAINER_IMAGE"),
+    ) == (
+        "github.ref == 'refs/heads/main'",
+        "release",
+        {
+            "contents": "read",
+            "packages": "write",
+            "id-token": "write",
+            "attestations": "write",
+        },
+        "ghcr.io/${{ github.repository }}/devcontainer",
+    )
+
+    step_names = [s.get("name", "") for s in steps]
+    indices = (
+        step_names.index("Set up QEMU"),
+        step_names.index("Set up Docker Buildx"),
+        step_names.index("Extract Metadata for DevContainer Image"),
+        step_names.index("Validate OCI Image Metadata Pre-Publish"),
+        step_names.index("Build and Push DevContainer Image"),
+        step_names.index("Attest Build Provenance"),
+        step_names.index("Tag the Attested DevContainer Image"),
+    )
+    assert indices == tuple(sorted(indices)), f"Steps out of order: {indices}"
+
+    push_step = next(s for s in steps if s.get("name") == "Build and Push DevContainer Image")
+    push_with = push_step["with"]
+    tag_step = next(s for s in steps if s.get("name") == "Tag the Attested DevContainer Image")
+    meta_step = next(s for s in steps if s.get("id") == "meta")
+    labels_text = meta_step["with"]["labels"]
+
+    assert (
+        push_with.get("platforms"),
+        push_with.get("sbom") in (True, "true"),
+        push_with.get("cache-from"),
+        push_with.get("cache-to"),
+        "push-by-digest=true" in str(push_with.get("outputs", "")),
+        tag_step.get("shell"),
+        tag_step["env"]["DIGEST"],
+        "imagetools create" in tag_step["run"],
+    ) == (
+        "linux/amd64,linux/arm64",
+        True,
+        "type=gha",
+        "type=gha,mode=max",
+        True,
+        "bash",
+        "${{ steps.push.outputs.digest }}",
+        True,
+    )
+
+    for required_label in (
+        "org.opencontainers.image.title",
+        "org.opencontainers.image.description",
+        "org.opencontainers.image.licenses",
+        "org.opencontainers.image.documentation",
+        "org.opencontainers.image.source",
+        "org.opencontainers.image.version",
+    ):
+        assert required_label in labels_text
+
+    interpolated_runs = [s.get("name", "") for s in steps if "${{" in s.get("run", "")]
+    assert not interpolated_runs, (
+        f"run: blocks in devcontainer release job must not contain ${{}}: {interpolated_runs}"
+    )
+
+
 def test_service_image_smoke_test_parity() -> None:
     """The smoke-test run: block in ci.yml and release.yml must be identical and enforce sandbox flags."""
     import yaml
