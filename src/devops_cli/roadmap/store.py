@@ -164,6 +164,8 @@ class JobMark(StrEnum):
     STARTED = "Started"
     SIZE = "Size"
     JOINED = "Joined"
+    TALLY = "Tally"
+    SIZES = "Sizes"
 
 
 class PullRequestState(StrEnum):

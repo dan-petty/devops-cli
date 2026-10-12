@@ -78,6 +78,7 @@ from devops_cli.roadmap.render import dry_run_render, render, render_roadmap
 from devops_cli.roadmap.reprioritize import (
     apply_reprioritization,
     dry_run_reprioritization,
+    emit_reprioritize_telemetry,
     plan_reprioritization,
     render_plan,
 )
@@ -273,12 +274,15 @@ def _reprioritize(
         plan = plan_reprioritization(store, repo=target, config=config, now=datetime.now(UTC))
     write_stdout(render_plan(plan))
     if not plan.has_writes:
+        emit_reprioritize_telemetry(plan)
         return
     if not confirm:
+        emit_reprioritize_telemetry(plan)
         print_info(MESSAGES.roadmap.reprioritize_preview)
         return
     with _exit_on_failure("Reprioritization stopped part-way; run it again to continue"):
         apply_reprioritization(store, plan)
+    emit_reprioritize_telemetry(plan, applied=True)
     print_success(
         MESSAGES.roadmap.reprioritize_applied.format(
             changes=len(plan.release_writes) + len(plan.changes), records=plan.records
