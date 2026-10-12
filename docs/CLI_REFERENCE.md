@@ -1318,6 +1318,37 @@ devops k8s doctor [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s volume`
+
+**PersistentVolume inspection, maintenance, and safe orphan reclamation.**
+
+```bash
+devops k8s volume COMMAND [ARGS]...
+```
+
+#### `devops k8s volume reclaim`
+
+**Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts.**
+
+```bash
+devops k8s volume reclaim [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Name of the PersistentVolume to reclaim. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate volume reclaim and print planned Kubernetes API operations without network requests. |
+| `--yes`, `-y` | `boolean` | - | Confirm reclamation without interactive prompt (required in non-interactive sessions). |
+| `--patch` | `boolean` | - | Patch volume finalizers instead of issuing a DELETE request. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
+
 ---
 
 ## devops kustomize

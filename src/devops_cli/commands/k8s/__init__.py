@@ -90,6 +90,7 @@ from devops_cli.commands.k8s.tls_management import (
     create_tls_secret,
     enable_tls_stack,
 )
+from devops_cli.commands.k8s.volume import app as volume_app
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
@@ -130,6 +131,8 @@ app.command(name="pods")(pods_cmd)
 app.command(name="security-stream")(security_stream_cmd)
 app.command(name="gpu-matrix")(gpu_matrix_cmd)
 app.command(name="doctor")(doctor_cmd)
+app.add_typer(volume_app, name="volume", help=HELP.k8s.volume_app)
+
 
 __all__ = [
     "VALID_STACKS",
@@ -189,7 +192,9 @@ __all__ = [
     "sync_secrets",
     "teardown_stack",
     "validate_policy_cmd",
+    "volume_app",
 ]
+
 
 _RUNTIME_ATTRS = {
     "_run_cmd",

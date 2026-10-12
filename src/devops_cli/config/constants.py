@@ -2482,6 +2482,15 @@ CONST_K8S_DOCTOR_RULES: Final[tuple[str, ...]] = (
     CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
 )
 
+CONST_K8S_PV_PHASE_RELEASED: Final[str] = "Released"
+CONST_K8S_PV_PHASE_FAILED: Final[str] = "Failed"
+CONST_K8S_PV_PHASE_BOUND: Final[str] = "Bound"
+CONST_K8S_ORPHAN_VOLUME_PHASES: Final[frozenset[str]] = frozenset(
+    {CONST_K8S_PV_PHASE_RELEASED, CONST_K8S_PV_PHASE_FAILED}
+)
+CONST_K8S_VOLUME_RECLAIM_HEADING: Final[str] = "Planned Kubernetes Volume Reclaim API Requests:"
+CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
+
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
