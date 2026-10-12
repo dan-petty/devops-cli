@@ -279,3 +279,39 @@ class MentalModel(BaseModel):
         default_factory=list,
         description="Invariant rules that must hold across all states.",
     )
+
+
+class CrossDomainAnalogy(BaseModel):
+    """A cross-domain structural pattern analogy between disparate modules or domains."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source: str = Field(description="Source module or knowledge base article path.")
+    target: str = Field(description="Target module or knowledge base article path.")
+    pattern: str = Field(description="Shared structural architectural pattern name.")
+    score: float = Field(description="Confidence or similarity score between 0.0 and 1.0.")
+    source_domain: str = Field(default="", description="Domain of the source module.")
+    target_domain: str = Field(default="", description="Domain of the target module.")
+    shared_mechanisms: list[str] = Field(
+        default_factory=list, description="Shared structural mechanisms common to both modules."
+    )
+    explanation: str = Field(
+        default="", description="Concise rationale explaining the structural isomorphism."
+    )
+
+
+class AnalogyReport(BaseModel):
+    """Structured collection of cross-domain analogical pattern retrievals."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    analogies: list[CrossDomainAnalogy] = Field(
+        default_factory=list, description="Ranked cross-domain analogies."
+    )
+    total_pairs_examined: int = Field(
+        default=0, description="Total candidate cross-domain pairs analyzed."
+    )
+    query: str | None = Field(default=None, description="Optional query filter applied.")
+    domains_analyzed: list[str] = Field(
+        default_factory=list, description="Distinct domain categories represented."
+    )
