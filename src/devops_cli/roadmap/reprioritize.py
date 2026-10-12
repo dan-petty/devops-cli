@@ -80,6 +80,7 @@ condition already present then, such as an item already Blocked, is judged by th
 descoping rules. The size binds from the start: while the release holds more than the larger of
 its limit and its size at start, its lowest-ranked unstarted items that are not critical fixes are
 descoped, so an item a person moves back to Ready after a fix has filled the release makes room.
+The trim and the cap descope follow dependencies: they pass over an item that a staying item depends on.
 
 Each change to an item is finished before the next begins: its `Pending` mark records the
 decision first, with the item's Release and Status as it found them, what its job record held
@@ -200,6 +201,7 @@ from devops_cli.roadmap.store import (
     Branch,
     Change,
     ChangeKind,
+    Dependency,
     GitHubState,
     Item,
     ItemField,
@@ -268,6 +270,7 @@ class Event(StrEnum):
     FIX_BLOCKED_AT_START = "fix_blocked_at_start"
     CANDIDATE = "candidate"
     OVER_CAP_AT_START = "over_cap_at_start"
+    DEPENDED_ON_AT_START = "depended_on_at_start"
 
 
 class Action(StrEnum):
@@ -309,6 +312,7 @@ class Reason(StrEnum):
     BLOCKED_AT_START = "blocked_at_start"
     TOP_UP = "top_up"
     TRIM = "trim"
+    DEPENDED_ON = "depended_on"
 
 
 @dataclass(frozen=True)
@@ -369,6 +373,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_P, Event.CANDIDATE): Transition(Action.PULL_IN, Reason.TOP_UP),
         (_P, Event.PR_JOINED): Transition(Action.KEEP, Reason.PULL_REQUEST),
         (_P, Event.OVER_CAP_AT_START): Transition(Action.TO_NEXT, Reason.TRIM),
+        (_P, Event.DEPENDED_ON_AT_START): Transition(Action.KEEP, Reason.DEPENDED_ON),
     }
 )
 # A state without a row of its own for an event takes the row of the state it inherits from.
@@ -878,6 +883,7 @@ class _Run:
     reverts: tuple[Revert, ...] = ()
     status_times: Mapping[int, datetime | None] = field(default_factory=dict)
     _linked: dict[int, list[PullRequest]] | None = None
+    _dependencies: dict[int, list[Dependency]] | None = None
 
     @property
     def open_releases(self) -> list[Release]:
@@ -931,6 +937,14 @@ class _Run:
                 for linked in extract_linked_issues(pull_request.body, self.repo):
                     self._linked.setdefault(linked.number, []).append(pull_request)
         return self._linked.get(number, [])
+
+    def dependencies(self, number: int) -> list[Dependency]:
+        """The issues issue `number` waits on through blocked-by links, read once per run."""
+        if self._dependencies is None:
+            self._dependencies = {}
+        if number not in self._dependencies:
+            self._dependencies[number] = self.store.dependencies(number)
+        return self._dependencies[number]
 
     def note(self, transition: Transition, release: str, target: str | None, detail: str) -> str:
         """The reason's text for one decision."""
@@ -1365,7 +1379,7 @@ def _depends_outside(run: _Run, item: Item, members: list[Item]) -> str | None:
     ours = run.repo.lower()
     outside = [
         f"#{dependency.number}" if dependency.repository.lower() == ours else dependency.url
-        for dependency in run.store.dependencies(item.number)
+        for dependency in run.dependencies(item.number)
         if dependency.state is GitHubState.OPEN
         and not (dependency.repository.lower() == ours and dependency.number in inside)
     ]
@@ -1444,6 +1458,65 @@ def _rule_event(run: _Run, item: Item, members: list[Item]) -> tuple[Event, str]
     return None
 
 
+def _item_dependencies(run: _Run, number: int) -> set[int]:
+    """The open dependencies of issue `number` within this repository."""
+    ours = run.repo.lower()
+    return {
+        dep.number
+        for dep in run.dependencies(number)
+        if dep.state is GitHubState.OPEN and dep.repository.lower() == ours
+    }
+
+
+def _dependents_in_staying(run: _Run, candidate_number: int, staying: Sequence[Item]) -> list[int]:
+    """The issue numbers in `staying` that depend on `candidate_number`."""
+    return [
+        item.number
+        for item in staying
+        if item.number != candidate_number
+        and candidate_number in _item_dependencies(run, item.number)
+    ]
+
+
+def _next_trim_victim(
+    run: _Run, candidates: Sequence[Item], staying: Sequence[Item]
+) -> Item | None:
+    """The next lowest-ranked candidate that no staying item depends on; None if all have dependents."""
+    for candidate in candidates:
+        if not _dependents_in_staying(run, candidate.number, staying):
+            return candidate
+    return None
+
+
+def _trim_victims(
+    run: _Run,
+    staying: Sequence[Item],
+    candidates: Sequence[Item],
+    target_count: int,
+) -> tuple[list[Item], list[tuple[Item, str]]]:
+    """Pick up to `target_count` victims from `candidates`, passing over dependencies needed by staying items.
+
+    Returns the picked victims and a list of (candidate, dependent_summary) pairs passed over.
+    """
+    victims: list[Item] = []
+    candidates_left = list(candidates)
+    staying_left = list(staying)
+    while len(victims) < target_count:
+        victim = _next_trim_victim(run, candidates_left, staying_left)
+        if victim is None:
+            break
+        victims.append(victim)
+        candidates_left = [item for item in candidates_left if item.number != victim.number]
+        staying_left = [item for item in staying_left if item.number != victim.number]
+
+    passed_over: list[tuple[Item, str]] = []
+    for item in candidates_left:
+        dependents = _dependents_in_staying(run, item.number, staying_left)
+        if dependents:
+            passed_over.append((item, ", ".join(f"#{num}" for num in sorted(dependents))))
+    return victims, passed_over
+
+
 def _cap_decisions(
     run: _Run,
     state: ReleaseState,
@@ -1470,6 +1543,9 @@ def _cap_decisions(
     for_fixes = max(0, min(len(planned_remaining) - limit, len(admitted_now)))
     known = run.size_at_start is not None and run.started == current.number
     over = len(planned_remaining) - max(limit, run.size_at_start or 0) if known else 0
+    needed = max(for_fixes, over)
+    if needed <= 0:
+        return []
     candidates = sorted(
         (
             item
@@ -1480,7 +1556,7 @@ def _cap_decisions(
         ),
         key=run.ranks.last,
     )
-    victims = candidates[: max(for_fixes, over)]
+    victims, _ = _trim_victims(run, remaining, candidates, needed)
     return [
         run.decision(state, Event.OVER_CAP, victim, title, target, f"#{admitted_now[n].number}")
         if n < for_fixes
@@ -1738,10 +1814,27 @@ def _fill_or_trim(
         ),
         key=run.ranks.last,
     )
-    return [
+    victims, passed_over = _trim_victims(run, kept, unstarted, len(kept) - limit)
+    trimmed_decisions = [
         run.decision(ReleaseState.PLANNED, Event.OVER_CAP_AT_START, item, starting, later)
-        for item in unstarted[: len(kept) - limit]
-    ], []
+        for item in victims
+    ]
+    kept_decisions = (
+        [
+            run.decision(
+                ReleaseState.PLANNED,
+                Event.DEPENDED_ON_AT_START,
+                item,
+                starting,
+                starting,
+                detail,
+            )
+            for item, detail in passed_over
+        ]
+        if len(kept) - len(victims) > limit
+        else []
+    )
+    return [*trimmed_decisions, *kept_decisions], []
 
 
 def _shipped_after(run: _Run, state: ReleaseState) -> list[Release]:
@@ -1792,7 +1885,7 @@ def _plan_start(
     closed = [i for i in run.members(starting, closed=True) if i.state is GitHubState.CLOSED]
     sized, kept_out = _fill_or_trim(run, starting, later, kept)
     trimmed = {decision.item.number for decision in sized if decision.leaves}
-    pulled = len(sized) - len(trimmed)
+    pulled = len([d for d in sized if d.action is Action.PULL_IN])
     # A pulled-in item gets its mark with its change; a kept one that has it already, from an
     # earlier run that stopped part-way, needs none.
     admitted = [
@@ -1800,7 +1893,14 @@ def _plan_start(
         for item in (*kept, *closed)
         if item.number not in trimmed and (number is None or admitted_to(item) != number)
     ]
-    decisions = [*run.finishing, *(d for d in [*cleared, *sized] if d.action is not Action.KEEP)]
+    decisions = [
+        *run.finishing,
+        *(
+            d
+            for d in [*cleared, *sized]
+            if d.action is not Action.KEEP or d.event is Event.DEPENDED_ON_AT_START
+        ),
+    ]
     return ReprioritizationPlan(
         repo=run.repo,
         now=run.now,
@@ -2378,18 +2478,19 @@ def render_plan(plan: ReprioritizationPlan) -> str:
         ).format(number=r.item.number, title=r.item.title, text=r.text)
         for r in plan.reverts
     ]
+    reported = [d for d in plan.decisions if d.writes or d.event is Event.DEPENDED_ON_AT_START]
     changes = dropped + [
         (
             messages.reprioritize_resumed_line if d.resumed else messages.reprioritize_change_line
         ).format(number=d.item.number, title=d.item.title, text=d.text)
-        for d in plan.changes
+        for d in reported
     ]
     lines += _section(
         messages.reprioritize_release_writes, [f"- {write.text}" for write in plan.release_writes]
     )
     lines += _section(messages.reprioritize_changes, changes)
     lines += _section(messages.reprioritize_records, _record_lines(plan))
-    if not plan.has_writes and not plan.unshipped and not plan.behind:
+    if not plan.has_writes and not plan.unshipped and not plan.behind and not changes:
         lines += [messages.reprioritize_nothing]
     return "\n".join(lines).rstrip() + "\n"
 

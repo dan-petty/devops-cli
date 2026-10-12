@@ -149,7 +149,7 @@ class _Roadmap:
     files: dict[tuple[str, str | None], str] = field(default_factory=dict)
     workflows: list[Workflow] = field(default_factory=list)
     status_times: dict[int, datetime] = field(default_factory=dict)
-    dependencies: dict[int, list[int]] = field(default_factory=dict)
+    dependencies: dict[int, list[tuple[int, str | None]]] = field(default_factory=dict)
     pull_requests: dict[int, PullRequest] = field(default_factory=dict)
     merged_paths: dict[int, tuple[str, ...]] = field(default_factory=dict)
     published: set[str] = field(default_factory=set)
@@ -348,11 +348,13 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Make `evidence` one GitHub confirms: the advisory, failed run or commit exists."""
         self._roadmap.evidence.add(evidence)
 
-    def link_dependency(self, number: int, on: int) -> None:
+    def link_dependency(self, number: int, on: int, repository: str | None = None) -> None:
         """Add a blocked-by link: issue `number` waits on issue `on`."""
         self._require_issue(number, "roadmap.dependency.add")
-        self._require_issue(on, "roadmap.dependency.add")
-        self._roadmap.dependencies.setdefault(number, []).append(on)
+        repo = repository or self._roadmap.repo
+        if repo == self._roadmap.repo:
+            self._require_issue(on, "roadmap.dependency.add")
+        self._roadmap.dependencies.setdefault(number, []).append((on, repository))
         self._record(ChangeKind.BLOCKED_BY_ADDED, number, self._roadmap.issues[number].release)
 
     def open_pull_request(
@@ -747,16 +749,30 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def dependencies(self, number: int) -> list[Dependency]:
         """The issues issue `number` waits on through blocked-by links, as they are now."""
-        return [
-            Dependency(
-                number=on,
-                url=self._roadmap.issues[on].url,
-                repository=self._roadmap.repo,
-                state=self._roadmap.issues[on].state,
-                release=self._roadmap.issues[on].release,
-            )
-            for on in self._roadmap.dependencies.get(number, [])
-        ]
+        deps: list[Dependency] = []
+        for on, repo in self._roadmap.dependencies.get(number, []):
+            if repo is None or repo == self._roadmap.repo:
+                target = self._roadmap.issues[on]
+                deps.append(
+                    Dependency(
+                        number=on,
+                        url=target.url,
+                        repository=self._roadmap.repo,
+                        state=target.state,
+                        release=target.release,
+                    )
+                )
+            else:
+                deps.append(
+                    Dependency(
+                        number=on,
+                        url=f"https://github.com/{repo}/issues/{on}",
+                        repository=repo,
+                        state=GitHubState.OPEN,
+                        release=None,
+                    )
+                )
+        return deps
 
     def status_changed_at(self, number: int) -> datetime | None:
         """When the Item's Status last changed, or None when it was never set."""
