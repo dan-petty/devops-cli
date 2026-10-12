@@ -1090,8 +1090,9 @@ class RoadmapCommandHelp:
         "a fix that takes it over its limit (release_cap plus release_slots) descopes one "
         "unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, "
         "each with a reason comment. Once the release ships, close it, branch the next one, "
-        "fill it to the cap and trim it to the limit. The first run records the admitted set "
-        "and moves nothing. Writes only with --confirm."
+        "fill it to the cap and trim it to the limit; the trim and the cap descope follow "
+        "dependencies. The first run records the admitted set and moves nothing. Writes only with "
+        "--confirm."
     )
     reprioritize_confirm: str = (
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."

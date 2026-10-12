@@ -1254,11 +1254,11 @@ class RoadmapMessages:
             ),
             "cap": (
                 "critical fix {detail} took {release} over its limit of {limit} items, and this "
-                "was its lowest-ranked unstarted item."
+                "was its lowest-ranked unstarted item that no item staying in it depends on."
             ),
             "over_size": (
                 "{release} holds {detail} items, more than its limit of {limit} and more than it "
-                "held when it started, and this was its lowest-ranked unstarted item."
+                "held when it started, and this was its lowest-ranked unstarted item that no item staying in it depends on."
             ),
             "blocked": "it is Blocked and had not started.",
             "dependency": "it waits on {detail}, open outside {release}.",
@@ -1291,8 +1291,9 @@ class RoadmapMessages:
             ),
             "trim": (
                 "{release} started with more than {limit} items, and this was its lowest-ranked "
-                "unstarted item."
+                "unstarted item that no item staying in it depends on."
             ),
+            "depended_on": "{detail} in {release} depends on it.",
         }
     )
     # What each action did, in the item's one-line comment; {reason} is one of `reasons`.

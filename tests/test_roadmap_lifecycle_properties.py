@@ -111,7 +111,14 @@ INVARIANTS = MappingProxyType(
         "size": (
             "Current release: after the release starts, while its size is above the larger of "
             "its limit, the cap plus the slots, and its size at start, every unstarted item in "
-            "it is an admitted critical fix or was placed by a person."
+            "it is an admitted critical fix, was placed by a person, or is depended on by another item in it."
+        ),
+        "dependency": (
+            "Dependency: a release never keeps an item whose open dependency was moved out of it."
+        ),
+        "above_cap": (
+            "Current release: a release starting above the cap holds only unstarted items that "
+            "another item in the release depends on."
         ),
         "cut": (
             "Cut: the start of a release a person cut before it pulls nothing in, and once the "
@@ -924,6 +931,12 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             return
         if len(members) <= max(LIMIT, self.size_at_start):
             return
+        depended_on = {
+            dep.number
+            for item in members
+            for dep in self.store.dependencies(item.number)
+            if dep.state is GitHubState.OPEN
+        }
         assert all(
             item.status in STARTED
             or (
@@ -932,6 +945,7 @@ class RoadmapLifecycle(RuleBasedStateMachine):
                     item.number in self.fixes
                     or critical(item)
                     or self.placed_by.get(item.number) == PERSON
+                    or item.number in depended_on
                 )
             )
             for item in members
@@ -1153,6 +1167,66 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         ]
         assert unexplained == [], INVARIANTS["finished"]
 
+    @invariant()
+    def release_start_never_keeps_item_with_trimmed_dependency(self) -> None:
+        """A release never keeps an item whose open dependency was moved out of it by the job."""
+        seen = self.last_run
+        if seen is None:
+            return
+        moved_releases = {
+            seen.before[n].release
+            for n, field in seen.job_fields
+            if field is ItemField.RELEASE and seen.before[n].release is not None
+        }
+        for release in moved_releases:
+            moved_out = {
+                n
+                for n, field in seen.job_fields
+                if field is ItemField.RELEASE
+                and seen.before[n].release == release
+                and seen.after[n].release != release
+            }
+            staying = [
+                item
+                for item in seen.after.values()
+                if item.release == release and item.state is GitHubState.OPEN
+            ]
+            dep_numbers = {
+                dep.number
+                for item in staying
+                for dep in self.store.dependencies(item.number)
+                if dep.state is GitHubState.OPEN
+            }
+            assert not (dep_numbers & moved_out), INVARIANTS["dependency"]
+
+    @invariant()
+    def release_starting_above_cap_holds_only_depended_on_unstarted_items(self) -> None:
+        """A release starting above its limit holds only unstarted items that staying items depend on."""
+        seen = self.last_run
+        if seen is None or not seen.started:
+            return
+        starting = seen.under_way
+        members = [
+            item
+            for item in seen.after.values()
+            if item.release == starting and item.state is GitHubState.OPEN
+        ]
+        if len(members) <= LIMIT:
+            return
+        depended_on = {
+            dep.number
+            for item in members
+            for dep in self.store.dependencies(item.number)
+            if dep.state is GitHubState.OPEN
+        }
+        assert all(
+            item.status in STARTED
+            or critical(item)
+            or self.placed_by.get(item.number) == PERSON
+            or item.number in depended_on
+            for item in members
+        ), INVARIANTS["above_cap"]
+
 
 TestRoadmapLifecycle = RoadmapLifecycle.TestCase
 TestRoadmapLifecycle.settings = SETTINGS
@@ -1170,7 +1244,7 @@ def context_terms() -> set[str]:
 def test_each_invariant_message_starts_with_a_term_context_md_defines() -> None:
     terms = context_terms()
     leading = {message.split(":", 1)[0] for message in INVARIANTS.values()}
-    assert (leading - terms, len(INVARIANTS)) == (set(), 15)
+    assert (leading - terms, len(INVARIANTS)) == (set(), 17)
 
 
 def test_the_gate_settings_keep_shrinking_and_need_no_database() -> None:
@@ -1234,6 +1308,48 @@ def test_the_machine_fails_without_the_merged_release_lock_row(
         "v1.0.1",
         ["start", "cut", "ship", "critical_fix_filed"],
     )
+
+
+def test_the_machine_fails_without_the_dependency_trim_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the dependency-aware victim selection, a release-start trim picks victims in
+    pure rank order and moves a dependency out while keeping the item that depends on it.
+
+    Replays the minimal failing sequence where a release starts over its limit and a staying
+    item depends on the lowest-ranked item. With the dependency trim rule in place, the trim
+    passes over that dependency and trims the next unstarted item instead, keeping all invariants.
+    When monkeypatched to naive rank-ordered victim selection, the trim moves the dependency out,
+    and the dependency invariant fails.
+    """
+    items: list[int] = []
+
+    def minimal(state: RoadmapLifecycle) -> RoadmapLifecycle:
+        items.clear()
+        return replay(
+            state,
+            lambda: state.start(held=["Ready"], waiting=[]),
+            lambda: items.extend(
+                state.file(f"cand {n}", "feature", "Ready", "v1.0.1") for n in range(5)
+            ),
+            lambda: state.person.link_dependency(items[0], items[4]),
+            lambda: state.cut(draft=False),
+            lambda: state.ship(milestone_closed=True, published=True),
+        )
+
+    minimal(RoadmapLifecycle())
+
+    def naive_trim_victims(
+        run: reprioritize._Run,
+        staying: Sequence[reprioritize.Item],
+        candidates: Sequence[reprioritize.Item],
+        target_count: int,
+    ) -> tuple[list[reprioritize.Item], list[tuple[reprioritize.Item, str]]]:
+        return list(candidates[:target_count]), []
+
+    monkeypatch.setattr(reprioritize, "_trim_victims", naive_trim_victims)
+    with pytest.raises(AssertionError, match=r"^Dependency: "):
+        minimal(RoadmapLifecycle())
 
 
 def _every_member_joins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2848,6 +2964,16 @@ def _before_a_trim() -> RoadmapLifecycle:
     return _ship_unpolled(state, milestone_closed=False)
 
 
+def _before_a_trim_with_dependency() -> RoadmapLifecycle:
+    state = RoadmapLifecycle()
+    state.start(held=["Ready"], waiting=[])
+    items = [state.file(f"next {n}", "feature", "Ready", "v1.0.1") for n in range(6)]
+    state.file("new", "feature", "New", "v1.0.1")
+    state.file("blocked fix", "bug", "Blocked", "v1.0.1")
+    state.person.link_dependency(items[0], items[5])
+    return _ship_unpolled(state, milestone_closed=False)
+
+
 def _before_a_first_run_at_a_ship() -> RoadmapLifecycle:
     state = RoadmapLifecycle()
     state.file("next", "feature", "Ready", "v1.0.1")
@@ -2989,6 +3115,7 @@ SWEPT = MappingProxyType(
         "first-run": _before_the_first_run,
         "top-up": _before_a_top_up,
         "trim": _before_a_trim,
+        "trim-with-dependency": _before_a_trim_with_dependency,
         "first-run-at-a-ship": _before_a_first_run_at_a_ship,
         "rules": _before_the_rules,
         "stalls": _before_the_stalls,

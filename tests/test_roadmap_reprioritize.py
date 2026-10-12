@@ -372,7 +372,7 @@ def test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_
         [NEXT, CURRENT, CURRENT, CURRENT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
-            "and this was its lowest-ranked unstarted item."
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -399,7 +399,33 @@ def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_r
         [CURRENT, NEXT, CURRENT, CURRENT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
-            "and this was its lowest-ranked unstarted item."
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
+        ],
+        16,
+    )
+
+
+def test_a_critical_fix_at_cap_descopes_lowest_ranked_unstarted_item_without_dependents(
+    roadmap: Roadmap,
+) -> None:
+    """When the lowest-ranked item is a dependency of an item that stays, the fix descopes the next item in order."""
+    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(13)]
+    low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
+    low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
+    p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
+    started_with(roadmap, *high, low_a, low_b, p3_high)
+    roadmap.person.link_dependency(p3_high, low_b)
+    fix = roadmap.fix()
+    roadmap.run()
+    assert (
+        roadmap.release_of(low_b, low_a, p3_high, fix),
+        roadmap.comments(low_a),
+        roadmap.size(),
+    ) == (
+        [CURRENT, NEXT, CURRENT, CURRENT],
+        [
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -472,7 +498,7 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
         16,
         [
             "Moved to v0.2.26: v0.2.25 holds 17 items, more than its limit of 16 and more than "
-            "it held when it started, and this was its lowest-ranked unstarted item."
+            "it held when it started, and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
     )
 
@@ -553,7 +579,7 @@ def test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranke
         [CURRENT, NEXT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, and "
-            "this was its lowest-ranked unstarted item."
+            "this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -804,7 +830,7 @@ def test_a_starting_release_over_the_cap_is_trimmed_into_the_later_release(
         [LATER] * 4,
         [
             "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
-            "lowest-ranked unstarted item."
+            "lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -833,12 +859,122 @@ def test_a_start_fills_to_the_cap_and_trims_only_above_the_limit(
         [
             [
                 "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
-                "lowest-ranked unstarted item."
+                "lowest-ranked unstarted item that no item staying in it depends on."
             ]
         ]
         * trimmed,
         [],
     )
+
+
+def test_a_starting_release_over_the_cap_preserves_dependencies(started: Roadmap) -> None:
+    """The trim passes over dependencies needed by items that stay, and trims unneeded ones."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    high_items = [
+        started.file(f"p1 high {n}", priority="P1-High", value="High", release=NEXT)
+        for n in range(9)
+    ]
+    i832, i982 = high_items[0], high_items[1]
+    i843 = started.file("p1 843", priority="P1-High", value="High", release=NEXT)
+    i743 = started.file("p1 743", priority="P1-High", value="High", release=NEXT)
+    i744 = started.file("p1 744", priority="P1-High", value="High", release=NEXT)
+    i548 = started.file("p1 548", priority="P1-High", value="Medium", release=NEXT)
+    i406 = started.file("p1 406", priority="P1-High", value="Medium", release=NEXT)
+    i981 = started.file("p1 981", priority="P1-High", value="Medium", release=NEXT)
+    i1083 = started.file("p1 1083", priority="P1-High", value="Medium", release=NEXT)
+    started.person.link_dependency(i843, i832)
+    started.person.link_dependency(i406, i843)
+    started.person.link_dependency(i981, i1083)
+    started.person.link_dependency(i743, i982)
+    started.person.link_dependency(i744, i743)
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(i548, i406, i981, i1083),
+        started.release_of(i843, i832, i743, i982, i744),
+        started.size(NEXT),
+        started.comments(i548),
+    ) == (
+        [LATER] * 4,
+        [NEXT] * 5,
+        12,
+        [
+            "Moved to v0.2.27: v0.2.26 started with more than 12 items, and this was its "
+            "lowest-ranked unstarted item that no item staying in it depends on."
+        ],
+    )
+
+
+def test_a_start_over_cap_passes_over_dependencies_of_started_item_and_critical_fix(
+    started: Roadmap,
+) -> None:
+    """Trim passes over dependencies of a started item and a critical fix, trimming the next items in order."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    in_progress = started.file(
+        "in progress", priority="P1-High", status="In Progress", release=NEXT
+    )
+    fix = started.fix("next fix", release=NEXT)
+    low_a = started.file("low a", priority="P3-Low", release=NEXT)
+    low_b = started.file("low b", priority="P3-Low", release=NEXT)
+    p2_c = started.file("p2 c", priority="P2-Medium", release=NEXT)
+    p2_d = started.file("p2 d", priority="P2-Medium", release=NEXT)
+    for n in range(8):
+        started.file(f"p1 high {n}", priority="P1-High", release=NEXT)
+    started.person.link_dependency(in_progress, low_a)
+    started.person.link_dependency(fix, low_b)
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(low_a, low_b),
+        started.release_of(p2_c, p2_d),
+        started.size(NEXT),
+    ) == ([NEXT, NEXT], [LATER, LATER], 12)
+
+
+def test_two_unstarted_items_depending_on_each_other_hold_release_above_cap(
+    started: Roadmap,
+) -> None:
+    """Two unstarted items that depend on each other are never trimmed; release starts above cap and plan names them."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    for n in range(12):
+        started.file(f"started {n}", priority="P1-High", status="In Progress", release=NEXT)
+    item_a = started.file("cycle a", priority="P3-Low", release=NEXT)
+    item_b = started.file("cycle b", priority="P3-Low", release=NEXT)
+    started.person.link_dependency(item_a, item_b)
+    started.person.link_dependency(item_b, item_a)
+    started.ship()
+    plan = started.plan()
+    report = render_plan(plan)
+    started.run()
+    assert (
+        started.release_of(item_a, item_b),
+        started.size(NEXT),
+        f"- #{item_a} cycle a: Kept in v0.2.26: #{item_b} in v0.2.26 depends on it." in report,
+        f"- #{item_b} cycle b: Kept in v0.2.26: #{item_a} in v0.2.26 depends on it." in report,
+    ) == ([NEXT, NEXT], 14, True, True)
+
+
+def test_closed_backlog_and_cross_repo_dependencies_leave_trim_order_unchanged(
+    started: Roadmap,
+) -> None:
+    """A closed dependency, a dependency in backlog, and a cross-repo dependency leave trim order unchanged."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    kept = [started.file(f"kept {n}", priority="P1-High", release=NEXT) for n in range(12)]
+    cand_1 = started.file("cand 1", priority="P3-Low", release=NEXT)
+    cand_2 = started.file("cand 2", priority="P3-Low", release=NEXT)
+    cand_3 = started.file("cand 3", priority="P3-Low", release=NEXT)
+    closed_item = started.file("closed item", priority="P1-High", release=NEXT)
+    started.person.close_issue(closed_item, CloseReason.COMPLETED, "Delivered.")
+    started.person.link_dependency(closed_item, cand_1)
+    backlog_item = started.file("backlog item", priority="P1-High", release=None)
+    started.person.link_dependency(backlog_item, cand_2)
+    started.store.link_dependency(kept[0], cand_3, repository="other-org/other-repo")
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(cand_1, cand_2, cand_3),
+        started.size(NEXT),
+    ) == ([LATER, LATER, LATER], 12)
 
 
 def test_at_the_start_new_and_blocked_items_leave_but_a_new_critical_fix_stays(
