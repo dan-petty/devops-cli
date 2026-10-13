@@ -28,6 +28,7 @@ devops argo sync [OPTIONS] <name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -67,6 +68,7 @@ devops argo cd fleet sync [OPTIONS] <app_name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -98,6 +100,7 @@ devops argo cd gitops watch [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo cd gitops drift`
@@ -113,6 +116,7 @@ devops argo cd gitops drift [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo cd gitops sync`
@@ -132,6 +136,7 @@ devops argo cd gitops sync [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo cd apps`
@@ -406,6 +411,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
 | `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -440,6 +446,7 @@ devops argo fleet sync [OPTIONS] <app_name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -473,6 +480,7 @@ devops argo gitops watch [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo gitops drift`
@@ -488,6 +496,7 @@ devops argo gitops drift [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo gitops sync`
@@ -507,6 +516,7 @@ devops argo gitops sync [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

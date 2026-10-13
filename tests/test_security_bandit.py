@@ -316,3 +316,37 @@ def test_an_unisolated_scan_runs_bandit_on_the_tree_s_bandit_file_only_when_it_n
     assert (head, "--ignore-nosec" in cmd) == (
         (own_file, False) if reads_the_file else (whole_tree, True)
     )
+
+
+def test_bandit_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> None:
+    """Bandit findings carry paths relative to scan root rather than absolute paths."""
+    fixture_tree = tmp_path / "tree"
+    app_dir = fixture_tree / "app"
+    app_dir.mkdir(parents=True)
+    x_file = app_dir / "x.py"
+    x_file.write_text("import tempfile\n", encoding="utf-8")
+
+    fake_output = {
+        "results": [
+            {
+                "filename": str(x_file.resolve()),
+                "issue_confidence": "MEDIUM",
+                "issue_severity": "MEDIUM",
+                "issue_text": f"Temporary file in {x_file.resolve()}",
+                "line_number": 12,
+                "test_id": "B108",
+                "test_name": "hardcoded_tmp_directory",
+            }
+        ]
+    }
+    with patch("devops_cli.security.bandit.run_subprocess") as mock_proc:
+        mock_proc.return_value = MagicMock(stdout=json.dumps(fake_output), returncode=0)
+        outcome = run_bandit_scan([x_file], tree=fixture_tree)
+
+    assert len(outcome) == 1
+    f = outcome[0]
+    assert (
+        f.location,
+        str(fixture_tree) in f.location,
+        str(fixture_tree) in f.description,
+    ) == ("app/x.py:12", False, False)

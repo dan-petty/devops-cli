@@ -52,7 +52,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Kubernetes Client** | K8s SDK | Official Python client for Kubernetes cluster management and diagnostics. | [kubernetes.md](devops_cli/libraries/kubernetes.md) |
 | **Docker SDK** | Containers | Python client for Docker Engine daemon, real-time stats, and lifecycle. | [docker.md](devops_cli/libraries/docker.md) |
 | **FastAPI & Uvicorn** | REST & ASGI | Asynchronous REST service engine and OpenAPI server backing `devops serve`. | [fastapi_uvicorn.md](devops_cli/libraries/fastapi_uvicorn.md) |
-| **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Jaeger, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
+| **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Tempo, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
 | **Pathspec** | Gitignore Matcher | Pure Python pattern matching based on `.gitignore` wildcards and rules. | [pathspec.md](devops_cli/libraries/pathspec.md) |
 | **TLDExtract** | Domain Parsing | Public Suffix List domain parsing for network references extracted from code. | [tldextract.md](devops_cli/libraries/tldextract.md) |
 | **Packaging** | SemVer & Specs | PyPA core specifications, SemVer 2.0.0 validation, and version bumping. | [packaging.md](devops_cli/libraries/packaging.md) |
@@ -89,7 +89,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Agentic AI & Code Reviews** | AI & Multi-Persona Reviews | Architecture for multi-persona code reviews, prompt isolation, and calibrated findings. | [agentic_ai_and_code_reviews.md](it_domains/topics/agentic_ai_and_code_reviews.md) |
 | **Cloud-Native K8s & GitOps** | Kubernetes & Cloud Delivery | Declarative GitOps delivery with ArgoCD, Helm charts, and local Minikube orchestration. | [cloud_native_kubernetes_and_gitops.md](it_domains/topics/cloud_native_kubernetes_and_gitops.md) |
 | **Zero-Trust Security & Compliance** | Security Engineering | Credential isolation with OS Keyring, vulnerability scanning, and SSH key hardening. | [zero_trust_security_and_compliance.md](it_domains/topics/zero_trust_security_and_compliance.md) |
-| **Observability & Distributed Tracing** | APM & Monitoring | OpenTelemetry distributed trace spans, Prometheus metrics series, and Jaeger UI. | [observability_and_distributed_tracing.md](it_domains/topics/observability_and_distributed_tracing.md) |
+| **Observability & Distributed Tracing** | APM & Monitoring | OpenTelemetry distributed trace spans, Prometheus metrics series, and Grafana Tempo. | [observability_and_distributed_tracing.md](it_domains/topics/observability_and_distributed_tracing.md) |
 | **Reproducible DevContainers** | Developer Workstations | Containerized developer environments, Docker-in-Docker, persistent history, and MCP sync. | [developer_workstations_and_devcontainers.md](it_domains/topics/developer_workstations_and_devcontainers.md) |
 | **Infrastructure as Code & Cloud Automation** | Cloud IaC | Declarative cloud provisioning with OpenTofu & Terraform, state locking, and drift checks. | [infrastructure_as_code_and_cloud_automation.md](it_domains/topics/infrastructure_as_code_and_cloud_automation.md) |
 | **CI & Progressive Verification** | Continuous Integration | Local quality gate (`devops ci`), progressive testing, and workflow validation. | [continuous_integration_and_progressive_verification.md](it_domains/topics/continuous_integration_and_progressive_verification.md) |

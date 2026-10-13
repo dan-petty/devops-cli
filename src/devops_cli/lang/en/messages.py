@@ -357,6 +357,9 @@ class K8sMessages:
     table_title_nodes: str = "Nodes"
     node_ready: str = "Ready"
     node_not_ready: str = "NotReady"
+    volume_reclaimed: str = "PersistentVolume '{name}' {action} successfully."
+    volume_reclaim_aborted: str = "PersistentVolume '{name}' reclaim aborted."
+    volume_reclaim_dry_run_heading: str = "Planned Kubernetes Volume Reclaim API Requests:"
 
 
 @dataclass(frozen=True)
@@ -697,16 +700,16 @@ class TelemetryMessages:
     port_forward_tip: str = (
         "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
     )
-    view_traces_jaeger: str = "\n[dim]To view traces in Jaeger UI: {url}[/dim]"
+    view_traces_tempo: str = "\n[dim]To query traces via Tempo HTTP API: {url}[/dim]"
     emitting_span: str = (
         "[bold]Emitting test trace span '[cyan]{name}[/cyan]' to [cyan]{endpoint}[/cyan]...[/bold]"
     )
     span_emitted_success: str = "Test span emitted successfully! (Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
-    view_jaeger_service: str = "[dim]View in Jaeger: {url} (Service: {service})[/dim]"
-    jaeger_ui_link: str = "[bold]Jaeger Tracing UI:[/bold] [link={url}]{url}[/link]"
+    view_tempo_service: str = "[dim]Query in Tempo: {url} (Service: {service})[/dim]"
+    tempo_api_link: str = "[bold]Tempo HTTP API:[/bold] [link={url}]{url}[/link]"
     profile_devops_only: str = (
         "telemetry profile runs only a devops-cli command, whose first word is 'devops' "
-        "(e.g. 'devops k8s contexts'); pass --trace-id to show a trace already in Jaeger."
+        "(e.g. 'devops k8s contexts'); pass --trace-id to show a trace already in Tempo."
     )
     semconv_refreshed: str = (
         "{path} now holds {attributes} attributes, {metrics} metrics and {spans} span types "
@@ -960,6 +963,8 @@ class DevcontainerMessages:
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"
     manifest_validation_failed: str = "✗ DevContainer manifest validation failed for {path}:"
+    oci_labels_valid: str = "✓ OCI image labels are valid ({count} labels verified)."
+    oci_labels_failed: str = "✗ OCI image label validation failed:"
     status_table_title: str = "Devcontainer Status"
     col_repository: str = "Repository"
     status_configured: str = "✓ configured"
@@ -1249,11 +1254,11 @@ class RoadmapMessages:
             ),
             "cap": (
                 "critical fix {detail} took {release} over its limit of {limit} items, and this "
-                "was its lowest-ranked unstarted item."
+                "was its lowest-ranked unstarted item that no item staying in it depends on."
             ),
             "over_size": (
                 "{release} holds {detail} items, more than its limit of {limit} and more than it "
-                "held when it started, and this was its lowest-ranked unstarted item."
+                "held when it started, and this was its lowest-ranked unstarted item that no item staying in it depends on."
             ),
             "blocked": "it is Blocked and had not started.",
             "dependency": "it waits on {detail}, open outside {release}.",
@@ -1286,8 +1291,9 @@ class RoadmapMessages:
             ),
             "trim": (
                 "{release} started with more than {limit} items, and this was its lowest-ranked "
-                "unstarted item."
+                "unstarted item that no item staying in it depends on."
             ),
+            "depended_on": "{detail} in {release} depends on it.",
         }
     )
     # What each action did, in the item's one-line comment; {reason} is one of `reasons`.
@@ -1360,6 +1366,11 @@ class RoadmapMessages:
     )
     reprioritize_changes: str = "## Changes"
     reprioritize_release_writes: str = "## Releases and branches"
+    reprioritize_growth: str = "## Release growth"
+    reprioritize_growth_line: str = (
+        "- {release}: {start} at start; joined {joined}{joined_detail}; "
+        "descoped {descoped}{descoped_detail}; start: {start_detail}"
+    )
     reprioritize_records: str = "## Admitted set"
     reprioritize_admits: str = "- {release} admits {items}."
     reprioritize_cleared: str = (

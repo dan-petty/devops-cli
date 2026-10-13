@@ -11,8 +11,15 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config import options as opt
-from devops_cli.config.constants import CONST_CONFIG_PATH, CONST_GH_CLI
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_CONFIG_PATH,
+    CONST_GH_CLI,
+    CONST_OUTPUT_FORMAT_TABLE,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
+)
 from devops_cli.config.env import EnvVarSpec, env_var_for_option, get_all_env_var_specs
 from devops_cli.config.options import KEYRING_KEYS as _KEYRING_MAP
 from devops_cli.config.settings import (
@@ -31,14 +38,13 @@ from devops_cli.dry_run import render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    format_json,
     print_error,
     print_info,
     print_success,
     print_table,
     print_warning,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +347,14 @@ def output_env_vars(  # noqa: C901
             help=HELP.config.export_env,
         ),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option(
@@ -354,7 +368,8 @@ def output_env_vars(  # noqa: C901
     settings = load_settings()
     specs = get_all_env_var_specs()
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = []
         for spec in specs:
             val, is_from_env = _resolve_env_spec_value(spec, settings)
@@ -371,7 +386,7 @@ def output_env_vars(  # noqa: C901
                     "description": spec.description,
                 }
             )
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         return
 
     if export:
@@ -514,6 +529,10 @@ def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], 
 
 @app.command("audit-keys")
 def audit_keys_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -536,8 +555,6 @@ def audit_keys_cmd(
             },
         )
         return
-
-    import json
 
     import keyring
 
@@ -609,7 +626,8 @@ def audit_keys_cmd(
 
     is_overall_compliant = not plaintext_leaks and not unaudited_files
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         report = {
             "keyring_backend": backend_name,
             "backend_priority": backend_priority,
@@ -621,7 +639,7 @@ def audit_keys_cmd(
             "is_compliant": is_overall_compliant,
             "keys": key_audit_records,
         }
-        write_stdout(json.dumps(report, indent=2) + "\n")
+        emit_serialized(report, resolved)
         if unaudited_files:
             raise typer.Exit(1)
         return

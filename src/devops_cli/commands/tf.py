@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -9,6 +10,7 @@ import typer
 
 from devops_cli.config.constants import (
     CONST_OPENTOFU_BINARIES,
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_TF_AWS_DIR,
     CONST_TF_AZURE_DIR,
     CONST_TF_ENVIRONMENTS_DIR,
@@ -17,6 +19,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
@@ -36,6 +39,7 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(
     help=HELP.tf.app,
@@ -279,15 +283,20 @@ def tf_output(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     raw: Annotated[bool, typer.Option("--raw", "-r", help=HELP.options.raw)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Read an output variable from the OpenTofu state."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    resolved_format = resolve_format(output_format, json_output=json_output)
 
     cmd = [binary, "output"]
-    if json_output:
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         cmd.append("-json")
     elif raw:
         cmd.append("-raw")
@@ -308,6 +317,13 @@ def tf_output(
         text=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            payload = result.stdout
+        emit_serialized(payload, resolved_format)
+        return
     write_stdout(result.stdout)
 
 
@@ -453,16 +469,20 @@ def tf_graph(
         str | None, typer.Option("--resource", "-r", help=HELP.tf.resource_address)
     ] = None,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Inspect the in-memory resource dependency graph and blast radius."""
-    from devops_cli.output import format_json
     from devops_cli.tf.analysis import (
         build_dependency_graph,
         compute_blast_radius,
         parse_hcl_directory,
     )
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -484,8 +504,8 @@ def tf_graph(
             )
             raise typer.Exit(1)
         radius = compute_blast_radius(graph, resource)
-        if json_output:
-            write_stdout(format_json(radius.model_dump()) + "\n")
+        if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(radius.model_dump(), resolved_format)
             return
         print_table(
             title=MESSAGES.tf.table_title_blast_radius.format(address=resource),
@@ -506,8 +526,8 @@ def tf_graph(
         )
         return
 
-    if json_output:
-        write_stdout(format_json({"graph": graph, "directory": str(target)}) + "\n")
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized({"graph": graph, "directory": str(target)}, resolved_format)
         return
 
     if not graph:
@@ -540,12 +560,16 @@ def tf_graph(
 def tf_drift(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Compare declared configuration against recorded state."""
-    from devops_cli.output import format_json
     from devops_cli.tf.analysis import analyze_directory, detect_drift
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -558,8 +582,8 @@ def tf_drift(
     config, state = analyze_directory(target)
     report = detect_drift(config, state)
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()) + "\n")
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved_format)
         return
 
     _report_parse_failures(config)
@@ -717,11 +741,16 @@ def tf_lint(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Run TFLint static analysis on Terraform/OpenTofu configurations."""
-    from devops_cli.output import format_json, print_muted
+    from devops_cli.output import print_muted
     from devops_cli.security.tflint import run_tflint_scan
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     target_dir = directory.resolve()
     if dry_run:
         render_dry_run_result(
@@ -731,11 +760,12 @@ def tf_lint(
         )
         return
 
-    print_muted(f"Executing TFLint static analysis on '{target_dir}'...")
+    if resolved_format == CONST_OUTPUT_FORMAT_TABLE:
+        print_muted(f"Executing TFLint static analysis on '{target_dir}'...")
     findings = run_tflint_scan(target_dir=target_dir, config_file=config)
 
-    if json_output:
-        write_stdout(format_json([f.model_dump() for f in findings]) + "\n")
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([f.model_dump() for f in findings], resolved_format)
         return
 
     if not findings:
@@ -768,12 +798,15 @@ def tf_notify_plan(
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments."""
-    import json
-
     from devops_cli.dry_run import is_dry_run
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     raw_text = ""
     if plan_file and plan_file.exists():
         raw_text = plan_file.read_text(encoding="utf-8")
@@ -803,7 +836,7 @@ def tf_notify_plan(
         )
         return
 
-    if json_output:
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "pr": pr_number,
             "adds": adds,
@@ -811,7 +844,7 @@ def tf_notify_plan(
             "destroys": destroys,
             "comment": comment_body,
         }
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved_format)
         return
 
     print_success(
@@ -844,11 +877,16 @@ def tf_cost_breakdown(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Estimate monthly and hourly cloud infrastructure costs using Infracost."""
     from devops_cli.tf.cost import render_cost_table, run_infracost_breakdown, validate_cost_budget
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -860,13 +898,13 @@ def tf_cost_breakdown(
 
     result = run_infracost_breakdown(target, offline_mock=mock)
     budget_ok = validate_cost_budget(result, max_monthly_cost)
-    if json_output:
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved_format)
     else:
         print(render_cost_table(result))
 
     if not budget_ok:
-        if not json_output:
+        if resolved_format == CONST_OUTPUT_FORMAT_TABLE:
             print_error(
                 f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
             )
@@ -892,11 +930,16 @@ def tf_cost_diff(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Calculate cost delta between local Terraform code and baseline state using Infracost."""
     from devops_cli.tf.cost import render_cost_table, run_infracost_diff, validate_cost_budget
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -908,13 +951,13 @@ def tf_cost_diff(
 
     result = run_infracost_diff(target, compare_to=compare_to, offline_mock=mock)
     budget_ok = validate_cost_budget(result, max_monthly_cost)
-    if json_output:
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved_format)
     else:
         print(render_cost_table(result, title=f"Cost Diff: {result.directory} ({result.source})"))
 
     if not budget_ok:
-        if not json_output:
+        if resolved_format == CONST_OUTPUT_FORMAT_TABLE:
             print_error(
                 f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
             )

@@ -68,12 +68,12 @@ def test_release_workflow_attest_build_provenance_contract() -> None:
     workflow = _load_workflow(RELEASE_PATH)
     _assert_attest_build_provenance_contract(workflow)
     attest_steps = _extract_steps_with_action(workflow, "actions/attest-build-provenance")
-    assert len(attest_steps) == 1
-    job_id, step = attest_steps[0]
-    assert (job_id, step.get("with", {}).get("subject-name")) == (
-        "service-image",
-        "ghcr.io/${{ github.repository }}/service",
-    )
+    assert [
+        (job_id, step.get("with", {}).get("subject-name")) for job_id, step in attest_steps
+    ] == [
+        ("devcontainer", "ghcr.io/${{ github.repository }}/devcontainer"),
+        ("service-image", "ghcr.io/${{ github.repository }}/service"),
+    ]
 
 
 def test_release_workflow_attest_build_provenance_mutation() -> None:

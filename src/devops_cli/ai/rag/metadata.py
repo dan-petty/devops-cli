@@ -160,7 +160,7 @@ _STRUCTURAL_KEYWORDS: dict[str, set[str]] = {
     "test": {"test_", "_test", "pytest", "fixture", "mock", "assert", "unittest"},
     "k8s": {"kubernetes", "k8s", "daemonset", "deployment", "kubectl", "helm"},
     "iac": {"terraform", "tofu", "hcl", "provider", "resource"},
-    "telemetry": {"otel", "prometheus", "jaeger", "metrics", "tracing", "logger"},
+    "telemetry": {"otel", "prometheus", "tempo", "metrics", "tracing", "logger"},
     "database": {"qdrant", "postgres", "sql", "redis", "valkey", "db", "vector"},
 }
 

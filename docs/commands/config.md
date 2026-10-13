@@ -70,6 +70,7 @@ devops config env-vars [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ---
@@ -87,6 +88,7 @@ devops config env [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ---
@@ -104,6 +106,7 @@ devops config output [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ---
@@ -153,6 +156,7 @@ devops config audit-keys [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

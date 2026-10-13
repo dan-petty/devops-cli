@@ -80,6 +80,7 @@ condition already present then, such as an item already Blocked, is judged by th
 descoping rules. The size binds from the start: while the release holds more than the larger of
 its limit and its size at start, its lowest-ranked unstarted items that are not critical fixes are
 descoped, so an item a person moves back to Ready after a fix has filled the release makes room.
+The trim and the cap descope follow dependencies: they pass over an item that a staying item depends on.
 
 Each change to an item is finished before the next begins: its `Pending` mark records the
 decision first, with the item's Release and Status as it found them, what its job record held
@@ -162,6 +163,9 @@ closes or merges a pull request, and its only branch write creates a missing `re
 from __future__ import annotations
 
 import json
+import logging
+import os
+from collections import defaultdict
 from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -169,7 +173,7 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from packaging.version import Version
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPendingError
 
 from devops_cli.config.constants import (
@@ -200,6 +204,7 @@ from devops_cli.roadmap.store import (
     Branch,
     Change,
     ChangeKind,
+    Dependency,
     GitHubState,
     Item,
     ItemField,
@@ -217,6 +222,8 @@ from devops_cli.roadmap.store import (
     is_release_title,
     with_marks,
 )
+
+logger = logging.getLogger(__name__)
 
 # ── The table ─────────────────────────────────────────────────────────────────
 
@@ -268,6 +275,7 @@ class Event(StrEnum):
     FIX_BLOCKED_AT_START = "fix_blocked_at_start"
     CANDIDATE = "candidate"
     OVER_CAP_AT_START = "over_cap_at_start"
+    DEPENDED_ON_AT_START = "depended_on_at_start"
 
 
 class Action(StrEnum):
@@ -309,6 +317,65 @@ class Reason(StrEnum):
     BLOCKED_AT_START = "blocked_at_start"
     TOP_UP = "top_up"
     TRIM = "trim"
+    DEPENDED_ON = "depended_on"
+
+
+class GrowthGroup(StrEnum):
+    """The four categories a release's decisions are grouped into."""
+
+    JOINED = "joined"
+    DESCOPED = "descoped"
+    START = "start"
+    KEPT = "kept"
+
+
+REASON_GROWTH_GROUPS: Mapping[Reason, GrowthGroup] = MappingProxyType(
+    {
+        Reason.CRITICAL_FIX: GrowthGroup.JOINED,
+        Reason.PULL_REQUEST: GrowthGroup.JOINED,
+        Reason.P0_FEATURE: GrowthGroup.JOINED,
+        Reason.CUT: GrowthGroup.JOINED,
+        Reason.MERGED: GrowthGroup.JOINED,
+        Reason.ADMISSION: GrowthGroup.JOINED,
+        Reason.CAP: GrowthGroup.DESCOPED,
+        Reason.OVER_SIZE: GrowthGroup.DESCOPED,
+        Reason.BLOCKED: GrowthGroup.DESCOPED,
+        Reason.DEPENDENCY: GrowthGroup.DESCOPED,
+        Reason.NEEDS_SPLIT: GrowthGroup.DESCOPED,
+        Reason.OTHERS_DONE: GrowthGroup.DESCOPED,
+        Reason.STALLED: GrowthGroup.DESCOPED,
+        Reason.TOP_UP: GrowthGroup.START,
+        Reason.TRIM: GrowthGroup.START,
+        Reason.NOT_READY_AT_START: GrowthGroup.START,
+        Reason.BLOCKED_AT_START: GrowthGroup.START,
+        Reason.FIX_STALLED: GrowthGroup.KEPT,
+        Reason.REVIEW_IDLE: GrowthGroup.KEPT,
+    }
+)
+
+_SILENT_REASONS: frozenset[Reason] = frozenset(
+    {Reason.FIX_STAYS, Reason.FIX_NEW_AT_START, Reason.SHIPPED, Reason.DEPENDED_ON}
+)
+_DESCOPED_REASONS: frozenset[str] = frozenset(
+    r.value for r, g in REASON_GROWTH_GROUPS.items() if g is GrowthGroup.DESCOPED
+)
+_TALLY_ADAPTER: TypeAdapter[list[list[int | str]]] = TypeAdapter(list[list[int | str]])
+
+
+@dataclass(frozen=True)
+class ReleaseGrowth:
+    """The size at start and change counts for one release."""
+
+    release: str
+    size_at_start: int | None
+    joined: int
+    descoped: int
+    start: int
+    kept: int
+    reasons: Mapping[str, int] = field(default_factory=dict)
+    critical_fixes_admitted: int = 0
+    sent_on: int = 0
+    to_backlog: int = 0
 
 
 @dataclass(frozen=True)
@@ -369,6 +436,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_P, Event.CANDIDATE): Transition(Action.PULL_IN, Reason.TOP_UP),
         (_P, Event.PR_JOINED): Transition(Action.KEEP, Reason.PULL_REQUEST),
         (_P, Event.OVER_CAP_AT_START): Transition(Action.TO_NEXT, Reason.TRIM),
+        (_P, Event.DEPENDED_ON_AT_START): Transition(Action.KEEP, Reason.DEPENDED_ON),
     }
 )
 # A state without a row of its own for an event takes the row of the state it inherits from.
@@ -471,6 +539,133 @@ def size_at_start(run_record: JobRecord) -> int | None:
     recorded; None when it gives none it can read."""
     size = run_record.get(JobMark.SIZE)
     return int(size) if size and size.isdigit() else None
+
+
+def sizes_at_start(run_record: JobRecord) -> dict[str, int]:
+    """The start sizes of up to 10 releases recorded in the run record.
+
+    Returns a dict mapping milestone number string to size at start.
+    """
+    raw = run_record.get(JobMark.SIZES)
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return {str(k): int(v) for k, v in data.items() if str(v).isdigit()}
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.debug("Malformed Sizes mark in run record: %s", exc)
+    started = run_record.get(JobMark.STARTED)
+    size = size_at_start(run_record)
+    if started and size is not None:
+        return {started: size}
+    return {}
+
+
+def _updated_sizes(existing: Mapping[str, int], milestone_number: int, size: int) -> dict[str, int]:
+    """Add milestone_number and size, keeping at most the last 10 entries."""
+    updated = {**existing, str(milestone_number): size}
+    if len(updated) > 10:
+        updated = dict(list(updated.items())[-10:])
+    return updated
+
+
+def _collect_milestone_entries(
+    items: Iterable[Item],
+) -> dict[int, list[list[int | str]]]:
+    """Collect tally entries from all items grouped by release milestone number."""
+    entries_by_milestone: dict[int, list[list[int | str]]] = defaultdict(list)
+    for item in items:
+        raw = item.job_record.get(JobMark.TALLY)
+        if not raw:
+            continue
+        try:
+            entries = _TALLY_ADAPTER.validate_json(raw)
+        except (MalformedPendingError, ValueError) as exc:
+            logger.debug("Malformed Tally mark on item %s: %s", item.number, exc)
+            continue
+        for entry in entries:
+            if entry and isinstance(entry[0], int):
+                entries_by_milestone[entry[0]].append(entry)
+    return entries_by_milestone
+
+
+def _aggregate_growth(
+    release: str, size: int | None, entries: Sequence[list[int | str]]
+) -> ReleaseGrowth:
+    counts: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    crit_admitted = 0
+    sent_on = 0
+    to_backlog = 0
+
+    for entry in entries:
+        if len(entry) < 2:
+            continue
+        reason_str = str(entry[1])
+        reasons[reason_str] += 1
+        reason = Reason(reason_str) if reason_str in Reason._value2member_map_ else None
+        group = REASON_GROWTH_GROUPS.get(reason) if reason else None
+        is_crit = (
+            len(entry) > 2 and entry[2] == "critical_fix"
+        ) or reason_str == Reason.CRITICAL_FIX.value
+        is_person = len(entry) > 2 and entry[2] == "person"
+
+        if group is GrowthGroup.JOINED:
+            counts[GrowthGroup.JOINED] += 1
+        else:
+            if group is not None:
+                counts[group] += 1
+            if is_crit or is_person:
+                counts[GrowthGroup.JOINED] += 1
+
+        if is_crit or is_person:
+            crit_admitted += 1
+        elif reason_str in (Reason.P0_FEATURE.value, Reason.CUT.value, Reason.MERGED.value):
+            sent_on += 1
+        elif reason_str == Reason.ADMISSION.value:
+            to_backlog += 1
+
+    return ReleaseGrowth(
+        release=release,
+        size_at_start=size,
+        joined=counts[GrowthGroup.JOINED],
+        descoped=counts[GrowthGroup.DESCOPED],
+        start=counts[GrowthGroup.START],
+        kept=counts[GrowthGroup.KEPT],
+        reasons=reasons,
+        critical_fixes_admitted=crit_admitted,
+        sent_on=sent_on,
+        to_backlog=to_backlog,
+    )
+
+
+def release_growth(
+    items: Iterable[Item],
+    run_record: JobRecord,
+    releases: Sequence[Release],
+) -> dict[str, ReleaseGrowth]:
+    """The read model of release growth: size at start and changes tally for each release.
+
+    For each release that has entries or a recorded size, it returns the size at start
+    and the entry counts in four groups: joined, descoped, start, kept.
+    """
+    all_sizes = sizes_at_start(run_record)
+    releases_by_number = {r.number: r for r in releases}
+    entries_by_milestone = _collect_milestone_entries(items)
+
+    all_milestones = set(entries_by_milestone.keys())
+    for k in all_sizes.keys():
+        if k.isdigit():
+            all_milestones.add(int(k))
+
+    result: dict[str, ReleaseGrowth] = {}
+    for milestone in sorted(all_milestones):
+        release = releases_by_number.get(milestone)
+        title = release.title if release else f"v{milestone}"
+        size = all_sizes.get(str(milestone))
+        entries = entries_by_milestone.get(milestone, [])
+        result[title] = _aggregate_growth(title, size, entries)
+    return result
 
 
 def release_state(store: RoadmapStore, release: Release, default_branch: str) -> ReleaseState:
@@ -763,6 +958,18 @@ class ReprioritizationPlan:
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
+    existing_sizes: Mapping[str, int] = field(default_factory=dict)
+    growth: Mapping[str, ReleaseGrowth] = field(default_factory=dict)
+    target_releases: tuple[str, ...] = ()
+
+    def sizes(self, numbers: Mapping[str, int]) -> dict[str, int]:
+        """The run record's Sizes mapping up to 10 releases, including this start."""
+        if self.record is None:
+            return dict(self.existing_sizes)
+        milestone = numbers.get(self.record)
+        if milestone is None:
+            return dict(self.existing_sizes)
+        return _updated_sizes(self.existing_sizes, milestone, self.size)
 
     @property
     def changes(self) -> list[Decision]:
@@ -878,6 +1085,7 @@ class _Run:
     reverts: tuple[Revert, ...] = ()
     status_times: Mapping[int, datetime | None] = field(default_factory=dict)
     _linked: dict[int, list[PullRequest]] | None = None
+    _dependencies: dict[int, list[Dependency]] | None = None
 
     @property
     def open_releases(self) -> list[Release]:
@@ -931,6 +1139,14 @@ class _Run:
                 for linked in extract_linked_issues(pull_request.body, self.repo):
                     self._linked.setdefault(linked.number, []).append(pull_request)
         return self._linked.get(number, [])
+
+    def dependencies(self, number: int) -> list[Dependency]:
+        """The issues issue `number` waits on through blocked-by links, read once per run."""
+        if self._dependencies is None:
+            self._dependencies = {}
+        if number not in self._dependencies:
+            self._dependencies[number] = self.store.dependencies(number)
+        return self._dependencies[number]
 
     def note(self, transition: Transition, release: str, target: str | None, detail: str) -> str:
         """The reason's text for one decision."""
@@ -1365,7 +1581,7 @@ def _depends_outside(run: _Run, item: Item, members: list[Item]) -> str | None:
     ours = run.repo.lower()
     outside = [
         f"#{dependency.number}" if dependency.repository.lower() == ours else dependency.url
-        for dependency in run.store.dependencies(item.number)
+        for dependency in run.dependencies(item.number)
         if dependency.state is GitHubState.OPEN
         and not (dependency.repository.lower() == ours and dependency.number in inside)
     ]
@@ -1444,6 +1660,65 @@ def _rule_event(run: _Run, item: Item, members: list[Item]) -> tuple[Event, str]
     return None
 
 
+def _item_dependencies(run: _Run, number: int) -> set[int]:
+    """The open dependencies of issue `number` within this repository."""
+    ours = run.repo.lower()
+    return {
+        dep.number
+        for dep in run.dependencies(number)
+        if dep.state is GitHubState.OPEN and dep.repository.lower() == ours
+    }
+
+
+def _dependents_in_staying(run: _Run, candidate_number: int, staying: Sequence[Item]) -> list[int]:
+    """The issue numbers in `staying` that depend on `candidate_number`."""
+    return [
+        item.number
+        for item in staying
+        if item.number != candidate_number
+        and candidate_number in _item_dependencies(run, item.number)
+    ]
+
+
+def _next_trim_victim(
+    run: _Run, candidates: Sequence[Item], staying: Sequence[Item]
+) -> Item | None:
+    """The next lowest-ranked candidate that no staying item depends on; None if all have dependents."""
+    for candidate in candidates:
+        if not _dependents_in_staying(run, candidate.number, staying):
+            return candidate
+    return None
+
+
+def _trim_victims(
+    run: _Run,
+    staying: Sequence[Item],
+    candidates: Sequence[Item],
+    target_count: int,
+) -> tuple[list[Item], list[tuple[Item, str]]]:
+    """Pick up to `target_count` victims from `candidates`, passing over dependencies needed by staying items.
+
+    Returns the picked victims and a list of (candidate, dependent_summary) pairs passed over.
+    """
+    victims: list[Item] = []
+    candidates_left = list(candidates)
+    staying_left = list(staying)
+    while len(victims) < target_count:
+        victim = _next_trim_victim(run, candidates_left, staying_left)
+        if victim is None:
+            break
+        victims.append(victim)
+        candidates_left = [item for item in candidates_left if item.number != victim.number]
+        staying_left = [item for item in staying_left if item.number != victim.number]
+
+    passed_over: list[tuple[Item, str]] = []
+    for item in candidates_left:
+        dependents = _dependents_in_staying(run, item.number, staying_left)
+        if dependents:
+            passed_over.append((item, ", ".join(f"#{num}" for num in sorted(dependents))))
+    return victims, passed_over
+
+
 def _cap_decisions(
     run: _Run,
     state: ReleaseState,
@@ -1470,6 +1745,9 @@ def _cap_decisions(
     for_fixes = max(0, min(len(planned_remaining) - limit, len(admitted_now)))
     known = run.size_at_start is not None and run.started == current.number
     over = len(planned_remaining) - max(limit, run.size_at_start or 0) if known else 0
+    needed = max(for_fixes, over)
+    if needed <= 0:
+        return []
     candidates = sorted(
         (
             item
@@ -1480,7 +1758,7 @@ def _cap_decisions(
         ),
         key=run.ranks.last,
     )
-    victims = candidates[: max(for_fixes, over)]
+    victims, _ = _trim_victims(run, remaining, candidates, needed)
     return [
         run.decision(state, Event.OVER_CAP, victim, title, target, f"#{admitted_now[n].number}")
         if n < for_fixes
@@ -1738,10 +2016,27 @@ def _fill_or_trim(
         ),
         key=run.ranks.last,
     )
-    return [
+    victims, passed_over = _trim_victims(run, kept, unstarted, len(kept) - limit)
+    trimmed_decisions = [
         run.decision(ReleaseState.PLANNED, Event.OVER_CAP_AT_START, item, starting, later)
-        for item in unstarted[: len(kept) - limit]
-    ], []
+        for item in victims
+    ]
+    kept_decisions = (
+        [
+            run.decision(
+                ReleaseState.PLANNED,
+                Event.DEPENDED_ON_AT_START,
+                item,
+                starting,
+                starting,
+                detail,
+            )
+            for item, detail in passed_over
+        ]
+        if len(kept) - len(victims) > limit
+        else []
+    )
+    return [*trimmed_decisions, *kept_decisions], []
 
 
 def _shipped_after(run: _Run, state: ReleaseState) -> list[Release]:
@@ -1792,7 +2087,7 @@ def _plan_start(
     closed = [i for i in run.members(starting, closed=True) if i.state is GitHubState.CLOSED]
     sized, kept_out = _fill_or_trim(run, starting, later, kept)
     trimmed = {decision.item.number for decision in sized if decision.leaves}
-    pulled = len(sized) - len(trimmed)
+    pulled = len([d for d in sized if d.action is Action.PULL_IN])
     # A pulled-in item gets its mark with its change; a kept one that has it already, from an
     # earlier run that stopped part-way, needs none.
     admitted = [
@@ -1800,7 +2095,14 @@ def _plan_start(
         for item in (*kept, *closed)
         if item.number not in trimmed and (number is None or admitted_to(item) != number)
     ]
-    decisions = [*run.finishing, *(d for d in [*cleared, *sized] if d.action is not Action.KEEP)]
+    decisions = [
+        *run.finishing,
+        *(
+            d
+            for d in [*cleared, *sized]
+            if d.action is not Action.KEEP or d.event is Event.DEPENDED_ON_AT_START
+        ),
+    ]
     return ReprioritizationPlan(
         repo=run.repo,
         now=run.now,
@@ -1821,6 +2123,7 @@ def _plan_start(
         kept_out=tuple(kept_out),
         record=starting,
         size=len(kept) - len(trimmed) + pulled,
+        existing_sizes=sizes_at_start(run.record),
     )
 
 
@@ -1859,6 +2162,7 @@ def _plan_first_run(
         record=recorded,
         opens_record=number is None or run.started != number,
         size=sum(item.state is GitHubState.OPEN for item in members),
+        existing_sizes=sizes_at_start(run.record),
     )
 
 
@@ -1989,21 +2293,27 @@ def _judged(
     return _reconcile(prepared, plan_for(prepared))
 
 
-def plan_reprioritization(
-    store: RoadmapStore, *, repo: str, config: RoadmapConfig, now: datetime
+def _with_growth(plan: ReprioritizationPlan, run: _Run, current: Release) -> ReprioritizationPlan:
+    """Attach the release growth read model and the current and previous release titles."""
+    growth = release_growth(run.items, run.record, run.releases)
+    sorted_releases = sorted(run.releases, key=lambda r: r.version)
+    prev = None
+    if current in sorted_releases:
+        idx = sorted_releases.index(current)
+        if idx > 0:
+            prev = sorted_releases[idx - 1].title
+    target_releases = tuple(r for r in (current.title, prev) if r is not None)
+    return replace(plan, growth=growth, target_releases=target_releases)
+
+
+def _plan_at(
+    run: _Run,
+    current: Release,
+    state: ReleaseState,
+    recorded: Release | None,
+    shipped: Sequence[Release],
 ) -> ReprioritizationPlan:
-    """Read the roadmap and plan one run at `now`, writing nothing."""
-    run = _read_run(store, repo, config, now)
-    current = current_release(run.releases)
-    if current is None:
-        return ReprioritizationPlan(repo=repo, now=now, current=None, state=None)
-    state = release_state(store, current, run.default_branch.name)
-    recorded = _recorded(run, current)
-    # The shipped releases whose milestones are still open: the current one, if it has shipped,
-    # and each open release right after it that has shipped too.
-    shipped = [current, *_shipped_after(run, state)] if state is ReleaseState.SHIPPED else []
-    if recorded is None:
-        _require_run_record(run)
+    """Plan reprioritization based on the relationship between current, recorded, and shipped releases."""
     if recorded is None or run.size_at_start is None:
         return _judged(run, lambda r: _plan_first_run(r, current, state, shipped), None)
     if shipped and recorded.version > shipped[-1].version and not _shipped_since(run, recorded):
@@ -2020,6 +2330,25 @@ def plan_reprioritization(
         starting = next(iter(_startable(run, shipped)), None)
         return _judged(run, lambda r: _plan_start(r, current, state, shipped), starting)
     return _judged(run, lambda r: _plan_rules(r, current, state), current.title)
+
+
+def plan_reprioritization(
+    store: RoadmapStore, *, repo: str, config: RoadmapConfig, now: datetime
+) -> ReprioritizationPlan:
+    """Read the roadmap and plan one run at `now`, writing nothing."""
+    run = _read_run(store, repo, config, now)
+    current = current_release(run.releases)
+    if current is None:
+        return ReprioritizationPlan(repo=repo, now=now, current=None, state=None)
+    state = release_state(store, current, run.default_branch.name)
+    recorded = _recorded(run, current)
+    # The shipped releases whose milestones are still open: the current one, if it has shipped,
+    # and each open release right after it that has shipped too.
+    shipped = [current, *_shipped_after(run, state)] if state is ReleaseState.SHIPPED else []
+    if recorded is None:
+        _require_run_record(run)
+    planned = _plan_at(run, current, state, recorded, shipped)
+    return _with_growth(planned, run, current)
 
 
 def dry_run_reprioritization(repo: str, *, ref: str | None, now: datetime) -> ReprioritizationPlan:
@@ -2063,12 +2392,38 @@ def _admits(decision: Decision) -> bool:
     return joins or decision.action in (Action.ADMIT, Action.PULL_IN)
 
 
+def _tally_mark(decision: Decision, release: int) -> str:
+    """The JSON-encoded Tally entries for the item, appending the decision's entry."""
+    existing = decision.item.job_record.get(JobMark.TALLY)
+    entries: list[list[int | str]] = []
+    if existing:
+        try:
+            entries = _TALLY_ADAPTER.validate_json(existing)
+        except (MalformedPendingError, ValueError) as exc:
+            logger.debug("Malformed Tally mark on item %s: %s", decision.item.number, exc)
+            entries = []
+    discriminator = ["critical_fix"] if decision.admits else ["person"] if decision.joined else []
+    entries.append([release, decision.transition.reason.value, *discriminator])
+    return _TALLY_ADAPTER.dump_json(entries).decode()
+
+
+def _clears_admission(decision: Decision, release: int | None, announced: bool) -> bool:
+    """Whether the decision clears the item's Admitted and Joined marks."""
+    if not (decision.leaves and release is not None and admitted_to(decision.item) == release):
+        return False
+    return (
+        announced
+        or _sets_release(decision, decision.by_person)
+        or not in_release(decision.item.release, Version(decision.release))
+    )
+
+
 def _final_marks(
     decision: Decision, now: datetime, numbers: Mapping[str, int]
 ) -> dict[JobMark, str | None]:
     """The marks the last write of a decision sets: its `Admitted` or `Nudged` mark, its
     `Left` mark cleared when it places the item, as `_moved` counts it, an unproven Release
-    included, and its `Pending` mark cleared.
+    included, its `Tally` mark appended, and its `Pending` mark cleared.
 
     A decision that `admits` a fix it readies or nudges admits it once its comment is posted,
     or while the item is still a critical fix: one a person made anything else before its
@@ -2084,22 +2439,15 @@ def _final_marks(
         marks[JobMark.ADMITTED] = str(release)
         if decision.joined:
             marks[JobMark.JOINED] = str(release)
-    elif (
-        decision.leaves
-        and release is not None
-        and admitted_to(decision.item) == release
-        and (
-            announced
-            or _sets_release(decision, decision.by_person)
-            or not in_release(decision.item.release, Version(decision.release))
-        )
-    ):
+    elif _clears_admission(decision, release, announced):
         marks[JobMark.ADMITTED] = None
         marks[JobMark.JOINED] = None
     if _sets_release(decision, decision.by_person) and decision.item.job_record.get(JobMark.LEFT):
         marks[JobMark.LEFT] = None
     if decision.action is Action.NUDGE:
         marks[JobMark.NUDGED] = now.isoformat()
+    if decision.writes and release is not None:
+        marks[JobMark.TALLY] = _tally_mark(decision, release)
     return marks
 
 
@@ -2276,8 +2624,13 @@ def apply_reprioritization(store: RoadmapStore, plan: ReprioritizationPlan) -> N
     for item, marks in plan.marks(numbers).values():
         store.set_marks(item, marks)
     if plan.record is not None:
-        size: dict[JobMark, str | None] = {JobMark.SIZE: str(plan.size)}
-        started = {} if plan.first_run else {JobMark.STARTED: str(numbers[plan.record])}
+        rec_number = numbers[plan.record]
+        sizes = plan.sizes(numbers)
+        size: dict[JobMark, str | None] = {
+            JobMark.SIZE: str(plan.size),
+            JobMark.SIZES: json.dumps(sizes, sort_keys=True),
+        }
+        started = {} if plan.first_run else {JobMark.STARTED: str(rec_number)}
         store.set_run_record({**started, **size})
     for write in plan.release_writes:
         if write.last:
@@ -2364,6 +2717,68 @@ def _headline_text(plan: ReprioritizationPlan) -> str | None:
     return None
 
 
+def _joined_detail(growth: ReleaseGrowth) -> str:
+    """The parenthesized detail for joined items, if any."""
+    parts: list[str] = []
+    if growth.critical_fixes_admitted > 0:
+        plural = "es" if growth.critical_fixes_admitted != 1 else ""
+        parts.append(f"{growth.critical_fixes_admitted} critical fix{plural} admitted")
+    if growth.sent_on > 0:
+        parts.append(f"{growth.sent_on} sent on")
+    if growth.to_backlog > 0:
+        parts.append(f"{growth.to_backlog} sent to backlog")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _descoped_detail(growth: ReleaseGrowth) -> str:
+    """The parenthesized detail for descoped items, if any."""
+    parts = [
+        f"{r} {cnt}" for r, cnt in growth.reasons.items() if r in _DESCOPED_REASONS and cnt > 0
+    ]
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _start_detail(growth: ReleaseGrowth) -> str:
+    """The comma-separated details of changes made at the release's start."""
+    phrases = {
+        Reason.TOP_UP.value: "pulled in",
+        Reason.TRIM.value: "trimmed",
+        Reason.NOT_READY_AT_START.value: "not ready",
+        Reason.BLOCKED_AT_START.value: "blocked",
+    }
+    parts = [
+        f"{phrases.get(r, r)} {cnt}"
+        for r, cnt in growth.reasons.items()
+        if r in phrases and cnt > 0
+    ]
+    return ", ".join(parts) if parts else "none"
+
+
+def _format_growth_line(growth: ReleaseGrowth) -> str:
+    """A formatted release growth summary line."""
+    messages = MESSAGES.roadmap
+    start_size = growth.size_at_start if growth.size_at_start is not None else 0
+    return messages.reprioritize_growth_line.format(
+        release=growth.release,
+        start=start_size,
+        joined=growth.joined,
+        joined_detail=_joined_detail(growth),
+        descoped=growth.descoped,
+        descoped_detail=_descoped_detail(growth),
+        start_detail=_start_detail(growth),
+    )
+
+
+def _growth_lines(plan: ReprioritizationPlan) -> list[str]:
+    """The formatted release growth lines for the target releases."""
+    lines: list[str] = []
+    for title in plan.target_releases:
+        growth = plan.growth.get(title)
+        if growth is not None:
+            lines.append(_format_growth_line(growth))
+    return lines
+
+
 def render_plan(plan: ReprioritizationPlan) -> str:
     """The plan as Markdown: the current release, each change with its reason, and the records."""
     messages = MESSAGES.roadmap
@@ -2372,26 +2787,83 @@ def render_plan(plan: ReprioritizationPlan) -> str:
         return "\n".join([*lines, messages.reprioritize_no_release]) + "\n"
     lines += [messages.reprioritize_current.format(release=plan.current, state=plan.state), ""]
     lines += _headline(plan)
+    lines += _section(messages.reprioritize_growth, _growth_lines(plan))
     dropped = [
         (
             messages.reprioritize_dropped_line if r.text else messages.reprioritize_unreadable_line
         ).format(number=r.item.number, title=r.item.title, text=r.text)
         for r in plan.reverts
     ]
+    reported = [d for d in plan.decisions if d.writes or d.event is Event.DEPENDED_ON_AT_START]
     changes = dropped + [
         (
             messages.reprioritize_resumed_line if d.resumed else messages.reprioritize_change_line
         ).format(number=d.item.number, title=d.item.title, text=d.text)
-        for d in plan.changes
+        for d in reported
     ]
     lines += _section(
         messages.reprioritize_release_writes, [f"- {write.text}" for write in plan.release_writes]
     )
     lines += _section(messages.reprioritize_changes, changes)
     lines += _section(messages.reprioritize_records, _record_lines(plan))
-    if not plan.has_writes and not plan.unshipped and not plan.behind:
+    if not plan.has_writes and not plan.unshipped and not plan.behind and not changes:
         lines += [messages.reprioritize_nothing]
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _should_skip_telemetry(plan: ReprioritizationPlan) -> bool:
+    """Whether telemetry emission should be skipped."""
+    from devops_cli.dry_run.state import in_dry_run_invocation
+    from devops_cli.telemetry.tracer import get_tracer
+
+    if plan.dry_run or in_dry_run_invocation():
+        return True
+    if os.getenv("CI") or os.getenv("GITHUB_ACTIONS") or os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    tracer = get_tracer()
+    return not getattr(tracer, "enabled", False)
+
+
+def _emit_release_decisions(
+    title: str, growth: ReleaseGrowth, decisions: Sequence[Decision], applied: bool
+) -> None:
+    """Emit the decisions gauge points for a release."""
+    from devops_cli.telemetry.instruments import ROADMAP_RELEASE_DECISIONS, emit
+
+    counts: dict[str, int] = dict(growth.reasons)
+    if applied:
+        for decision in decisions:
+            if decision.release == title:
+                r_val = decision.transition.reason.value
+                counts[r_val] = counts.get(r_val, 0) + 1
+    for r_str, cnt in counts.items():
+        if cnt <= 0:
+            continue
+        reason = Reason(r_str) if r_str in Reason._value2member_map_ else None
+        group = REASON_GROWTH_GROUPS.get(reason) if reason else None
+        group_val = group.value if group else "other"
+        emit(
+            ROADMAP_RELEASE_DECISIONS,
+            float(cnt),
+            {"release": title, "group": group_val, "reason": r_str},
+        )
+
+
+def emit_reprioritize_telemetry(plan: ReprioritizationPlan, *, applied: bool = False) -> None:
+    """Emit release size at start and decisions telemetry as OTLP gauges."""
+    if _should_skip_telemetry(plan):
+        return
+    from devops_cli.telemetry.instruments import ROADMAP_RELEASE_SIZE_AT_START, emit
+
+    emitted_sizes: set[str] = set()
+    for title, growth in plan.growth.items():
+        size = plan.size if (applied and plan.record == title) else growth.size_at_start
+        if size is not None:
+            emit(ROADMAP_RELEASE_SIZE_AT_START, float(size), {"release": title})
+            emitted_sizes.add(title)
+        _emit_release_decisions(title, growth, plan.changes, applied)
+    if applied and plan.record and plan.record not in emitted_sizes:
+        emit(ROADMAP_RELEASE_SIZE_AT_START, float(plan.size), {"release": plan.record})
 
 
 # ── When the job is due ───────────────────────────────────────────────────────
@@ -2469,11 +2941,14 @@ def is_due(
 
 __all__ = [
     "INHERITS",
+    "REASON_GROWTH_GROUPS",
     "TRANSITIONS",
     "Action",
     "Decision",
     "Event",
+    "GrowthGroup",
     "Reason",
+    "ReleaseGrowth",
     "ReleaseState",
     "ReleaseWrite",
     "ReprioritizationPlan",
@@ -2485,6 +2960,7 @@ __all__ = [
     "current_release",
     "decide",
     "dry_run_reprioritization",
+    "emit_reprioritize_telemetry",
     "is_critical_fix",
     "is_due",
     "is_own_change",
@@ -2493,6 +2969,8 @@ __all__ = [
     "last_started",
     "placed_by_person",
     "plan_reprioritization",
+    "release_growth",
     "release_state",
     "render_plan",
+    "sizes_at_start",
 ]

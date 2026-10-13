@@ -13,6 +13,7 @@ from devops_cli.config.constants import (
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MIN_SECURITY_STREAM_DURATION,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -22,16 +23,17 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
     DEFAULT_SECURITY_STREAM_TAIL_LINES,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
 from devops_cli.output import (
     TablePayload,
-    format_json,
     format_k8s_pods_table,
     print_error,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 
 def _build_pods_table(
@@ -234,6 +236,10 @@ def chaos_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -252,23 +258,30 @@ def chaos_cmd(
     if dry_run or is_dry_run():
         return
 
-    if json_output:
-        write_stdout(format_json(result.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
         return
 
     if not result.recovered_successfully:
         raise typer.Exit(1)
 
 
-def _handle_security_stream_export(result: Any, output: Path | None, json_output: bool) -> None:
-    """Handle export and JSON output of security stream result."""
+def _handle_security_stream_export(
+    result: Any,
+    output: Path | None,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
+    """Handle export and serialization output of security stream result."""
     from devops_cli.output.file_writer import write_serialized_file
 
     dumped = result.model_dump()
     if output:
         write_serialized_file(output, dumped, format_type="json")
-    if json_output:
-        write_stdout(format_json(dumped) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(dumped, resolved)
 
 
 def _validate_severity_callback(value: str | None) -> str | None:
@@ -332,6 +345,10 @@ def security_stream_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -375,9 +392,12 @@ def security_stream_cmd(
         print_error(str(err))
         raise typer.Exit(1) from err
 
-    _handle_security_stream_export(result, output, json_output)
+    _handle_security_stream_export(
+        result, output, output_format=output_format, json_output=json_output
+    )
 
-    if not json_output and not output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE and not output:
         render_security_alerts(result)
 
 

@@ -81,6 +81,7 @@ devops ai prewarm [OPTIONS]
 | `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output results as structured JSON. |
 
 ---
@@ -191,6 +192,7 @@ devops ai token-count [OPTIONS] <target>
 |---|---|---|---|
 | `--model`, `-m` | `string` | `gpt-4o` | AI model identifier. |
 | `--budget`, `-b` | `integer` | `32768` | Max context token budget limit. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -215,6 +217,7 @@ devops ai spec [OPTIONS] <spec_path>
 |---|---|---|---|
 | `--target`, `-t` | `path` | - | Target source directory to verify or analyze. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -235,6 +238,7 @@ devops ai repomap [OPTIONS]
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
 | `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -256,6 +260,7 @@ devops ai audit-library-usage [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -283,6 +288,7 @@ devops ai pack-context [OPTIONS] <target_path>
 | `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
 | `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
 | `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -336,6 +342,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -361,6 +368,7 @@ devops ai prompt-eval [OPTIONS]
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded verdicts to count. |
 | `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
 | `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; they are a machine's labels, not a person's, so they are excluded by default. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -385,6 +393,7 @@ devops ai test-gen [OPTIONS] <target_file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -766,6 +775,7 @@ devops ai review score [OPTIONS] <sessions>
 |---|---|---|---|
 | `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review export-feedback`
@@ -840,6 +850,7 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review samples`
@@ -1206,6 +1217,7 @@ devops ai rag drift [OPTIONS] <path>
 |---|---|---|---|
 | `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
 | `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1462,6 +1474,7 @@ devops ai ast parse [OPTIONS] <file_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1633,6 +1646,23 @@ devops ai gateway load [OPTIONS]
 |---|---|---|---|
 | `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway render`
+
+**Render LLM gateway configuration from Ollama profiles and services, showing unified diff.**
+
+```bash
+devops ai gateway render [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--apply` | `boolean` | - | Write rendered gateway configuration to file. |
+| `--configmap` | `path` | - | Path to gateway configmap YAML. |
+| `--profiles` | `path` | - | Path to Ollama profiles YAML. |
+| `--services` | `path` | - | Path to LLM services YAML. |
 
 ---
 
@@ -2111,7 +2141,101 @@ devops ai research forage [OPTIONS] <anchor>
 | `--max-nodes`, `-n` | `integer` | `20` | Maximum number of nodes to visit along the trail. |
 | `--min-score`, `-s` | `float` | `0.1` | Minimum relevance scent threshold before backtracking. |
 | `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai research annotate`
+
+**Record or view active marginalia annotations anchored to files, AST nodes, or ranges.**
+
+```bash
+devops ai research annotate [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Target file path to annotate or inspect marginalia. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Annotation type (ASSUMPTION, HYPOTHESIS, CONTRADICTION, QUESTION, TODO). |
+| `--content`, `-c`, `--note` | `string` | - | Annotation observation, hypothesis, or note text. |
+| `--anchor`, `-a` | `string` | - | Anchor reference: file path, AST node id, or line range. |
+| `--list`, `-l` | `boolean` | - | List existing marginalia annotations without adding a new one. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai research socratic`
+
+**Metacognitive Socratic inquiry identifying knowledge gaps, ambiguities, and probes.**
+
+```bash
+devops ai research socratic [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | No | Task description or objective to analyze for knowledge gaps. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--task`, `-t` | `string` | - | Task description or objective to analyze for knowledge gaps. |
+| `--context`, `-c` | `string` | - | Optional additional context, instructions, or code snippets. |
+| `--max-probes`, `-n` | `integer` | `5` | Maximum number of clarifying questions and code lookups to emit. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai research model`
+
+**Progressively synthesize and distill research observations into a living mental model.**
+
+```bash
+devops ai research model [OPTIONS] <topic>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<topic>` | `string` | Yes | Research topic or subject to synthesize a mental model for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--observations`, `-o`, `--notes` | `string` | - | New observations, notes, or raw findings to incorporate into the model. |
+| `--file`, `-F` | `path` | - | Path to file containing raw observations to synthesize. |
+| `--show`, `-s` | `boolean` | - | Display the existing mental model without incorporating new observations. |
+| `--format`, `-f` | `string` | `yaml` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai research analogies`
+
+**Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base.**
+
+```bash
+devops ai research analogies [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | - | Optional query or focus topic to filter analogical patterns. |
+| `--domain`, `-d` | `string` | - | Filter analogies originating from a specific source domain. |
+| `--target-domain` | `string` | - | Filter analogies matching a specific target domain. |
+| `--min-score`, `-s` | `float` | `0.5` | Minimum confidence score for returned analogies (0.0 to 1.0). |
+| `--limit`, `-n` | `integer` | `10` | Maximum number of analogy pairs to surface. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

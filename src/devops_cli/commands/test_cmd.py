@@ -10,8 +10,14 @@ from typing import Annotated
 import typer
 
 from devops_cli.config.commands import BIN_K6, build_k6_cmd
-from devops_cli.config.constants import CONST_CURRENT_DIR
-from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK
+from devops_cli.config.constants import (
+    CONST_CURRENT_DIR,
+    CONST_OUTPUT_FORMAT_TABLE,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_SANDBOX_NETWORK,
+    DEFAULT_TABLE_FORMAT,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root
@@ -27,6 +33,7 @@ from devops_cli.output import (
     write_stderr,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.memory_profiler import (
     MemoryProfileReport,
@@ -484,6 +491,10 @@ def test_profile_memory(
         Path | None,
         typer.Option("--output", "-o", help=HELP.test.profile_output),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.test.json),
@@ -535,14 +546,15 @@ def test_profile_memory(
             attributes={"target": target},
         )
 
+        resolved = resolve_format(output_format, json_output=json_output)
         if output:
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-            if not json_output:
+            if resolved == CONST_OUTPUT_FORMAT_TABLE:
                 print_success(f"Report written to {output}")
 
-        if json_output:
-            print(report.model_dump_json(indent=2))
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(report.model_dump(), resolved)
         else:
             _render_memory_report(report)
 

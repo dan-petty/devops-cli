@@ -280,9 +280,8 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
 
     findings = _review_scan(reviewed_checkout, semgrep, _REVIEWED_FILES[:12])
 
-    reviewed = (reviewed_checkout / "pkg7" / "mod_7.py").resolve()
     assert {name: [f.location for f in found] for name, found in findings.items()} == {
-        "pkg7/mod_7.py": [f"{reviewed}:3"]
+        "pkg7/mod_7.py": ["pkg7/mod_7.py:3"]
     }
 
 
@@ -320,3 +319,41 @@ def test_a_semgrep_timeout_loses_only_its_batch(
         "failed",
         "batch 1 of 3, 4 files: timed out after 300 s",
     )
+
+
+def test_semgrep_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> None:
+    """Semgrep findings carry paths relative to scan root rather than absolute paths."""
+
+    fixture_tree = tmp_path / "tree"
+    app_dir = fixture_tree / "app"
+    app_dir.mkdir(parents=True)
+    x_file = app_dir / "x.py"
+    x_file.write_text("import pickle\n", encoding="utf-8")
+
+    fake_output = {
+        "results": [
+            {
+                "check_id": "generic-ast-flaw",
+                "path": str(x_file.resolve()),
+                "start": {"line": 15},
+                "end": {"line": 15},
+                "extra": {
+                    "message": f"Insecure pattern in {x_file.resolve()}",
+                    "severity": "WARNING",
+                },
+            }
+        ]
+    }
+    with patch("devops_cli.security.semgrep.run_subprocess") as mock_proc:
+        mock_proc.return_value = subprocess.CompletedProcess(
+            args=["semgrep"], returncode=0, stdout=json.dumps(fake_output), stderr=""
+        )
+        outcome = run_semgrep_scan([x_file], reviewed_tree=fixture_tree)
+
+    assert len(outcome) == 1
+    f = outcome[0]
+    assert (
+        f.location,
+        str(fixture_tree) in f.location,
+        str(fixture_tree) in f.description,
+    ) == ("app/x.py:15", False, False)

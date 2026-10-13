@@ -8,11 +8,13 @@ from typing import Annotated, Any
 import httpx2
 import typer
 
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_ANOMALY_Z_THRESHOLD,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_PROMETHEUS_QUERY_RANGE_START,
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
@@ -27,6 +29,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
 
@@ -256,6 +259,10 @@ def analyze(
     threshold: Annotated[
         float, typer.Option("--threshold", "-t", help=HELP.prometheus.anomaly_threshold)
     ] = DEFAULT_ANOMALY_Z_THRESHOLD,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
     dry_run: Annotated[
         bool,
@@ -263,7 +270,6 @@ def analyze(
     ] = False,
 ) -> None:
     """Detect anomalies and project the trend of a metric series, computed locally."""
-    from devops_cli.output import format_json, write_stdout
     from devops_cli.prometheus.analysis import analyze_series, extract_series_values
 
     _validate_expr(expr)
@@ -302,8 +308,9 @@ def analyze(
     timestamps, values = extract_series_values(results[0])
     analysis = analyze_series(values, timestamps, threshold=threshold)
 
-    if json_output:
-        write_stdout(format_json(analysis.model_dump(mode="json")) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(analysis.model_dump(mode="json"), resolved)
         return
 
     print_table(

@@ -61,7 +61,7 @@ def test_telemetry_test_live_mocked() -> None:
 
 
 def test_telemetry_open_ui() -> None:
-    """devops telemetry open-ui prints Jaeger URL."""
+    """devops telemetry open-ui prints Tempo URL."""
     result = runner.invoke(app, ["open-ui"])
     assert result.exit_code == 0
-    assert "Jaeger Tracing UI" in result.output
+    assert "Tempo HTTP API" in result.output

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.35] - 2026-10-13
+
+### Added
+- **Active marginalia & epistemic scratchpad (`devops ai research annotate`)**:
+  - Added file-anchored observation and hypothesis tracking under `.data/marginalia/<file_hash>.jsonl`.
+  - Supported five typed marginalia classifications: `ASSUMPTION`, `HYPOTHESIS`, `CONTRADICTION`, `QUESTION`, and `TODO`.
+  - Added `devops ai research annotate` command for recording and viewing marginalia with JSON and YAML formatting support.
+  - Automatically injected prior marginalia into `devops ai research forage` trails and node context.
+- **Socratic inquiry & knowledge gap formulator (`devops ai research socratic`)**:
+  - Added metacognitive knowledge gap and ambiguity analysis for task self-assessment.
+  - Implemented structured output models for `GAP`, `AMBIGUITY`, and `UNDERSPECIFIED_CONTRACT` with associated rationales.
+  - Added minimal diagnostic probes emitting concise clarifying questions and concrete code lookup instructions bounded by `--max-probes`.
+  - Added `devops ai research socratic` subcommand supporting table, JSON, YAML, and Markdown formats.
+- **Cross-domain analogical pattern retriever (`devops ai research analogies`)**:
+  - Added multi-vector topological clustering over the Knowledge Base RAG collection to discover cross-domain structural pattern isomorphisms.
+  - Implemented `CrossDomainAnalogy` and `AnalogyReport` structured output models surfacing source module, target module, shared structural pattern, confidence score, and invariant mechanisms.
+  - Added `devops ai research analogies` CLI subcommand supporting query filtering, source/target domain constraints, and table, JSON, YAML, and Markdown output formats.
+- **Living mental model synthesizer & causal graph distiller (`devops ai research model`)**:
+  - Added progressive synthesis of sprawling research observations into structured YAML mental models under `.data/research/mental_model_<topic>.yaml`.
+  - Implemented finite-state machine transitions (`StateTransition`), causal directed acyclic graphs (`CausalGraph`, `CausalNode`, `CausalEdge`), and verifiable invariant rules (`InvariantRule`).
+  - Added `devops ai research model` command supporting progressive revision updates, `--observations`, `--file`, `--show`, and YAML, JSON, Markdown, and table formatting.
+- **Kubernetes orphaned volume reclamation (`devops k8s volume reclaim`)**:
+  - Added `devops k8s volume reclaim <name>` to safely reclaim persistent volumes stuck in `Released` or `Failed` phase.
+  - Implemented pre-mutation verification confirming volumes are genuinely orphaned: phase check (`Released` or `Failed`), claim absence check, and pod mount check across all namespaces.
+  - Added confirmation gating requiring `--yes` in non-interactive sessions, and request-free `--dry-run` simulation displaying exact API operations.
+- Standardized output format adoption (`--format`, `-f` supporting `table`, `json`, `yaml`, `csv`) across all 144 CLI value commands via `emit_serialized` and `resolve_format` (#411).
+- Structured property-based fuzzing test suites for boundary resilience across SARIF 2.1.0 parsing, `git worktree list --porcelain`, `git status --porcelain=v1` cache parsing, Argo CD drift analysis, and review JSON schema normalization (#416).
+- **OCI container image packaging & standardized metadata validation (`devops devcontainer validate`)**:
+  - Added `--oci-labels` and `--expected-source` options to `devops devcontainer validate` to structurally audit OCI annotations prior to container publication.
+  - Implemented multi-platform Buildx compilation (`linux/amd64`, `linux/arm64`) with QEMU in container release workflows.
+  - Added SLSA provenance attestations and SBOM generation to devcontainer and service image packaging pipelines.
+- `devops ai gateway render`: render and apply LLM gateway configuration derived from Ollama profiles and service aliases, aligning `max_input_tokens` with tier context lengths, removing deprecated `weight` fields under `least-busy` routing, and outputting unified diffs (#478).
+- `devops roadmap reprioritize`: record a durable tally of joins, descopes and trims on each item's job record, record release start size history, report release growth across releases, emit telemetry gauges, and visualize in Grafana (#1126).
+- Deploy single-binary Grafana Tempo (`grafana-community/tempo` `3.1.0`) in the `otel` namespace backed by a `10Gi` `local-path` PersistentVolumeClaim (`Prune=false,Delete=false`) with `168h` (7-day) trace retention, Argo CD Application `k8s/argocd/apps/tempo.yaml`, Alloy `integrations.tempo` metrics scraping, and Grafana `Tempo` datasource (`uid: tempo`) linked to `loki` (`tracesToLogsV2`, `lokiSearch`) and `pyroscope` (`tracesToProfiles`) ([#1135](https://github.com/dan-petty/devops-cli/issues/1135)).
+- Add `TempoConfig` (`settings.tempo`), `devops k8s tempo`, MCP tool `k8s_tempo_info`, built-in AI tool `k8s_tempo_status`, and Tempo OTLP v2 trace normalization (`normalize_tempo_spans`, `query_tempo_trace`) for `devops telemetry profile` and `devops sandbox traces` ([#1135](https://github.com/dan-petty/devops-cli/issues/1135)).
+
+### Changed
+- **Container manifests & release workflows**:
+  - Standardized OCI Image Spec labels across `Dockerfile`, `.devcontainer/Dockerfile`, and `.github/workflows/release.yml`.
+  - Pinned `uv` to `0.12.23` across devcontainer and production Dockerfile builds.
+- Route OpenTelemetry Collector trace exports to `otlp_grpc/tempo` (`tempo.otel.svc.cluster.local:4317`) and update `k8s/monitoring/dashboards/otel-collector.json` to query `exporter="otlp_grpc/tempo"` and the `tempo` Grafana datasource ([#1135](https://github.com/dan-petty/devops-cli/issues/1135)).
+
+### Removed
+- Remove the ephemeral `jaeger` Deployment and Service (`k8s/otel/jaeger.yaml`), `settings.jaeger`, `devops k8s jaeger`, `k8s_jaeger_info`, and `k8s_jaeger_status`; on clusters not managed by Argo CD, remove the old resources with `kubectl delete deploy,svc -n otel jaeger` ([#1135](https://github.com/dan-petty/devops-cli/issues/1135)).
+
+### Fixed
+- **Repository-relative static scanner finding paths**:
+  - Relativized Semgrep and Bandit static scanner findings against the scan root and review tree, eliminating absolute path leaks in candidate locations and descriptions.
+  - Normalized candidate findings during the review pipeline's static-scan and admission stages so findings in `findings.json` and `review.md` consistently display canonical repository-relative paths (`app/x.py:12`).
+- **PR review post without reporting (`devops review pr --post --no-reporting`)**:
+  - Ensured PR review comments and findings telemetry metrics are built from verified findings even when the consolidated reporting stage is skipped via `--no-reporting`.
+  - Preserved specific persona labels on review findings across metrics reporting in `FINDINGS_TOTAL` rather than falling back all findings to the default persona.
+- `devops roadmap reprioritize`: the release-start trim and the cap descope pass over an item that a staying item depends on, re-evaluating dependencies after each trim, so a release never keeps an item whose open dependency it moved (#1123).
+
 ## [0.2.34] - 2026-10-11
 
 ### Added

@@ -9,7 +9,7 @@ graph TD
     A[Git Repository: Manifests, Overlays, Charts] --> B[GitOps Controller: ArgoCD]
     B -->|Continuous Reconciliation| C[Kubernetes Cluster: Minikube / Cloud K8s]
     C --> D[Workloads: Deployments, StatefulSets, Services]
-    C --> E[Observability: Prometheus, Grafana, Jaeger]
+    C --> E[Observability: Prometheus, Grafana, Tempo]
     F[devops k8s deploy-stack] --> C
     G[KubeLinter / Popeye / Pluto] -->|Static & Runtime Audits| C
 ```
@@ -39,7 +39,7 @@ graph TD
 ### One-Command Stack Deployments
 `devops-cli` provides automated Helm stack orchestration:
 - `devops k8s bootstrap`: Provisions a Docker-driven Minikube cluster with GPU passthrough (`--gpus all`).
-- `devops k8s deploy-stack --stack infra`: Deploys Prometheus, Grafana, Jaeger, OpenTelemetry collectors, and cluster infrastructure.
+- `devops k8s deploy-stack --stack infra`: Deploys Prometheus, Grafana, Tempo, OpenTelemetry collectors, and cluster infrastructure.
 - `devops k8s deploy-stack --stack llm`: Deploys Ollama, Open-WebUI, Qdrant, and Valkey.
 - `devops k8s deploy-stack --stack all`: Deploys all infrastructure and LLM workloads.
 

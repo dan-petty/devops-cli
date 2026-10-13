@@ -45,10 +45,10 @@ def test_port_forward_info_model() -> None:
 
     dead_info = PortForwardInfo(
         pid=99999999,
-        service="svc/jaeger",
+        service="svc/tempo",
         namespace="otel",
-        local_port=16686,
-        remote_port=16686,
+        local_port=3200,
+        remote_port=3200,
         address="127.0.0.1",
         stack="infra",
         start_ticks=None,
@@ -291,7 +291,7 @@ def test_concurrent_launches_keep_both_records(
     )
     first = threading.Thread(
         target=networking._launch_port_forwards,
-        args=([("otel", "svc/jaeger", 16686, 16686)], None, "127.0.0.1", "infra"),
+        args=([("otel", "svc/tempo", 3200, 3200)], None, "127.0.0.1", "infra"),
     )
     first.start()
     first_spawning.wait(timeout=5)
@@ -301,7 +301,7 @@ def test_concurrent_launches_keep_both_records(
     first.join(timeout=5)
 
     listed = PortForwardDaemonManager(state_file=state_file).list_forwards()
-    assert sorted(f.service for f in listed) == ["svc/jaeger", "svc/ollama"]
+    assert sorted(f.service for f in listed) == ["svc/ollama", "svc/tempo"]
 
 
 def test_a_failed_save_leaves_the_previous_state_intact(tmp_path: Path) -> None:
@@ -312,26 +312,26 @@ def test_a_failed_save_leaves_the_previous_state_intact(tmp_path: Path) -> None:
     """
     state_file = tmp_path / "port_forwards.json"
     mgr = PortForwardDaemonManager(state_file=state_file)
-    jaeger = PortForwardInfo(
+    tempo = PortForwardInfo(
         pid=os.getpid(),
-        service="svc/jaeger",
+        service="svc/tempo",
         namespace="otel",
-        local_port=16686,
-        remote_port=16686,
+        local_port=3200,
+        remote_port=3200,
         start_ticks=_own_start_ticks(),
     )
-    mgr.save_forwards([jaeger])
+    mgr.save_forwards([tempo])
     before = state_file.read_bytes()
 
     with (
         patch("os.replace", side_effect=OSError("No space left on device")),
         pytest.raises(OSError, match="No space left"),
     ):
-        mgr.save_forwards([jaeger, jaeger.model_copy(update={"service": "svc/ollama"})])
+        mgr.save_forwards([tempo, tempo.model_copy(update={"service": "svc/ollama"})])
 
     assert (state_file.read_bytes(), [f.service for f in mgr.list_forwards()]) == (
         before,
-        ["svc/jaeger"],
+        ["svc/tempo"],
     )
 
 

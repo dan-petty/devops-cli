@@ -56,6 +56,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "argo": "https://argoproj.github.io/argo-helm",
         "prometheus-community": "https://prometheus-community.github.io/helm-charts",
         "grafana": "https://grafana.github.io/helm-charts",
+        "grafana-community": "https://grafana-community.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
     },
@@ -129,6 +130,13 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "version": "0.175.0",
         },
         {
+            "name": "tempo",
+            "chart": "grafana-community/tempo",
+            "namespace": "otel",
+            "values": str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml"),
+            "version": "3.1.0",
+        },
+        {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
@@ -169,7 +177,6 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
         DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "otel" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [
         DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
@@ -701,11 +708,11 @@ def _post_deploy_credentials(
         if synced.get("grafana_token"):
             print_success("Grafana API token securely synced to OS Keyring.")
         print_info(
-            "[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]",
+            "[dim]Tempo HTTP API: http://localhost:3200 (namespace: otel)[/dim]",
             prefix=False,
         )
         print_info(
-            "[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]",
+            "[dim]Tempo OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]",
             prefix=False,
         )
         print_info(

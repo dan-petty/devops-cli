@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -339,6 +339,17 @@ CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:
 CONST_DEVCONTAINER_CLAUDE_EXTENSION: Final[str] = "anthropic.claude-code"
 CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
     "ghcr.io/anthropics/devcontainer-features/claude-code:1"
+)
+CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
+CONST_REQUIRED_OCI_IMAGE_LABELS: Final[tuple[str, ...]] = (
+    "org.opencontainers.image.source",
+    "org.opencontainers.image.description",
+    "org.opencontainers.image.licenses",
+    "org.opencontainers.image.title",
+    "org.opencontainers.image.revision",
+    "org.opencontainers.image.version",
+    "org.opencontainers.image.created",
+    "org.opencontainers.image.documentation",
 )
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
@@ -1094,7 +1105,7 @@ CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
 # The labels the opentelemetry-collector chart gives the `otel-collector` release's pods. Both
-# are needed: Jaeger runs in the same namespace and listens on the same OTLP ports.
+# are needed: Tempo runs in the same namespace and listens on the same OTLP ports.
 CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/name": "opentelemetry-collector",
     "app.kubernetes.io/instance": "otel-collector",
@@ -2471,6 +2482,15 @@ CONST_K8S_DOCTOR_RULES: Final[tuple[str, ...]] = (
     CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
 )
 
+CONST_K8S_PV_PHASE_RELEASED: Final[str] = "Released"
+CONST_K8S_PV_PHASE_FAILED: Final[str] = "Failed"
+CONST_K8S_PV_PHASE_BOUND: Final[str] = "Bound"
+CONST_K8S_ORPHAN_VOLUME_PHASES: Final[frozenset[str]] = frozenset(
+    {CONST_K8S_PV_PHASE_RELEASED, CONST_K8S_PV_PHASE_FAILED}
+)
+CONST_K8S_VOLUME_RECLAIM_HEADING: Final[str] = "Planned Kubernetes Volume Reclaim API Requests:"
+CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
+
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
@@ -2864,6 +2884,158 @@ CONST_OUTPUT_FORMAT_JSON: Final[str] = "json"
 CONST_OUTPUT_FORMAT_YAML: Final[str] = "yaml"
 CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
     {CONST_OUTPUT_FORMAT_TABLE, CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML}
+)
+# The closed set of CLI leaf commands whose output is a serializable value (e.g. query,
+# diagnostic, inspect, or inventory report) rather than a lifecycle action, mutation, daemon,
+# or interactive session (#411). Every value command exposes `--format` and routes machine-readable
+# serialization through `emit_serialized`.
+CONST_CLI_VALUE_COMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "ai ast graph",
+        "ai ast parse",
+        "ai audit-library-usage",
+        "ai benchmark",
+        "ai cache status",
+        "ai chaos-model",
+        "ai constellation",
+        "ai cost list-pricing",
+        "ai cost payback",
+        "ai cost payoff",
+        "ai cost report",
+        "ai cost roi",
+        "ai diagram",
+        "ai failover",
+        "ai gateway failover",
+        "ai gateway load",
+        "ai gateway probe-backend",
+        "ai gateway routes",
+        "ai gateway status",
+        "ai gateway tune",
+        "ai harness offload",
+        "ai harness run",
+        "ai harness status",
+        "ai ingest docs",
+        "ai ingest index-libraries",
+        "ai ingest library",
+        "ai ingest query-library",
+        "ai pack-context",
+        "ai prewarm",
+        "ai prompt-eval",
+        "ai quiesce",
+        "ai rag drift",
+        "ai read",
+        "ai repomap",
+        "ai research analogies",
+        "ai research annotate",
+        "ai research forage",
+        "ai research model",
+        "ai research socratic",
+        "ai resume",
+        "ai review corpus score",
+        "ai review score",
+        "ai review templates check",
+        "ai review templates list",
+        "ai review templates sweep",
+        "ai runs baseline list",
+        "ai runs baseline show",
+        "ai runs check",
+        "ai runs compare",
+        "ai runs list",
+        "ai runs show",
+        "ai spec",
+        "ai spend list-pricing",
+        "ai spend payback",
+        "ai spend payoff",
+        "ai spend report",
+        "ai spend roi",
+        "ai test-gen",
+        "ai token-count",
+        "argo cd fleet sync",
+        "argo cd gitops drift",
+        "argo cd gitops sync",
+        "argo cd gitops watch",
+        "argo fleet sync",
+        "argo gitops drift",
+        "argo gitops sync",
+        "argo gitops watch",
+        "argo rollouts analyze",
+        "argo sync",
+        "cloudflare access policies",
+        "cloudflare access status",
+        "cloudflare access sync",
+        "cloudflare dns delete",
+        "cloudflare dns list",
+        "cloudflare dns sync",
+        "cloudflare service-status",
+        "cloudflare status",
+        "cloudflare tunnel routes",
+        "cloudflare tunnel sync",
+        "config audit-keys",
+        "config env",
+        "config env-vars",
+        "config output",
+        "docker analyze-layers",
+        "docker cache",
+        "docs generate",
+        "gh branch-protection audit",
+        "gh metrics",
+        "gh pr hardening-report",
+        "gh pr monitor",
+        "gh pr threads list",
+        "gh pr wait",
+        "gh project workflows list",
+        "gh rate-limit",
+        "gh rate_limit",
+        "gh runs list",
+        "gh status",
+        "grafana dashboards lint",
+        "k8s chaos",
+        "k8s doctor",
+        "k8s gpu-matrix",
+        "k8s logs",
+        "k8s security-stream",
+        "k8s service-url",
+        "k8s validate",
+        "k8s validate-policy",
+        "pr hardening-report",
+        "pr monitor",
+        "pr threads list",
+        "pr wait",
+        "prometheus analyze",
+        "repos worktrees prune",
+        "repos worktrees status",
+        "review corpus score",
+        "review score",
+        "review templates check",
+        "review templates list",
+        "review templates sweep",
+        "sandbox logs",
+        "sandbox metrics",
+        "sandbox probe",
+        "sandbox status",
+        "sandbox traces",
+        "scan aibom",
+        "scan complexity",
+        "scan iac",
+        "scan report",
+        "scan sarif",
+        "scan sast",
+        "scan sbom",
+        "scan secrets",
+        "scan trivy",
+        "status",
+        "telemetry logfire",
+        "telemetry profile",
+        "test profile-memory",
+        "tf cost breakdown",
+        "tf cost diff",
+        "tf drift",
+        "tf graph",
+        "tf lint",
+        "tf notify-plan",
+        "tf output",
+        "vault audit",
+    }
 )
 # The roots of the exception hierarchy. Naming one of these as the expected type of a
 # `pytest.raises` block asks nothing of the code under test: any failure at all satisfies
@@ -3398,3 +3570,132 @@ CONST_FORAGE_EDGE_TYPES: Final[tuple[str, ...]] = (
     "markdown_link",
     "git_co_change",
 )
+
+# ── AI Research Marginalia & Epistemic Scratchpad ─────────────────────────────
+CONST_MARGINALIA_TYPES: Final[tuple[str, ...]] = (
+    "ASSUMPTION",
+    "HYPOTHESIS",
+    "CONTRADICTION",
+    "QUESTION",
+    "TODO",
+)
+
+# ── AI Research Socratic Inquiry ──────────────────────────────────────────────
+CONST_SOCRATIC_GAP_TYPES: Final[tuple[str, ...]] = (
+    "GAP",
+    "AMBIGUITY",
+    "UNDERSPECIFIED_CONTRACT",
+)
+CONST_SOCRATIC_LOOKUP_TYPES: Final[tuple[str, ...]] = (
+    "file",
+    "symbol",
+    "search",
+)
+
+# ── AI Research Mental Model & Causal Graph ───────────────────────────────────
+CONST_CAUSAL_NODE_TYPES: Final[tuple[str, ...]] = (
+    "cause",
+    "effect",
+    "mediator",
+    "outcome",
+)
+CONST_CAUSAL_RELATIONSHIPS: Final[tuple[str, ...]] = (
+    "causes",
+    "inhibits",
+    "triggers",
+    "mediates",
+)
+
+# ── AI Research Cross-Domain Analogies ────────────────────────────────────────
+CONST_STRUCTURAL_PATTERNS: Final[tuple[str, ...]] = (
+    "Exponential Backoff & Retry Loop",
+    "Write-Ahead Logging & Journaling",
+    "Circuit Breaker & Fallback",
+    "Reconciliation Loop (Convergence)",
+    "Event Sourcing & Stream Projection",
+    "Heartbeat & Lease Renewal",
+    "Token Bucket Rate Limiting",
+    "Two-Phase Commit & Consensus",
+    "Bulkhead & Compartment Isolation",
+    "Idempotency Key & Deduplication",
+)
+CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
+    "Exponential Backoff & Retry Loop": {
+        "description": "Transient failure absorption via progressive delay, jitter, and bounded retry attempts.",
+        "mechanisms": (
+            "backoff",
+            "retry",
+            "jitter",
+            "interval",
+            "attempt",
+            "exponential",
+            "transient",
+        ),
+    },
+    "Write-Ahead Logging & Journaling": {
+        "description": "Durability and crash recovery via append-only commit records prior to state mutation.",
+        "mechanisms": ("wal", "journal", "write_ahead", "log", "append", "replay", "recovery"),
+    },
+    "Circuit Breaker & Fallback": {
+        "description": "Cascade failure mitigation via state transitions (closed, open, half-open) and degradation.",
+        "mechanisms": (
+            "circuit_breaker",
+            "trip",
+            "half_open",
+            "fallback",
+            "threshold",
+            "degradation",
+        ),
+    },
+    "Reconciliation Loop (Convergence)": {
+        "description": "Continuous state alignment driving observed reality toward declared desired specification.",
+        "mechanisms": (
+            "reconcile",
+            "desired",
+            "observed",
+            "actual",
+            "drift",
+            "convergence",
+            "controller",
+        ),
+    },
+    "Event Sourcing & Stream Projection": {
+        "description": "Derivation of current state through sequential replay of immutable domain events.",
+        "mechanisms": (
+            "event_sourcing",
+            "event_stream",
+            "projection",
+            "immutable",
+            "replay",
+            "pubsub",
+        ),
+    },
+    "Heartbeat & Lease Renewal": {
+        "description": "Distributed node liveness tracking and leader coordination via periodic lease renewal.",
+        "mechanisms": (
+            "heartbeat",
+            "lease",
+            "ttl",
+            "liveness",
+            "renewal",
+            "watchdog",
+            "health_check",
+        ),
+    },
+    "Token Bucket Rate Limiting": {
+        "description": "Traffic smoothing and resource protection via capacity bursts and refill rate pacing.",
+        "mechanisms": ("token_bucket", "refill", "capacity", "burst", "rate_limit", "throttling"),
+    },
+    "Two-Phase Commit & Consensus": {
+        "description": "Atomic multi-node distributed transactions through prepare, vote, and commit phases.",
+        "mechanisms": ("two_phase", "prepare", "commit", "consensus", "quorum", "vote", "atomic"),
+    },
+    "Bulkhead & Compartment Isolation": {
+        "description": "Failure containment through resource partition pools and quota boundaries.",
+        "mechanisms": ("bulkhead", "pool", "compartment", "quota", "partition", "isolation"),
+    },
+    "Idempotency Key & Deduplication": {
+        "description": "Safe operation retry via deterministic idempotency keys and sliding deduplication windows.",
+        "mechanisms": ("idempotency", "deduplication", "replay_prevention", "token", "unique_key"),
+    },
+}

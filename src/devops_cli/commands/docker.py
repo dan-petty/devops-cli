@@ -11,10 +11,12 @@ import typer
 from devops_cli.config.constants import (
     CONST_DOCKER_CPU_CRITICAL_PERCENT,
     CONST_DOCKER_CPU_WARNING_PERCENT,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SANDBOX_NETWORK,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.docker.engine import DockerEngineService, get_engine
@@ -38,6 +40,7 @@ from devops_cli.output import (
 from devops_cli.output import (
     format_bytes as _format_bytes,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 if TYPE_CHECKING:
     from devops_cli.security.dive import DiveAnalysisResult
@@ -337,12 +340,14 @@ def _build_cache_rows(report: BuildCacheReport) -> list[list[str]]:
 @app.command("cache")
 def build_cache(
     prune: Annotated[bool, typer.Option("--prune", help=HELP.docker.prune_cache)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space."""
-    from devops_cli.output import format_json
-
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker cache",
@@ -357,8 +362,9 @@ def build_cache(
         raise typer.Exit(1)
     report = engine.build_cache()
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         return
 
     print_table(
@@ -398,10 +404,14 @@ def build_cache(
 def analyze_layers(
     image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """Analyze container image layer efficiency and wasted space using Dive."""
-    from devops_cli.output import format_json, print_muted, print_warning, write_stdout
+    from devops_cli.output import print_muted, print_warning
     from devops_cli.security.dive import run_dive_analysis
 
     if dry_run or is_dry_run():
@@ -412,12 +422,13 @@ def analyze_layers(
         )
         return
 
-    if not json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.docker.analyzing_layers.format(image=image), safe=True)
     result = run_dive_analysis(image_name=image)
 
-    if json_output:
-        write_stdout(format_json(result.model_dump()) + "\n")
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
     elif result.status != "ran":
         print_warning(
             MESSAGES.docker.layer_analysis_not_run.format(

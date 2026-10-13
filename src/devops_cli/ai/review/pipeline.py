@@ -143,6 +143,7 @@ from devops_cli.models.vulnerability import (
 from devops_cli.output import (
     escape_text,
     format_duration,
+    format_location,
     get_console,
     print_info,
     print_panel,
@@ -492,6 +493,17 @@ def _sibling_file(loc_path: str, file_paths: list[str]) -> str | None:
     return candidates[0] if candidates else None
 
 
+def _find_matching_file(loc_path: str, file_paths: list[str]) -> str | None:
+    """Find the best matching reviewed file path for a finding's location path."""
+    for fp in file_paths:
+        if fp == loc_path:
+            return fp
+    for fp in file_paths:
+        if loc_path.endswith(f"/{fp}") or fp.endswith(f"/{loc_path}"):
+            return fp
+    return _sibling_file(loc_path, file_paths)
+
+
 def _match_static_findings_to_files(
     findings: list[SavedFinding], file_paths: list[str]
 ) -> dict[str, list[SavedFinding]]:
@@ -499,15 +511,17 @@ def _match_static_findings_to_files(
     by_file: dict[str, list[SavedFinding]] = {}
     for sf in findings:
         loc_path = sf.location.split(":")[0].strip()
-        matched = next(
-            (
-                fp
-                for fp in file_paths
-                if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
-            ),
-            None,
-        ) or _sibling_file(loc_path, file_paths)
+        matched = _find_matching_file(loc_path, file_paths)
         if matched:
+            if loc_path != matched and (
+                loc_path.endswith(f"/{matched}") or matched.endswith(f"/{loc_path}")
+            ):
+                suffix = sf.location[len(loc_path) :]
+                sf.location = f"{matched}{suffix}"
+                if loc_path in sf.description:
+                    sf.description = sf.description.replace(loc_path, matched)
+                if loc_path in sf.title:
+                    sf.title = sf.title.replace(loc_path, matched)
             by_file.setdefault(matched, []).append(sf)
     return by_file
 
@@ -586,6 +600,28 @@ def _is_secret_scanner_result(tool: str, rule_id: str) -> bool:
     return rules is None or rule_id in rules
 
 
+def _sanitize_admitted_candidate(
+    sf: SavedFinding,
+    admitted: Any,
+    raw_path: str,
+    worktree_root: Path,
+) -> None:
+    """Normalize finding location, severity, and descriptions to repository-relative form."""
+    sf.severity = admitted.severity
+    sf.introduced = admitted.introduced
+    sf.location = format_location(admitted.path, admitted.line, admitted.end_line)
+    desc, title = sf.description, sf.title
+    if raw_path and raw_path != admitted.path:
+        desc = desc.replace(raw_path, admitted.path)
+        title = title.replace(raw_path, admitted.path)
+    wt_str = str(worktree_root.resolve()).rstrip("/") + "/"
+    if wt_str in desc:
+        desc = desc.replace(wt_str, "")
+    if wt_str in title:
+        title = title.replace(wt_str, "")
+    sf.description, sf.title = desc, title
+
+
 def _admit_single_candidate(
     sf: SavedFinding,
     idx: int,
@@ -650,8 +686,7 @@ def _admit_single_candidate(
         return None, None
     if admitted.state == FindingState.SUPPRESSED:
         return admitted, None
-    sf.severity = admitted.severity
-    sf.introduced = admitted.introduced
+    _sanitize_admitted_candidate(sf, admitted, raw_path, worktree_root)
     return admitted, sf
 
 
@@ -2050,7 +2085,7 @@ def _run_scanners_for_buckets(
     outcomes = observed_outcomes if observed_outcomes is not None else {}
     findings: list[SavedFinding] = []
     if buckets.python:
-        bandit_res = run_bandit_scan(buckets.python, isolated=True)
+        bandit_res = run_bandit_scan(buckets.python, isolated=True, tree=tree)
         if observed_outcomes is not None:
             _observe_outcome(outcomes, "Bandit", bandit_res)
         findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))

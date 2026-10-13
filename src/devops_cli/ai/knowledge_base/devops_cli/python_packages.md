@@ -37,7 +37,7 @@ graph TD
         DOCKER["docker<br/>Engine Daemon SDK"]
         CRYPTO["cryptography<br/>X.509 CA & TLS"]
         GIT["gitpython & PyGithub<br/>Git & GitHub APIs"]
-        OTEL["opentelemetry-otlp<br/>Jaeger Tracing"]
+        OTEL["opentelemetry-otlp<br/>Tempo Tracing"]
         FASTMCP["fastmcp<br/>MCP Server Protocol"]
         FASTAPI["fastapi & uvicorn<br/>REST API Engine"]
     end
@@ -231,7 +231,7 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.44.0`
 - **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
 - **Codebase Integration**:
-  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to Jaeger.
+  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to the OpenTelemetry Collector and Tempo.
 
 #### `PyYAML` & `jinja2` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
 - **Pinned Versions**: `PyYAML==6.0.3`, `jinja2==3.1.6`

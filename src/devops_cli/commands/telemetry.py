@@ -13,8 +13,10 @@ from devops_cli.config.constants import (
     CONST_DEVOPS_CLI_ENTRY_MODULE,
     CONST_OTEL_COLLECTOR_NAMESPACE,
     CONST_OTEL_COLLECTOR_SERVICE,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
     DEFAULT_TELEMETRY_TEST_NAME,
@@ -35,6 +37,7 @@ from devops_cli.output import (
     print_table,
     render_dry_run_result,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
@@ -44,7 +47,7 @@ from devops_cli.telemetry.tracer import (
 from devops_cli.telemetry.waterfall import (
     flatten_waterfall_tree as _flatten_tree_for_display,
 )
-from devops_cli.telemetry.waterfall import query_jaeger_trace
+from devops_cli.telemetry.waterfall import query_tempo_trace
 from devops_cli.telemetry.waterfall import (
     render_waterfall_bar as _render_waterfall_bar,
 )
@@ -69,7 +72,7 @@ def telemetry_status_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status."""
+    """Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status."""
     tracer = get_tracer()
     endpoint = tracer.endpoint
     settings = load_settings()
@@ -80,9 +83,9 @@ def telemetry_status_cmd(
         else tracer.enabled
     )
 
-    jaeger_cfg = getattr(settings, "jaeger", None)
-    jaeger_url = (
-        jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
+    tempo_cfg = getattr(settings, "tempo", None)
+    tempo_url = (
+        tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else "http://localhost:3200"
     )
 
     if dry_run or is_dry_run():
@@ -93,7 +96,7 @@ def telemetry_status_cmd(
             details={
                 "enabled": enabled,
                 "endpoint": endpoint,
-                "jaeger_url": jaeger_url,
+                "tempo_url": tempo_url,
                 "service_name": tracer.service_name,
             },
         )
@@ -117,7 +120,7 @@ def telemetry_status_cmd(
             ],
             ["OTLP Endpoint", endpoint],
             ["Service Name", tracer.service_name],
-            ["Jaeger UI", format_link(jaeger_url)],
+            ["Tempo API", format_link(tempo_url)],
             [
                 "Collector Health",
                 format_status_badge(True, label=f"✓ Connected ({format_latency(latency_ms)})")
@@ -141,7 +144,9 @@ def telemetry_status_cmd(
             ],
         ],
     )
-    print_info(f"\n[dim]To view traces in Jaeger UI: {format_link(jaeger_url)}[/dim]", prefix=False)
+    print_info(
+        f"\n[dim]To query traces via Tempo API: {format_link(tempo_url)}[/dim]", prefix=False
+    )
 
 
 # =============================================================================
@@ -192,22 +197,24 @@ def telemetry_connect_cmd(
 
 @app.command("logfire")
 def telemetry_logfire_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Display Logfire structured observability bridge status and token metrics."""
-    import json
-
-    from devops_cli.output import write_stdout
     from devops_cli.telemetry.logfire import get_logfire_bridge
 
     bridge = get_logfire_bridge()
     status = bridge.get_status()
 
-    if json_output:
-        write_stdout(json.dumps(status.model_dump(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(status.model_dump(), resolved)
         return
 
     print_table(
@@ -294,12 +301,12 @@ def telemetry_test_cmd(
         f"(Span ID: {format_code_span(str(span_id))}, Duration: {format_latency(elapsed_ms)})"
     )
     settings = load_settings()
-    jaeger_cfg = getattr(settings, "jaeger", None)
-    jaeger_url = (
-        jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
+    tempo_cfg = getattr(settings, "tempo", None)
+    tempo_url = (
+        tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else "http://localhost:3200"
     )
     print_info(
-        f"[dim]View in Jaeger: {format_link(jaeger_url)} (Service: {tracer.service_name})[/dim]",
+        f"[dim]Query in Tempo: {format_link(tempo_url)} (Service: {tracer.service_name})[/dim]",
         prefix=False,
     )
 
@@ -309,10 +316,10 @@ def telemetry_test_cmd(
 # =============================================================================
 
 
-def _jaeger_url() -> str:
-    """Return the configured Jaeger Query URL."""
-    jaeger_cfg = getattr(load_settings(), "jaeger", None)
-    return str(getattr(jaeger_cfg, "url", "") or "http://localhost:16686")
+def _tempo_url() -> str:
+    """Return the configured Tempo HTTP API URL."""
+    tempo_cfg = getattr(load_settings(), "tempo", None)
+    return str(getattr(tempo_cfg, "url", "") or "http://localhost:3200")
 
 
 def _devops_entry_argv(command: str) -> list[str]:
@@ -359,15 +366,15 @@ def _run_profiled_command(command: str, argv: list[str], tracer: OTelTelemetryCl
     return trace_id
 
 
-def _read_trace_from_jaeger(trace_id: str, jaeger_url: str) -> list[dict[str, Any]]:
-    """Poll Jaeger until the trace stops growing, within a fixed bound.
+def _read_trace_from_tempo(trace_id: str, tempo_url: str) -> list[dict[str, Any]]:
+    """Poll Tempo until the trace stops growing, within a fixed bound.
 
     Spans reach the collector asynchronously, so one read can catch a trace half-exported.
     """
     deadline = time.monotonic() + DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS
     spans: list[dict[str, Any]] = []
     while True:
-        fetched = query_jaeger_trace(trace_id, jaeger_url=jaeger_url)
+        fetched = query_tempo_trace(trace_id, tempo_url=tempo_url)
         if fetched and len(fetched) == len(spans):
             return fetched
         spans = fetched or spans
@@ -386,6 +393,10 @@ def telemetry_profile_cmd(
         str | None,
         typer.Option("--trace-id", "-t", help=HELP.telemetry.trace_id),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -395,7 +406,7 @@ def telemetry_profile_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it."""
+    """Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it."""
     argv = _devops_entry_argv(command) if command else None
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -410,13 +421,10 @@ def telemetry_profile_cmd(
         )
         return
 
-    import json
-
-    from devops_cli.output import write_stdout
     from devops_cli.telemetry.tracer import build_span_waterfall_tree
 
     if not command and not trace_id:
-        print_error("Pass a command to profile, or --trace-id to show a trace already in Jaeger.")
+        print_error("Pass a command to profile, or --trace-id to show a trace already in Tempo.")
         raise typer.Exit(2)
 
     tracer = get_tracer()
@@ -430,12 +438,12 @@ def telemetry_profile_cmd(
             raise typer.Exit(1)
         trace_id = _run_profiled_command(command, argv, tracer)
 
-    jaeger_url = _jaeger_url()
-    spans = _read_trace_from_jaeger(str(trace_id), jaeger_url)
+    tempo_url = _tempo_url()
+    spans = _read_trace_from_tempo(str(trace_id), tempo_url)
     if not spans:
         print_error(
-            f"No spans for trace {trace_id} reached Jaeger at {jaeger_url} within "
-            f"{DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS:.0f}s; check the collector and Jaeger "
+            f"No spans for trace {trace_id} reached Tempo at {tempo_url} within "
+            f"{DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS:.0f}s; check the collector and Tempo "
             "are running."
         )
         raise typer.Exit(1)
@@ -446,14 +454,15 @@ def telemetry_profile_cmd(
     max_end = max(int(s.get("endTimeUnixNano", 0)) for s in spans)
     total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "trace_id": total_trace_id,
             "total_duration_ms": round(total_dur_ms, 2),
             "span_count": len(spans),
             "waterfall": [n.to_dict() for n in tree],
         }
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     flattened = _flatten_tree_for_display(tree)
@@ -497,8 +506,8 @@ def telemetry_profile_cmd(
 
 @app.command("open-ui")
 def telemetry_open_ui_cmd() -> None:
-    """Print and show the Jaeger Query UI endpoint for inspecting traces."""
-    print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(_jaeger_url())}", prefix=False)
+    """Print and show the Tempo HTTP API endpoint for inspecting traces."""
+    print_info(f"[bold]Tempo HTTP API:[/bold] {format_link(_tempo_url())}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)
 
 

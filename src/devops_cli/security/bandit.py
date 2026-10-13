@@ -15,18 +15,32 @@ from devops_cli.config.defaults import (
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
+from devops_cli.security.base import (
+    BaseSecurityScanner,
+    ScannerConfigFile,
+    ScanOutcome,
+    relativize_scan_path,
+)
 
 
-def _parse_single_bandit_result(res: dict[str, Any], target_path: str = "") -> Finding:
+def _parse_single_bandit_result(
+    res: dict[str, Any],
+    target_path: str = "",
+    scan_root: Path | str | None = None,
+) -> Finding:
     """Parse an individual Bandit result entry into a Finding model."""
     test_id = res.get("test_id") or "BANDIT"
     test_name = res.get("test_name") or "security_issue"
-    filename = res.get("filename") or target_path or "workspace"
+    raw_filename = res.get("filename") or target_path or "workspace"
+    filename = relativize_scan_path(raw_filename, scan_root) if scan_root else raw_filename
     line_num = res.get("line_number")
     issue_text = res.get("issue_text") or "Security flaw detected by Bandit"
     sev = str(res.get("issue_severity") or "MEDIUM").upper()
     more_info = res.get("more_info") or ""
+
+    desc = f"Bandit {test_name} flaw detected at line {line_num}: {issue_text}"
+    if raw_filename and raw_filename != filename and raw_filename in desc:
+        desc = desc.replace(raw_filename, filename)
 
     loc = f"{filename}:{line_num}" if line_num is not None else filename
     fix_msg = f"Remediate {test_name} ({test_id})"
@@ -37,7 +51,7 @@ def _parse_single_bandit_result(res: dict[str, Any], target_path: str = "") -> F
         severity=sev,
         location=loc,
         title=f"[{test_id}] {issue_text}",
-        description=f"Bandit {test_name} flaw detected at line {line_num}: {issue_text}",
+        description=desc,
         fix=fix_msg,
         confidence_score=None,
     )
@@ -57,11 +71,17 @@ def _ini_names_targets(ini: Path) -> bool:
         return False
 
 
-def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
+def parse_bandit_json(
+    data: dict[str, Any],
+    target_path: str = "",
+    scan_root: Path | str | None = None,
+) -> list[Finding]:
     """Parse Bandit JSON output payload into Finding objects."""
     results = data.get("results") or []
     return [
-        _parse_single_bandit_result(res, target_path) for res in results if isinstance(res, dict)
+        _parse_single_bandit_result(res, target_path, scan_root=scan_root)
+        for res in results
+        if isinstance(res, dict)
     ]
 
 
@@ -77,18 +97,24 @@ class BanditScanner(BaseSecurityScanner):
         ScannerConfigFile("--ini", CONST_BANDIT_INI_NAME, CONST_REVIEW_SCAN_BANDIT_INI),
     )
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._tree: Path | None = None
+
     def scan(
         self,
         target_path: Any,
         timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         *,
         isolated: bool = False,
+        tree: Path | None = None,
         **kwargs: Any,
     ) -> ScanOutcome:
         """Scan as every scanner does; only an unisolated scan reads the tree's own `.bandit`.
 
         A review's scan is isolated and takes nothing from the tree under review (#972).
         """
+        self._tree = tree
         return super().scan(
             target_path, timeout, isolated=isolated, tree_config=not isolated, **kwargs
         )
@@ -146,6 +172,8 @@ class BanditScanner(BaseSecurityScanner):
         """Parse Bandit JSON data payload into normalized Finding objects."""
         if not isinstance(data, dict):
             return []
+        if self._tree is not None:
+            return parse_bandit_json(data, target_path=str(self._tree), scan_root=self._tree)
         tgt_str = str(target_path) if isinstance(target_path, Path) else ""
         return parse_bandit_json(data, target_path=tgt_str)
 
@@ -173,8 +201,14 @@ def run_bandit_scan(
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
     *,
     isolated: bool = False,
+    tree: Path | None = None,
 ) -> ScanOutcome:
     """Execute Bandit Python security scanner subprocess and return scan outcome; `isolated` for
     a review (#972)."""
     scanner = BanditScanner()
-    return scanner.scan(target, isolated=isolated, severity_level=severity_level)
+    return scanner.scan(
+        target,
+        isolated=isolated,
+        severity_level=severity_level,
+        tree=tree,
+    )

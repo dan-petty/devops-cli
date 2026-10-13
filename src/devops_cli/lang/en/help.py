@@ -248,6 +248,33 @@ class AICommandHelp:
     forage_query: str = "Inquiry text for calculating semantic information scent."
     forage_max_nodes: str = "Maximum number of nodes to visit along the trail."
     forage_min_score: str = "Minimum relevance scent threshold before backtracking."
+    research_annotate: str = "Record or view file-anchored marginalia observations and hypotheses."
+    annotate_path: str = "Target file path to annotate or inspect marginalia."
+    annotate_type: str = "Annotation type (ASSUMPTION, HYPOTHESIS, CONTRADICTION, QUESTION, TODO)."
+    annotate_content: str = "Annotation observation, hypothesis, or note text."
+    annotate_anchor: str = "Anchor reference: file path, AST node id, or line range."
+    annotate_list: str = "List existing marginalia annotations without adding a new one."
+    research_socratic: str = (
+        "Formulate socratic inquiries, identify knowledge gaps, and emit minimal diagnostic probes."
+    )
+    socratic_task: str = "Task description or objective to analyze for knowledge gaps."
+    socratic_context: str = "Optional additional context, instructions, or code snippets."
+    socratic_max_probes: str = "Maximum number of clarifying questions and code lookups to emit."
+    research_model: str = (
+        "Synthesize and progressively distill research observations into a living mental model."
+    )
+    model_topic: str = "Research topic or subject to synthesize a mental model for."
+    model_observations: str = (
+        "New observations, notes, or raw findings to incorporate into the model."
+    )
+    model_file: str = "Path to file containing raw observations to synthesize."
+    model_show: str = "Display the existing mental model without incorporating new observations."
+    research_analogies: str = "Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base."
+    analogies_query: str = "Optional query or focus topic to filter analogical patterns."
+    analogies_domain: str = "Filter analogies originating from a specific source domain."
+    analogies_target_domain: str = "Filter analogies matching a specific target domain."
+    analogies_min_score: str = "Minimum confidence score for returned analogies (0.0 to 1.0)."
+    analogies_limit: str = "Maximum number of analogy pairs to surface."
 
 
 @dataclass(frozen=True)
@@ -391,7 +418,7 @@ class K8sCommandHelp:
     argocd_port: str = "Local port for ArgoCD."
     grafana_port: str = "Local port for Grafana."
     prometheus_port: str = "Local port for Prometheus."
-    jaeger_port: str = "Local port for Jaeger Query UI."
+    tempo_port: str = "Local port for Grafana Tempo HTTP API."
     pyroscope_port: str = "Local port for Pyroscope Continuous Profiling UI."
     otel_port: str = "Local port for OpenTelemetry OTLP Traces (HTTP)."
     ollama_port: str = "Local port for Ollama."
@@ -421,6 +448,16 @@ class K8sCommandHelp:
     security_severity: str = "Minimum severity filter threshold (Notice, Warning, Error, Critical)."
     security_duration: str = "Observation streaming window duration in seconds."
     security_simulate: str = "Generate simulated kernel eBPF security anomalies for testing."
+    volume_app: str = "PersistentVolume inspection, maintenance, and safe orphan reclamation."
+    volume_reclaim: str = (
+        "Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts."
+    )
+    volume_reclaim_name: str = "Name of the PersistentVolume to reclaim."
+    volume_reclaim_dry_run: str = "Simulate volume reclaim and print planned Kubernetes API operations without network requests."
+    volume_reclaim_yes: str = (
+        "Confirm reclamation without interactive prompt (required in non-interactive sessions)."
+    )
+    volume_reclaim_patch: str = "Patch volume finalizers instead of issuing a DELETE request."
 
 
 @dataclass(frozen=True)
@@ -673,6 +710,10 @@ class DevcontainerCommandHelp:
     workspace_dir: str = "Path to workspace directory containing .devcontainer."
     config_file: str = "Direct path to devcontainer.json."
     validate_dry_run: str = "Simulate DevContainer manifest validation."
+    validate_oci_labels: str = "Raw newline-separated or JSON OCI labels to inspect and validate."
+    validate_expected_source: str = (
+        "Expected canonical repository URL for org.opencontainers.image.source."
+    )
     run_post_create: str = "Execute post-create setup tasks."
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."
@@ -1049,8 +1090,9 @@ class RoadmapCommandHelp:
         "a fix that takes it over its limit (release_cap plus release_slots) descopes one "
         "unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, "
         "each with a reason comment. Once the release ships, close it, branch the next one, "
-        "fill it to the cap and trim it to the limit. The first run records the admitted set "
-        "and moves nothing. Writes only with --confirm."
+        "fill it to the cap and trim it to the limit; the trim and the cap descope follow "
+        "dependencies. The first run records the admitted set and moves nothing. Writes only with "
+        "--confirm."
     )
     reprioritize_confirm: str = (
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."
@@ -1359,7 +1401,7 @@ class ScanCommandHelp:
 
 @dataclass(frozen=True)
 class TelemetryCommandHelp:
-    app: str = "OpenTelemetry tracing, metrics, and Jaeger observability."
+    app: str = "OpenTelemetry tracing, metrics, and Tempo observability."
     status: str = "Show telemetry collector connectivity and service configuration."
     connect: str = (
         "Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."
@@ -1370,7 +1412,7 @@ class TelemetryCommandHelp:
     connect_namespace: str = "Namespace of the collector service."
     connect_service: str = "Name of the collector service."
     connect_save: str = "Save the endpoint as telemetry.endpoint (default) or only check it."
-    test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
+    test_span: str = "Emit a synthetic test span to verify Tempo tracing collector."
     span_name: str = "Name for test span."
     profile: str = (
         "Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."
@@ -1379,7 +1421,7 @@ class TelemetryCommandHelp:
         "devops-cli command line to run and profile; its first word must be 'devops' "
         "(e.g. 'devops k8s contexts'), and any other program is refused."
     )
-    trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
+    trace_id: str = "Trace ID to read from Tempo and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
     semconv: str = "The GenAI semantic conventions that LLM span attributes are checked against."
@@ -1613,7 +1655,7 @@ class SandboxCommandHelp:
     probe_before_trace: str = (
         "Execute an endpoint health probe before visualizing the resulting trace."
     )
-    jaeger_url: str = "Override Jaeger Query HTTP endpoint (default: http://localhost:16686)."
+    tempo_url: str = "Override Tempo HTTP API endpoint (default: http://localhost:3200)."
     logs: str = "Stream stdout/stderr container logs with automated panic and crash detection."
     follow: str = "Follow log output continuously in live stream mode."
     tail: str = "Number of lines to show from the end of the logs (default: 100)."

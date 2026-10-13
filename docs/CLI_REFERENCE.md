@@ -30,7 +30,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
-- [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
+- [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Tempo observability.
 - [`devops cloudflare`](#devops-cloudflare) — Cloudflare Zero Trust tunnels and DNS management.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 - [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
@@ -160,6 +160,7 @@ devops repos worktrees status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
 
 #### `devops repos worktrees prune`
@@ -177,6 +178,7 @@ devops repos worktrees prune [OPTIONS]
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
 | `--force`, `-f` | `boolean` | - | Remove entries regardless of clean or contained status. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
 
 ---
@@ -437,6 +439,8 @@ devops devcontainer validate [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
 | `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
+| `--oci-labels` | `string` | - | Raw newline-separated or JSON OCI labels to inspect and validate. |
+| `--expected-source` | `string` | - | Expected canonical repository URL for org.opencontainers.image.source. |
 | `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ### `devops devcontainer list`
@@ -940,6 +944,7 @@ devops k8s service-url [OPTIONS] <service>
 | `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
 | `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
 | `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops k8s port-forward`
@@ -959,7 +964,7 @@ devops k8s port-forward [OPTIONS]
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD. |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
-| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--tempo-port` | `integer` | `3200` | Local port for Grafana Tempo HTTP API. |
 | `--pyroscope-port` | `integer` | `4040` | Local port for Pyroscope Continuous Profiling UI. |
 | `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
@@ -1142,6 +1147,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
 | `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops k8s validate-policy`
@@ -1165,6 +1171,7 @@ devops k8s validate-policy [OPTIONS] <manifest_path>
 | `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file. |
 | `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops k8s stream-logs`
@@ -1236,6 +1243,7 @@ devops k8s chaos [OPTIONS] <experiment>
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops k8s pods`
@@ -1277,6 +1285,7 @@ devops k8s security-stream [OPTIONS]
 | `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
 
@@ -1315,6 +1324,37 @@ devops k8s doctor [OPTIONS]
 | `--tail`, `-t` | `integer` | `20` | Number of container log lines to tail per flagged container. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s volume`
+
+**PersistentVolume inspection, maintenance, and safe orphan reclamation.**
+
+```bash
+devops k8s volume COMMAND [ARGS]...
+```
+
+#### `devops k8s volume reclaim`
+
+**Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts.**
+
+```bash
+devops k8s volume reclaim [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Name of the PersistentVolume to reclaim. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate volume reclaim and print planned Kubernetes API operations without network requests. |
+| `--yes`, `-y` | `boolean` | - | Confirm reclamation without interactive prompt (required in non-interactive sessions). |
+| `--patch` | `boolean` | - | Patch volume finalizers instead of issuing a DELETE request. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
 
 ---
 
@@ -1489,6 +1529,7 @@ devops docker cache [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prune` | `boolean` | - | Reclaim unused BuildKit build cache records after reporting. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1511,6 +1552,7 @@ devops docker analyze-layers [OPTIONS] <image>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops docker sandbox`
@@ -1735,6 +1777,7 @@ devops grafana dashboards lint [OPTIONS] <path>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1808,6 +1851,7 @@ devops prometheus analyze [OPTIONS] <expr>
 | `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
 | `--step` | `string` | `60s` | Query resolution step interval. |
 | `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1857,6 +1901,7 @@ devops argo sync [OPTIONS] <name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo cd`
@@ -1894,6 +1939,7 @@ devops argo cd fleet sync [OPTIONS] <app_name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1925,6 +1971,7 @@ devops argo cd gitops watch [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ##### `devops argo cd gitops drift`
@@ -1940,6 +1987,7 @@ devops argo cd gitops drift [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ##### `devops argo cd gitops sync`
@@ -1959,6 +2007,7 @@ devops argo cd gitops sync [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo cd apps`
@@ -2229,6 +2278,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
 | `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2261,6 +2311,7 @@ devops argo fleet sync [OPTIONS] <app_name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2292,6 +2343,7 @@ devops argo gitops watch [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo gitops drift`
@@ -2307,6 +2359,7 @@ devops argo gitops drift [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo gitops sync`
@@ -2326,6 +2379,7 @@ devops argo gitops sync [OPTIONS]
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -2392,6 +2446,7 @@ devops config env-vars [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ### `devops config env`
@@ -2407,6 +2462,7 @@ devops config env [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ### `devops config output`
@@ -2422,6 +2478,7 @@ devops config output [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--export`, `-e` | `boolean` | - | Print environment variables as shell export statements. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Print environment variables as JSON. |
 
 ### `devops config auth-headless`
@@ -2465,6 +2522,7 @@ devops config audit-keys [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2840,6 +2898,7 @@ devops scan trivy [OPTIONS] <target>
 | `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo. |
 | `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan secrets`
@@ -2861,6 +2920,7 @@ devops scan secrets [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan sast`
@@ -2883,6 +2943,7 @@ devops scan sast [OPTIONS] <target>
 |---|---|---|---|
 | `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan iac`
@@ -2905,6 +2966,7 @@ devops scan iac [OPTIONS] <target>
 |---|---|---|---|
 | `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan complexity`
@@ -2928,6 +2990,7 @@ devops scan complexity [OPTIONS] <target>
 | `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
 | `--max-indent`, `-i` | `integer` | `5` | Maximum acceptable indentation / nesting depth (default 5). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan sbom`
@@ -3022,6 +3085,7 @@ devops scan report [OPTIONS] <target>
 | `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
 | `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
 | `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3047,6 +3111,7 @@ devops scan sarif [OPTIONS] <document>
 | `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
 | `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
 | `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -3124,6 +3189,7 @@ devops ai prewarm [OPTIONS]
 | `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output results as structured JSON. |
 
 ### `devops ai agents`
@@ -3224,6 +3290,7 @@ devops ai token-count [OPTIONS] <target>
 |---|---|---|---|
 | `--model`, `-m` | `string` | `gpt-4o` | AI model identifier. |
 | `--budget`, `-b` | `integer` | `32768` | Max context token budget limit. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai spec`
@@ -3246,6 +3313,7 @@ devops ai spec [OPTIONS] <spec_path>
 |---|---|---|---|
 | `--target`, `-t` | `path` | - | Target source directory to verify or analyze. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai repomap`
@@ -3264,6 +3332,7 @@ devops ai repomap [OPTIONS]
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
 | `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3283,6 +3352,7 @@ devops ai audit-library-usage [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3308,6 +3378,7 @@ devops ai pack-context [OPTIONS] <target_path>
 | `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
 | `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
 | `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3357,6 +3428,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3380,6 +3452,7 @@ devops ai prompt-eval [OPTIONS]
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded verdicts to count. |
 | `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
 | `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; they are a machine's labels, not a person's, so they are excluded by default. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3402,6 +3475,7 @@ devops ai test-gen [OPTIONS] <target_file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3771,6 +3845,7 @@ devops ai review score [OPTIONS] <sessions>
 |---|---|---|---|
 | `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops ai review export-feedback`
@@ -3845,6 +3920,7 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops ai review samples`
@@ -4207,6 +4283,7 @@ devops ai rag drift [OPTIONS] <path>
 |---|---|---|---|
 | `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
 | `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -4453,6 +4530,7 @@ devops ai ast parse [OPTIONS] <file_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -4622,6 +4700,23 @@ devops ai gateway load [OPTIONS]
 |---|---|---|---|
 | `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway render`
+
+**Render LLM gateway configuration from Ollama profiles and services, showing unified diff.**
+
+```bash
+devops ai gateway render [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--apply` | `boolean` | - | Write rendered gateway configuration to file. |
+| `--configmap` | `path` | - | Path to gateway configmap YAML. |
+| `--profiles` | `path` | - | Path to Ollama profiles YAML. |
+| `--services` | `path` | - | Path to LLM services YAML. |
 
 ### `devops ai runs`
 
@@ -5092,7 +5187,101 @@ devops ai research forage [OPTIONS] <anchor>
 | `--max-nodes`, `-n` | `integer` | `20` | Maximum number of nodes to visit along the trail. |
 | `--min-score`, `-s` | `float` | `0.1` | Minimum relevance scent threshold before backtracking. |
 | `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai research annotate`
+
+**Record or view active marginalia annotations anchored to files, AST nodes, or ranges.**
+
+```bash
+devops ai research annotate [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Target file path to annotate or inspect marginalia. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Annotation type (ASSUMPTION, HYPOTHESIS, CONTRADICTION, QUESTION, TODO). |
+| `--content`, `-c`, `--note` | `string` | - | Annotation observation, hypothesis, or note text. |
+| `--anchor`, `-a` | `string` | - | Anchor reference: file path, AST node id, or line range. |
+| `--list`, `-l` | `boolean` | - | List existing marginalia annotations without adding a new one. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai research socratic`
+
+**Metacognitive Socratic inquiry identifying knowledge gaps, ambiguities, and probes.**
+
+```bash
+devops ai research socratic [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | No | Task description or objective to analyze for knowledge gaps. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--task`, `-t` | `string` | - | Task description or objective to analyze for knowledge gaps. |
+| `--context`, `-c` | `string` | - | Optional additional context, instructions, or code snippets. |
+| `--max-probes`, `-n` | `integer` | `5` | Maximum number of clarifying questions and code lookups to emit. |
+| `--format`, `-f` | `string` | `text` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai research model`
+
+**Progressively synthesize and distill research observations into a living mental model.**
+
+```bash
+devops ai research model [OPTIONS] <topic>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<topic>` | `string` | Yes | Research topic or subject to synthesize a mental model for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--observations`, `-o`, `--notes` | `string` | - | New observations, notes, or raw findings to incorporate into the model. |
+| `--file`, `-F` | `path` | - | Path to file containing raw observations to synthesize. |
+| `--show`, `-s` | `boolean` | - | Display the existing mental model without incorporating new observations. |
+| `--format`, `-f` | `string` | `yaml` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai research analogies`
+
+**Retrieve cross-domain analogies via multi-vector topological clustering over the knowledge base.**
+
+```bash
+devops ai research analogies [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | - | Optional query or focus topic to filter analogical patterns. |
+| `--domain`, `-d` | `string` | - | Filter analogies originating from a specific source domain. |
+| `--target-domain` | `string` | - | Filter analogies matching a specific target domain. |
+| `--min-score`, `-s` | `float` | `0.5` | Minimum confidence score for returned analogies (0.0 to 1.0). |
+| `--limit`, `-n` | `integer` | `10` | Maximum number of analogy pairs to surface. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -5368,6 +5557,7 @@ devops review score [OPTIONS] <sessions>
 |---|---|---|---|
 | `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops review export-feedback`
@@ -5442,6 +5632,7 @@ devops review corpus score [OPTIONS] <corpus_dir>
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops review samples`
@@ -5902,7 +6093,7 @@ devops roadmap render [OPTIONS]
 
 ### `devops roadmap reprioritize`
 
-**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit. The first run records the admitted set and moves nothing. Writes only with --confirm.**
+**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm.**
 
 ```bash
 devops roadmap reprioritize [OPTIONS]
@@ -6477,6 +6668,7 @@ devops gh status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON service status summary |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
@@ -6496,6 +6688,7 @@ devops gh metrics [OPTIONS]
 | `--ci-limit` | `integer` | `50` | Number of recent CI workflow runs to inspect |
 | `--milestone`, `-m` | `string` | - | Filter metrics to a specific milestone |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON metrics report |
 | `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
 
@@ -6772,6 +6965,7 @@ devops gh project workflows list [OPTIONS]
 |---|---|---|---|
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops gh views`
@@ -7067,6 +7261,7 @@ devops gh branch-protection audit [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
 | `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops gh branch-protection sync`
@@ -7635,6 +7830,7 @@ devops tf output [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -7715,6 +7911,7 @@ devops tf graph [OPTIONS] <directory>
 |---|---|---|---|
 | `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf drift`
@@ -7736,6 +7933,7 @@ devops tf drift [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf deploy-cloud`
@@ -7776,6 +7974,7 @@ devops tf lint [OPTIONS] <directory>
 | `--config`, `-c` | `path` | - | Path to .tflint.hcl config file. |
 | `--dry-run` | `boolean` | - | Simulate TFLint execution. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 
 ### `devops tf notify-plan`
 
@@ -7793,6 +7992,7 @@ devops tf notify-plan [OPTIONS]
 | `--pr` | `integer` | - | Pull Request number to post plan comment to. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 
 ### `devops tf cost`
 
@@ -7821,6 +8021,7 @@ devops tf cost breakdown [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops tf cost diff`
@@ -7845,6 +8046,7 @@ devops tf cost diff [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -7972,11 +8174,11 @@ devops tls enable-k8s [OPTIONS]
 
 ## devops telemetry
 
-OpenTelemetry tracing, metrics, and Jaeger observability.
+OpenTelemetry tracing, metrics, and Tempo observability.
 
 ### `devops telemetry status`
 
-**Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
+**Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status.**
 
 ```bash
 devops telemetry status [OPTIONS]
@@ -8017,6 +8219,7 @@ devops telemetry logfire [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops telemetry test`
@@ -8037,7 +8240,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -8053,13 +8256,14 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Tempo and show, instead of running a command. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry open-ui`
 
-**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+**Print and show the Tempo HTTP API endpoint for inspecting traces.**
 
 ```bash
 devops telemetry open-ui
@@ -8106,6 +8310,7 @@ devops cloudflare status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 
 ### `devops cloudflare service-status`
@@ -8120,6 +8325,7 @@ devops cloudflare service-status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
@@ -8144,6 +8350,7 @@ devops cloudflare dns list [OPTIONS]
 | `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
 | `--name`, `-n` | `string` | - | Filter by record hostname |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
 
 #### `devops cloudflare dns sync`
@@ -8163,6 +8370,7 @@ devops cloudflare dns sync [OPTIONS]
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
 
 #### `devops cloudflare dns delete`
@@ -8187,6 +8395,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 | `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
 
 ### `devops cloudflare tunnel`
@@ -8209,6 +8418,7 @@ devops cloudflare tunnel routes [OPTIONS]
 |---|---|---|---|
 | `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID or name |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
 
 #### `devops cloudflare tunnel sync`
@@ -8229,6 +8439,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
 
 ### `devops cloudflare access`
@@ -8250,6 +8461,7 @@ devops cloudflare access status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
 
 #### `devops cloudflare access sync`
@@ -8269,6 +8481,7 @@ devops cloudflare access sync [OPTIONS]
 | `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
 
 #### `devops cloudflare access policies`
@@ -8290,6 +8503,7 @@ devops cloudflare access policies [OPTIONS] <app_id>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output policies in JSON format |
 
 ---
@@ -8425,6 +8639,7 @@ devops test profile-memory [OPTIONS] <target>
 | `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
 | `--fail-on-leak` / `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
 | `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Format report output as JSON. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
@@ -8642,6 +8857,7 @@ devops vault audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit the audit trail as JSON |
 
 ---
@@ -8875,6 +9091,7 @@ devops sandbox status [OPTIONS] <instance_id>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--all`, `-a` | `boolean` | - | Apply operation across all registered sandbox instances. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 
 ### `devops sandbox stop`
@@ -8944,6 +9161,7 @@ devops sandbox probe [OPTIONS] <identifier>
 | `--regex`, `-r` | `string` | - | Regex pattern to assert against HTTP response body. |
 | `--latency-sla` | `float` | - | Maximum acceptable response latency budget in milliseconds. |
 | `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -8970,6 +9188,7 @@ devops sandbox metrics [OPTIONS] <identifier>
 | `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
 | `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
 | `--latency-sla-ms` | `float` | - | Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -8994,7 +9213,8 @@ devops sandbox traces [OPTIONS] <identifier>
 | `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
 | `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
 | `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
-| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--tempo-url` | `string` | - | Override Tempo HTTP API endpoint (default: http://localhost:3200). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -9022,6 +9242,7 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--detect-panics` / `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
 | `--archive-incidents` / `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -9114,6 +9335,7 @@ devops status [OPTIONS]
 |---|---|---|---|
 | `--service`, `-s` | `string` | `all` | Target service to inspect (all, github, cloudflare) |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ---

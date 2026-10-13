@@ -305,7 +305,7 @@ def generate_homelab_tls_bundle(
 
     Includes SANs for:
     - Homelab domains (*.homelab.local, homelab.local, *.local, localhost)
-    - Stack services (argocd, grafana, prometheus, ollama, webui, qdrant, jaeger, otel)
+    - Stack services (argocd, grafana, prometheus, ollama, webui, qdrant, tempo, otel)
     - K8s cluster internal FQDNs (*.svc.cluster.local, etc.)
     - Local & Minikube IPs (127.0.0.1, ::1, 192.168.49.2)
     """
@@ -375,7 +375,7 @@ def generate_homelab_tls_bundle(
             "ollama",
             "open-webui",
             "qdrant",
-            "jaeger",
+            "tempo",
             "otel",
         ],
     )

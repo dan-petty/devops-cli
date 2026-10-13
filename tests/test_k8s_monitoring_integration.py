@@ -368,7 +368,6 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
 # Services declared in plain manifests that sit in a namespace where a Helm release installs.
 # Each entry maps (namespace, name) to (manifest_path, owner).
 EXEMPT_PLAIN_SERVICES: dict[tuple[str, str], tuple[str, str]] = {
-    ("otel", "jaeger"): ("k8s/otel/jaeger.yaml", "otel stack manifest"),
     ("llm", "valkey"): ("k8s/llm/valkey.yaml", "llm stack valkey manifest"),
     ("llm", "llm-gateway"): ("k8s/llm/gateway/service.yaml", "llm stack gateway manifest"),
     **{

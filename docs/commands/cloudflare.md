@@ -16,6 +16,7 @@ devops cloudflare status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 
 ---
@@ -32,6 +33,7 @@ devops cloudflare service-status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
@@ -58,6 +60,7 @@ devops cloudflare dns list [OPTIONS]
 | `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
 | `--name`, `-n` | `string` | - | Filter by record hostname |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
 
 ### `devops cloudflare dns sync`
@@ -77,6 +80,7 @@ devops cloudflare dns sync [OPTIONS]
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
 
 ### `devops cloudflare dns delete`
@@ -101,6 +105,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 | `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
 
 ---
@@ -125,6 +130,7 @@ devops cloudflare tunnel routes [OPTIONS]
 |---|---|---|---|
 | `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID or name |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
 
 ### `devops cloudflare tunnel sync`
@@ -145,6 +151,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
 
 ---
@@ -168,6 +175,7 @@ devops cloudflare access status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
 
 ### `devops cloudflare access sync`
@@ -187,6 +195,7 @@ devops cloudflare access sync [OPTIONS]
 | `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
 
 ### `devops cloudflare access policies`
@@ -208,6 +217,7 @@ devops cloudflare access policies [OPTIONS] <app_id>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output policies in JSON format |
 
 ---

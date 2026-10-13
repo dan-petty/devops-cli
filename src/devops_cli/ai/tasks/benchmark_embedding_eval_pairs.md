@@ -95,7 +95,7 @@
 - **Query:** Query Prometheus PromQL metrics endpoint for p99 request latency and CPU usage
 - **Target Passage:** Execute PromQL instant and range queries against Prometheus /api/v1/query_range using histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) to monitor microservice tail latency SLA breaches.
 
-## infra-jaeger-tracing
+## infra-tempo-tracing
 - **Category:** infrastructure
-- **Query:** Collect distributed trace spans with OpenTelemetry Collector and Jaeger UI
-- **Target Passage:** Deploy OpenTelemetry Collector DaemonSet receiving OTLP gRPC spans at port 4317 and exporting traces to Jaeger backend storage, visualizing request call graphs and latency bottlenecks across microservices.
+- **Query:** Collect distributed trace spans with OpenTelemetry Collector and Grafana Tempo
+- **Target Passage:** Deploy OpenTelemetry Collector DaemonSet receiving OTLP gRPC spans at port 4317 and exporting traces to Tempo backend storage, visualizing request call graphs and latency bottlenecks across microservices.

@@ -187,6 +187,17 @@ integrations:
           app.kubernetes.io/component: single-binary
         logs:
           enabled: false
+  # Tempo's own metrics on port `prom-metrics` (3200) in the `otel` namespace. Metrics only:
+  # Tempo's pod logs stay as podLogsViaLoki ships them.
+  tempo:
+    instances:
+      - name: tempo
+        labelSelectors:
+          app.kubernetes.io/name: tempo
+        metrics:
+          portName: prom-metrics
+        logs:
+          enabled: false
   # The DCGM exporter on every GPU node. Its series carry the GPU's node as `node`, which the GPU
   # rules group by, and as `instance`, which dashboard 12239 lists.
   dcgm-exporter:

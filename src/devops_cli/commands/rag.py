@@ -8,12 +8,14 @@ from typing import Annotated, Any
 
 import typer
 
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.dry_run import is_dry_run
@@ -30,6 +32,7 @@ from devops_cli.output import (
     progress_context,
     render_dry_run_result,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
 
@@ -648,14 +651,15 @@ def _print_drift_file_lists(report: Any) -> None:
         )
 
 
-def _render_drift_report(report: Any, json_output: bool) -> None:
-    """Render RAG drift report in json or rich text format."""
-    import json
-
-    from devops_cli.output.console import write_stdout
-
-    if json_output:
-        write_stdout(json.dumps(report.to_dict(), indent=2) + "\n")
+def _render_drift_report(
+    report: Any,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
+    """Render RAG drift report in requested format or rich text format."""
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.to_dict(), resolved)
         return
 
     status_str = (
@@ -692,6 +696,10 @@ def drift_cmd(
         bool,
         typer.Option("--fail-on-drift", help=HELP.rag.fail_on_drift),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -721,7 +729,7 @@ def drift_cmd(
     detector = RAGDriftDetector(root_dir=path)
     with exit_on_error(EmbeddingsError):
         report = detector.detect_and_sync(auto_sync=auto_sync)
-    _render_drift_report(report, json_output)
+    _render_drift_report(report, output_format=output_format, json_output=json_output)
 
     if fail_on_drift and (report.drift_score > 0.0 or report.git_commit_drift):
         raise typer.Exit(code=1)

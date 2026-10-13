@@ -151,6 +151,75 @@ class MaterializedTargets(NamedTuple):
         named with, came from; `name` if none did."""
         return str(self.origins.get(Path(name).as_posix(), name))
 
+    def tree_path(self, name: str) -> str:
+        """The path of the target relative to the scanned tree, as a posix string; `name` if none did."""
+        clean = Path(name).as_posix()
+        if clean in self.origins:
+            return clean
+        for rel_name, orig in self.origins.items():
+            if str(orig) == name or str(orig.resolve()) == clean:
+                return rel_name
+        return name.removeprefix("./") if name.startswith("./") else name
+
+
+def _scan_root_candidates(root: Path | str | None) -> list[Path]:
+    """Candidate directories to relativize scan paths against."""
+    candidates: list[Path] = []
+    if root is not None:
+        try:
+            r = Path(root).resolve()
+            if r.is_dir():
+                candidates.append(r)
+        except OSError, RuntimeError:
+            pass
+    try:
+        candidates.append(Path.cwd().resolve())
+    except OSError, RuntimeError:
+        pass
+    return candidates
+
+
+def _relativize_against(target: Path, candidate: Path) -> str | None:
+    """Relative POSIX path if target lies inside candidate, else None."""
+    try:
+        p_res = target.resolve()
+        if p_res.is_relative_to(candidate) and p_res != candidate:
+            return p_res.relative_to(candidate).as_posix()
+    except OSError, RuntimeError, ValueError:
+        pass
+    try:
+        if target.is_relative_to(candidate) and target != candidate:
+            return target.relative_to(candidate).as_posix()
+    except OSError, RuntimeError, ValueError:
+        pass
+    return None
+
+
+def relativize_scan_path(path_str: str, root: Path | str | None = None) -> str:
+    """Normalize a scan finding's path string to be relative to the scan root or workspace.
+
+    Strips any leading `./`, and if `path_str` is absolute, relativizes it against `root`,
+    `root.parent` (if `root` is a file), or `Path.cwd()`. If `path_str` does not lie inside any
+    candidate root, returns `path_str` normalized.
+    """
+    clean = str(path_str).strip()
+    if not clean or clean.startswith(("<", "(")):
+        return clean
+
+    if clean.startswith(f".{os.sep}") or clean.startswith("./"):
+        clean = clean[2:]
+
+    p = Path(clean)
+    if not p.is_absolute():
+        return p.as_posix()
+
+    for candidate in _scan_root_candidates(root):
+        rel = _relativize_against(p, candidate)
+        if rel is not None:
+            return rel
+
+    return p.as_posix()
+
 
 def _file_inside(target: Path, root: Path) -> Path | None:
     """The regular file `target` resolves to when it lies inside `root`, else None.
@@ -555,4 +624,5 @@ __all__ = [
     "ScannerConfigFile",
     "materialize_targets",
     "merge_outcomes",
+    "relativize_scan_path",
 ]

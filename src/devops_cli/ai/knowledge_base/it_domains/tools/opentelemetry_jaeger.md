@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-OpenTelemetry (OTel) is an open-source observability framework providing vendor-agnostic APIs, SDKs, and tooling to generate, collect, and export telemetry data (traces, metrics, logs). Jaeger is an open-source distributed tracing platform used for monitoring and troubleshooting microservices-based distributed systems. In the `devops-cli` ecosystem, OpenTelemetry instruments all CLI commands, subcommands, subprocesses, and REST endpoints with distributed trace spans and exports them to local OTLP collectors and Jaeger.
+OpenTelemetry (OTel) is an open-source observability framework providing vendor-agnostic APIs, SDKs, and tooling to generate, collect, and export telemetry data (traces, metrics, logs). Jaeger is an open-source distributed tracing platform used for monitoring and troubleshooting microservices-based distributed systems. In the `devops-cli` ecosystem, OpenTelemetry instruments all CLI commands, subcommands, subprocesses, and REST endpoints with distributed trace spans and exports them to local OTLP collectors and Grafana Tempo.
 
 ---
 
@@ -20,13 +20,13 @@ OpenTelemetry (OTel) is an open-source observability framework providing vendor-
 
 ### DevOps CLI Telemetry Commands
 ```bash
-# Test connection to OTLP telemetry collector / Jaeger
+# Test connection to OTLP telemetry collector
 devops telemetry test
 
 # Show telemetry configuration and active endpoint
 devops telemetry status
 
-# Show Jaeger UI endpoint for inspecting traces
+# Show Tempo HTTP API endpoint for inspecting traces
 devops telemetry open-ui
 ```
 

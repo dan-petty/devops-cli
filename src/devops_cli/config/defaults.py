@@ -175,7 +175,7 @@ DEFAULT_HOMELAB_DOMAINS: tuple[str, ...] = (
     "ollama.homelab.local",
     "open-webui.homelab.local",
     "qdrant.homelab.local",
-    "jaeger.homelab.local",
+    "tempo.homelab.local",
     "otel.homelab.local",
 )
 DEFAULT_HOMELAB_IPS: tuple[str, ...] = (
@@ -207,7 +207,7 @@ DEFAULT_RAG_CHUNK_OVERLAP: int = 240
 DEFAULT_RAG_CACHE_DIR = DEFAULT_RAG_DATA_DIR
 
 # ── Tracing & Telemetry Defaults ──────────────────────────────────────────────
-DEFAULT_JAEGER_URL = "http://localhost:16686"
+DEFAULT_TEMPO_URL = "http://localhost:3200"
 DEFAULT_OTEL_ENDPOINT = "http://localhost:4318"
 DEFAULT_LOKI_URL = "http://localhost:3100"
 DEFAULT_PYROSCOPE_URL = "http://localhost:4040"
@@ -473,7 +473,7 @@ DEFAULT_ARGOCD_PORT: int = 8080
 DEFAULT_GRAFANA_PORT: int = 8030
 DEFAULT_GRAFANA_FOLDER_ID: int = 0
 DEFAULT_PROMETHEUS_PORT: int = 8090
-DEFAULT_JAEGER_PORT: int = 16686
+DEFAULT_TEMPO_PORT: int = 3200
 DEFAULT_OTEL_PORT: int = 4318
 DEFAULT_PYROSCOPE_PORT: int = 4040
 DEFAULT_OLLAMA_PORT: int = 11434
@@ -504,7 +504,7 @@ DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
 # How often an interactive user is told, per endpoint, that telemetry exports fail.
 DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
-# `telemetry profile` polls Jaeger until a trace stops growing, for at most this long.
+# `telemetry profile` polls Tempo until a trace stops growing, for at most this long.
 DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS: float = 10.0
 DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
 # Longest one weaver call may take in `telemetry semconv refresh`; packaging the GenAI
@@ -832,7 +832,7 @@ DEFAULT_PROFILER_TOP_N: int = 10
 DEFAULT_PROFILER_MAX_PEAK_MB: float = 100.0
 DEFAULT_PROFILER_TARGET: str = "http-pool"
 DEFAULT_WATERFALL_SLOTS: int = 24
-DEFAULT_JAEGER_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_TEMPO_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_PYROSCOPE_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_LOGFIRE_TIMEOUT_MILLIS: int = 30000
 DEFAULT_DOCS_SERIES: str = "v0.2"
@@ -951,3 +951,21 @@ DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20
 DEFAULT_AI_FORAGE_MIN_SCORE: Final[float] = 0.1
 DEFAULT_AI_FORAGE_MAX_COMMITS: Final[int] = 50
 DEFAULT_AI_FORAGE_FILE_READ_CAP_BYTES: Final[int] = 65536
+
+# ── AI Research Marginalia Defaults ───────────────────────────────────────────
+DEFAULT_MARGINALIA_DIR: Final[str] = ".data/marginalia"
+
+# ── AI Research Socratic Inquiry Defaults ─────────────────────────────────────
+DEFAULT_AI_SOCRATIC_MAX_PROBES: Final[int] = 5
+
+# ── AI Research Mental Model Defaults ─────────────────────────────────────────
+DEFAULT_AI_RESEARCH_DIR: Final[str] = ".data/research"
+
+# ── AI Research Analogies Defaults ─────────────────────────────────────────────
+DEFAULT_AI_ANALOGIES_MIN_SCORE: Final[float] = 0.5
+DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
+
+# ── LLM Gateway Tuning & Rendering Defaults ─────────────────────────────────
+DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH: Final[Path] = Path("k8s/llm/gateway/configmap.yaml")
+DEFAULT_LLM_PROFILES_PATH: Final[Path] = Path("k8s/llm/profiles/ollama-profiles.yaml")
+DEFAULT_LLM_SERVICES_PATH: Final[Path] = Path("k8s/llm/profiles/services.yaml")

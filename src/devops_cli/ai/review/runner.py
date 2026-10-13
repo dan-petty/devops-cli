@@ -38,6 +38,7 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
+    SavedFinding,
     compute_verdict_distributions,
     parse_review_response,
 )
@@ -960,6 +961,18 @@ def _write_review_profile(
     return profile
 
 
+def _finding_persona(persona: PersonaDefinition, finding: Finding) -> str:
+    """Return the finding's persona name if set, else the result's persona name."""
+    p = getattr(finding, "persona", None)
+    if isinstance(p, str) and p.strip():
+        val = p.strip()
+        try:
+            return Persona(val.lower()).value
+        except ValueError:
+            return val
+    return persona.name
+
+
 def _record_review_metrics(
     results: list[tuple[PersonaDefinition, ReviewResult | str]],
     seconds: float,
@@ -970,13 +983,15 @@ def _record_review_metrics(
 
     emit(REVIEW_DURATION, seconds, {"target_type": target_type})
     counts = Counter(
-        (persona.name, finding.severity.upper(), finding.status.upper())
+        (_finding_persona(persona, finding), finding.severity.upper(), finding.status.upper())
         for persona, result in results
         if isinstance(result, ReviewResult)
         for finding in result.findings
     )
-    for (persona, severity, status), count in counts.items():
-        emit(FINDINGS_TOTAL, count, {"persona": persona, "severity": severity, "status": status})
+    for (persona_name, severity, status), count in counts.items():
+        emit(
+            FINDINGS_TOTAL, count, {"persona": persona_name, "severity": severity, "status": status}
+        )
 
 
 def _run_profiled_session(
@@ -1056,6 +1071,62 @@ def _run_orchestrator_review(
         return _report_review(orchestrator, payloads, active_p, persona, stage_flags)
 
 
+def _finding_from_admitted_scanner(af: Any) -> SavedFinding:
+    """Convert an admitted frozen scanner finding into a SavedFinding for review reporting."""
+    loc = getattr(af, "location_display", "") or (
+        f"{af.path}:{af.line}" if getattr(af, "line", None) else getattr(af, "path", "")
+    )
+    title = (
+        f"[{af.tool}] {af.rule_id}: {af.message}"
+        if getattr(af, "tool", None)
+        else getattr(af, "message", "")
+    )
+    sf = SavedFinding(
+        severity=getattr(af, "severity", "MEDIUM"),
+        location=loc,
+        title=title,
+        description=getattr(af, "description", "") or getattr(af, "message", ""),
+        fix=getattr(af, "fix", ""),
+        status="VERIFIED",
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+    )
+    if hasattr(af, "tool"):
+        object.__setattr__(sf, "_tool", af.tool)
+    return sf
+
+
+def _collect_review_findings(
+    orchestrator: Any,
+    payloads: list[Any],
+    payload_data: dict[str, Any] | None,
+    stage_flags: ReviewStageFlags | None,
+) -> list[SavedFinding]:
+    """Collect verified findings from report payload, file payloads, or admitted findings."""
+    raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
+    if not raw_findings and stage_flags is not None and not stage_flags.reporting:
+        if hasattr(orchestrator, "_collect_and_deduplicate_findings"):
+            raw_findings = orchestrator._collect_and_deduplicate_findings(payloads)
+        admitted = getattr(orchestrator, "admitted_scanner_findings", None) or []
+        if admitted:
+            from devops_cli.review.state import FindingState
+
+            existing_locs = {
+                getattr(f, "location", "") if not isinstance(f, dict) else f.get("location", "")
+                for f in raw_findings
+            }
+            extra_admitted = [
+                _finding_from_admitted_scanner(af)
+                for af in admitted
+                if getattr(af, "state", None) != FindingState.SUPPRESSED
+                and (getattr(af, "location_display", "") or getattr(af, "path", ""))
+                not in existing_locs
+            ]
+            raw_findings = [*raw_findings, *extra_admitted]
+
+    return [SavedFinding(**f) if isinstance(f, dict) else f for f in raw_findings]
+
+
 def _report_review(
     orchestrator: ReviewPipelineOrchestrator,
     payloads: list[Any],
@@ -1068,8 +1139,7 @@ def _report_review(
         payloads, stage_flags=stage_flags, personas=active_p
     )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
-    raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
-    findings_list = [Finding(**f) if isinstance(f, dict) else f for f in raw_findings]
+    findings_list = _collect_review_findings(orchestrator, payloads, payload_data, stage_flags)
     raw_analyzers = getattr(orchestrator, "static_analyzers", None)
     analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
     result = ReviewResult(

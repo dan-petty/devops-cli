@@ -121,6 +121,7 @@ devops tf output [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -209,6 +210,7 @@ devops tf graph [OPTIONS] <directory>
 |---|---|---|---|
 | `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -232,6 +234,7 @@ devops tf drift [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -276,6 +279,7 @@ devops tf lint [OPTIONS] <directory>
 | `--config`, `-c` | `path` | - | Path to .tflint.hcl config file. |
 | `--dry-run` | `boolean` | - | Simulate TFLint execution. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 
 ---
 
@@ -295,6 +299,7 @@ devops tf notify-plan [OPTIONS]
 | `--pr` | `integer` | - | Pull Request number to post plan comment to. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 
 ---
 
@@ -325,6 +330,7 @@ devops tf cost breakdown [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf cost diff`
@@ -349,6 +355,7 @@ devops tf cost diff [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

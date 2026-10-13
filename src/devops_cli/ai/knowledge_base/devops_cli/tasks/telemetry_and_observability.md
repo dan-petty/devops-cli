@@ -14,7 +14,7 @@ graph LR
     B --> C[Prometheus Metrics Scrape /metrics]
     B --> D[OTLP Trace Exporter HTTP/gRPC]
     C --> E[Prometheus Server :9090]
-    D --> F[Jaeger Tracing :16686]
+    D --> F[Tempo Tracing :3200]
     E --> G[Grafana Dashboards :3000]
     F --> G
 ```
@@ -45,7 +45,7 @@ curl -s http://localhost:8000/metrics
 
 1. **Non-Blocking Telemetry**: Telemetry emission must run asynchronously or with bounded short timeouts so that collector unreachability never slows down CLI commands.
 2. **Standardized Attributes**: Use consistent attributes: `cli.command`, `subprocess.bin`, `status`, `error.type`.
-3. **Trace Root Cause Analysis**: Use Jaeger UI to trace slow subprocesses or investigate multi-step deployment failures.
+3. **Trace Root Cause Analysis**: Use Grafana Explore (Tempo datasource) or `devops telemetry profile` to trace slow subprocesses or investigate multi-step deployment failures.
 4. **Scrape Frequency**: Configure Prometheus with a 10s–15s scrape interval for responsive workstation metrics.
 
 ---
@@ -53,7 +53,7 @@ curl -s http://localhost:8000/metrics
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **Redact Sensitive Attributes**: Never attach authorization headers, tokens, SSH keys, or raw SQL queries to trace span attributes.
-- **Local Collector Binding**: Ensure local collector and Jaeger ports are bound to loopback or protected Kubernetes namespaces.
+- **Local Collector Binding**: Ensure local collector and Tempo ports are bound to loopback or protected Kubernetes namespaces.
 
 ---
 

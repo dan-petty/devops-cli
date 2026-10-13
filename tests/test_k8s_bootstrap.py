@@ -4,7 +4,7 @@ Validates:
 - Automated GPU detection via nvidia-smi with --driver=docker --gpus=all
 - Clean fallback to CPU-only mode (--driver=docker)
 - Dynamic NodePort socket reachability verification and localhost fallback
-- Endpoint persistence for ArgoCD, Grafana, Jaeger, Ollama, Open-WebUI, Qdrant, and Valkey
+- Endpoint persistence for ArgoCD, Grafana, Tempo, Ollama, Open-WebUI, Qdrant, and Valkey
 - Bootstrap command execution and automated configure-urls integration
 """
 
@@ -332,7 +332,7 @@ def test_configure_urls_persists_all_infra_endpoints(
     mock_load: MagicMock,
     mock_save: MagicMock,
 ) -> None:
-    """configure_urls persists ArgoCD, Grafana, Prometheus, and Jaeger to Settings."""
+    """configure_urls persists ArgoCD, Grafana, Prometheus, and Tempo to Settings."""
     settings = Settings()
     mock_load.return_value = settings
     mock_detect.side_effect = lambda svc, ns, context=None: f"http://192.0.2.2:{svc}"
@@ -347,12 +347,12 @@ def test_configure_urls_persists_all_infra_endpoints(
         settings.argocd.url,
         settings.grafana.url,
         settings.prometheus.url,
-        settings.jaeger.url,
+        settings.tempo.url,
     ) == (
         "http://localhost:argocd-server",
         "http://localhost:grafana",
         "http://localhost:prometheus-server",
-        "http://localhost:jaeger",
+        "http://localhost:tempo",
     )
 
 

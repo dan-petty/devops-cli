@@ -322,6 +322,7 @@ devops k8s service-url [OPTIONS] <service>
 | `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
 | `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
 | `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -343,7 +344,7 @@ devops k8s port-forward [OPTIONS]
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD. |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
-| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--tempo-port` | `integer` | `3200` | Local port for Grafana Tempo HTTP API. |
 | `--pyroscope-port` | `integer` | `4040` | Local port for Pyroscope Continuous Profiling UI. |
 | `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
@@ -546,6 +547,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
 | `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -571,6 +573,7 @@ devops k8s validate-policy [OPTIONS] <manifest_path>
 | `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file. |
 | `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -648,6 +651,7 @@ devops k8s chaos [OPTIONS] <experiment>
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -693,6 +697,7 @@ devops k8s security-stream [OPTIONS]
 | `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
 
@@ -735,5 +740,38 @@ devops k8s doctor [OPTIONS]
 | `--tail`, `-t` | `integer` | `20` | Number of container log lines to tail per flagged container. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops k8s volume`
+
+**PersistentVolume inspection, maintenance, and safe orphan reclamation.**
+
+```bash
+devops k8s volume COMMAND [ARGS]...
+```
+
+### `devops k8s volume reclaim`
+
+**Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts.**
+
+```bash
+devops k8s volume reclaim [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Name of the PersistentVolume to reclaim. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate volume reclaim and print planned Kubernetes API operations without network requests. |
+| `--yes`, `-y` | `boolean` | - | Confirm reclamation without interactive prompt (required in non-interactive sessions). |
+| `--patch` | `boolean` | - | Patch volume finalizers instead of issuing a DELETE request. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
 
 ---

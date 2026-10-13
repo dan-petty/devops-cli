@@ -28,11 +28,16 @@ from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.labels import load_label_specs
 from devops_cli.roadmap.config import RoadmapConfig
+from devops_cli.roadmap.github_store import _JOB_RECORD_KEYS, decode_job_record, encode_job_record
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.reprioritize import (
+    _SILENT_REASONS,
+    _TALLY_ADAPTER,
+    REASON_GROWTH_GROUPS,
     Action,
     Event,
     Reason,
+    ReleaseGrowth,
     ReleaseState,
     ReprioritizationPlan,
     Transition,
@@ -40,9 +45,12 @@ from devops_cli.roadmap.reprioritize import (
     apply_reprioritization,
     current_release,
     decide,
+    emit_reprioritize_telemetry,
     is_due,
     plan_reprioritization,
+    release_growth,
     render_plan,
+    sizes_at_start,
 )
 from devops_cli.roadmap.store import (
     CardKind,
@@ -57,6 +65,7 @@ from devops_cli.roadmap.store import (
     JobMark,
 )
 from tests.roadmap_faults import FIELD, RECORD, Fault, StoppingStore
+from tests.test_telemetry_instruments import Captured
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
@@ -154,7 +163,7 @@ class Roadmap:
         record = {
             mark: value
             for mark, value in self.store.run_record().items()
-            if isinstance(mark, JobMark)
+            if isinstance(mark, JobMark) and mark is not JobMark.SIZES
         }
         if JobMark.STARTED in record:
             record[JobMark.STARTED] = self.titled(record[JobMark.STARTED])
@@ -372,7 +381,7 @@ def test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_
         [NEXT, CURRENT, CURRENT, CURRENT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
-            "and this was its lowest-ranked unstarted item."
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -399,7 +408,33 @@ def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_r
         [CURRENT, NEXT, CURRENT, CURRENT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
-            "and this was its lowest-ranked unstarted item."
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
+        ],
+        16,
+    )
+
+
+def test_a_critical_fix_at_cap_descopes_lowest_ranked_unstarted_item_without_dependents(
+    roadmap: Roadmap,
+) -> None:
+    """When the lowest-ranked item is a dependency of an item that stays, the fix descopes the next item in order."""
+    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(13)]
+    low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
+    low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
+    p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
+    started_with(roadmap, *high, low_a, low_b, p3_high)
+    roadmap.person.link_dependency(p3_high, low_b)
+    fix = roadmap.fix()
+    roadmap.run()
+    assert (
+        roadmap.release_of(low_b, low_a, p3_high, fix),
+        roadmap.comments(low_a),
+        roadmap.size(),
+    ) == (
+        [CURRENT, NEXT, CURRENT, CURRENT],
+        [
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, "
+            "and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -472,7 +507,7 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
         16,
         [
             "Moved to v0.2.26: v0.2.25 holds 17 items, more than its limit of 16 and more than "
-            "it held when it started, and this was its lowest-ranked unstarted item."
+            "it held when it started, and this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
     )
 
@@ -553,7 +588,7 @@ def test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranke
         [CURRENT, NEXT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its limit of 16 items, and "
-            "this was its lowest-ranked unstarted item."
+            "this was its lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -608,6 +643,7 @@ def test_the_first_run_records_the_admitted_set_and_a_second_run_writes_nothing(
             JobWrite("set_run_record", None, "Started", roadmap.number(CURRENT)),
             *(JobWrite("set_mark", number, "Admitted", roadmap.number(CURRENT)) for number in held),
             JobWrite("set_run_record", None, "Size", "17"),
+            JobWrite("set_run_record", None, "Sizes", json.dumps({roadmap.number(CURRENT): 17})),
         ],
         [[]] * 17,
         17,
@@ -632,6 +668,7 @@ def test_a_first_run_on_an_empty_release_records_it_so_the_next_run_holds_it_to_
         [
             JobWrite("set_run_record", None, "Started", roadmap.number(CURRENT)),
             JobWrite("set_run_record", None, "Size", "0"),
+            JobWrite("set_run_record", None, "Sizes", json.dumps({roadmap.number(CURRENT): 0})),
         ],
         False,
         {JobMark.STARTED: CURRENT, JobMark.SIZE: "0"},
@@ -804,7 +841,7 @@ def test_a_starting_release_over_the_cap_is_trimmed_into_the_later_release(
         [LATER] * 4,
         [
             "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
-            "lowest-ranked unstarted item."
+            "lowest-ranked unstarted item that no item staying in it depends on."
         ],
         16,
     )
@@ -833,12 +870,122 @@ def test_a_start_fills_to_the_cap_and_trims_only_above_the_limit(
         [
             [
                 "Moved to v0.2.27: v0.2.26 started with more than 16 items, and this was its "
-                "lowest-ranked unstarted item."
+                "lowest-ranked unstarted item that no item staying in it depends on."
             ]
         ]
         * trimmed,
         [],
     )
+
+
+def test_a_starting_release_over_the_cap_preserves_dependencies(started: Roadmap) -> None:
+    """The trim passes over dependencies needed by items that stay, and trims unneeded ones."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    high_items = [
+        started.file(f"p1 high {n}", priority="P1-High", value="High", release=NEXT)
+        for n in range(9)
+    ]
+    i832, i982 = high_items[0], high_items[1]
+    i843 = started.file("p1 843", priority="P1-High", value="High", release=NEXT)
+    i743 = started.file("p1 743", priority="P1-High", value="High", release=NEXT)
+    i744 = started.file("p1 744", priority="P1-High", value="High", release=NEXT)
+    i548 = started.file("p1 548", priority="P1-High", value="Medium", release=NEXT)
+    i406 = started.file("p1 406", priority="P1-High", value="Medium", release=NEXT)
+    i981 = started.file("p1 981", priority="P1-High", value="Medium", release=NEXT)
+    i1083 = started.file("p1 1083", priority="P1-High", value="Medium", release=NEXT)
+    started.person.link_dependency(i843, i832)
+    started.person.link_dependency(i406, i843)
+    started.person.link_dependency(i981, i1083)
+    started.person.link_dependency(i743, i982)
+    started.person.link_dependency(i744, i743)
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(i548, i406, i981, i1083),
+        started.release_of(i843, i832, i743, i982, i744),
+        started.size(NEXT),
+        started.comments(i548),
+    ) == (
+        [LATER] * 4,
+        [NEXT] * 5,
+        12,
+        [
+            "Moved to v0.2.27: v0.2.26 started with more than 12 items, and this was its "
+            "lowest-ranked unstarted item that no item staying in it depends on."
+        ],
+    )
+
+
+def test_a_start_over_cap_passes_over_dependencies_of_started_item_and_critical_fix(
+    started: Roadmap,
+) -> None:
+    """Trim passes over dependencies of a started item and a critical fix, trimming the next items in order."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    in_progress = started.file(
+        "in progress", priority="P1-High", status="In Progress", release=NEXT
+    )
+    fix = started.fix("next fix", release=NEXT)
+    low_a = started.file("low a", priority="P3-Low", release=NEXT)
+    low_b = started.file("low b", priority="P3-Low", release=NEXT)
+    p2_c = started.file("p2 c", priority="P2-Medium", release=NEXT)
+    p2_d = started.file("p2 d", priority="P2-Medium", release=NEXT)
+    for n in range(8):
+        started.file(f"p1 high {n}", priority="P1-High", release=NEXT)
+    started.person.link_dependency(in_progress, low_a)
+    started.person.link_dependency(fix, low_b)
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(low_a, low_b),
+        started.release_of(p2_c, p2_d),
+        started.size(NEXT),
+    ) == ([NEXT, NEXT], [LATER, LATER], 12)
+
+
+def test_two_unstarted_items_depending_on_each_other_hold_release_above_cap(
+    started: Roadmap,
+) -> None:
+    """Two unstarted items that depend on each other are never trimmed; release starts above cap and plan names them."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    for n in range(12):
+        started.file(f"started {n}", priority="P1-High", status="In Progress", release=NEXT)
+    item_a = started.file("cycle a", priority="P3-Low", release=NEXT)
+    item_b = started.file("cycle b", priority="P3-Low", release=NEXT)
+    started.person.link_dependency(item_a, item_b)
+    started.person.link_dependency(item_b, item_a)
+    started.ship()
+    plan = started.plan()
+    report = render_plan(plan)
+    started.run()
+    assert (
+        started.release_of(item_a, item_b),
+        started.size(NEXT),
+        f"- #{item_a} cycle a: Kept in v0.2.26: #{item_b} in v0.2.26 depends on it." in report,
+        f"- #{item_b} cycle b: Kept in v0.2.26: #{item_a} in v0.2.26 depends on it." in report,
+    ) == ([NEXT, NEXT], 14, True, True)
+
+
+def test_closed_backlog_and_cross_repo_dependencies_leave_trim_order_unchanged(
+    started: Roadmap,
+) -> None:
+    """A closed dependency, a dependency in backlog, and a cross-repo dependency leave trim order unchanged."""
+    started.config = RoadmapConfig(board=1, release_cap=12, release_slots=0)
+    kept = [started.file(f"kept {n}", priority="P1-High", release=NEXT) for n in range(12)]
+    cand_1 = started.file("cand 1", priority="P3-Low", release=NEXT)
+    cand_2 = started.file("cand 2", priority="P3-Low", release=NEXT)
+    cand_3 = started.file("cand 3", priority="P3-Low", release=NEXT)
+    closed_item = started.file("closed item", priority="P1-High", release=NEXT)
+    started.person.close_issue(closed_item, CloseReason.COMPLETED, "Delivered.")
+    started.person.link_dependency(closed_item, cand_1)
+    backlog_item = started.file("backlog item", priority="P1-High", release=None)
+    started.person.link_dependency(backlog_item, cand_2)
+    started.store.link_dependency(kept[0], cand_3, repository="other-org/other-repo")
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(cand_1, cand_2, cand_3),
+        started.size(NEXT),
+    ) == ([LATER, LATER, LATER], 12)
 
 
 def test_at_the_start_new_and_blocked_items_leave_but_a_new_critical_fix_stays(
@@ -1767,7 +1914,17 @@ def test_a_run_that_stops_after_a_comment_finishes_the_change_without_a_second_o
         started.item(feature).job_record.get(JobMark.PENDING),
     ) == (
         (["set_marks", "set_field", "set_marks", "comment", "set_marks"], True),
-        [JobWrite("set_mark", feature, "Pending", None)],
+        [
+            JobWrite("set_mark", feature, "Pending", None),
+            JobWrite(
+                "set_mark",
+                feature,
+                "Tally",
+                _TALLY_ADAPTER.dump_json(
+                    [[int(started.number(CURRENT)), Reason.BLOCKED.value]]
+                ).decode(),
+            ),
+        ],
         [NEXT],
         1,
         None,
@@ -2946,3 +3103,294 @@ def test_admission_event_and_decide_for_pull_requests() -> None:
         Transition(Action.ADMIT, Reason.PULL_REQUEST),
         Transition(Action.KEEP, Reason.PULL_REQUEST),
     )
+
+
+# ── Release growth and tally ledger (#1126) ───────────────────────────────────
+
+
+def test_all_reasons_in_reason_growth_groups_or_silent() -> None:
+    """Verify all Reason members belong to either REASON_GROWTH_GROUPS or _SILENT_REASONS."""
+    all_reasons = set(Reason)
+    grouped = set(REASON_GROWTH_GROUPS.keys())
+    silent = set(_SILENT_REASONS)
+    overlap = grouped & silent
+    unaccounted = all_reasons - (grouped | silent)
+
+    assert (overlap, unaccounted) == (set(), set())
+
+
+def test_50_tally_entries_round_trip_through_github_job_record_encoding() -> None:
+    """An item with 50 entries round-trips through GitHub job-record encoding, keeping unknown keys."""
+    entries = [[1, Reason.TOP_UP.value], [1, Reason.TRIM.value]] * 25
+    raw_json = _TALLY_ADAPTER.dump_json(entries).decode()
+    original_record = {JobMark.TALLY: raw_json}
+
+    encoded = encode_job_record(original_record)
+    decoded = decode_job_record(encoded)
+    decoded_entries = _TALLY_ADAPTER.validate_json(decoded[JobMark.TALLY])
+
+    assert (
+        JobMark.TALLY in _JOB_RECORD_KEYS,
+        JobMark.SIZES in _JOB_RECORD_KEYS,
+        len(decoded_entries),
+        decoded_entries == entries,
+    ) == (True, True, 50, True)
+
+
+def test_tally_ledger_stops_with_stopping_store(started: Roadmap) -> None:
+    """StoppingStore stops an admission write part-way; rerun finishes and leaves 1 entry."""
+    item_num = started.file("unadmitted")
+    ms_num = started.store.releases()[0].number
+    started.stopped("set_marks", nth=1)
+    started.run()
+    item = started.store.item(item_num)
+    tally = _TALLY_ADAPTER.validate_json(item.job_record.get(JobMark.TALLY, "[]"))
+    assert (len(tally), tally[0][:2]) == (1, [ms_num, Reason.ADMISSION.value])
+
+
+def test_critical_fix_stalled_ready_and_admitted_one_entry_counts_in_joined_and_kept(
+    started: Roadmap,
+) -> None:
+    """A critical fix that joins idle is readied and admitted in one change, counted in joined and kept."""
+    fix_num = started.fix(status="In Progress", release=LATER)
+    started.run()
+    started.now += timedelta(days=15)
+    started.place(fix_num, CURRENT)
+    ms_num = started.store.releases()[0].number
+
+    started.run()
+    fix_item = started.store.item(fix_num)
+    tally = _TALLY_ADAPTER.validate_json(fix_item.job_record.get(JobMark.TALLY, "[]"))
+
+    growth_map = release_growth(
+        [fix_item], started.store.run_record() or {}, started.store.releases()
+    )
+    growth = growth_map[CURRENT]
+
+    assert (
+        len(tally),
+        tally[0],
+        growth.joined,
+        growth.kept,
+    ) == (
+        1,
+        [ms_num, Reason.FIX_STALLED.value, "critical_fix"],
+        1,
+        1,
+    )
+
+
+def test_change_dropped_because_person_edit_wins_adds_no_tally_entry(
+    started: Roadmap,
+) -> None:
+    """A change dropped because a person moved/edited the item adds no tally entry."""
+    held = started.store.items(release=CURRENT)[0]
+    started.set(held.number, ItemField.STATUS, "Blocked")
+    started.stopped("comment")
+    started.set(held.number, ItemField.STATUS, "In Progress")
+    started.run()
+
+    item = started.store.item(held.number)
+    tally = _TALLY_ADAPTER.validate_json(item.job_record.get(JobMark.TALLY, "[]"))
+    assert (tally, item.status, item.release) == ([], "In Progress", CURRENT)
+
+
+def test_decisions_with_keep_or_start_next_add_no_tally_entry(started: Roadmap) -> None:
+    """Decisions whose action is KEEP or START_NEXT add no tally entry."""
+    held = started.store.items(release=CURRENT)[0]
+    started.run()
+    item = started.store.item(held.number)
+    tally = _TALLY_ADAPTER.validate_json(item.job_record.get(JobMark.TALLY, "[]"))
+    assert tally == []
+
+
+def test_tally_entries_name_release_by_milestone_number_renamed_release_keeps_entries(
+    started: Roadmap,
+) -> None:
+    """Entries name the release by milestone number, so renaming the release keeps entries."""
+    item_num = started.file("victim")
+    ms_num = started.store.releases()[0].number
+    started.run()
+
+    started.store.edit_release(CURRENT, title="v0.2.28")
+    item = started.store.item(item_num)
+    tally = _TALLY_ADAPTER.validate_json(item.job_record.get(JobMark.TALLY, "[]"))
+    growth_map = release_growth([item], started.store.run_record() or {}, started.store.releases())
+    assert (len(tally), tally[0][0], "v0.2.28" in growth_map) == (1, ms_num, True)
+
+
+def test_run_record_sizes_mark_tracks_last_10_releases_after_two_starts(
+    roadmap: Roadmap,
+) -> None:
+    """Sizes mark on run record maintains a 10-release window across release starts."""
+    roadmap.file("r1_item1")
+    roadmap.run()
+    rec1 = roadmap.store.run_record() or {}
+    sizes1 = sizes_at_start(rec1)
+
+    roadmap.file("r2_item1", release=NEXT)
+    roadmap.ship(close_milestone=True)
+    roadmap.run()
+    rec2 = roadmap.store.run_record() or {}
+    sizes2 = sizes_at_start(rec2)
+
+    assert (
+        JobMark.SIZES in rec1,
+        JobMark.SIZES in rec2,
+        len(sizes1) >= 1,
+        len(sizes2) >= 2,
+    ) == (True, True, True, True)
+
+
+def test_release_growth_pure_calculation() -> None:
+    """Test release_growth pure calculation groups items and tallies reasons accurately."""
+    item1 = Item(
+        number=1,
+        title="item1",
+        url="",
+        job_record={
+            JobMark.TALLY: json.dumps(
+                [
+                    [10, Reason.CRITICAL_FIX.value],
+                    [10, Reason.P0_FEATURE.value],
+                    [10, Reason.ADMISSION.value],
+                    [10, Reason.CAP.value],
+                    [10, Reason.TOP_UP.value],
+                    [10, Reason.TRIM.value],
+                    [10, Reason.REVIEW_IDLE.value],
+                ]
+            )
+        },
+    )
+    from packaging.version import Version
+
+    from devops_cli.roadmap.store import Release
+
+    rel = Release(number=10, title="v1.0.0", version=Version("1.0.0"))
+    run_rec = {JobMark.SIZES: json.dumps({"10": 12})}
+
+    growth_map = release_growth([item1], run_rec, [rel])
+    growth = growth_map["v1.0.0"]
+
+    assert (
+        growth.release,
+        growth.size_at_start,
+        growth.joined,
+        growth.descoped,
+        growth.start,
+        growth.kept,
+        growth.critical_fixes_admitted,
+        growth.sent_on,
+        growth.to_backlog,
+    ) == ("v1.0.0", 12, 3, 1, 2, 1, 1, 1, 1)
+
+
+def test_render_plan_release_growth_section() -> None:
+    """Verify render_plan outputs the 'Release growth' section matching the example format."""
+    growth_current = ReleaseGrowth(
+        release="v0.2.26",
+        size_at_start=12,
+        joined=3,
+        descoped=2,
+        start=3,
+        kept=0,
+        reasons={"stalled": 1, "blocked": 1, "top_up": 2, "trim": 1},
+        critical_fixes_admitted=1,
+        sent_on=2,
+    )
+    plan = ReprioritizationPlan(
+        repo="example/repo",
+        now=NOW,
+        current="v0.2.26",
+        state=ReleaseState.STARTED,
+        growth={"v0.2.26": growth_current},
+        target_releases=("v0.2.26",),
+    )
+    rendered = render_plan(plan)
+
+    assert (
+        "## Release growth" in rendered,
+        "- v0.2.26: 12 at start; joined 3 (1 critical fix admitted, 2 sent on); descoped 2 (stalled 1, blocked 1); start: pulled in 2, trimmed 1"
+        in rendered,
+    ) == (True, True)
+
+
+@pytest.fixture
+def captured_telemetry(monkeypatch: pytest.MonkeyPatch) -> Captured:
+    """An enabled telemetry client whose payloads are captured instead of sent."""
+    from devops_cli.telemetry import tracer as tracer_module
+    from devops_cli.telemetry.tracer import OTelTelemetryClient
+
+    sink = Captured()
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    monkeypatch.setattr(client, "_send_payload", sink)
+    monkeypatch.setattr(tracer_module, "get_tracer", lambda: client)
+    return sink
+
+
+def test_telemetry_gauges_emitted_on_preview_unchanged_and_confirm(
+    board: Roadmap, captured_telemetry: Captured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify telemetry gauges are emitted for preview, unchanged, and applied runs."""
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    board.file("held")
+    _reprioritize("--confirm")
+
+    res_preview = runner.invoke(app, ["reprioritize", "--plan"])
+    points_preview = captured_telemetry.points("devops_cli_roadmap_release_size_at_start")
+
+    res_unchanged = runner.invoke(app, ["reprioritize"])
+    points_unchanged = captured_telemetry.points("devops_cli_roadmap_release_size_at_start")
+
+    board.file("late")
+    res_confirm = runner.invoke(app, ["reprioritize", "--confirm"])
+    points_confirm = captured_telemetry.points("devops_cli_roadmap_release_size_at_start")
+
+    assert (
+        res_preview.exit_code,
+        res_unchanged.exit_code,
+        res_confirm.exit_code,
+        len(points_preview) >= 1,
+        len(points_unchanged) >= 1,
+        len(points_confirm) >= 1,
+    ) == (0, 0, 0, True, True, True)
+
+
+def test_telemetry_skip_conditions(
+    started: Roadmap, captured_telemetry: Captured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify each skip condition suppresses telemetry emission."""
+    plan = started.plan()
+
+    # 1. Dry run
+    dry_plan = ReprioritizationPlan(
+        repo=REPO,
+        now=NOW,
+        current=CURRENT,
+        state=ReleaseState.STARTED,
+        dry_run=True,
+        growth=plan.growth,
+    )
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    emit_reprioritize_telemetry(dry_plan)
+    assert captured_telemetry.points("devops_cli_roadmap_release_size_at_start") == []
+
+    # 2. CI set
+    monkeypatch.setenv("CI", "true")
+    emit_reprioritize_telemetry(plan)
+    assert captured_telemetry.points("devops_cli_roadmap_release_size_at_start") == []
+    monkeypatch.delenv("CI", raising=False)
+
+    # 3. GITHUB_ACTIONS set
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    emit_reprioritize_telemetry(plan)
+    assert captured_telemetry.points("devops_cli_roadmap_release_size_at_start") == []
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    # 4. PYTEST_CURRENT_TEST set
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "test")
+    emit_reprioritize_telemetry(plan)
+    assert captured_telemetry.points("devops_cli_roadmap_release_size_at_start") == []

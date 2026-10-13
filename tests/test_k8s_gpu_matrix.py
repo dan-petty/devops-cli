@@ -9,12 +9,17 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from devops_cli.ai.gateway_render import (
+    diff_gateway_config,
+    load_service_context_lengths,
+    load_tier_context_lengths,
+    render_gateway_config,
+)
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.gpu_matrix import (
     VALID_BACKENDS,
     VALID_GPU_COUNTS,
     VALID_VRAM_SIZES,
-    get_gateway_routing_entries,
     get_gpu_profile,
     get_service_aliases,
     list_gpu_profiles,
@@ -123,38 +128,47 @@ def test_service_aliases_definition_and_ports() -> None:
     )
 
 
-def test_gateway_routing_entries_generation() -> None:
-    """Verify LiteLLM routing entries match k8s gateway configmap model list."""
-    entries = get_gateway_routing_entries()
-    unique_models = list(dict.fromkeys(e["model_name"] for e in entries))
-    api_bases = [e["litellm_params"]["api_base"] for e in entries]
-
+def test_rendered_gateway_configmap_matches_ollama_profiles() -> None:
+    """Verify rendered ConfigMap matches Ollama profiles with zero diff, correct token limits, and no weights."""
     cm_path = GATEWAY_DIR / "configmap.yaml"
-    cm_docs = list(yaml.safe_load_all(cm_path.read_text(encoding="utf-8")))
+    profiles_path = PROFILES_DIR / "ollama-profiles.yaml"
+    services_path = PROFILES_DIR / "services.yaml"
+
+    tier_lengths = load_tier_context_lengths(profiles_path)
+    service_lengths = load_service_context_lengths(services_path, tier_lengths)
+    cm_text = cm_path.read_text(encoding="utf-8")
+    rendered = render_gateway_config(cm_text, service_lengths)
+    diff = diff_gateway_config(cm_text, rendered)
+
+    cm_docs = list(yaml.safe_load_all(cm_text))
     cm = next(d for d in cm_docs if d and d.get("kind") == "ConfigMap")
     cm_model_list = yaml.safe_load(cm["data"]["config.yaml"])["model_list"]
 
+    weights = [
+        m["litellm_params"].get("weight") for m in cm_model_list if "weight" in m["litellm_params"]
+    ]
+
+    windowed_tokens = [
+        (
+            m["litellm_params"]["api_base"].split("//")[1].split(".")[0],
+            m["model_info"]["max_input_tokens"],
+        )
+        for m in cm_model_list
+        if "model_info" in m and "max_input_tokens" in m["model_info"]
+    ]
+    tokens_match_services = all(
+        tokens == service_lengths.get(svc) for svc, tokens in windowed_tokens
+    )
+
     assert (
-        len(entries),
-        unique_models,
-        all(".llm.svc.cluster.local" in base for base in api_bases),
-        entries == cm_model_list,
+        diff,
+        len(cm_model_list),
+        weights,
+        tokens_match_services,
     ) == (
+        "",
         19,
-        [
-            "devops-chat",
-            "devops-coder",
-            "devops-reasoning",
-            "bge-m3:latest",
-            "devops-background",
-            "devops-review",
-            "qwen3-coder:30b",
-            "gpt-oss:20b",
-            "gemma4:31b",
-            "qwen3.8:27b",
-            "deepseek-r1:70b",
-        ],
-        True,
+        [],
         True,
     )
 

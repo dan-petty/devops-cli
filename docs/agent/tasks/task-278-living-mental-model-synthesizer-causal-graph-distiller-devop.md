@@ -1,10 +1,11 @@
 # Task 278: Living Mental Model Synthesizer & Causal Graph Distiller (`devops ai research model`)
 
 **Issue**: [#278](https://github.com/dan-petty/devops-cli/issues/278)
-**Status**: Backlog
-**Milestone**: `v0.2.21`
+**Status**: Done
+**Milestone**: `v0.2.35`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
+**Feasibility**: Verified against `devops_cli.ai.research` module, YAML serialization, and Typer CLI runtime.
 
 ---
 
@@ -13,8 +14,10 @@
 Progressively compacts sprawling research observations into a concise, living mental model (`.data/research/mental_model_<topic>.yaml`).
 
 #### Key Deliverables:
-- Context & Rationale*: Progressively compacts sprawling research observations into a concise, living mental model (`.data/research/mental_model_<topic>.yaml`).
-- Causal & State Machine Modeling*: Distills raw text findings into explicit state transitions, causal DAGs, and invariant rules that serve as working theories during complex refactorings and defect investigations.
-- Unit and integration test coverage with structural tuple equality assertions.
-- Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
-- 100% passing across all 10 CI quality gates (`uv run devops ci`).
+- [x] Structured mental model schema: `StateTransition`, `CausalGraph` (DAG with `CausalNode` and `CausalEdge`), and `InvariantRule`.
+- [x] Persistent YAML storage keyed by topic slug at `.data/research/mental_model_<topic>.yaml`.
+- [x] Progressive revision synthesis engine `MentalModelSynthesizer` that preserves prior model structure across revisions.
+- [x] Command `devops ai research model <topic>` supporting `--observations`, `--file`, `--show`, and YAML, JSON, Markdown, and table formatting.
+- [x] Unit and integration test coverage with structural tuple equality assertions in `tests/test_ai_research_mental_model.py`.
+- [x] Complexity $M \le 10$ and nesting depth $\le 5$ enforced.
+- [x] 100% passing across Gated CI validation suite (`uv run devops ci`).

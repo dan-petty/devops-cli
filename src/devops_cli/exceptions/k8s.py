@@ -182,6 +182,32 @@ class ClusterJobError(KubernetesError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
 
 
+class VolumeReclaimError(KubernetesError, RuntimeError):
+    """Raised when volume reclaim fails or is refused due to active claims or mounts."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        volume: str | None = None,
+        reason: str | None = None,
+        context: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_VOLUME_RECLAIM_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"volume": volume, "reason": reason}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            context=context,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=err_details,
+        )
+
+
 __all__ = [
     "ChaosExecutionError",
     "ClusterJobError",
@@ -192,4 +218,5 @@ __all__ = [
     "KubernetesDeployError",
     "KubernetesError",
     "KubernetesLoggingError",
+    "VolumeReclaimError",
 ]

@@ -46,7 +46,7 @@ from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_lease import _post
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
-from devops_cli.telemetry.waterfall import query_jaeger_trace
+from devops_cli.telemetry.waterfall import query_tempo_trace
 from tests.web_fakes import (
     PUBLIC_ADDRESS,
     http_response,
@@ -653,7 +653,7 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
         "vault lease": lambda: _post("http://example.com:8200", "sys/leases/renew", {}, {}),
-        "jaeger": lambda: query_jaeger_trace(_TRACE_ID, jaeger_url="http://example.com:16686"),
+        "tempo": lambda: query_tempo_trace(_TRACE_ID, tempo_url="http://example.com:3200"),
         "probe http": lambda: probe_http("http://example.com/healthz"),
         "probe tcp": lambda: probe_tcp("example.com", 80),
         "k8s direct": lambda: service_http.get_json("http://example.com:9090", "api/v1/query"),
@@ -673,7 +673,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "tool download": PUBLIC,
         "vault": PRIVATE,
         "vault lease": PRIVATE,
-        "jaeger": LOOPBACK,
+        "tempo": LOOPBACK,
         "probe http": PRIVATE,
         "probe tcp": PRIVATE,
         "k8s direct": PRIVATE,
