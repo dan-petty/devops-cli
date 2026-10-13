@@ -343,7 +343,7 @@ graph TD
     B -->|docker-desktop| D[Docker Desktop K8s on Host]
     B -->|kind / k3s / k3d| E[Local Host Cluster]
     B -->|EKS / GKE / AKS| F[Cloud-Managed Cluster]
-    C -->|Docker-in-Docker Driver| G[Pods: Monitoring, ArgoCD, Jaeger, LLMs]
+    C -->|Docker-in-Docker Driver| G[Pods: Monitoring, ArgoCD, Tempo, LLMs]
     D -->|~/.kube bind mount| H[Host Docker Desktop Runtime]
     E -->|host.docker.internal| I[Host Container Runtime]
     F -->|Cloud CLI / IAM Auth| J[Remote Cloud Infrastructure]
@@ -550,7 +550,7 @@ devops k8s status
 devops k8s pods --all-namespaces
 
 # 5. Deploy infrastructure and observability stacks to the active cluster
-devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Jaeger
+devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Tempo
 devops k8s deploy-stack --stack llm       # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
 devops k8s deploy-stack --stack logging   # Loki, Fluent Bit
 devops k8s deploy-stack --stack all       # all three

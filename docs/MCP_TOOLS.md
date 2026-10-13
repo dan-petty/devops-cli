@@ -78,7 +78,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_diff_helm`](#k8s-diff-helm) | Compare local Helm values or charts against deployed cluster releases. |
 | [`k8s_doctor`](#k8s-doctor) | Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.  Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with status 2, so the output begins with `Command exited with status 2:` followed by the JSON report. Status 1 indicates the cluster could not be read or an API call failed. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
-| [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
 | [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
 | [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
@@ -86,6 +85,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_security_stream`](#k8s-security-stream) | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
+| [`k8s_tempo_info`](#k8s-tempo-info) | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
 | [`pr_check_readiness`](#pr-check-readiness) | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
@@ -139,8 +139,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command. |
-| [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
+| [`telemetry_profile`](#telemetry-profile) | Show the span waterfall Tempo recorded for a trace ID; the tool runs no command. |
+| [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
 | [`tf_cost_estimate`](#tf-cost-estimate) | Estimate cloud infrastructure cost with Infracost FinOps engine. |
@@ -970,12 +970,6 @@ Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm,
 | `secret_name` | `string` | No | `homelab-tls` | - |
 | `context` | `string` | No | `` | - |
 
-### `k8s_jaeger_info`
-
-Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints.
-
-*No parameters required.*
-
 ### `k8s_lint`
 
 Lint Kubernetes manifests against security best practices and deprecated APIs.
@@ -1050,6 +1044,12 @@ Uninstall Kubernetes infrastructure or LLM stack and delete namespaces.
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
 | `context` | `string` | No | - | - |
+
+### `k8s_tempo_info`
+
+Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints.
+
+*No parameters required.*
 
 ### `k8s_validate`
 
@@ -1678,7 +1678,7 @@ Check Logfire structured observability bridge status, token configuration, and r
 
 ### `telemetry_profile`
 
-Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command.
+Show the span waterfall Tempo recorded for a trace ID; the tool runs no command.
 
 **Parameters:**
 
@@ -1688,7 +1688,7 @@ Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command
 
 ### `telemetry_status`
 
-Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings.
+Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings.
 
 *No parameters required.*
 

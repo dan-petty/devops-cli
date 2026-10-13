@@ -62,12 +62,20 @@ datasources:
         isDefault: false
         jsonData:
           maxLines: 1000
-      - name: Jaeger
-        type: jaeger
-        uid: jaeger
-        url: http://jaeger.otel.svc.cluster.local:16686
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.otel.svc.cluster.local:3200
         access: proxy
         isDefault: false
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            filterByTraceID: true
+          tracesToProfiles:
+            datasourceUid: pyroscope
+          lokiSearch:
+            datasourceUid: loki
       - name: Pyroscope
         type: grafana-pyroscope-datasource
         uid: pyroscope

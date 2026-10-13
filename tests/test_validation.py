@@ -575,14 +575,14 @@ def test_widened_metadata_denials_models_telemetry_ollama() -> None:
     hosts_blocked = sum(1 for h in hosts if _is_target_blocked(_resolve_local_host, h, ValueError))
     assert (items_blocked, hosts_blocked) == (len(endpoints), len(hosts))
 
-    jaeger_level_blocked = sum(
+    tempo_level_blocked = sum(
         1
         for host in hosts
         if _is_target_blocked(
-            vet_addresses, host, SSRFBlockedError, port=14268, level=EgressLevel.LOOPBACK
+            vet_addresses, host, SSRFBlockedError, port=3200, level=EgressLevel.LOOPBACK
         )
     )
-    assert jaeger_level_blocked == len(hosts)
+    assert tempo_level_blocked == len(hosts)
 
     assert (
         ollama_is_metadata("metadata"),

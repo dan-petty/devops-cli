@@ -70,7 +70,7 @@ def test_a_query_string_reaches_the_proxy_path() -> None:
 
 def test_a_named_port_is_accepted() -> None:
     """Services commonly expose ports by name rather than number."""
-    assert parse_service_url("k8s://otel/jaeger:http-query").port == "http-query"
+    assert parse_service_url("k8s://otel/tempo:prom-metrics").port == "prom-metrics"
 
 
 def test_a_tls_backend_uses_the_https_proxy_prefix() -> None:

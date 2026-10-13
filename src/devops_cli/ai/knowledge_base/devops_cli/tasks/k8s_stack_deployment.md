@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap, configure, deploy, and teardown complete cloud-native infrastructure stacks on local Minikube clusters with a single command. Supported stacks include Prometheus metrics collection, Grafana dashboards, ArgoCD GitOps reconciliation, Jaeger distributed tracing, OpenTelemetry collectors, the local LLM stack and centralized logging.
+Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap, configure, deploy, and teardown complete cloud-native infrastructure stacks on local Minikube clusters with a single command. Supported stacks include Prometheus metrics collection, Grafana dashboards, ArgoCD GitOps reconciliation, Grafana Tempo distributed tracing, OpenTelemetry collectors, the local LLM stack and centralized logging.
 
 ---
 
@@ -16,13 +16,13 @@ graph TD
     S --> C[deploy-stack --stack infra]
     S --> D[deploy-stack --stack llm]
     S --> E[deploy-stack --stack logging]
-    C --> F[Argo CD, monitoring, OTel, Jaeger, Pyroscope]
+    C --> F[Argo CD, monitoring, OTel, Tempo, Pyroscope]
     D --> G[Ollama, Open-WebUI, Qdrant, Valkey, LLM gateway]
     E --> H[Loki]
 ```
 
 - **Stack Metadata**:
-  - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Jaeger in `otel`.
+  - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Tempo in `otel`.
   - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
   - `logging`: Loki in `logging` namespace.
   - `devops`: devops-cli's cluster Jobs and roadmap-service in `devops` namespace; deploy-stack renders their ConfigMap `devops-cli-config` from `config.yaml`, and on an Argo CD-managed cluster sets the homelab hosts on the Applications `devops` and `ingress`.
@@ -44,7 +44,7 @@ devops k8s switch-context minikube
 # 2. Bootstrap local Minikube cluster explicitly with GPU passthrough
 devops k8s bootstrap
 
-# 3. Deploy the infrastructure stack (Argo CD, monitoring, OpenTelemetry & Jaeger)
+# 3. Deploy the infrastructure stack (Argo CD, monitoring, OpenTelemetry & Tempo)
 devops k8s deploy-stack --stack infra
 
 # 4. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey, gateway)
@@ -102,7 +102,7 @@ devops k8s teardown-stack --stack llm
   - ArgoCD UI: `http://localhost:8080` (namespace: `argocd`)
   - Grafana Dashboards: `http://localhost:8030` (namespace: `monitoring`)
   - Prometheus Query: `http://localhost:8090` (namespace: `monitoring`)
-  - Jaeger Query UI: `http://localhost:16686` (namespace: `otel`)
+  - Tempo HTTP API: `http://localhost:3200` (namespace: `otel`)
   - OTLP Traces: `localhost:4317` (gRPC) / `localhost:4318` (HTTP)
   - Ollama Inference: `http://localhost:11434` (namespace: `llm`)
   - Open-WebUI: `http://localhost:3000` (namespace: `llm`)
@@ -114,9 +114,8 @@ devops k8s teardown-stack --stack llm
 ## 7. Official References & Published Artifacts
 
 - **Prometheus Community Charts**: [github.com/prometheus-community/helm-charts](https://github.com/prometheus-community/helm-charts)
-- **Grafana Community Charts**: [github.com/grafana/helm-charts](https://github.com/grafana/helm-charts)
+- **Grafana Community Charts**: [github.com/grafana-community/helm-charts](https://github.com/grafana-community/helm-charts)
 - **ArgoCD Official Charts**: [github.com/argoproj/argo-helm](https://github.com/argoproj/argo-helm)
-- **Jaeger Operator Charts**: [github.com/jaegertracing/helm-charts](https://github.com/jaegertracing/helm-charts)
 - **Qdrant Helm Charts**: [github.com/qdrant/qdrant-helm](https://github.com/qdrant/qdrant-helm)
 - **Open-WebUI Helm Charts**: [github.com/open-webui/helm-charts](https://github.com/open-webui/helm-charts)
 - **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s/](../../../../commands/k8s/)

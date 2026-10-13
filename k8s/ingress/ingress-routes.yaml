@@ -412,26 +412,26 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: jaeger-ingress
+  name: tempo-ingress
   namespace: otel
   labels:
-    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/name: tempo
     app.kubernetes.io/part-of: devops-cli-stack
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   ingressClassName: traefik
   rules:
-    - host: jaeger.example.com
+    - host: tempo.example.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: jaeger
+                name: tempo
                 port:
-                  number: 16686
+                  number: 3200
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

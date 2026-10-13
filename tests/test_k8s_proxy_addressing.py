@@ -79,10 +79,10 @@ def test_a_hinted_port_is_preferred_over_the_first() -> None:
 
 def test_a_port_is_matched_by_name_as_well_as_number() -> None:
     """Port numbers vary between installations; names are more stable."""
-    with _listing(_service("jaeger", [_port(14268), _port(16686, "http-query")])):
-        ref = discover_service("otel", ("jaeger",), ("http-query",))
+    with _listing(_service("tempo", [_port(4317), _port(3200, "prom-metrics")])):
+        ref = discover_service("otel", ("tempo",), ("prom-metrics",))
     assert ref is not None
-    assert ref.port == "16686"
+    assert ref.port == "3200"
 
 
 def test_the_first_port_is_used_when_no_hint_matches() -> None:

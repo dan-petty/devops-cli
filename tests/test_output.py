@@ -363,12 +363,11 @@ def test_rich_formatters() -> None:
 
     # 2. Hyperlinks
     assert (
-        format_link("http://localhost:16686")
-        == "[link=http://localhost:16686]http://localhost:16686[/link]"
+        format_link("http://localhost:3200")
+        == "[link=http://localhost:3200]http://localhost:3200[/link]"
     )
     assert (
-        format_link("http://localhost:16686", "Jaeger")
-        == "[link=http://localhost:16686]Jaeger[/link]"
+        format_link("http://localhost:3200", "Tempo") == "[link=http://localhost:3200]Tempo[/link]"
     )
 
     # 3. Durations & Latency

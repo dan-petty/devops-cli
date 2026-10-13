@@ -146,16 +146,16 @@ def test_special_ipv6_and_scoped_address_parsing() -> None:
         )
 
 
-def test_jaeger_to_otel_endpoint_conversion() -> None:
-    """Verify Jaeger URL with userinfo and query string yields clean otel.endpoint."""
+def test_tempo_to_otel_endpoint_conversion() -> None:
+    """Verify Tempo URL with userinfo and query string yields clean otel.endpoint."""
     settings = Settings()
     configured: dict[str, str] = {}
-    jaeger_raw = "http://user:pass@[2001:db8::2]:16686/?x=1"
+    tempo_raw = "http://user:pass@[2001:db8::2]:3200/?x=1"
 
     with (
         patch(
             "devops_cli.commands.k8s.networking._detect_service_url",
-            side_effect=lambda svc, ns, context=None: jaeger_raw if svc == "jaeger" else None,
+            side_effect=lambda svc, ns, context=None: tempo_raw if svc == "tempo" else None,
         ),
         patch(
             "devops_cli.commands.k8s.networking._resolve_accessible_url",
@@ -165,10 +165,10 @@ def test_jaeger_to_otel_endpoint_conversion() -> None:
         _configure_infra_stack_urls(None, settings, configured)
 
     assert (
-        configured.get("jaeger.url"),
+        configured.get("tempo.url"),
         configured.get("otel.endpoint"),
     ) == (
-        jaeger_raw,
+        tempo_raw,
         "http://[2001:db8::2]:4318",
     )
 

@@ -1215,13 +1215,11 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert valkey_res["limits"]["memory"] == "2048Mi"
 
-    # 3. Jaeger: memory limit >= 2048Mi
-    jaeger_docs = list(
-        yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
+    # 3. Tempo: memory limit >= 2048Mi
+    tempo_values = yaml.safe_load(
+        (repo_root / "k8s" / "otel" / "tempo-values.yaml").read_text(encoding="utf-8")
     )
-    jaeger_dep = next(d for d in jaeger_docs if d and d.get("kind") == "Deployment")
-    jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
-    assert jaeger_res["limits"]["memory"] == "2048Mi"
+    assert tempo_values["tempo"]["resources"]["limits"]["memory"] == "2048Mi"
 
     # 4. Registry: memory limit >= 2048Mi
     reg_docs = list(
@@ -1581,7 +1579,7 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         "argocd": 8080,
         "grafana": 8030,
         "prometheus": 8090,
-        "jaeger": 16686,
+        "tempo": 3200,
         "pyroscope": 4040,
         "otel": 4318,
     }

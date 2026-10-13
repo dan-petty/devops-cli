@@ -541,16 +541,16 @@ class K8sPolicyValidateResult(BaseModel):
     )
 
 
-class K8sJaegerInfoRequest(BaseModel):
-    """Request parameters for querying Jaeger tracing instance details in Kubernetes."""
+class K8sTempoInfoRequest(BaseModel):
+    """Request parameters for querying Tempo tracing instance details in Kubernetes."""
 
-    namespace: str = Field(default="telemetry", description="Namespace containing Jaeger")
+    namespace: str = Field(default="telemetry", description="Namespace containing Tempo")
 
 
-class K8sJaegerInfoResult(BaseModel):
-    """Information for Jaeger distributed tracing collector and UI endpoints."""
+class K8sTempoInfoResult(BaseModel):
+    """Information for Tempo distributed tracing collector and HTTP endpoints."""
 
-    ui_url: str = Field(default="", description="Jaeger Web UI endpoint URL")
+    ui_url: str = Field(default="", description="Tempo HTTP API endpoint URL")
     collector_otlp_grpc: str = Field(
         default="", description="OTLP gRPC collector endpoint (e.g. host:4317)"
     )
@@ -558,7 +558,7 @@ class K8sJaegerInfoResult(BaseModel):
         default="", description="OTLP HTTP collector endpoint (e.g. host:4318)"
     )
     status: str = Field(default="Running", description="Collector deployment status")
-    available: bool = Field(default=False, description="Whether Jaeger endpoints are accessible")
+    available: bool = Field(default=False, description="Whether Tempo endpoints are accessible")
 
 
 class FalcoAlert(BaseModel):

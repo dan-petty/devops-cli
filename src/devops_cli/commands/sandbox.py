@@ -703,7 +703,7 @@ def _render_sandbox_trace_waterfall(
     trace_id: str,
     target: str | None,
     spans: list[dict[str, Any]],
-    jaeger_url: str | None = None,
+    tempo_url: str | None = None,
 ) -> None:
     """Render terminal waterfall Gantt table for OpenTelemetry trace spans."""
     from devops_cli.output import format_latency
@@ -747,11 +747,11 @@ def _render_sandbox_trace_waterfall(
     min_start = min((int(s.get("startTimeUnixNano", 0)) for s in spans), default=0)
     max_end = max((int(s.get("endTimeUnixNano", 0)) for s in spans), default=0)
     total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
-    j_url = (jaeger_url or "http://localhost:16686").rstrip("/")
+    t_url = (tempo_url or "http://localhost:3200").rstrip("/")
 
     print_info(
         f"[bold]Trace Summary:[/bold] {len(spans)} span(s), total duration {format_latency(total_dur_ms)} | "
-        f"[dim]Jaeger: {j_url}/trace/{trace_id}[/dim]",
+        f"[dim]Tempo: {t_url}/api/v2/traces/{trace_id}[/dim]",
         prefix=False,
     )
 
@@ -797,13 +797,13 @@ def _execute_sandbox_probe_before_trace(identifier: str) -> tuple[str, str | Non
 
 
 def _resolve_spans_for_traces(
-    trace_id: str | None, last: bool, jaeger_url: str | None
+    trace_id: str | None, last: bool, tempo_url: str | None
 ) -> tuple[str, list[dict[str, Any]]]:
     """Retrieve trace spans matching trace_id or fallback to most recent buffer spans."""
     from devops_cli.telemetry.tracer import get_trace_spans
     from devops_cli.telemetry.waterfall import resolve_trace_spans
 
-    active_id, spans = resolve_trace_spans(trace_id=trace_id, jaeger_url=jaeger_url)
+    active_id, spans = resolve_trace_spans(trace_id=trace_id, tempo_url=tempo_url)
     if not spans and (last or not trace_id):
         buffered = get_trace_spans(None)
         if buffered:
@@ -830,9 +830,9 @@ def traces(
         bool,
         typer.Option("--probe", help=HELP.sandbox.probe_before_trace),
     ] = False,
-    jaeger_url: Annotated[
+    tempo_url: Annotated[
         str | None,
-        typer.Option("--jaeger-url", help=HELP.sandbox.jaeger_url),
+        typer.Option("--tempo-url", help=HELP.sandbox.tempo_url),
     ] = None,
     output_format: Annotated[
         str,
@@ -857,7 +857,7 @@ def traces(
                 "identifier": identifier,
                 "trace_id": trace_id or "latest",
                 "probe": probe,
-                "jaeger_url": jaeger_url,
+                "tempo_url": tempo_url,
             },
         )
         return None
@@ -867,7 +867,7 @@ def traces(
     if probe and identifier:
         target_display, resolved_trace_id = _execute_sandbox_probe_before_trace(identifier)
 
-    active_id, spans = _resolve_spans_for_traces(resolved_trace_id, last, jaeger_url)
+    active_id, spans = _resolve_spans_for_traces(resolved_trace_id, last, tempo_url)
     if not spans:
         print_warning(f"No telemetry spans recorded for trace '{resolved_trace_id or active_id}'.")
         return None
@@ -877,7 +877,7 @@ def traces(
         _render_sandbox_trace_json(active_id, target_display, spans, output_format=resolved)
         return None
 
-    _render_sandbox_trace_waterfall(active_id, target_display, spans, jaeger_url=jaeger_url)
+    _render_sandbox_trace_waterfall(active_id, target_display, spans, tempo_url=tempo_url)
     return None
 
 

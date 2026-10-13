@@ -316,7 +316,7 @@ The SDLC cycle closes with real-time operational telemetry and DORA performance 
 flowchart TD
     CLI[DevOps CLI Execution] --> OTel[OpenTelemetry Spans @trace_span]
     CLI --> Prom[Prometheus Metrics GLOBAL_METRICS]
-    OTel --> Jaeger[Jaeger / Tempo Traces]
+    OTel --> Tempo[Tempo Traces]
     Prom --> Grafana[Grafana Dashboards]
 
     subgraph DORA[DORA Operational Metrics]

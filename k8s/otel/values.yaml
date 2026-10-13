@@ -67,10 +67,10 @@ config:
     debug:
       verbosity: basic
 
-    # Send traces to Jaeger in-cluster (local dev/homelab uses internal gRPC with insecure: true;
+    # Send traces to Tempo in-cluster (local dev/homelab uses internal gRPC with insecure: true;
     # for production clusters, enable TLS certificates via cert-manager and set insecure: false).
-    otlp_grpc/jaeger:
-      endpoint: jaeger.otel.svc.cluster.local:4317
+    otlp_grpc/tempo:
+      endpoint: tempo.otel.svc.cluster.local:4317
       tls:
         insecure: true
 
@@ -96,7 +96,7 @@ config:
       traces:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [debug, otlp_grpc/jaeger]
+        exporters: [debug, otlp_grpc/tempo]
 
       metrics:
         receivers: [otlp]

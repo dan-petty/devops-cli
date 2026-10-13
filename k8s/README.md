@@ -6,7 +6,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Jaeger | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
 | **`all`** | All components from the three stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
@@ -149,7 +149,7 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 ## Scrape Ownership
 
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` ServiceMonitor, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` ServiceMonitor, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
 
 | Component | Owner | Reason |
 | :--- | :--- | :--- |
@@ -157,7 +157,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | Grafana | Its own `grafana` release (`monitoring/grafana-values.yaml`) | k8s-monitoring does not deploy Grafana. Nothing scrapes it yet; #1131 adds its scrape |
 | Loki | Its own `loki` release, in the `logging` stack (`logging/loki-values.yaml`) | Loki belongs to the logging stack, so k8s-monitoring's Loki integration scrapes it only where that stack runs |
 | Pyroscope server | Its own `pyroscope` release | k8s-monitoring collects telemetry; it does not deploy the server that stores profiles |
-| Trace backend (Jaeger) | Its own manifests in `otel/` | k8s-monitoring deploys no trace store |
+| Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel` |
 | dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off |
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
 | prometheus-operator-crds | Its own release, installed first | The `llm-gateway` ServiceMonitor and #823's Qdrant monitor need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
@@ -392,7 +392,7 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 21 leaf Applications (8 raw leaf applications and 13 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 22 leaf Applications (8 raw leaf applications and 14 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -604,7 +604,7 @@ k8s/
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 21 leaf Applications (8 raw + 13 Helm)
+│   └── apps/                 # AppProjects and 22 leaf Applications (8 raw + 14 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
@@ -615,7 +615,7 @@ k8s/
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
-│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, gateway monitors, annotation autodiscovery, CoreDNS, and the Loki and DCGM integrations)
+│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, gateway monitors, annotation autodiscovery, CoreDNS, and the Loki, Tempo and DCGM integrations)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 │   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)
 │   └── dashboards/
@@ -631,6 +631,7 @@ k8s/
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── networkpolicy.yaml    # Perimeter NetworkPolicy for otel namespace
+│   ├── tempo-values.yaml     # Helm values for grafana-community/tempo
 │   └── values.yaml           # Helm values for opentelemetry-collector
 ├── llm/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base

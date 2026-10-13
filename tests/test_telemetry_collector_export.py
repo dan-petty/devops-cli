@@ -1,7 +1,7 @@
 """devops-cli telemetry reaches the cluster's collector, or says it does not (#547).
 
 The default endpoint `http://localhost:4318` answered nowhere and the collector was ClusterIP
-only, so Jaeger had no services and the devops-cli dashboards were empty. Exports failed without
+only, so Tempo had no services and the devops-cli dashboards were empty. Exports failed without
 a word, and exports still queued at exit were cancelled.
 """
 

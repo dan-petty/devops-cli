@@ -27,7 +27,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
     DEFAULT_GRAFANA_PORT,
     DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
-    DEFAULT_JAEGER_PORT,
     DEFAULT_K8S_STACK,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_PORT,
@@ -39,6 +38,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
+    DEFAULT_TEMPO_PORT,
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings
@@ -404,13 +404,13 @@ def _configure_infra_stack_urls(
     raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
     raw_grafana = _detect_service_url("grafana", "monitoring", context=effective_context)
     raw_prom = _detect_service_url("prometheus-server", "monitoring", context=effective_context)
-    raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
+    raw_tempo = _detect_service_url("tempo", "otel", context=effective_context)
     raw_pyro = _detect_service_url("pyroscope", "monitoring", context=effective_context)
 
     argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
     grafana_url = _resolve_accessible_url(raw_grafana, preferred_localhost_ports=[8030, 8000, 3000])
     prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
-    jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
+    tempo_url = _resolve_accessible_url(raw_tempo, preferred_localhost_ports=[3200])
     pyro_url = _resolve_accessible_url(raw_pyro, preferred_localhost_ports=[4040])
 
     _apply_service_url(
@@ -429,23 +429,23 @@ def _configure_infra_stack_urls(
         pyro_url,
         getattr(getattr(settings, "pyroscope", None), "url", None),
     )
-    if jaeger_url and _should_update_url(getattr(settings.jaeger, "url", None), jaeger_url):
-        dotted_set(settings, "jaeger.url", jaeger_url)
-        configured["jaeger.url"] = jaeger_url
+    if tempo_url and _should_update_url(getattr(settings.tempo, "url", None), tempo_url):
+        dotted_set(settings, "tempo.url", tempo_url)
+        configured["tempo.url"] = tempo_url
         import httpx2
 
         from devops_cli.config.constants import CONST_OTEL_OTLP_HTTP_PORT
 
         try:
-            j_host = httpx2.URL(jaeger_url).host
+            t_host = httpx2.URL(tempo_url).host
         except httpx2.InvalidURL, ValueError:
             from urllib.parse import urlparse
 
-            j_host = urlparse(jaeger_url).hostname or "localhost"
+            t_host = urlparse(tempo_url).hostname or "localhost"
         otel_url = str(
             httpx2.URL(
                 scheme="http",
-                host=j_host,
+                host=t_host,
                 port=CONST_OTEL_OTLP_HTTP_PORT,
             )
         )
@@ -550,7 +550,7 @@ _PROXY_TARGETS_INFRA: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], .
     ("argocd.url", "argocd", ("argocd-server",), ("80", "http", "server")),
     ("grafana.url", "monitoring", ("grafana",), ("80", "http", "service")),
     ("prometheus.url", "monitoring", ("prometheus-server",), ("9090", "http", "web")),
-    ("jaeger.url", "otel", ("jaeger",), ("16686", "query", "http-query")),
+    ("tempo.url", "otel", ("tempo",), ("3200", "tempo-prom-metrics", "prom-metrics", "http")),
     ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
 )
 _PROXY_TARGETS_LLM: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
@@ -596,7 +596,7 @@ _NODEPORT_KEYS_INFRA: tuple[str, ...] = (
     "argocd.url",
     "grafana.url",
     "prometheus.url",
-    "jaeger.url",
+    "tempo.url",
     "otel.endpoint",
     "pyroscope.url",
 )
@@ -996,7 +996,7 @@ def _build_port_forward_details(
                 "argocd.url": f"http://localhost:{ports['argocd']}",
                 "grafana.url": f"http://localhost:{ports['grafana']}",
                 "prometheus.url": f"http://localhost:{ports['prometheus']}",
-                "jaeger.url": f"http://localhost:{ports['jaeger']}",
+                "tempo.url": f"http://localhost:{ports['tempo']}",
                 "otel.endpoint": f"http://localhost:{ports['otel']}",
                 "pyroscope.url": f"http://localhost:{ports['pyroscope']}",
             }
@@ -1025,8 +1025,8 @@ def _collect_port_forward_services(
                 ("argocd", "svc/argocd-server", ports["argocd"], 80),
                 ("monitoring", "svc/grafana", ports["grafana"], 80),
                 ("monitoring", "svc/prometheus-server", ports["prometheus"], 9090),
-                ("otel", "svc/jaeger", ports["jaeger"], 16686),
-                ("otel", "svc/jaeger", ports["otel"], 4318),
+                ("otel", "svc/tempo", ports["tempo"], 3200),
+                ("otel", "svc/tempo", ports["otel"], 4318),
                 ("monitoring", "svc/pyroscope", ports["pyroscope"], 4040),
             ]
         )
@@ -1120,9 +1120,9 @@ def port_forward(
     prometheus_port: Annotated[
         int, typer.Option("--prometheus-port", help=HELP.k8s.prometheus_port)
     ] = DEFAULT_PROMETHEUS_PORT,
-    jaeger_port: Annotated[
-        int, typer.Option("--jaeger-port", help=HELP.k8s.jaeger_port)
-    ] = DEFAULT_JAEGER_PORT,
+    tempo_port: Annotated[
+        int, typer.Option("--tempo-port", help=HELP.k8s.tempo_port)
+    ] = DEFAULT_TEMPO_PORT,
     pyroscope_port: Annotated[
         int, typer.Option("--pyroscope-port", help=HELP.k8s.pyroscope_port)
     ] = DEFAULT_PYROSCOPE_PORT,
@@ -1168,7 +1168,7 @@ def port_forward(
         "argocd": argocd_port,
         "grafana": grafana_port,
         "prometheus": prometheus_port,
-        "jaeger": jaeger_port,
+        "tempo": tempo_port,
         "pyroscope": pyroscope_port,
         "otel": otel_port,
         "ollama": ollama_port,

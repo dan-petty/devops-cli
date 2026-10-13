@@ -66,14 +66,14 @@ from devops_cli.models.k8s import (
     K8sClusterStatusResult,
     K8sDeployStackRequest,
     K8sDeployStackResult,
-    K8sJaegerInfoRequest,
-    K8sJaegerInfoResult,
     K8sPodsRequest,
     K8sPodsResult,
     K8sPolicyValidateRequest,
     K8sPolicyValidateResult,
     K8sTeardownStackRequest,
     K8sTeardownStackResult,
+    K8sTempoInfoRequest,
+    K8sTempoInfoResult,
     PodInfo,
     PolicyRuleViolation,
 )
@@ -253,16 +253,16 @@ def test_k8s_resource_models_roundtrip() -> None:
     )
     assert val_res.passed is False
 
-    jaeger_req = K8sJaegerInfoRequest()
-    assert jaeger_req.namespace == "telemetry"
-    jaeger_res = K8sJaegerInfoResult(
-        ui_url="http://127.0.0.1:16686",
+    tempo_req = K8sTempoInfoRequest()
+    assert tempo_req.namespace == "telemetry"
+    tempo_res = K8sTempoInfoResult(
+        ui_url="http://127.0.0.1:3200",
         collector_otlp_grpc="127.0.0.1:4317",
         collector_otlp_http="127.0.0.1:4318",
         status="Running",
         available=True,
     )
-    assert jaeger_res.available is True
+    assert tempo_res.available is True
 
 
 def test_security_resource_models_roundtrip() -> None:

@@ -719,7 +719,7 @@ def _selects_otel(rule: dict[str, Any]) -> bool:
 @pytest.mark.usefixtures("public_dns")
 @pytest.mark.parametrize("mode", _COLLECTOR_LANE_MODES)
 def test_the_collector_lane_is_one_rule_to_the_collector_pods_on_the_otlp_ports(mode: str) -> None:
-    """The lane selects the collector by namespace and pod labels together, never Jaeger or an IP."""
+    """The lane selects the collector by namespace and pod labels together, never Tempo or an IP."""
     egress = _egress_without_dns(_MODE_POLICIES[mode], allow_collector=True)
     assert [rule for rule in egress if _selects_otel(rule)] == [_COLLECTOR_RULE]
 

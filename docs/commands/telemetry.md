@@ -1,12 +1,12 @@
 # `devops telemetry`
 
-OpenTelemetry tracing, metrics, and Jaeger observability.
+OpenTelemetry tracing, metrics, and Tempo observability.
 
 ## Commands
 
 ## `devops telemetry status`
 
-**Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
+**Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status.**
 
 ```bash
 devops telemetry status [OPTIONS]
@@ -76,7 +76,7 @@ devops telemetry test [OPTIONS]
 
 ## `devops telemetry profile`
 
-**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -92,7 +92,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Tempo and show, instead of running a command. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -101,7 +101,7 @@ devops telemetry profile [OPTIONS] <command>
 
 ## `devops telemetry open-ui`
 
-**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+**Print and show the Tempo HTTP API endpoint for inspecting traces.**
 
 ```bash
 devops telemetry open-ui

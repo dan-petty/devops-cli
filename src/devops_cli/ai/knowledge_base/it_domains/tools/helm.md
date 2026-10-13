@@ -2,13 +2,13 @@
 
 ## 1. Overview & Purpose
 
-Helm is the standard package manager for Kubernetes, enabling developers and DevOps teams to define, install, upgrade, and version complex Kubernetes applications using reusable packages called Charts. In the `devops-cli` ecosystem, Helm powers automated stack deployment (`devops k8s deploy-stack`), managing Prometheus, Grafana, ArgoCD, Jaeger, and OpenTelemetry collector charts.
+Helm is the standard package manager for Kubernetes, enabling developers and DevOps teams to define, install, upgrade, and version complex Kubernetes applications using reusable packages called Charts. In the `devops-cli` ecosystem, Helm powers automated stack deployment (`devops k8s deploy-stack`), managing Prometheus, Grafana, ArgoCD, Tempo, and OpenTelemetry collector charts.
 
 ---
 
 ## 2. Usage Information & Architecture
 
-- **Chart Repositories & Dependency Management**: Automatically adds and updates upstream Helm repositories (e.g. `prometheus-community`, `grafana`, `argo`, `jaegertracing`).
+- **Chart Repositories & Dependency Management**: Automatically adds and updates upstream Helm repositories (e.g. `prometheus-community`, `grafana`, `grafana-community`, `argo`).
 - **Release Lifecycle Management**: Performs atomic, idempotent release upgrades (`helm upgrade --install`) with wait flags and rollback protection.
 - **Values Customization**: Parameterizes deployments via custom YAML values files, configuring resource limits, persistence volumes, and ingress rules.
 - **Stack Automation**: Integrated directly into `src/devops_cli/commands/k8s/` for one-command workstation stack deployments (`devops k8s deploy-stack --stack infra`).

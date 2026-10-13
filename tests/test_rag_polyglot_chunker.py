@@ -162,7 +162,7 @@ Details on vector collection sharding and replica distribution.
 
 ## Observability & Tracing
 
-OpenTelemetry Collector routes spans to Jaeger.
+OpenTelemetry Collector routes spans to Tempo.
 """,
         encoding="utf-8",
     )

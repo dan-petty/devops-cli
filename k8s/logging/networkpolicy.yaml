@@ -16,7 +16,7 @@ spec:
         - podSelector: {}
     # 2. Allow Grafana/Alloy in monitoring and the OTel collector release in otel to push/query
     # Loki (3100). The otel peer names the collector's pods: Loki has auth disabled, so a
-    # namespace-only peer would admit Jaeger and any other otel workload. Unlike the egress
+    # namespace-only peer would admit Tempo and any other otel workload. Unlike the egress
     # caveat in k8s/cloudflared/networkpolicy.yaml, this cluster's kube-router enforces an
     # ingress peer that combines namespaceSelector and podSelector with `ports` in the same
     # rule (checked live, #1100).

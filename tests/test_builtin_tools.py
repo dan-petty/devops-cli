@@ -14,8 +14,8 @@ from devops_cli.ai.tools.builtin_tools import (
     check_threat_intel,
     git_diff,
     git_status,
-    k8s_jaeger_status,
     k8s_pods,
+    k8s_tempo_status,
     list_files,
     read_file,
     scan_bandit,
@@ -183,8 +183,8 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     k8s_pods("kube-system")
     assert called_cmds[-1][:3] == ["kubectl", "get", "pods"]
 
-    k8s_jaeger_status("default")
-    assert called_cmds[-1][:3] == ["kubectl", "get", "jaegers,deployments,services"]
+    k8s_tempo_status("default")
+    assert called_cmds[-1][:3] == ["kubectl", "get", "deployments,statefulsets,services"]
 
     argo_apps()
     assert called_cmds[-1][:3] == ["argocd", "app", "list"]

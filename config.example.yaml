@@ -66,11 +66,11 @@ qdrant:
   # 300 to 600 s suits a homelab Qdrant. Env: DEVOPS_CLI_QDRANT_TIMEOUT.
   timeout: 300
 
-# ── Jaeger Tracing ────────────────────────────────────────────────────────────
-jaeger:
-  # Jaeger Query UI base URL for viewing OpenTelemetry traces.
-  # Example: http://localhost:16686 or https://example.com:16686
-  url: http://localhost:16686
+# ── Tempo Tracing ─────────────────────────────────────────────────────────────
+tempo:
+  # Grafana Tempo HTTP API base URL for querying OpenTelemetry traces.
+  # Example: http://localhost:3200 or https://example.com:3200
+  url: http://localhost:3200
 
 # ── Telemetry ─────────────────────────────────────────────────────────────────
 telemetry:

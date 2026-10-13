@@ -311,7 +311,7 @@ MONITORING_NAMESPACE_PEER = {
 def test_loki_ingress_from_otel_admits_only_the_collector() -> None:
     """Verify Loki's 3100 ingress names the collector's pods in `otel`, not the whole namespace (#1100).
 
-    Loki runs with `auth_enabled: false`, so a namespace-only `otel` peer let Jaeger, or any
+    Loki runs with `auth_enabled: false`, so a namespace-only `otel` peer let Tempo, or any
     workload later deployed to `otel`, push and query logs. A peer that combines the namespace
     selector with the collector release's pod labels, with `ports` in the same rule, was
     checked against this cluster's kube-router before the change: the labelled pod connected

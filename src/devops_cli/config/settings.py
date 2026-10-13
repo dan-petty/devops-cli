@@ -59,7 +59,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
-    DEFAULT_JAEGER_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -90,6 +89,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
+    DEFAULT_TEMPO_URL,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_WORKSPACE_FILE,
@@ -282,9 +282,9 @@ class ValkeyConfig(BaseModel):
         return data
 
 
-class JaegerConfig(BaseModel):
+class TempoConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    url: str | None = DEFAULT_JAEGER_URL
+    url: str | None = DEFAULT_TEMPO_URL
 
 
 class PyroscopeConfig(BaseModel):
@@ -718,7 +718,7 @@ class Settings(BaseSettings):
     qdrant: QdrantConfig = QdrantConfig()
     valkey: ValkeyConfig = ValkeyConfig()
     runs: RunsConfig = RunsConfig()
-    jaeger: JaegerConfig = JaegerConfig()
+    tempo: TempoConfig = TempoConfig()
     pyroscope: PyroscopeConfig = PyroscopeConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
