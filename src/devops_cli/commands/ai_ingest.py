@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING, Annotated, Any
 import typer
 
 from devops_cli.ai.rag.library_store import library_contracts_dir
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.lang import HELP
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.library_store import LibraryVectorStore
@@ -38,7 +40,7 @@ def ingest_library(
 ) -> None:
     """Introspect an installed Python package and extract its public API contract."""
     from devops_cli.ai.library.introspector import PackageIntrospector
-    from devops_cli.output import print_error, print_table, write_stdout
+    from devops_cli.output import print_error, print_table
 
     introspector = PackageIntrospector()
     try:
@@ -49,8 +51,9 @@ def ingest_library(
         print_error(f"Failed to ingest library '{package_name}': {exc}")
         raise typer.Exit(code=1) from exc
 
-    if output_format == "json":
-        write_stdout(contract.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(contract.model_dump(), resolved)
         return
 
     rows = [
@@ -82,7 +85,7 @@ def ingest_docs(
 ) -> None:
     """Ingest local or remote documentation into chunked markdown knowledge files."""
     from devops_cli.ai.library.docs_ingester import DocsIngester
-    from devops_cli.output import print_error, print_table, write_stdout
+    from devops_cli.output import print_error, print_table
 
     ingester = DocsIngester()
     try:
@@ -94,8 +97,9 @@ def ingest_docs(
         print_error(f"Failed to ingest documentation from '{source}': {exc}")
         raise typer.Exit(code=1) from exc
 
-    if output_format == "json":
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
         return
 
     rows = [
@@ -287,10 +291,9 @@ def index_libraries(
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
-    import json
 
     from devops_cli.ai.rag.embeddings import EmbeddingsError
-    from devops_cli.output import print_warning, write_stdout
+    from devops_cli.output import print_warning
 
     contracts_dir = contracts_dir or library_contracts_dir()
     contracts = _load_local_contracts(contracts_dir)
@@ -304,11 +307,12 @@ def index_libraries(
             for contract in contracts:
                 store.index_contract(contract)
 
-    if output_format == "json":
+    resolved = resolve_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = [
             {"package": c.package_name, "version": c.version, "dry_run": dry_run} for c in contracts
         ]
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     _render_index_libraries_table(contracts, dry_run=dry_run)
@@ -330,10 +334,8 @@ def query_library(
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
-    import json
-
     from devops_cli.ai.rag.embeddings import EmbeddingsError
-    from devops_cli.output import print_error, write_stdout
+    from devops_cli.output import print_error
 
     store = _build_runtime_vector_store(
         contracts_dir or library_contracts_dir(),
@@ -341,21 +343,22 @@ def query_library(
         dry_run=False,
     )
 
+    resolved = resolve_format(output_format)
     if exact:
         sig = store.lookup_symbol(query, package=package)
         if sig is None:
             print_error(f"Symbol '{query}' not found in library contracts or cache.")
             raise typer.Exit(code=1)
-        if output_format == "json":
-            write_stdout(sig.model_dump_json(indent=2) + "\n")
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(sig.model_dump(), resolved)
             return
         _render_query_exact_table(sig)
         return
 
     with exit_on_error(EmbeddingsError):
         results = store.search(query, package=package, top_k=top_k)
-    if output_format == "json":
-        write_stdout(json.dumps([r.model_dump() for r in results], indent=2) + "\n")
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([r.model_dump() for r in results], resolved)
         return
 
     _render_search_results_table(results)

@@ -11,9 +11,11 @@ from pydantic import BaseModel, ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.commands import BIN_KUBECTL
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_KUBECONFORM_VERSION,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.k8s.rbac import RbacBindingList, RbacRoleList, audit_rbac
@@ -22,7 +24,6 @@ from devops_cli.output import (
     TableColumn,
     TablePayload,
     escape_text,
-    format_json,
     format_k8s_lint_table,
     format_k8s_policy_table,
     format_k8s_rbac_table,
@@ -32,8 +33,8 @@ from devops_cli.output import (
     print_info,
     print_muted,
     print_success,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 
 def _read_rbac[ListT: BaseModel](
@@ -260,6 +261,10 @@ def k8s_validate(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -284,8 +289,9 @@ def k8s_validate(
         strict=strict,
     )
 
-    if json_output:
-        write_stdout(format_json([f.model_dump() for f in findings]) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([f.model_dump() for f in findings], resolved)
         return
 
     if not findings:
@@ -312,6 +318,10 @@ def validate_policy_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -330,8 +340,11 @@ def validate_policy_cmd(
     if dry_run or is_dry_run():
         return
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
+        if report.failed_count > 0:
+            raise typer.Exit(1)
         return
 
     if report.failed_count == 0:

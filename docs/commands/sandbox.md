@@ -57,6 +57,7 @@ devops sandbox status [OPTIONS] <instance_id>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--all`, `-a` | `boolean` | - | Apply operation across all registered sandbox instances. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 
 ---
@@ -132,6 +133,7 @@ devops sandbox probe [OPTIONS] <identifier>
 | `--regex`, `-r` | `string` | - | Regex pattern to assert against HTTP response body. |
 | `--latency-sla` | `float` | - | Maximum acceptable response latency budget in milliseconds. |
 | `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -160,6 +162,7 @@ devops sandbox metrics [OPTIONS] <identifier>
 | `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
 | `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
 | `--latency-sla-ms` | `float` | - | Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -187,6 +190,7 @@ devops sandbox traces [OPTIONS] <identifier>
 | `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
 | `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
 | `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -216,6 +220,7 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--detect-panics` / `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
 | `--archive-incidents` / `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

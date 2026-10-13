@@ -17,9 +17,10 @@ from devops_cli.commands.pr import app as pr_app
 from devops_cli.config.constants import (
     CONST_GH_MILESTONE_STATE_ALL,
     CONST_GH_MILESTONE_STATE_FILTERS,
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_PROJECT_WORKFLOW_EXPECTATIONS,
 )
-from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
@@ -83,7 +84,6 @@ from devops_cli.github.secrets import (
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    format_json,
     print,
     print_error,
     print_info,
@@ -91,8 +91,8 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.store import GitHubState
@@ -613,18 +613,21 @@ def list_project_workflows(
         typer.Option("--project-number", "-n", help="GitHub Projects v2 board number"),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """List built-in project workflows, enabled statuses, and configuration links."""
-    from devops_cli.output import write_stream
-
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     proj_num = _resolve_project_number(owner, target_repo, project_number)
 
     workflows = get_project_workflows(proj_num, owner, repo=target_repo)
-    if json_output:
-        write_stream(json.dumps(workflows, indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(workflows, resolved)
         return
 
     if not workflows:
@@ -1438,6 +1441,10 @@ def rate_limit_cmd(
 
 @app.command("status")
 def gh_status_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit structured JSON service status summary"),
@@ -1469,8 +1476,9 @@ def gh_status_cmd(
         emit_service_status_telemetry(summary, "github")
         record_service_status_in_registry(summary, "github")
 
-    if json_output:
-        write_stdout(format_json(summary.model_dump()))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(summary.model_dump(), resolved)
         return
 
     render_statuspage_summary(summary, "GitHub")
@@ -1616,6 +1624,10 @@ def audit_branch_protection_cmd(
         Path,
         typer.Option("--policy-file", "-f", help=HELP.gh.branch_protection_policy_file),
     ] = Path(".github/branch-protection.yml"),
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """Audit branch protection against declarative policy specifications."""
@@ -1628,11 +1640,10 @@ def audit_branch_protection_cmd(
 
     results = audit_branch_protection(target_repo, policies, branch=branch)
 
-    if json_output:
-        from devops_cli.output import write_stream
-
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = [r.model_dump() for r in results]
-        write_stream(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     columns = ["Branch", "Status", "Drift / Findings"]
@@ -1872,6 +1883,10 @@ def project_metrics_cmd(
         typer.Option("--milestone", "-m", help="Filter metrics to a specific milestone"),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit structured JSON metrics report"),
@@ -1897,8 +1912,9 @@ def project_metrics_cmd(
         emit_project_metrics_telemetry(report)
         record_project_metrics_in_registry(report)
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         return
 
     summary_text = (

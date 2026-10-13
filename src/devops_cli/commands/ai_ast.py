@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -10,10 +9,16 @@ import typer
 
 from devops_cli.ai.ast.engine import TreeSitterEngine
 from devops_cli.ai.ast.graph import CodeGraphBuilder
+from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_JSON,
+    CONST_OUTPUT_FORMAT_TABLE,
+)
+from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
 from devops_cli.output import print_error, print_info, print_success, write_stdout
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(
     help=HELP.ai.ast,
@@ -40,6 +45,10 @@ def _exit_unparsable(file_path: Path) -> NoReturn:
 def ast_parse_cmd(
     file_path: Annotated[Path, typer.Argument(help=HELP.ai.ast_parse)],
     query: Annotated[str, typer.Option("--query", "-q", help=HELP.ai.ast_query)] = "",
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
@@ -61,15 +70,21 @@ def ast_parse_cmd(
         matches = engine.query_file(file_path, query)
         if matches is None:
             _exit_unparsable(file_path)
-        write_stdout(json.dumps(matches, indent=2) + "\n")
+        resolved = resolve_format(
+            output_format,
+            json_output=json_output,
+            default_format=CONST_OUTPUT_FORMAT_JSON,
+        )
+        emit_serialized(matches, resolved)
         return
 
     file_map = engine.parse_file(file_path)
     if not file_map:
         _exit_unparsable(file_path)
 
-    if json_output:
-        write_stdout(json.dumps(file_map.to_dict(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(file_map.to_dict(), resolved)
         return
 
     write_stdout(_render_symbols_text(file_path, file_map.symbols) + "\n")

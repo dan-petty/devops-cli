@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -33,12 +32,18 @@ from devops_cli.ai.research.socratic import (
     SocraticFormulator,
     render_socratic_markdown,
 )
+from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_JSON,
+    CONST_OUTPUT_FORMAT_TABLE,
+    CONST_OUTPUT_FORMAT_YAML,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_ANALOGIES_LIMIT,
     DEFAULT_AI_ANALOGIES_MIN_SCORE,
     DEFAULT_AI_FORAGE_MAX_NODES,
     DEFAULT_AI_FORAGE_MIN_SCORE,
     DEFAULT_AI_SOCRATIC_MAX_PROBES,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, find_worktree_root
@@ -53,6 +58,7 @@ from devops_cli.output import (
     render_dry_run_result,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(
     help=HELP.ai.research,
@@ -197,6 +203,14 @@ def forage_cmd(
             help=HELP.options.repo,
         ),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option(
@@ -237,20 +251,17 @@ def forage_cmd(
         print_error(f"Information foraging failed: {exc}")
         raise typer.Exit(code=1) from exc
 
-    if json_output:
-        write_stdout(trail.model_dump_json(indent=2))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(trail.model_dump(), resolved)
     else:
         _display_forage_summary(trail)
 
 
 def _emit_marginalia_records(records: list[MarginaliaRecord], fmt: str, path: str) -> None:
-    if fmt == "json":
-        write_stdout(json.dumps([r.model_dump() for r in records], indent=2, ensure_ascii=False))
-        return
-    if fmt == "yaml":
-        write_stdout(
-            yaml.safe_dump([r.model_dump() for r in records], sort_keys=False, allow_unicode=True)
-        )
+    clean_fmt = fmt.strip().lower()
+    if clean_fmt in (CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML):
+        emit_serialized([r.model_dump() for r in records], clean_fmt)
         return
 
     console = get_console()
@@ -749,16 +760,13 @@ def _resolve_qdrant_client() -> Any | None:
 
 def _emit_analogies_result(analogies: list[CrossDomainAnalogy], fmt: str) -> None:
     """Format and write analogy retrieval results to stdout."""
-    if fmt == "json":
+    clean_fmt = fmt.strip().lower()
+    if clean_fmt in (CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML):
         data = [a.model_dump() for a in analogies]
-        write_stdout(json.dumps(data, indent=2))
+        emit_serialized(data, clean_fmt)
         return
-    if fmt == "yaml":
-        data = [a.model_dump() for a in analogies]
-        write_stdout(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
-        return
-    if fmt in ("markdown", "md"):
-        write_stdout(render_analogies_markdown(analogies))
+    if clean_fmt in ("markdown", "md"):
+        write_stdout(render_analogies_markdown(analogies) + "\n")
         return
     if not analogies:
         get_console().print("[yellow]No cross-domain analogies found matching criteria.[/yellow]")

@@ -285,6 +285,7 @@ devops review score [OPTIONS] <sessions>
 |---|---|---|---|
 | `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -363,6 +364,7 @@ devops review corpus score [OPTIONS] <corpus_dir>
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

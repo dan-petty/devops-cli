@@ -40,19 +40,38 @@ def normalize_format(requested: str) -> str:
     return fmt
 
 
-def resolve_format(*, json_output: bool = False, yaml_output: bool = False) -> str:
-    """Map the boolean flags commands already expose onto a format name.
+def resolve_format(
+    format_opt: str | None = None,
+    *,
+    json_output: bool = False,
+    yaml_output: bool = False,
+    default_format: str = CONST_OUTPUT_FORMAT_TABLE,
+) -> str:
+    """Map output format string and/or legacy boolean flags onto a canonical format name.
 
-    Both flags set is a contradiction rather than a precedence question: the caller asked
-    for two mutually exclusive representations and only one can be written.
+    Resolves precedence and catches contradictions: e.g. `--json` alongside `--format yaml`
+    or `--json` alongside `--yaml`.
     """
     if json_output and yaml_output:
         raise ValidationError("Choose either --json or --yaml, not both.")
+    norm_default = normalize_format(default_format)
+    if format_opt is not None and format_opt.strip():
+        resolved = normalize_format(format_opt)
+        if resolved != norm_default:
+            if json_output and resolved != CONST_OUTPUT_FORMAT_JSON:
+                raise ValidationError(
+                    f"Conflicting format options: --json flag passed alongside --format {format_opt}."
+                )
+            if yaml_output and resolved != CONST_OUTPUT_FORMAT_YAML:
+                raise ValidationError(
+                    f"Conflicting format options: --yaml flag passed alongside --format {format_opt}."
+                )
+            return resolved
     if yaml_output:
         return CONST_OUTPUT_FORMAT_YAML
     if json_output:
         return CONST_OUTPUT_FORMAT_JSON
-    return CONST_OUTPUT_FORMAT_TABLE
+    return norm_default
 
 
 def serialize(payload: Any, fmt: str) -> str:
@@ -70,9 +89,9 @@ def serialize(payload: Any, fmt: str) -> str:
 
 def emit_serialized(payload: Any, fmt: str) -> None:
     """Write a payload to standard output in the requested format."""
-    from devops_cli.output.console import write_stdout
+    from devops_cli import output
 
-    write_stdout(serialize(payload, fmt) + "\n")
+    output.write_stdout(serialize(payload, fmt) + "\n")
 
 
 __all__ = [

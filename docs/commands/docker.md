@@ -118,6 +118,7 @@ devops docker cache [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prune` | `boolean` | - | Reclaim unused BuildKit build cache records after reporting. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -142,6 +143,7 @@ devops docker analyze-layers [OPTIONS] <image>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

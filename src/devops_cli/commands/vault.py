@@ -8,12 +8,14 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_VAULT_AUTH_METHODS,
     CONST_VAULT_LOGIN_KEYRING_KEY,
     CONST_VAULT_PATH_LEASE_REVOKE,
     CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
     CONST_VAULT_TOKEN_REJECTED_STATUSES,
 )
+from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import (
     SecretStorageError,
     keyring_delete,
@@ -41,6 +43,7 @@ from devops_cli.output import (
     print_warning,
     render_dry_run_result,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_http import vault_url
@@ -658,6 +661,10 @@ def _list_leases(registry: LeaseRegistry) -> None:
 
 @app.command("audit")
 def vault_audit(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", help="Emit the audit trail as JSON")
     ] = False,
@@ -667,12 +674,12 @@ def vault_audit(
     The trail records the logical secret name and the answering provider only; secret
     values are never stored or rendered.
     """
-    from devops_cli.output import format_json, write_stdout
     from devops_cli.security.secrets import audit_entries
 
     entries = audit_entries()
-    if json_output:
-        write_stdout(format_json([entry.__dict__ for entry in entries]) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([entry.__dict__ for entry in entries], resolved)
         return
 
     if not entries:

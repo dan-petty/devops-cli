@@ -13,11 +13,15 @@ from urllib.parse import quote
 import httpx2
 import typer
 
-from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
+from devops_cli.config.constants import (
+    CONST_MAX_FILE_SIZE_BYTES,
+    CONST_OUTPUT_FORMAT_TABLE,
+)
 from devops_cli.config.defaults import (
     DEFAULT_GRAFANA_DASHBOARDS_DIR,
     DEFAULT_GRAFANA_FOLDER_ID,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
@@ -40,6 +44,7 @@ from devops_cli.output import (
     print_warning,
     write_json_file,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(help=HELP.grafana.app, no_args_is_help=True)
 
@@ -411,6 +416,10 @@ def dashboards_lint(
     path: Annotated[
         Path, typer.Argument(help=HELP.grafana.lint_path)
     ] = DEFAULT_GRAFANA_DASHBOARDS_DIR,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
     dry_run: Annotated[
         bool,
@@ -424,7 +433,6 @@ def dashboards_lint(
     blank, wrong, or overwritten dashboard.
     """
     from devops_cli.grafana import lint_dashboard_files
-    from devops_cli.output import format_json, write_stdout
 
     target = path.resolve()
     if dry_run or is_dry_run():
@@ -449,8 +457,9 @@ def dashboards_lint(
 
     reports = lint_dashboard_files(files)
 
-    if json_output:
-        write_stdout(format_json([r.model_dump() for r in reports]) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([r.model_dump() for r in reports], resolved)
     else:
         _print_lint_results(reports)
     if any(r.errors for r in reports):

@@ -111,6 +111,7 @@ devops test profile-memory [OPTIONS] <target>
 | `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
 | `--fail-on-leak` / `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
 | `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Format report output as JSON. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 

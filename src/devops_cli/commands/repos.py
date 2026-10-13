@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -17,10 +16,12 @@ from devops_cli.commands.workspace import sync_from_repos
 from devops_cli.config.constants import (
     CONST_GITHUB_HOST,
     CONST_GITHUB_REPO_SUFFIX,
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_URL_SCHEME_HTTPS,
     CONST_VSCODE_CLI,
     CONST_VSCODE_WORKSPACE_FILE,
 )
+from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import exit_on_error, new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
@@ -39,8 +40,8 @@ from devops_cli.output import (
     print_warning,
     render_dry_run_result,
     track_progress,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 
 app = new_typer(help=HELP.repos.app, no_args_is_help=True)
@@ -417,6 +418,10 @@ def worktrees_status(
         Path | None,
         typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.repos.worktrees_json),
@@ -426,9 +431,10 @@ def worktrees_status(
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = [e.model_dump() for e in entries]
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     rows = [_format_worktree_table_row(e) for e in entries]
@@ -473,6 +479,10 @@ def worktrees_prune(
         bool,
         typer.Option("--dry-run", "-n", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.repos.worktrees_json),
@@ -484,8 +494,9 @@ def worktrees_prune(
     is_preview = dry_run or is_dry_run()
     report = prune_worktrees(root, entries, force=force, dry_run=is_preview)
 
-    if json_output:
-        write_stdout(json.dumps(report.model_dump(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         return
 
     for item in report.items:

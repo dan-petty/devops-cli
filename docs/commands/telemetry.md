@@ -51,6 +51,7 @@ devops telemetry logfire [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -92,6 +93,7 @@ devops telemetry profile [OPTIONS] <command>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

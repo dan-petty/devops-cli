@@ -13,7 +13,9 @@ from devops_cli.config.constants import (
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
     CONST_CLOUDFLARE_RECORD_COMMENT,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
+from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, mark_dry_run_invocation
@@ -29,6 +31,7 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
@@ -99,6 +102,10 @@ def _render_status_table(
 @app.command("status")
 @trace_span("cloudflare.status")
 def cloudflare_status(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output status details in JSON format"),
@@ -111,14 +118,15 @@ def cloudflare_status(
         token_status = client.verify_token()
         zone = client.get_zone() if client.zone_id else None
 
-        if json_output:
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
             payload: dict[str, Any] = {
                 "token": {"id": token_status.id, "status": token_status.status},
                 "account_id": client.account_id,
                 "zone": zone.model_dump() if zone else None,
                 "tunnel_id": settings.cloudflare.tunnel,
             }
-            write_stdout(format_json(payload) + "\n")
+            emit_serialized(payload, resolved)
             return
 
         _render_status_table(
@@ -135,6 +143,10 @@ def cloudflare_status(
 @app.command("service-status")
 @trace_span("cloudflare.service_status")
 def cloudflare_service_status(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output status details in JSON format"),
@@ -166,8 +178,9 @@ def cloudflare_service_status(
         emit_service_status_telemetry(summary, "cloudflare")
         record_service_status_in_registry(summary, "cloudflare")
 
-    if json_output:
-        write_stdout(format_json(summary.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(summary.model_dump(), resolved)
         return
 
     render_statuspage_summary(summary, "Cloudflare")
@@ -191,6 +204,10 @@ def dns_list(
         str | None,
         typer.Option("--zone-id", "-z", help="Override Cloudflare Zone ID"),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output DNS records in JSON format"),
@@ -201,8 +218,9 @@ def dns_list(
         client = _resolve_client()
         records = client.list_dns_records(zone_id=zone_id, record_type=record_type, name=name)
 
-        if json_output:
-            write_stdout(format_json([r.model_dump() for r in records]) + "\n")
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized([r.model_dump() for r in records], resolved)
             return
 
         columns = [("Type", "bold yellow"), ("Name", "bold cyan"), "Content", "Proxied", "TTL"]
@@ -253,11 +271,13 @@ def _render_dns_sync_results(
     domain: str,
     tunnel: str,
     summary: dict[str, str],
-    json_output: bool,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
 ) -> None:
     """Render DNS synchronization output in JSON or table format."""
-    if json_output:
-        write_stdout(format_json(summary) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(summary, resolved)
         return
 
     columns = [("Record Name", "bold cyan"), "Action", "Target Tunnel"]
@@ -300,6 +320,10 @@ def dns_sync(
             "--dry-run", help="Preview DNS record reconciliation without applying changes"
         ),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output reconciliation summary in JSON format"),
@@ -332,7 +356,7 @@ def dns_sync(
             subdomains=subs,
             zone_id=zone_id,
         )
-        _render_dns_sync_results(eff_domain, eff_tunnel, summary, json_output)
+        _render_dns_sync_results(eff_domain, eff_tunnel, summary, output_format, json_output)
     except CloudflareError as exc:
         _print_cloudflare_error("DNS synchronization failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
@@ -414,16 +438,18 @@ def _render_dns_delete_results(
     deleted: list[tuple[str, str]],
     not_found: list[str],
     dry_run: bool,
-    json_output: bool,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
 ) -> None:
     """Render deletion output in JSON or table format."""
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "deleted": [{"name": name, "id": rid} for name, rid in deleted],
             "not_found": not_found,
             "dry_run": dry_run,
         }
-        write_stdout(format_json(payload) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     prefix = "[yellow][DRY RUN][/yellow] " if dry_run else ""
@@ -466,6 +492,10 @@ def dns_delete(
         bool,
         typer.Option("--dry-run", help="Preview DNS record deletions without applying changes"),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output deletion results in JSON format"),
@@ -487,7 +517,7 @@ def dns_delete(
             record_type=record_type,
             force=force,
         )
-        _render_dns_delete_results(deleted, not_found, is_dry, json_output)
+        _render_dns_delete_results(deleted, not_found, is_dry, output_format, json_output)
     except CloudflareError as exc:
         _print_cloudflare_error("DNS deletion failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
@@ -504,6 +534,10 @@ def tunnel_routes(
         str | None,
         typer.Option("--account-id", "-a", help="Override Cloudflare Account ID"),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output tunnel ingress routes in JSON format"),
@@ -522,8 +556,9 @@ def tunnel_routes(
         client = _resolve_client(settings)
         cfg = client.get_tunnel_configuration(tunnel_id=eff_tunnel, account_id=account_id)
 
-        if json_output:
-            write_stdout(format_json(cfg.model_dump()) + "\n")
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(cfg.model_dump(), resolved)
             return
 
         columns = [("#", "dim"), ("Hostname", "bold cyan"), "Path", ("Service", "bold yellow")]
@@ -570,10 +605,16 @@ def _preview_tunnel_sync(
     print_info("  • (catch-all) -> http_status:404")
 
 
-def _render_tunnel_sync_results(tunnel: str, updated_cfg: Any, json_output: bool) -> None:
+def _render_tunnel_sync_results(
+    tunnel: str,
+    updated_cfg: Any,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
     """Render tunnel route synchronization output in JSON or table format."""
-    if json_output:
-        write_stdout(format_json(updated_cfg.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(updated_cfg.model_dump(), resolved)
         return
 
     columns = [("#", "dim"), ("Hostname", "bold cyan"), ("Service", "bold yellow")]
@@ -612,6 +653,10 @@ def tunnel_sync(
         bool,
         typer.Option("--dry-run", help="Preview tunnel configuration without updating"),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output updated tunnel configuration in JSON format"),
@@ -674,7 +719,7 @@ def tunnel_sync(
             subdomains=subs,
             account_id=account_id,
         )
-        _render_tunnel_sync_results(eff_tunnel, updated_cfg, json_output)
+        _render_tunnel_sync_results(eff_tunnel, updated_cfg, output_format, json_output)
     except CloudflareError as exc:
         _print_cloudflare_error("Tunnel route synchronization failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
@@ -687,6 +732,10 @@ def access_status(
         str | None,
         typer.Option("--account-id", "-a", help="Override Cloudflare Account ID"),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output access applications in JSON format"),
@@ -697,8 +746,9 @@ def access_status(
     try:
         client = _resolve_client(settings)
         apps = client.list_access_applications(account_id=account_id)
-        if json_output:
-            write_stdout(format_json([a.model_dump() for a in apps]) + "\n")
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized([a.model_dump() for a in apps], resolved)
             return
         if not apps:
             print_info("No Cloudflare Zero Trust Access applications configured.")
@@ -739,10 +789,15 @@ def _preview_access_sync(domain: str, emails: list[str], bypass_ips: list[str]) 
     )
 
 
-def _render_access_sync_results(summary: dict[str, Any], json_output: bool) -> None:
+def _render_access_sync_results(
+    summary: dict[str, Any],
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
     """Display Access synchronization summary in table or JSON format."""
-    if json_output:
-        write_stdout(format_json(summary) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(summary, resolved)
         return
     print_success(
         f"Configured Cloudflare Access application '{summary['app_name']}' for {summary['domain']}."
@@ -782,6 +837,10 @@ def access_sync(
         bool,
         typer.Option("--dry-run", help="Preview Access application changes without applying"),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output Access sync summary in JSON format"),
@@ -821,7 +880,7 @@ def access_sync(
             bypass_ips=eff_bypass_ips,
             account_id=account_id,
         )
-        _render_access_sync_results(summary, json_output)
+        _render_access_sync_results(summary, output_format, json_output)
     except CloudflareError as exc:
         _print_cloudflare_error("Access synchronization failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
@@ -835,6 +894,10 @@ def access_policies(
         str | None,
         typer.Option("--account-id", "-a", help="Override Cloudflare Account ID"),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", "-j", help="Output policies in JSON format"),
@@ -845,8 +908,9 @@ def access_policies(
     try:
         client = _resolve_client(settings)
         policies = client.get_access_policies(app_id, account_id=account_id)
-        if json_output:
-            write_stdout(format_json([p.model_dump() for p in policies]) + "\n")
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized([p.model_dump() for p in policies], resolved)
             return
         if not policies:
             print_info(f"No Access policies configured for application {app_id}.")
