@@ -18,6 +18,7 @@ devops status [OPTIONS]
 |---|---|---|---|
 | `--service`, `-s` | `string` | `all` | Target service to inspect (all, github, cloudflare) |
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ---

@@ -13,8 +13,10 @@ from devops_cli.config.constants import (
     CONST_DEVOPS_CLI_ENTRY_MODULE,
     CONST_OTEL_COLLECTOR_NAMESPACE,
     CONST_OTEL_COLLECTOR_SERVICE,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
     DEFAULT_TELEMETRY_TEST_NAME,
@@ -35,6 +37,7 @@ from devops_cli.output import (
     print_table,
     render_dry_run_result,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
@@ -192,22 +195,24 @@ def telemetry_connect_cmd(
 
 @app.command("logfire")
 def telemetry_logfire_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Display Logfire structured observability bridge status and token metrics."""
-    import json
-
-    from devops_cli.output import write_stdout
     from devops_cli.telemetry.logfire import get_logfire_bridge
 
     bridge = get_logfire_bridge()
     status = bridge.get_status()
 
-    if json_output:
-        write_stdout(json.dumps(status.model_dump(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(status.model_dump(), resolved)
         return
 
     print_table(
@@ -386,6 +391,10 @@ def telemetry_profile_cmd(
         str | None,
         typer.Option("--trace-id", "-t", help=HELP.telemetry.trace_id),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -410,9 +419,6 @@ def telemetry_profile_cmd(
         )
         return
 
-    import json
-
-    from devops_cli.output import write_stdout
     from devops_cli.telemetry.tracer import build_span_waterfall_tree
 
     if not command and not trace_id:
@@ -446,14 +452,15 @@ def telemetry_profile_cmd(
     max_end = max(int(s.get("endTimeUnixNano", 0)) for s in spans)
     total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "trace_id": total_trace_id,
             "total_duration_ms": round(total_dur_ms, 2),
             "span_count": len(spans),
             "waterfall": [n.to_dict() for n in tree],
         }
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     flattened = _flatten_tree_for_display(tree)

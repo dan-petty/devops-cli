@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_AI_PROVIDER_IDS,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_EVICT_KEEP_ALIVE,
@@ -47,6 +48,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_TIKTOKEN_MODEL,
 )
 from devops_cli.config.env import env_var_for_option
@@ -63,7 +65,6 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
     format_duration,
-    format_json,
     get_console,
     print_error,
     print_info,
@@ -75,6 +76,7 @@ from devops_cli.output import (
     write_stdout,
     write_text_file,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(
@@ -708,16 +710,14 @@ def _render_prewarm_results(
     model: str,
     keep_alive: str | int,
     is_evict: bool,
-    json_output: bool,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
 ) -> bool:
-    """Render prewarm or eviction results to console or JSON output."""
-    import json
-
-    from devops_cli.output import write_stdout
-
+    """Render prewarm or eviction results to console or serialized output."""
     action = "Eviction" if is_evict else "Prewarming"
     all_ok = bool(results) and all(results.values())
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = {
             "action": action.lower(),
             "model": model,
@@ -725,7 +725,7 @@ def _render_prewarm_results(
             "success": all_ok,
             "nodes": results,
         }
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return all_ok
 
     if not results:
@@ -788,6 +788,14 @@ def prewarm(
             help="Specific Ollama node URL to target instead of all candidate nodes.",
         ),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            "-f",
+            help=HELP.options.format_type,
+        ),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option(
@@ -830,6 +838,7 @@ def prewarm(
             model=target_model,
             keep_alive=target_keep_alive,
             is_evict=evict,
+            output_format=output_format,
             json_output=json_output,
         )
         record_metric(
@@ -1335,6 +1344,10 @@ def token_count(
         int,
         typer.Option("--budget", "-b", help=HELP.ai.budget),
     ] = DEFAULT_DIFF_CHUNK_BUDGET,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1364,8 +1377,9 @@ def token_count(
         chunk_count=max(1, math.ceil(num_tokens / max(1, budget))),
     )
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         return report
 
     rows = [
@@ -1408,6 +1422,10 @@ def spec_verify_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1426,8 +1444,11 @@ def spec_verify_cmd(
     if dry_run or is_dry_run():
         return
 
-    if json_output:
-        write_stdout(format_json(report.model_dump()) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
+        if report.failed_rules > 0:
+            raise typer.Exit(1)
         return
 
     if report.failed_rules == 0:
@@ -1474,6 +1495,10 @@ def repomap_cmd(
         bool,
         typer.Option("--multilingual", "-m", help=HELP.ai.multilingual),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1484,8 +1509,6 @@ def repomap_cmd(
     ] = False,
 ) -> None:
     """Generate compact whole-repository AST symbol and relationship map."""
-    import json
-
     from devops_cli.ai.repomap import generate_repo_map, render_repo_map_text
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
@@ -1508,9 +1531,10 @@ def repomap_cmd(
         include_tests=include_tests,
         multilingual=multilingual,
     )
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         payload = {"files_count": len(maps), "files": [f.to_dict() for f in maps]}
-        write_stdout(json.dumps(payload, indent=2) + "\n")
+        emit_serialized(payload, resolved)
         return
 
     text = render_repo_map_text(maps)
@@ -1526,12 +1550,15 @@ def repomap_cmd(
 # =============================================================================
 
 
-def _render_drift_report(report: Any, json_output: bool) -> None:
-    """Render library drift findings to stdout in json or rich text format."""
-    import json
-
-    if json_output:
-        write_stdout(json.dumps(report.to_dict(), indent=2) + "\n")
+def _render_drift_report(
+    report: Any,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
+    """Render library drift findings to stdout in requested format or rich text format."""
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.to_dict(), resolved)
         return
     print_info(
         f"[bold]Library API Drift Audit[/bold] ({report.files_scanned} files, {report.total_calls_checked} calls, {report.breaking_count} breaking, {report.warning_count} warnings):\n",
@@ -1561,6 +1588,10 @@ def audit_library_usage_cmd(
         bool,
         typer.Option("--fail-on-breaking", help=HELP.ai.fail_on_breaking),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1594,13 +1625,15 @@ def audit_library_usage_cmd(
     report = auditor.audit_workspace(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )
-    _render_drift_report(report, json_output)
+    resolved = resolve_format(output_format, json_output=json_output)
+    is_structured = resolved != CONST_OUTPUT_FORMAT_TABLE
+    _render_drift_report(report, output_format=output_format, json_output=json_output)
     if report.save_error is not None:
         print_warning(
             f"Could not write the drift report to {default_report_path}: {report.save_error}",
-            to_stderr=json_output,
+            to_stderr=is_structured,
         )
-    elif not json_output:
+    elif not is_structured:
         print_info(f"Drift report saved to {default_report_path}", prefix=False)
 
     if fail_on_breaking and report.breaking_count > 0:
@@ -1634,6 +1667,10 @@ def pack_context_cmd(
         bool,
         typer.Option("--skeletonize/--no-skeletonize", help=HELP.ai.skeletonize),
     ] = True,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1644,8 +1681,6 @@ def pack_context_cmd(
     ] = False,
 ) -> None:
     """Pack and prune source code context to fit token budget while preserving signatures."""
-    import json
-
     from devops_cli.ai.context_packer import ContextPacker, PackingConfig
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
@@ -1672,8 +1707,9 @@ def pack_context_cmd(
     packer = ContextPacker(default_config=config)
     packed = packer.pack_file(target_path, referenced_symbols=ref_symbols)
 
-    if json_output:
-        write_stdout(json.dumps(packed.model_dump(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(packed.model_dump(), resolved)
     else:
         print_info(
             f"[bold]Packed Context[/bold]: {packed.original_tokens} -> {packed.packed_tokens} tokens "
@@ -1839,6 +1875,10 @@ def diagram_cmd(
         Path | None,
         typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1849,8 +1889,6 @@ def diagram_cmd(
     ] = False,
 ) -> None:
     """Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams."""
-    import json
-
     from devops_cli.ai.diagram import generate_architecture_diagram, generate_threat_diagram
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
@@ -1867,8 +1905,9 @@ def diagram_cmd(
     else:
         diag = generate_architecture_diagram(target_dir)
 
-    if json_output:
-        write_stdout(json.dumps(diag.to_dict(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(diag.to_dict(), resolved)
         return
 
     print_info(f"[bold]{diag.title}[/bold] (Mermaid Diagram):\n", prefix=False)
@@ -1894,6 +1933,10 @@ def prompt_eval_cmd(
         bool,
         typer.Option("--include-deterministic", help=HELP.ai.include_deterministic),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1908,8 +1951,6 @@ def prompt_eval_cmd(
     The counts are reported for each labeller, and a label a deterministic check wrote is left
     out unless --include-deterministic: it is a machine's label, not a person's.
     """
-    import json
-
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
@@ -1930,8 +1971,9 @@ def prompt_eval_cmd(
         subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
         results=res.to_dict(),
     )
-    if json_output:
-        write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(res.to_dict(), resolved)
         announce_run(saved, to_stderr=True)
         return
 
@@ -1978,6 +2020,10 @@ def test_gen_cmd(
         str | None,
         typer.Option("--function", "-f", help=HELP.ai.test_function),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1988,8 +2034,6 @@ def test_gen_cmd(
     ] = False,
 ) -> None:
     """Synthesize isolated pytest unit test suites for functions or source files."""
-    import json
-
     from devops_cli.ai.test_gen import synthesize_unit_tests
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
@@ -2006,8 +2050,9 @@ def test_gen_cmd(
         return
 
     res = synthesize_unit_tests(target_file, function_filter=function_name)
-    if json_output:
-        write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(res.to_dict(), resolved)
         return
 
     print_success(f"✓ Synthesized {res.test_count} unit test(s) for {res.target_file}:")

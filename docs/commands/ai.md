@@ -81,6 +81,7 @@ devops ai prewarm [OPTIONS]
 | `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output results as structured JSON. |
 
 ---
@@ -191,6 +192,7 @@ devops ai token-count [OPTIONS] <target>
 |---|---|---|---|
 | `--model`, `-m` | `string` | `gpt-4o` | AI model identifier. |
 | `--budget`, `-b` | `integer` | `32768` | Max context token budget limit. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -215,6 +217,7 @@ devops ai spec [OPTIONS] <spec_path>
 |---|---|---|---|
 | `--target`, `-t` | `path` | - | Target source directory to verify or analyze. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -235,6 +238,7 @@ devops ai repomap [OPTIONS]
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
 | `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -256,6 +260,7 @@ devops ai audit-library-usage [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -283,6 +288,7 @@ devops ai pack-context [OPTIONS] <target_path>
 | `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
 | `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
 | `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -336,6 +342,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -361,6 +368,7 @@ devops ai prompt-eval [OPTIONS]
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded verdicts to count. |
 | `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
 | `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; they are a machine's labels, not a person's, so they are excluded by default. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -385,6 +393,7 @@ devops ai test-gen [OPTIONS] <target_file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -766,6 +775,7 @@ devops ai review score [OPTIONS] <sessions>
 |---|---|---|---|
 | `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
 | `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review export-feedback`
@@ -840,6 +850,7 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
 | `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review samples`
@@ -1206,6 +1217,7 @@ devops ai rag drift [OPTIONS] <path>
 |---|---|---|---|
 | `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
 | `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1462,6 +1474,7 @@ devops ai ast parse [OPTIONS] <file_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2128,6 +2141,7 @@ devops ai research forage [OPTIONS] <anchor>
 | `--max-nodes`, `-n` | `integer` | `20` | Maximum number of nodes to visit along the trail. |
 | `--min-score`, `-s` | `float` | `0.1` | Minimum relevance scent threshold before backtracking. |
 | `--repo`, `-R` | `path` | - | Repository root directory (default: current directory). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

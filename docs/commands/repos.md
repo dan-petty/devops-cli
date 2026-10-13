@@ -124,6 +124,7 @@ devops repos worktrees status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
 
 ### `devops repos worktrees prune`
@@ -141,6 +142,7 @@ devops repos worktrees prune [OPTIONS]
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
 | `--force`, `-f` | `boolean` | - | Remove entries regardless of clean or contained status. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
 
 ---

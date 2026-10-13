@@ -72,6 +72,7 @@ devops prometheus analyze [OPTIONS] <expr>
 | `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
 | `--step` | `string` | `60s` | Query resolution step interval. |
 | `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

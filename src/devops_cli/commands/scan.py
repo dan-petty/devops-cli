@@ -9,9 +9,11 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SEMGREP_CONFIG,
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
@@ -29,6 +31,7 @@ from devops_cli.output import (
     render_table,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.aibom import generate_aibom
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
@@ -148,6 +151,10 @@ def scan_trivy(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -162,9 +169,10 @@ def scan_trivy(
 
     findings = run_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan trivy {target} --type {scan_type}",
@@ -215,6 +223,10 @@ def scan_secrets(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -229,9 +241,10 @@ def scan_secrets(
 
     findings = run_gitleaks_scan(target=target_abs)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan secrets {target}",
@@ -285,6 +298,10 @@ def scan_sast(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -299,9 +316,10 @@ def scan_sast(
 
     findings = run_semgrep_scan(target=target_abs, config=config)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan sast {target} --config {config}",
@@ -350,6 +368,10 @@ def scan_iac(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -364,9 +386,10 @@ def scan_iac(
 
     findings = run_checkov_scan(target_path=target_abs, framework=framework)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan iac {target}",
@@ -424,6 +447,10 @@ def scan_complexity(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -442,9 +469,10 @@ def scan_complexity(
         max_nesting_depth=max_indent,
     )
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
-        write_stdout(format_json(data) + "\n")
+        emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan complexity {target}",
@@ -870,6 +898,10 @@ def scan_report(
         str | None,
         typer.Option("--fail-on", help=HELP.scan.fail_on),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -897,8 +929,9 @@ def scan_report(
     if sarif is not None:
         write_sarif(report.findings, sarif, report.outcomes)
 
-    if json_output:
-        write_stdout(format_json(report.as_dict()))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.as_dict(), resolved)
     else:
         _render_report_table(report)
         _warn_expired(report)
@@ -908,7 +941,12 @@ def scan_report(
         if sarif is not None:
             print_success(f"SARIF document written to {sarif}")
 
-    _evaluate_fail_on(report, fail_on=fail_on, explicit_scanners=scanners, json_output=json_output)
+    _evaluate_fail_on(
+        report,
+        fail_on=fail_on,
+        explicit_scanners=scanners,
+        json_output=(resolved != CONST_OUTPUT_FORMAT_TABLE),
+    )
 
 
 @app.command("sarif")
@@ -933,6 +971,10 @@ def scan_sarif(
         str | None,
         typer.Option("--fail-on", help=HELP.scan.fail_on),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -948,8 +990,9 @@ def scan_sarif(
 
     report = report_from_findings(findings, str(document), policy=policy, min_severity=min_severity)
 
-    if json_output:
-        write_stdout(format_json(report.as_dict()))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.as_dict(), resolved)
     else:
         _render_report_table(report)
         _warn_expired(report)

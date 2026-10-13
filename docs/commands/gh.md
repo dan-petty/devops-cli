@@ -59,6 +59,7 @@ devops gh status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON service status summary |
 | `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
@@ -80,6 +81,7 @@ devops gh metrics [OPTIONS]
 | `--ci-limit` | `integer` | `50` | Number of recent CI workflow runs to inspect |
 | `--milestone`, `-m` | `string` | - | Filter metrics to a specific milestone |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit structured JSON metrics report |
 | `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
 
@@ -362,6 +364,7 @@ devops gh project workflows list [OPTIONS]
 |---|---|---|---|
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -667,6 +670,7 @@ devops gh branch-protection audit [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
 | `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops gh branch-protection sync`

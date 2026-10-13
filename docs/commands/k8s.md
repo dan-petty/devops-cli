@@ -322,6 +322,7 @@ devops k8s service-url [OPTIONS] <service>
 | `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
 | `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
 | `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -546,6 +547,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
 | `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -571,6 +573,7 @@ devops k8s validate-policy [OPTIONS] <manifest_path>
 | `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file. |
 | `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -648,6 +651,7 @@ devops k8s chaos [OPTIONS] <experiment>
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -693,6 +697,7 @@ devops k8s security-stream [OPTIONS]
 | `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
 

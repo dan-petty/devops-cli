@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_INGRESS_SERVICE_PATTERNS,
     CONST_LOCAL_DOMAIN_SUFFIXES,
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
 )
@@ -37,6 +38,7 @@ from devops_cli.config.defaults import (
     DEFAULT_QDRANT_PORT,
     DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings
@@ -56,6 +58,7 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
 
@@ -1256,6 +1259,9 @@ def service_url(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.k8s.context_target)
     ] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """Show, or fetch from, a cluster service address that needs no port-forward."""
@@ -1277,18 +1283,20 @@ def service_url(
             query=request_query,
         )
 
+    resolved_format = resolve_format(output_format, json_output=json_output)
     if not fetch:
         try:
             target = resolve_proxy_target(ref, context=context)
-            resolved = target.url
+            resolved_url = target.url
         except ServiceAddressError as exc:
             # The portable address is still worth printing: it is valid configuration even
             # when no cluster is reachable right now.
             print_warning(str(exc))
-            resolved = ""
-        if json_output:
-            write_stdout(
-                format_json({"address": ref.describe(), "proxy_url": resolved, "path": ref.path})
+            resolved_url = ""
+        if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(
+                {"address": ref.describe(), "proxy_url": resolved_url, "path": ref.path},
+                resolved_format,
             )
             return
         print_table(
@@ -1296,7 +1304,7 @@ def service_url(
             ["Field", "Value"],
             [
                 ["Configuration address", ref.describe()],
-                ["API server proxy URL", resolved or "unresolved"],
+                ["API server proxy URL", resolved_url or "unresolved"],
             ],
         )
         return
@@ -1310,4 +1318,7 @@ def service_url(
         print_error(f"Request to {ref.describe()} failed: {exc}")
         raise typer.Exit(1) from exc
 
-    write_stdout(format_json(payload))
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(payload, resolved_format)
+    else:
+        write_stdout(format_json(payload) + "\n")

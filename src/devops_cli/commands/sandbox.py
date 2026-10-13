@@ -9,7 +9,8 @@ from typing import Annotated, Any
 import typer
 import yaml
 
-from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK, DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
@@ -32,6 +33,7 @@ from devops_cli.output import (
     render_dry_run_result,
 )
 from devops_cli.output.console import write_stdout
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
@@ -201,6 +203,10 @@ def status(
     all_instances: Annotated[
         bool, typer.Option("--all", "-a", help=HELP.sandbox.all_instances)
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.sandbox.json_output)] = False,
 ) -> None:
     """Inspect status of deployed sandbox containers."""
@@ -214,8 +220,9 @@ def status(
     if not all_instances and not instance_id:
         instances = [i for i in instances if i.status == SandboxStatus.RUNNING]
 
-    if json_output:
-        typer.echo(json.dumps([i.model_dump() for i in instances], indent=2))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([i.model_dump() for i in instances], resolved)
         return
 
     if not instances:
@@ -396,6 +403,10 @@ def probe(
         float,
         typer.Option("--timeout", "-t", help=HELP.sandbox.timeout),
     ] = 5.0,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.sandbox.json_output),
@@ -458,8 +469,9 @@ def probe(
             print_error(f"Sandbox instance '{identifier}' not found.")
             raise typer.Exit(1) from exc
 
-    if json_output:
-        typer.echo(json.dumps(report.model_dump(), indent=2))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         if report.overall_status != ProbeStatus.PASS:
             raise typer.Exit(1)
         return None
@@ -613,6 +625,10 @@ def metrics(
             help=HELP.sandbox.latency_sla_ms,
         ),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.sandbox.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
@@ -674,8 +690,9 @@ def metrics(
                 print_error(f"Sandbox instance '{identifier}' not found.")
                 raise typer.Exit(1) from exc
 
-        if json_output:
-            typer.echo(json.dumps(snapshot.model_dump(), indent=2))
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(snapshot.model_dump(), resolved)
             return None
 
         _render_metrics_snapshot(snapshot)
@@ -743,8 +760,9 @@ def _render_sandbox_trace_json(
     trace_id: str,
     target: str | None,
     spans: list[dict[str, Any]],
+    output_format: str = "json",
 ) -> None:
-    """Render trace waterfall as structured JSON payload."""
+    """Render trace waterfall as structured serialized payload."""
     from devops_cli.telemetry.tracer import build_span_waterfall_tree
 
     tree = build_span_waterfall_tree(spans)
@@ -758,7 +776,7 @@ def _render_sandbox_trace_json(
         "span_count": len(spans),
         "waterfall": [n.to_dict() for n in tree],
     }
-    typer.echo(json.dumps(payload, indent=2))
+    emit_serialized(payload, output_format)
 
 
 def _execute_sandbox_probe_before_trace(identifier: str) -> tuple[str, str | None]:
@@ -816,6 +834,10 @@ def traces(
         str | None,
         typer.Option("--jaeger-url", help=HELP.sandbox.jaeger_url),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -850,8 +872,9 @@ def traces(
         print_warning(f"No telemetry spans recorded for trace '{resolved_trace_id or active_id}'.")
         return None
 
-    if json_output:
-        _render_sandbox_trace_json(active_id, target_display, spans)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        _render_sandbox_trace_json(active_id, target_display, spans, output_format=resolved)
         return None
 
     _render_sandbox_trace_waterfall(active_id, target_display, spans, jaeger_url=jaeger_url)
@@ -951,6 +974,10 @@ def logs(
     incident_dir: Annotated[
         Path | None, typer.Option("--incident-dir", help=HELP.sandbox.incident_dir)
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
@@ -991,8 +1018,10 @@ def logs(
         print_error(f"Failed to fetch logs: {exc.message}")
         raise typer.Exit(exc.exit_code) from exc
 
-    if json_output:
-        _render_logs_json(report)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        sanitized = mask_dict_secrets(report.model_dump())
+        emit_serialized(sanitized, resolved)
         return None
 
     if not follow:

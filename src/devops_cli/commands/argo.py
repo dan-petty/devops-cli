@@ -20,12 +20,14 @@ from devops_cli.config import load_settings
 from devops_cli.config.constants import (
     CONST_ARGO_WORKFLOW_FAILURE_PHASES,
     CONST_ARGO_WORKFLOW_TERMINAL_PHASES,
+    CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS,
+    DEFAULT_TABLE_FORMAT,
     DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS,
     DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
@@ -48,6 +50,7 @@ from devops_cli.output import (
     print_table,
     write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 
 app = new_typer(help=HELP.argo.app, no_args_is_help=True)
 
@@ -557,6 +560,10 @@ def fleet_sync(
     ] = 3,
     prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
     force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -568,7 +575,6 @@ def fleet_sync(
     """Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency."""
     _validate_k8s_name(app_name, "application name")
     from devops_cli.argo.fleet import render_fleet_sync_table, sync_fleet
-    from devops_cli.output import write_stdout
 
     cluster_list = [c.strip() for c in clusters.split(",") if c.strip()]
     for c in cluster_list:
@@ -584,8 +590,9 @@ def fleet_sync(
         dry_run=is_dry_run(),
     )
 
-    if json_output:
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
     else:
         print(render_fleet_sync_table(result))
 
@@ -624,6 +631,10 @@ def argo_sync_cmd(
     ] = 3,
     prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
     force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -637,6 +648,7 @@ def argo_sync_cmd(
             concurrency=concurrency,
             prune=prune,
             force=force,
+            output_format=output_format,
             json_output=json_output,
         )
     else:
@@ -754,6 +766,10 @@ def rollouts_analyze(
             help="Automatically trigger rollout abort when metric analysis violates threshold",
         ),
     ] = True,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -765,7 +781,6 @@ def rollouts_analyze(
     """Evaluate metric rollback gates and trigger automated rollback on threshold violation."""
     from devops_cli.argo.rollouts import evaluate_rollout_gate, render_rollout_analysis_table
     from devops_cli.models.argo import RolloutMetricThreshold
-    from devops_cli.output import write_stdout
 
     thresholds = [
         RolloutMetricThreshold(
@@ -784,13 +799,14 @@ def rollouts_analyze(
         dry_run=dry_run or is_dry_run(),
     )
 
-    if json_output:
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
     else:
         print(render_rollout_analysis_table(result))
 
     if not result.passed:
-        if not json_output:
+        if resolved == CONST_OUTPUT_FORMAT_TABLE:
             print_error(f"Rollout metric analysis failed: {result.reason}")
         raise typer.Exit(1)
 
@@ -807,24 +823,26 @@ def _parse_manifest_paths(path: str) -> list[str]:
 
 def _handle_gitops_once(
     watcher: Any,
-    json_output: bool,
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
 ) -> None:
     """Execute a single-cycle manifest drift inspection and optional reconciliation."""
     from devops_cli.argo.gitops import (
         render_gitops_drift_table,
         render_gitops_sync_table,
     )
-    from devops_cli.output import print_info, write_stdout
+    from devops_cli.output import print_info
 
     drift = watcher.scan_drift(detect_cold_drift=True)
     sync_res = watcher.sync_now(drift) if drift else None
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         out = {
             "events": [e.model_dump() for e in drift],
             "synced": sync_res.model_dump() if sync_res else None,
         }
-        write_stdout(json.dumps(out, indent=2) + "\n")
+        emit_serialized(out, resolved)
     elif drift:
         print(render_gitops_drift_table(drift))
         if sync_res:
@@ -919,6 +937,10 @@ def gitops_watch(
     prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
     force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -944,7 +966,7 @@ def gitops_watch(
     )
 
     if once:
-        _handle_gitops_once(watcher, json_output)
+        _handle_gitops_once(watcher, output_format, json_output)
     else:
         _handle_gitops_continuous(watcher, path, app_name, max_events, json_output)
 
@@ -959,6 +981,10 @@ def gitops_drift(
             help="Comma-separated paths or directories of manifests to inspect",
         ),
     ] = "k8s",
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -971,7 +997,7 @@ def gitops_drift(
         render_gitops_drift_table,
         scan_manifest_drift,
     )
-    from devops_cli.output import print_info, write_stdout
+    from devops_cli.output import print_info
 
     paths = _parse_manifest_paths(path)
     state = compute_manifest_state(paths)
@@ -982,9 +1008,10 @@ def gitops_drift(
     else:
         drift = inspect_git_manifest_drift(paths)
 
-    if json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = {"manifests": [e.model_dump() for e in drift]}
-        write_stdout(json.dumps(data, indent=2) + "\n")
+        emit_serialized(data, resolved)
     elif drift:
         print(render_gitops_drift_table(drift))
     else:
@@ -1010,6 +1037,10 @@ def gitops_sync(
     prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
     force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -1021,7 +1052,6 @@ def gitops_sync(
         raise typer.Exit(1)
 
     from devops_cli.argo.gitops import render_gitops_sync_table, trigger_argocd_sync
-    from devops_cli.output import write_stdout
 
     result = trigger_argocd_sync(
         app_name=app_name,
@@ -1031,8 +1061,9 @@ def gitops_sync(
         sync_mode=mode,  # type: ignore[arg-type]
     )
 
-    if json_output:
-        write_stdout(result.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
     else:
         print(render_gitops_sync_table([result]))
 

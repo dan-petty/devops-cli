@@ -6,16 +6,19 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.constants import CONST_STATUS_COMMAND_SERVICES
+from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_TABLE,
+    CONST_STATUS_COMMAND_SERVICES,
+)
+from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.exceptions.telemetry import ServiceStatusError
 from devops_cli.output import (
-    format_json,
     print_error,
     print_success,
     print_table,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.telemetry import service_status
 
 app = new_typer(
@@ -68,6 +71,10 @@ def status_main(
         bool,
         typer.Option("--json", "-j", help="Output status details in JSON format"),
     ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
+    ] = DEFAULT_TABLE_FORMAT,
     emit_telemetry: Annotated[
         bool,
         typer.Option(
@@ -100,9 +107,10 @@ def status_main(
     if not results:
         raise typer.Exit(1)
 
-    if json_output:
+    resolved_format = resolve_format(output_format, json_output=json_output)
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         serialized = {k: v.model_dump() for k, v in results.items()}
-        write_stdout(format_json(serialized) + "\n")
+        emit_serialized(serialized, resolved_format)
         return
 
     if len(results) > 1:

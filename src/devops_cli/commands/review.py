@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_BENCHMARK_RUNS,
     DEFAULT_REVIEW_CORPUS_SEED,
+    DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
@@ -39,7 +40,7 @@ from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output.serialization import emit_serialized, normalize_format
+from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
 
 __all__ = [
     "app",
@@ -136,7 +137,6 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    write_stdout,
 )
 from devops_cli.review.score import (
     Agreement,
@@ -1625,7 +1625,7 @@ def _render_score_inputs(report: ScoreReport) -> None:
 
 
 def _materialise_golden(
-    labels: Path, destination: Path, sessions: list[Path] | None, json_output: bool
+    labels: Path, destination: Path, sessions: list[Path] | None, resolved: str
 ) -> None:
     if sessions:
         print_error(MESSAGES.review.score_golden_takes_no_sessions)
@@ -1635,8 +1635,8 @@ def _materialise_golden(
     except ValidationError as exc:
         print_error(exc.message)
         raise typer.Exit(1) from exc
-    if json_output:
-        write_stdout(golden.model_dump_json(indent=2) + "\n")
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(golden.model_dump(mode="json"), resolved)
         return
     print_success(
         MESSAGES.review.score_golden_written.format(
@@ -1677,14 +1677,19 @@ def review_score(
             "--materialise-golden", metavar="DIR", help=HELP.review.score_materialise_golden
         ),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Score saved review sessions against a label file: precision, recall and stability, each with its n."""
+    resolved = resolve_format(output_format, json_output=json_output)
     if materialise_golden_dir is not None:
-        _materialise_golden(labels, materialise_golden_dir, sessions, json_output)
+        _materialise_golden(labels, materialise_golden_dir, sessions, resolved)
         return
     if not sessions:
         print_error(MESSAGES.review.score_no_sessions)
@@ -1703,11 +1708,11 @@ def review_score(
         },
         results={**report.model_dump(mode="json"), **report.run_metrics()},
     )
-    if json_output:
-        write_stdout(report.model_dump_json(indent=2) + "\n")
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(mode="json"), resolved)
     else:
         _render_score(report)
-    announce_run(saved, to_stderr=json_output)
+    announce_run(saved, to_stderr=(resolved != CONST_OUTPUT_FORMAT_TABLE))
 
 
 # =============================================================================
@@ -2026,6 +2031,10 @@ def corpus_score(
         int | None,
         typer.Option("--runs", "-n", min=1, help=HELP.review.corpus_runs),
     ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -2054,12 +2063,13 @@ def corpus_score(
         subject={"corpus_digest": digest(corpus.model_dump(mode="json", exclude={"created_at"}))},
         results=arm.model_dump(mode="json"),
     )
-    if json_output:
-        write_stdout(arm.model_dump_json(indent=2) + "\n")
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(arm.model_dump(mode="json"), resolved)
     else:
         _render_corpus_runs(arm)
-    _warn_unpinned(setup, to_stderr=json_output)
-    announce_run(saved, to_stderr=json_output)
+    _warn_unpinned(setup, to_stderr=(resolved != CONST_OUTPUT_FORMAT_TABLE))
+    announce_run(saved, to_stderr=(resolved != CONST_OUTPUT_FORMAT_TABLE))
 
 
 # =============================================================================

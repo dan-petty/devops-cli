@@ -1117,12 +1117,25 @@ def test_asking_for_both_formats_is_refused() -> None:
     with pytest.raises(ValidationError):
         resolve_format(json_output=True, yaml_output=True)
 
+    with pytest.raises(ValidationError, match="Conflicting format options"):
+        resolve_format("yaml", json_output=True)
+
+    with pytest.raises(ValidationError, match="Conflicting format options"):
+        resolve_format("json", yaml_output=True)
+
 
 def test_no_flag_means_the_human_readable_default() -> None:
     """The table is what a person at a terminal asked for by not asking for anything."""
     from devops_cli.output.serialization import resolve_format
 
-    assert resolve_format() == "table"
+    assert (
+        resolve_format(),
+        resolve_format("table"),
+        resolve_format("table", json_output=True),
+        resolve_format("json"),
+        resolve_format("yaml"),
+        resolve_format("yml"),
+    ) == ("table", "table", "json", "json", "yaml", "yaml")
 
 
 def test_cli_help_panel_renders_at_conftest_width_under_github_actions(monkeypatch) -> None:

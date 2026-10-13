@@ -25,6 +25,7 @@ devops scan trivy [OPTIONS] <target>
 | `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo. |
 | `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -48,6 +49,7 @@ devops scan secrets [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -72,6 +74,7 @@ devops scan sast [OPTIONS] <target>
 |---|---|---|---|
 | `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -96,6 +99,7 @@ devops scan iac [OPTIONS] <target>
 |---|---|---|---|
 | `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -121,6 +125,7 @@ devops scan complexity [OPTIONS] <target>
 | `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
 | `--max-indent`, `-i` | `integer` | `5` | Maximum acceptable indentation / nesting depth (default 5). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -223,6 +228,7 @@ devops scan report [OPTIONS] <target>
 | `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
 | `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
 | `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -250,6 +256,7 @@ devops scan sarif [OPTIONS] <document>
 | `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
 | `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
 | `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
