@@ -2,13 +2,13 @@
 
 ## 1. Overview & Purpose
 
-Grafana is the open-source analytics and interactive visualization web application. In the `devops-cli` ecosystem, Grafana visualizes workstation metrics collected by Prometheus, distributed traces from Jaeger / OpenTelemetry, container health metrics, and CLI subcommand execution performance.
+Grafana is the open-source analytics and interactive visualization web application. In the `devops-cli` ecosystem, Grafana visualizes workstation metrics collected by Prometheus, distributed traces from Tempo / OpenTelemetry, container health metrics, and CLI subcommand execution performance.
 
 ---
 
 ## 2. Usage Information & Architecture
 
-- **Automated Provisioning**: Configured with automated datasource provisioning for Prometheus (`http://prometheus-server.monitoring.svc:80`) and Jaeger.
+- **Automated Provisioning**: Configured with automated datasource provisioning for Prometheus (`http://prometheus-server.monitoring.svc:80`) and Tempo (`http://tempo.otel.svc.cluster.local:3200`).
 - **Pre-baked Workstation Dashboards**: Provides dashboards for workstation CPU/memory metrics, Kubernetes cluster utilization, and DevOps CLI command execution latency.
 - **CLI Subcommand**: `devops grafana` provides dashboard listing, datasource testing, and dashboard export.
 
@@ -73,7 +73,7 @@ providers:
 ## 6. General Standards & Reference Guidelines
 
 - **Port Conventions**: Internal container port `3000`, service port `80`.
-- **Datasource Naming**: Standardized datasource identifiers: `Prometheus` (default metrics) and `Jaeger` (default traces).
+- **Datasource Naming**: Standardized datasource identifiers: `Prometheus` (default metrics) and `Tempo` (default traces).
 
 ---
 

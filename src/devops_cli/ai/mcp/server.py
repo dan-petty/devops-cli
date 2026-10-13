@@ -993,11 +993,11 @@ def rag_drift(path: str = ".", auto_sync: bool = False) -> str:
 
 
 @mcp.tool()
-def k8s_jaeger_info() -> str:
-    """Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints."""
+def k8s_tempo_info() -> str:
+    """Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints."""
     return (
-        "Jaeger Tracing Endpoints:\n"
-        "- Query UI: http://localhost:16686\n"
+        "Tempo Tracing Endpoints:\n"
+        "- HTTP API: http://localhost:3200\n"
         "- OTLP gRPC: localhost:4317\n"
         "- OTLP HTTP: http://localhost:4318/v1/traces"
     )
@@ -1168,7 +1168,7 @@ def k8s_enable_tls(
 
 @mcp.tool()
 def telemetry_status() -> str:
-    """Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings."""
+    """Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "telemetry", "status"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -1348,7 +1348,7 @@ def config_audit_keys() -> str:
 # whatever program the caller named, with the user's full environment (#980).
 @mcp.tool()
 def telemetry_profile(trace_id: str) -> str:
-    """Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command."""
+    """Show the span waterfall Tempo recorded for a trace ID; the tool runs no command."""
     _validate_mcp_arg("trace_id", trace_id)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "telemetry", "profile", "--trace-id", trace_id],

@@ -2,7 +2,7 @@
 
 ## 1. Overview & Domain Architecture
 
-Observability provides high-cardinality, vendor-neutral visibility into application performance, command latencies, error distributions, and system interactions. In `devops-cli`, observability unites OpenTelemetry distributed trace spans (`trace_span`), Prometheus time-series metrics (`/metrics`), Jaeger distributed trace visualization, and Grafana telemetry dashboards.
+Observability provides high-cardinality, vendor-neutral visibility into application performance, command latencies, error distributions, and system interactions. In `devops-cli`, observability unites OpenTelemetry distributed trace spans (`trace_span`), Prometheus time-series metrics (`/metrics`), Grafana Tempo distributed trace storage, and Grafana telemetry dashboards.
 
 ```mermaid
 graph LR
@@ -11,7 +11,7 @@ graph LR
     B --> D[Prometheus Metric Series /metrics]
     B --> E[OTLP HTTP Exporter :4318]
     D --> F[Prometheus TSDB]
-    E --> G[Jaeger APM]
+    E --> G[Grafana Tempo]
     F --> H[Grafana Dashboards]
     G --> H
 ```
@@ -54,7 +54,7 @@ devops telemetry test
 # View telemetry client status and active exporter endpoint
 devops telemetry status
 
-# Show Jaeger UI endpoint for inspecting traces
+# Show Tempo HTTP API endpoint for inspecting traces
 devops telemetry open-ui
 
 # Scrape local Prometheus metrics
@@ -82,7 +82,7 @@ curl -s http://localhost:8000/metrics
 ## 6. General Standards & Engineering Guidelines
 
 - **Default OTLP Port**: HTTP `4318`, gRPC `4317`.
-- **Default Jaeger UI**: `16686`.
+- **Default Tempo Port**: `3200`.
 - **Default Prometheus Port**: `9090`.
 - **Default Grafana Port**: `3000`.
 
@@ -91,7 +91,7 @@ curl -s http://localhost:8000/metrics
 ## 7. Official References & Published Artifacts
 
 - **OpenTelemetry Standard**: [opentelemetry.io](https://opentelemetry.io/)
-- **Jaeger Tracing Project**: [jaegertracing.io](https://www.jaegertracing.io/) | [github.com/jaegertracing/jaeger](https://github.com/jaegertracing/jaeger)
+- **Grafana Tempo**: [grafana.com/oss/tempo/](https://grafana.com/oss/tempo/) | [github.com/grafana/tempo](https://github.com/grafana/tempo)
 - **Prometheus Monitoring**: [prometheus.io](https://prometheus.io/) | [github.com/prometheus/prometheus](https://github.com/prometheus/prometheus)
 - **Grafana Visualization**: [grafana.com](https://grafana.com/) | [github.com/grafana/grafana](https://github.com/grafana/grafana)
 - **DevOps CLI Telemetry Subsystem**: [src/devops_cli/telemetry/tracer.py](../../../../telemetry/tracer.py)

@@ -1,0 +1,80 @@
+{
+  "trace": {
+    "resourceSpans": [
+      {
+        "resource": {
+          "attributes": [
+            {
+              "key": "service.name",
+              "value": {
+                "stringValue": "devops-cli"
+              }
+            }
+          ]
+        },
+        "scopeSpans": [
+          {
+            "scope": {
+              "name": "devops-cli.telemetry"
+            },
+            "spans": [
+              {
+                "traceId": "S/kvNXezTaajzpKdDg5HNg==",
+                "spanId": "APBnqgupArc=",
+                "name": "cli.telemetry.profile",
+                "kind": "SPAN_KIND_INTERNAL",
+                "startTimeUnixNano": "1700000000000000000",
+                "endTimeUnixNano": "1700000000050000000",
+                "attributes": [
+                  {
+                    "key": "cli.command",
+                    "value": {
+                      "stringValue": "telemetry profile"
+                    }
+                  },
+                  {
+                    "key": "http.status_code",
+                    "value": {
+                      "intValue": "200"
+                    }
+                  }
+                ],
+                "status": {
+                  "code": "STATUS_CODE_OK"
+                }
+              },
+              {
+                "traceId": "S/kvNXezTaajzpKdDg5HNg==",
+                "spanId": "ucfJifl5GOE=",
+                "parentSpanId": "APBnqgupArc=",
+                "name": "cli.k8s.contexts",
+                "kind": "SPAN_KIND_INTERNAL",
+                "startTimeUnixNano": "1700000000010000000",
+                "endTimeUnixNano": "1700000000040000000",
+                "attributes": [
+                  {
+                    "key": "k8s.namespace",
+                    "value": {
+                      "stringValue": "otel"
+                    }
+                  },
+                  {
+                    "key": "retry.enabled",
+                    "value": {
+                      "boolValue": true
+                    }
+                  }
+                ],
+                "status": {
+                  "message": "context check failed",
+                  "code": "STATUS_CODE_ERROR"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "metrics": {}
+}

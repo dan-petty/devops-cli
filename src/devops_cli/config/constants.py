@@ -1105,7 +1105,7 @@ CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
 # The labels the opentelemetry-collector chart gives the `otel-collector` release's pods. Both
-# are needed: Jaeger runs in the same namespace and listens on the same OTLP ports.
+# are needed: Tempo runs in the same namespace and listens on the same OTLP ports.
 CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/name": "opentelemetry-collector",
     "app.kubernetes.io/instance": "otel-collector",

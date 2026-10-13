@@ -189,7 +189,7 @@ devops sandbox traces [OPTIONS] <identifier>
 | `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
 | `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
 | `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
-| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--tempo-url` | `string` | - | Override Tempo HTTP API endpoint (default: http://localhost:3200). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

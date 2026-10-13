@@ -42,7 +42,7 @@ def test_fastmcp_tools_registration() -> None:
         "k8s_bootstrap",
         "k8s_deploy_stack",
         "k8s_teardown_stack",
-        "k8s_jaeger_info",
+        "k8s_tempo_info",
         "k8s_create_tls_secret",
         "k8s_enable_tls",
         "k8s_chaos",
@@ -1526,7 +1526,7 @@ async def test_telemetry_profile_publishes_a_trace_id_and_no_command() -> None:
 
     `devops telemetry profile` split the string with `shlex` and ran it with the user's whole
     environment, so a prompt-injected agent ran anything with every credential in reach. An
-    MCP caller now names a trace already in Jaeger, and the trace ID is all it can send.
+    MCP caller now names a trace already in Tempo, and the trace ID is all it can send.
     """
     import inspect
 

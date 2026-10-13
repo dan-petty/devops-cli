@@ -1,10 +1,10 @@
-# Code Library: OpenTelemetry & Jaeger (Distributed Tracing & APM)
+# Code Library: OpenTelemetry & Grafana Tempo (Distributed Tracing & APM)
 
 ## 1. Project References
 
 | Resource | Endpoint / URL |
 | :--- | :--- |
-| **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [jaegertracing.io](https://www.jaegertracing.io/) |
+| **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [grafana.com/docs/tempo/latest/](https://grafana.com/docs/tempo/latest/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
 | **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.44.0`) |
 | **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
@@ -13,7 +13,7 @@
 
 ## 2. General Information & Architecture
 
-**OpenTelemetry (OTel)** is the vendor-neutral CNCF standard for distributed tracing, metrics, and application observability. The OpenTelemetry Python SDK instruments function calls, HTTP requests, and multi-agent stage pipelines, emitting span telemetry over gRPC/OTLP to Jaeger and OpenTelemetry Collectors.
+**OpenTelemetry (OTel)** is the vendor-neutral CNCF standard for distributed tracing, metrics, and application observability. The OpenTelemetry Python SDK instruments function calls, HTTP requests, and multi-agent stage pipelines, emitting span telemetry over gRPC/OTLP to Grafana Tempo and OpenTelemetry Collectors.
 
 In `devops-cli`:
 - **Distributed Spans**: Every CLI subcommand, AI persona review phase, and security scan stage is wrapped in `@trace_span` to capture duration, status, and semantic attributes.
@@ -26,10 +26,10 @@ In `devops-cli`:
 
 | Observability | Strengths | Weaknesses | Why `devops-cli` Chose OpenTelemetry |
 | :--- | :--- | :--- | :--- |
-| **`opentelemetry` (OTel)** | Vendor-neutral CNCF standard, unified traces/metrics, W3C context propagation, native Jaeger and Prometheus integration. | Requires setting up OTLP exporter pipelines. | **Selected**: The definitive open cloud-native standard for observability and distributed tracing. |
+| **`opentelemetry` (OTel)** | Vendor-neutral CNCF standard, unified traces/metrics, W3C context propagation, native Tempo and Prometheus integration. | Requires setting up OTLP exporter pipelines. | **Selected**: The definitive open cloud-native standard for observability and distributed tracing. |
 | **`datadog` / `newrelic` SDKs** | Proprietary APM integrations with automated SaaS dashboards. | Vendor lock-in, requires paid cloud accounts, cannot run in air-gapped homelabs. | Rejected: Violates open-source and local offline workstation design. |
 | **Standard Library `logging`** | Simple unstructured text lines. | No hierarchical span waterfalls, no traceparent propagation, difficult to analyze multi-stage async latency. | Rejected: Insufficient for complex multi-agent pipeline profiling. |
-| **Custom Stopwatch Timers** | Simple `time.perf_counter()`. | Ad-hoc, lacks standard distributed context propagation and Jaeger UI visualization. | Rejected: OTel provides standard OpenTracing compatibility. |
+| **Custom Stopwatch Timers** | Simple `time.perf_counter()`. | Ad-hoc, lacks standard distributed context propagation and Grafana Explore trace visualization. | Rejected: OTel provides standard OpenTracing compatibility. |
 
 ---
 
@@ -42,7 +42,7 @@ In `devops-cli`:
        ...
    ```
 3. **Traceparent Context**: Injects `traceparent: 00-{trace_id}-{span_id}-01` headers into subprocess environments for cross-process tracing.
-4. **Jaeger UI**: Distributed trace waterfalls can be inspected in the Jaeger UI.
+4. **Grafana Tempo**: Distributed trace waterfalls can be inspected via Grafana Explore (Tempo datasource) or `devops telemetry profile --trace-id`.
 
 ---
 
@@ -73,5 +73,5 @@ devops telemetry test
 ## 6. Best Practices & Security Standards
 
 1. **Sanitize Span Attributes**: Never record secrets, passwords, or raw Bearer tokens in span attribute dictionaries.
-2. **Graceful Exporter Fallback**: If Jaeger is not running locally, OTel gracefully suppresses network errors without blocking CLI operations.
+2. **Graceful Exporter Fallback**: If the OTLP collector or Tempo is not running locally, OTel gracefully suppresses network errors without blocking CLI operations.
 3. **Granular Spans Over Monolithic Blocks**: Break multi-step operations into dedicated child spans to clearly expose latency bottlenecks.

@@ -418,7 +418,7 @@ class K8sCommandHelp:
     argocd_port: str = "Local port for ArgoCD."
     grafana_port: str = "Local port for Grafana."
     prometheus_port: str = "Local port for Prometheus."
-    jaeger_port: str = "Local port for Jaeger Query UI."
+    tempo_port: str = "Local port for Grafana Tempo HTTP API."
     pyroscope_port: str = "Local port for Pyroscope Continuous Profiling UI."
     otel_port: str = "Local port for OpenTelemetry OTLP Traces (HTTP)."
     ollama_port: str = "Local port for Ollama."
@@ -1401,7 +1401,7 @@ class ScanCommandHelp:
 
 @dataclass(frozen=True)
 class TelemetryCommandHelp:
-    app: str = "OpenTelemetry tracing, metrics, and Jaeger observability."
+    app: str = "OpenTelemetry tracing, metrics, and Tempo observability."
     status: str = "Show telemetry collector connectivity and service configuration."
     connect: str = (
         "Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."
@@ -1412,7 +1412,7 @@ class TelemetryCommandHelp:
     connect_namespace: str = "Namespace of the collector service."
     connect_service: str = "Name of the collector service."
     connect_save: str = "Save the endpoint as telemetry.endpoint (default) or only check it."
-    test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
+    test_span: str = "Emit a synthetic test span to verify Tempo tracing collector."
     span_name: str = "Name for test span."
     profile: str = (
         "Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."
@@ -1421,7 +1421,7 @@ class TelemetryCommandHelp:
         "devops-cli command line to run and profile; its first word must be 'devops' "
         "(e.g. 'devops k8s contexts'), and any other program is refused."
     )
-    trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
+    trace_id: str = "Trace ID to read from Tempo and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
     semconv: str = "The GenAI semantic conventions that LLM span attributes are checked against."
@@ -1655,7 +1655,7 @@ class SandboxCommandHelp:
     probe_before_trace: str = (
         "Execute an endpoint health probe before visualizing the resulting trace."
     )
-    jaeger_url: str = "Override Jaeger Query HTTP endpoint (default: http://localhost:16686)."
+    tempo_url: str = "Override Tempo HTTP API endpoint (default: http://localhost:3200)."
     logs: str = "Stream stdout/stderr container logs with automated panic and crash detection."
     follow: str = "Follow log output continuously in live stream mode."
     tail: str = "Number of lines to show from the end of the logs (default: 100)."

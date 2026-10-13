@@ -30,7 +30,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
-- [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
+- [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Tempo observability.
 - [`devops cloudflare`](#devops-cloudflare) — Cloudflare Zero Trust tunnels and DNS management.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 - [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
@@ -964,7 +964,7 @@ devops k8s port-forward [OPTIONS]
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD. |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
-| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--tempo-port` | `integer` | `3200` | Local port for Grafana Tempo HTTP API. |
 | `--pyroscope-port` | `integer` | `4040` | Local port for Pyroscope Continuous Profiling UI. |
 | `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
@@ -8174,11 +8174,11 @@ devops tls enable-k8s [OPTIONS]
 
 ## devops telemetry
 
-OpenTelemetry tracing, metrics, and Jaeger observability.
+OpenTelemetry tracing, metrics, and Tempo observability.
 
 ### `devops telemetry status`
 
-**Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
+**Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status.**
 
 ```bash
 devops telemetry status [OPTIONS]
@@ -8240,7 +8240,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -8256,14 +8256,14 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Tempo and show, instead of running a command. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry open-ui`
 
-**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+**Print and show the Tempo HTTP API endpoint for inspecting traces.**
 
 ```bash
 devops telemetry open-ui
@@ -9213,7 +9213,7 @@ devops sandbox traces [OPTIONS] <identifier>
 | `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
 | `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
 | `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
-| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--tempo-url` | `string` | - | Override Tempo HTTP API endpoint (default: http://localhost:3200). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

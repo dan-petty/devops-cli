@@ -132,7 +132,7 @@ def test_get_default_tools_includes_mcp() -> None:
     tool_names = [t.__name__ for t in all_tools]
     assert "repos_list" in tool_names
     assert "k8s_status" in tool_names
-    assert "k8s_jaeger_status" in tool_names
+    assert "k8s_tempo_status" in tool_names
     assert "scan_osv" in tool_names
     assert "check_threat_intel" in tool_names
     assert "ci_run" in tool_names
@@ -150,7 +150,7 @@ def test_get_persona_tools_selection() -> None:
 
     arch_tools = [t.__name__ for t in get_persona_tools(Persona.ARCHITECT)]
     assert "tf_plan" in arch_tools
-    assert "k8s_jaeger_status" in arch_tools
+    assert "k8s_tempo_status" in arch_tools
     assert "k8s_pods" in arch_tools
     assert "argo_apps" in arch_tools
 

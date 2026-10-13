@@ -207,7 +207,7 @@
           "refId": "B"
         }
       ],
-      "description": "Spans per second delivered to Jaeger, and those that failed. The failure series appears with the first failure."
+      "description": "Spans per second delivered to Tempo, and those that failed. The failure series appears with the first failure."
     },
     {
       "datasource": {

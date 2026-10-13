@@ -78,8 +78,8 @@ from devops_cli.telemetry.tracer import (
 )
 from devops_cli.telemetry.waterfall import (
     flatten_waterfall_tree,
-    normalize_jaeger_spans,
-    query_jaeger_trace,
+    normalize_tempo_spans,
+    query_tempo_trace,
     render_waterfall_bar,
     resolve_trace_spans,
 )
@@ -130,12 +130,12 @@ __all__ = [
     "inject_traceparent_headers",
     "logfire_agent_turn",
     "new_trace_context",
-    "normalize_jaeger_spans",
+    "normalize_tempo_spans",
     "parse_traceparent",
     "profile_custom_callable",
     "profile_fastmcp_workload",
     "profile_http_pool_workload",
-    "query_jaeger_trace",
+    "query_tempo_trace",
     "record_completed_span",
     "record_metric",
     "record_service_status_in_registry",

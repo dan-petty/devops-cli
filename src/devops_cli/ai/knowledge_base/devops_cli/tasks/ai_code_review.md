@@ -106,7 +106,7 @@ devops review findings --status VERIFIED
 devops review findings 20260910-143644 --severity LOW --severity INFO --details
 
 # Mark finding #1 as MITIGATED after applying a fix (the number `review findings` shows)
-devops review verify 20260910-143644 --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
+devops review verify 20260910-143644 --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy tempo-ingress created"
 
 # Mark finding #2 as INVALIDATED if proven to be a false positive
 devops review verify 20260910-143644 --index 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"

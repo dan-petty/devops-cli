@@ -392,7 +392,7 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
     doc = """
     # Local & Internal Services
     Localhost API: http://localhost:8080/v1
-    Cluster DNS: jaeger.otel.svc.cluster.local
+    Cluster DNS: tempo.otel.svc.cluster.local
     Internal node: node1.corp.internal
     Home LAN: server.lan
     Private IP: 192.168.1.1
@@ -416,7 +416,7 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
 
     # Bare words without scheme or IP literals are not extracted
     assert targets.get("example.com") is None
-    assert targets.get("jaeger.otel.svc.cluster.local") is None
+    assert targets.get("tempo.otel.svc.cluster.local") is None
     assert targets.get("node1.corp.internal") is None
     assert targets.get("server.lan") is None
 

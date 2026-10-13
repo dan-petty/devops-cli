@@ -146,7 +146,7 @@ def test_profile_refuses_anything_but_a_devops_command(command: str, no_poll_wai
     with (
         patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
         patch("devops_cli.core.process.run_subprocess") as mock_run,
-        patch("devops_cli.commands.telemetry.query_jaeger_trace", return_value=[]),
+        patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=[]),
     ):
         result = runner.invoke(app, ["profile", command])
     assert (
@@ -170,7 +170,7 @@ def test_profile_runs_a_devops_command_through_the_entry_point(no_poll_wait: Non
             return_value=subprocess.CompletedProcess(["devops"], 0),
         ) as mock_run,
         patch(
-            "devops_cli.commands.telemetry.query_jaeger_trace",
+            "devops_cli.commands.telemetry.query_tempo_trace",
             return_value=[_span("a1", "telemetry.profile", None, 0, 10)],
         ),
     ):
@@ -205,8 +205,8 @@ def test_profile_child_imports_nothing_from_the_working_directory(tmp_path: Path
     assert (proc.returncode, proc.stderr) == (0, b"")
 
 
-def test_profile_shows_the_child_spans_jaeger_recorded(no_poll_wait: None) -> None:
-    """The child's spans come back from Jaeger under the trace the profile span handed it."""
+def test_profile_shows_the_child_spans_tempo_recorded(no_poll_wait: None) -> None:
+    """The child's spans come back from Tempo under the trace the profile span handed it."""
     spans = [
         _span("a1", "telemetry.profile", None, 0, 40),
         _span("b2", "subprocess.devops", "a1", 1, 39),
@@ -218,7 +218,7 @@ def test_profile_shows_the_child_spans_jaeger_recorded(no_poll_wait: None) -> No
             "devops_cli.core.process.run_subprocess",
             return_value=subprocess.CompletedProcess(["devops"], 0),
         ) as mock_run,
-        patch("devops_cli.commands.telemetry.query_jaeger_trace", return_value=spans) as mock_query,
+        patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=spans) as mock_query,
     ):
         result = runner.invoke(app, ["profile", "devops k8s contexts"])
     assert (
@@ -229,13 +229,13 @@ def test_profile_shows_the_child_spans_jaeger_recorded(no_poll_wait: None) -> No
     ) == (0, True, _TRACE, False)
 
 
-def test_profile_output_follows_what_jaeger_holds(no_poll_wait: None) -> None:
-    """Different spans in Jaeger give a different waterfall for the same trace."""
+def test_profile_output_follows_what_tempo_holds(no_poll_wait: None) -> None:
+    """Different spans in Tempo give a different waterfall for the same trace."""
     first = [_span("a1", "first.span", None, 0, 10)]
     second = [_span("a1", "second.span", None, 0, 10)]
-    with patch("devops_cli.commands.telemetry.query_jaeger_trace", side_effect=[first, first]):
+    with patch("devops_cli.commands.telemetry.query_tempo_trace", side_effect=[first, first]):
         before = runner.invoke(app, ["profile", "--trace-id", _TRACE])
-    with patch("devops_cli.commands.telemetry.query_jaeger_trace", side_effect=[second, second]):
+    with patch("devops_cli.commands.telemetry.query_tempo_trace", side_effect=[second, second]):
         after = runner.invoke(app, ["profile", "--trace-id", _TRACE])
     assert (
         "first.span" in before.output,
@@ -245,31 +245,31 @@ def test_profile_output_follows_what_jaeger_holds(no_poll_wait: None) -> None:
 
 
 def test_profile_waits_until_the_trace_stops_growing() -> None:
-    """Spans reach Jaeger asynchronously, so a half-exported trace is read again."""
-    from devops_cli.commands.telemetry import _read_trace_from_jaeger
+    """Spans reach Tempo asynchronously, so a half-exported trace is read again."""
+    from devops_cli.commands.telemetry import _read_trace_from_tempo
 
     parent = _span("a1", "parent", None, 0, 10)
     child = _span("b2", "child", "a1", 1, 9)
     with (
         patch(
-            "devops_cli.commands.telemetry.query_jaeger_trace",
+            "devops_cli.commands.telemetry.query_tempo_trace",
             side_effect=[[], [parent], [parent, child], [parent, child]],
         ),
         patch("devops_cli.commands.telemetry.time.sleep"),
     ):
-        spans = _read_trace_from_jaeger(_TRACE, "http://localhost:16686")
+        spans = _read_trace_from_tempo(_TRACE, "http://localhost:3200")
     assert [s["name"] for s in spans] == ["parent", "child"]
 
 
-def test_profile_exits_non_zero_when_jaeger_has_no_spans(no_poll_wait: None) -> None:
-    with patch("devops_cli.commands.telemetry.query_jaeger_trace", return_value=[]):
+def test_profile_exits_non_zero_when_tempo_has_no_spans(no_poll_wait: None) -> None:
+    with patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=[]):
         result = runner.invoke(app, ["profile", "--trace-id", _TRACE])
     assert (result.exit_code, "check the collector" in result.output) == (1, True)
 
 
 def test_profile_json_output(no_poll_wait: None) -> None:
     spans = [_span("a1", "root", None, 0, 20), _span("b2", "leaf", "a1", 2, 18)]
-    with patch("devops_cli.commands.telemetry.query_jaeger_trace", return_value=spans):
+    with patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=spans):
         result = runner.invoke(app, ["profile", "--trace-id", _TRACE, "--json"])
     data = json.loads(result.output)
     assert (result.exit_code, data["trace_id"], data["span_count"]) == (0, _TRACE, 2)

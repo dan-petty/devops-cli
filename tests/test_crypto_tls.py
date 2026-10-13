@@ -114,7 +114,7 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
     assert Path(summary.fullchain_path).exists()
 
     # Verify all expected services are included
-    for svc in ["argocd", "grafana", "prometheus", "ollama", "open-webui", "qdrant", "jaeger"]:
+    for svc in ["argocd", "grafana", "prometheus", "ollama", "open-webui", "qdrant", "tempo"]:
         assert svc in summary.services_configured
 
     # Verify custom additions

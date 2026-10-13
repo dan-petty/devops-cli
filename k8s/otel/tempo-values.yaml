@@ -1,0 +1,81 @@
+# Grafana Tempo Helm values — single binary mode with local-path persistence.
+# Chart: grafana-community/tempo
+# Repo:  https://grafana-community.github.io/helm-charts
+
+replicas: 1
+
+tempo:
+  reportingEnabled: false
+  retention: 168h
+  compactor:
+    compaction:
+      block_retention: 168h
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2048Mi
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+config: |
+  memberlist:
+    cluster_label: "{{ .Release.Name }}.{{ .Release.Namespace }}"
+  multitenancy_enabled: {{ .Values.tempo.multitenancyEnabled }}
+  usage_report:
+    reporting_enabled: {{ .Values.tempo.reportingEnabled }}
+  compactor:
+    compaction:
+      block_retention: {{ .Values.tempo.retention }}
+  distributor:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+  ingester:
+    {{- if .Values.tempo.ingester }}
+      {{- toYaml .Values.tempo.ingester | nindent 2 }}
+    {{- end }}
+  server:
+    {{- toYaml .Values.tempo.server | nindent 2 }}
+  storage:
+    {{- toYaml .Values.tempo.storage | nindent 2 }}
+  querier:
+    {{- toYaml .Values.tempo.querier | nindent 2 }}
+  query_frontend:
+    {{- toYaml .Values.tempo.queryFrontend | nindent 2 }}
+  overrides:
+    {{- toYaml .Values.tempo.global_overrides | nindent 2 }}
+    {{- if .Values.tempo.metricsGenerator.enabled }}
+        metrics_generator_processors:
+        {{- toYaml .Values.tempo.metricsGenerator.processors | nindent 6 }}
+    {{- end }}
+  {{- if .Values.tempo.metricsGenerator.enabled }}
+  metrics_generator:
+        storage:
+          path: "/tmp/tempo"
+          remote_write:
+            - url: {{ .Values.tempo.metricsGenerator.remoteWriteUrl }}
+        traces_storage:
+          path: "/tmp/tempo"
+        processor:
+          {{- toYaml .Values.tempo.metricsGenerator.processor | nindent 8 }}
+  {{- end }}
+
+persistence:
+  enabled: true
+  enableStatefulSetAutoDeletePVC: false
+  storageClassName: local-path
+  size: 10Gi
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false

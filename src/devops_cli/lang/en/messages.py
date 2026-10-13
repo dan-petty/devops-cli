@@ -700,16 +700,16 @@ class TelemetryMessages:
     port_forward_tip: str = (
         "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
     )
-    view_traces_jaeger: str = "\n[dim]To view traces in Jaeger UI: {url}[/dim]"
+    view_traces_tempo: str = "\n[dim]To query traces via Tempo HTTP API: {url}[/dim]"
     emitting_span: str = (
         "[bold]Emitting test trace span '[cyan]{name}[/cyan]' to [cyan]{endpoint}[/cyan]...[/bold]"
     )
     span_emitted_success: str = "Test span emitted successfully! (Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
-    view_jaeger_service: str = "[dim]View in Jaeger: {url} (Service: {service})[/dim]"
-    jaeger_ui_link: str = "[bold]Jaeger Tracing UI:[/bold] [link={url}]{url}[/link]"
+    view_tempo_service: str = "[dim]Query in Tempo: {url} (Service: {service})[/dim]"
+    tempo_api_link: str = "[bold]Tempo HTTP API:[/bold] [link={url}]{url}[/link]"
     profile_devops_only: str = (
         "telemetry profile runs only a devops-cli command, whose first word is 'devops' "
-        "(e.g. 'devops k8s contexts'); pass --trace-id to show a trace already in Jaeger."
+        "(e.g. 'devops k8s contexts'); pass --trace-id to show a trace already in Tempo."
     )
     semconv_refreshed: str = (
         "{path} now holds {attributes} attributes, {metrics} metrics and {spans} span types "

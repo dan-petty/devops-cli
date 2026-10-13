@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -24,13 +25,14 @@ from devops_cli.telemetry.context import (
 )
 from devops_cli.telemetry.tracer import (
     SpanWaterfallNode,
+    build_span_waterfall_tree,
     clear_span_buffer,
     record_completed_span,
 )
 from devops_cli.telemetry.waterfall import (
     flatten_waterfall_tree,
-    normalize_jaeger_spans,
-    query_jaeger_trace,
+    normalize_tempo_spans,
+    query_tempo_trace,
     render_waterfall_bar,
 )
 
@@ -104,96 +106,101 @@ def test_flatten_waterfall_tree() -> None:
     assert "└─" in flattened[1][1] or "├─" in flattened[1][1]
 
 
-def test_normalize_jaeger_spans() -> None:
-    """Verify conversion of Jaeger JSON response to OpenTelemetry span dictionaries."""
-    jaeger_payload = {
-        "data": [
-            {
-                "traceID": "4bf92f3577b34da6a3ce929d0e0e4736",
-                "spans": [
-                    {
-                        "traceID": "4bf92f3577b34da6a3ce929d0e0e4736",
-                        "spanID": "00f067aa0ba902b7",
-                        "operationName": "HTTP GET /healthz",
-                        "startTime": 1600000000000000,
-                        "duration": 50000,
-                        "tags": [
-                            {"key": "http.status_code", "type": "int64", "value": 200},
-                            {"key": "error", "type": "bool", "value": False},
-                        ],
-                        "references": [],
-                    }
-                ],
-            }
-        ]
-    }
-    spans = normalize_jaeger_spans(jaeger_payload)
-    assert len(spans) == 1
-    assert spans[0]["traceId"] == "4bf92f3577b34da6a3ce929d0e0e4736"
-    assert spans[0]["name"] == "HTTP GET /healthz"
-    assert spans[0]["status"]["code"] == "STATUS_CODE_OK"
+def test_normalize_tempo_spans() -> None:
+    """Verify conversion of captured Tempo /api/v2/traces/{id} OTLP JSON into waterfall span tree."""
+    fixture_path = Path("tests/fixtures/traces/tempo-otlp-trace.json")
+    tempo_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    spans = normalize_tempo_spans(tempo_payload)
+    roots = build_span_waterfall_tree(spans)
+
+    assert len(roots) == 1
+    root = roots[0]
+    child = root.children[0]
+    assert (
+        len(spans),
+        root.trace_id,
+        root.span_id,
+        root.name,
+        root.duration_ms,
+        root.status_code,
+        root.attributes,
+        len(root.children),
+        child.span_id,
+        child.parent_id,
+        child.name,
+        child.duration_ms,
+        child.status_code,
+        child.status_message,
+        child.depth,
+        child.attributes,
+    ) == (
+        2,
+        "4bf92f3577b34da6a3ce929d0e0e4736",
+        "00f067aa0ba902b7",
+        "cli.telemetry.profile",
+        50.0,
+        "STATUS_CODE_OK",
+        {"cli.command": "telemetry profile", "http.status_code": 200},
+        1,
+        "b9c7c989f97918e1",
+        "00f067aa0ba902b7",
+        "cli.k8s.contexts",
+        30.0,
+        "STATUS_CODE_ERROR",
+        "context check failed",
+        1,
+        {"k8s.namespace": "otel", "retry.enabled": True},
+    )
 
 
 @pytest.mark.usefixtures("public_dns")
-def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify Jaeger is queried at its configured hostname, which TLS and Host carry.
+def test_query_tempo_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Tempo is queried at its configured hostname, which TLS and Host carry.
 
     The connect dials the vetted address, the TLS handshake verifies the hostname, and the
     URL's userinfo never reaches the Host header.
     """
-    import json
-
     from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    payload = {
-        "data": [
-            {
-                "traceID": test_trace_id,
-                "spans": [
-                    {
-                        "traceID": test_trace_id,
-                        "spanID": "span01",
-                        "operationName": "GET /api/v1/health",
-                        "startTime": 1000000,
-                        "duration": 2000,
-                        "tags": [],
-                        "references": [],
-                    }
-                ],
-            }
-        ]
-    }
+    payload = json.loads(
+        Path("tests/fixtures/traces/tempo-otlp-trace.json").read_text(encoding="utf-8")
+    )
     scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
     recorder = record_connects(monkeypatch, [http_response(200, json.dumps(payload))])
 
-    spans = query_jaeger_trace(test_trace_id, jaeger_url="https://user:secret@example.com:16686")
+    spans = query_tempo_trace(test_trace_id, tempo_url="https://user:secret@example.com:3200")
 
     assert (
         [span["traceId"] for span in spans],
         recorder.dialled,
         [server_hostname for server_hostname, _ in recorder.tls],
         recorder.requested_hosts,
-    ) == ([test_trace_id], [(PUBLIC_ADDRESS, 16686)], ["example.com"], ["example.com:16686"])
+    ) == (
+        [test_trace_id, test_trace_id],
+        [(PUBLIC_ADDRESS, 3200)],
+        ["example.com"],
+        ["example.com:3200"],
+    )
 
 
 @pytest.mark.usefixtures("public_dns")
-def test_the_jaeger_timeout_bounds_the_connect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A Jaeger query's `timeout` bounds the connect too, not only the read."""
+def test_the_tempo_timeout_bounds_the_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Tempo query's `timeout` bounds the connect too, not only the read."""
     from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
 
-    recorder = record_connects(monkeypatch, [http_response(200, json.dumps({"data": []}))])
+    recorder = record_connects(monkeypatch, [http_response(200, json.dumps({"trace": {}}))])
 
-    query_jaeger_trace("4bf92f3577b34da6a3ce929d0e0e4736", "http://example.com:16686", 7.0)
+    query_tempo_trace("4bf92f3577b34da6a3ce929d0e0e4736", "http://example.com:3200", 7.0)
 
     assert recorder.timeouts_of(PUBLIC_ADDRESS) == [7.0]
 
 
 @pytest.mark.parametrize("flag", ["false", "true"])
-def test_jaeger_admits_loopback_and_public_answers_only(
+def test_tempo_admits_loopback_and_public_answers_only(
     monkeypatch: pytest.MonkeyPatch, flag: str
 ) -> None:
-    """Verify Jaeger's loopback-level client refuses RFC 1918 and link-local answers, flag or not."""
+    """Verify Tempo's loopback-level client refuses RFC 1918 and link-local answers, flag or not."""
     from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", flag)
@@ -209,30 +216,28 @@ def test_jaeger_admits_loopback_and_public_answers_only(
     recorder = record_connects(monkeypatch, [])
 
     for _ in answers:
-        query_jaeger_trace(
-            "4bf92f3577b34da6a3ce929d0e0e4736", jaeger_url="http://example.com:16686"
-        )
+        query_tempo_trace("4bf92f3577b34da6a3ce929d0e0e4736", tempo_url="http://example.com:3200")
 
     assert (resolver.lookups["example.com"], recorder.dialled) == (
         len(answers),
-        [("127.0.0.1", 16686), (PUBLIC_ADDRESS, 16686)],
+        [("127.0.0.1", 3200), (PUBLIC_ADDRESS, 3200)],
     )
 
 
-def test_query_jaeger_trace_security_validation() -> None:
-    """Verify query_jaeger_trace rejects invalid hex, path traversal, and disallowed URLs."""
+def test_query_tempo_trace_security_validation() -> None:
+    """Verify query_tempo_trace rejects invalid hex, path traversal, and disallowed URLs."""
     # Invalid trace IDs: path traversal, non-hex, empty
-    assert query_jaeger_trace("../../admin") == []
-    assert query_jaeger_trace("not-a-hex-id!") == []
-    assert query_jaeger_trace("") == []
+    assert query_tempo_trace("../../admin") == []
+    assert query_tempo_trace("not-a-hex-id!") == []
+    assert query_tempo_trace("") == []
 
-    # Invalid Jaeger URLs: invalid scheme, cloud metadata
+    # Invalid Tempo URLs: invalid scheme, cloud metadata
     valid_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    assert query_jaeger_trace(valid_id, jaeger_url="ftp://example.com") == []
-    assert query_jaeger_trace(valid_id, jaeger_url="http://169.254.169.254") == []
-    assert query_jaeger_trace(valid_id, jaeger_url="http://10.0.0.1:16686") == []
-    assert query_jaeger_trace(valid_id, jaeger_url="http://192.168.1.1:16686") == []
-    assert query_jaeger_trace(valid_id, jaeger_url="http://172.16.0.1:16686") == []
+    assert query_tempo_trace(valid_id, tempo_url="ftp://example.com") == []
+    assert query_tempo_trace(valid_id, tempo_url="http://169.254.169.254") == []
+    assert query_tempo_trace(valid_id, tempo_url="http://10.0.0.1:3200") == []
+    assert query_tempo_trace(valid_id, tempo_url="http://192.168.1.1:3200") == []
+    assert query_tempo_trace(valid_id, tempo_url="http://172.16.0.1:3200") == []
 
 
 def test_sandbox_traces_help() -> None:
@@ -400,27 +405,27 @@ def test_generate_traceparent_validation_error() -> None:
     assert "Invalid trace_flags" in str(exc_info.value)
 
 
-def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify query_jaeger_trace rejects hosts resolving to link-local metadata addresses."""
+def test_query_tempo_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query_tempo_trace rejects hosts resolving to link-local metadata addresses."""
     import socket
 
-    from devops_cli.telemetry.waterfall import query_jaeger_trace
+    from devops_cli.telemetry.waterfall import query_tempo_trace
 
     def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 16686))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 3200))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    spans = query_jaeger_trace(
+    spans = query_tempo_trace(
         "0123456789abcdef0123456789abcdef",
-        jaeger_url="http://example.com:16686",
+        tempo_url="http://example.com:3200",
     )
     assert spans == []
 
 
-def test_query_jaeger_trace_error_status_and_network_failure(
+def test_query_tempo_trace_error_status_and_network_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify query_jaeger_trace returns empty list on HTTP non-200 and request errors."""
+    """Verify query_tempo_trace returns empty list on HTTP non-200 and request errors."""
     import httpx2
 
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -443,7 +448,7 @@ def test_query_jaeger_trace_error_status_and_network_failure(
             return mock_resp_500
 
     monkeypatch.setattr("httpx2.Client", MockClient500)
-    assert query_jaeger_trace(test_trace_id, jaeger_url="http://localhost:16686") == []
+    assert query_tempo_trace(test_trace_id, tempo_url="http://localhost:3200") == []
 
     # Test network exception
     class MockClientError:
@@ -460,19 +465,19 @@ def test_query_jaeger_trace_error_status_and_network_failure(
             raise httpx2.ConnectError("Connection refused")
 
     monkeypatch.setattr("httpx2.Client", MockClientError)
-    assert query_jaeger_trace(test_trace_id, jaeger_url="http://localhost:16686") == []
+    assert query_tempo_trace(test_trace_id, tempo_url="http://localhost:3200") == []
 
 
-def test_resolve_trace_spans_with_jaeger_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify resolve_trace_spans retrieves spans from Jaeger when not in memory buffer."""
+def test_resolve_trace_spans_with_tempo_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify resolve_trace_spans retrieves spans from Tempo when not in memory buffer."""
     from devops_cli.telemetry.waterfall import resolve_trace_spans
 
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     mock_spans = [{"traceId": test_trace_id, "name": "root"}]
 
     monkeypatch.setattr(
-        "devops_cli.telemetry.waterfall.query_jaeger_trace",
-        lambda tid, jaeger_url=None: mock_spans if tid == test_trace_id else [],
+        "devops_cli.telemetry.waterfall.query_tempo_trace",
+        lambda tid, tempo_url=None: mock_spans if tid == test_trace_id else [],
     )
     tid, spans = resolve_trace_spans(test_trace_id)
     assert tid == test_trace_id

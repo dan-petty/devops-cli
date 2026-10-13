@@ -13,6 +13,7 @@ spec:
     - https://argoproj.github.io/argo-helm
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts
+    - https://grafana-community.github.io/helm-charts
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://nvidia.github.io/dcgm-exporter/helm-charts
     - https://open-webui.github.io/helm-charts
@@ -92,6 +93,7 @@ spec:
     - https://argoproj.github.io/argo-helm
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts
+    - https://grafana-community.github.io/helm-charts
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://nvidia.github.io/dcgm-exporter/helm-charts
     - https://open-webui.github.io/helm-charts

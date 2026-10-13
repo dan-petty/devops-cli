@@ -1,7 +1,9 @@
-"""Waterfall visualization helpers and Jaeger trace querying for devops-cli."""
+"""Waterfall visualization helpers and Tempo trace querying for devops-cli."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import re
 from typing import Any
@@ -16,6 +18,7 @@ from devops_cli.telemetry.tracer import SpanWaterfallNode
 logger = logging.getLogger(__name__)
 
 _TRACE_ID_RE = re.compile(r"^[0-9a-fA-F]{16,32}$")
+_HEX_ID_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 
 def render_waterfall_bar(
@@ -56,65 +59,98 @@ def flatten_waterfall_tree(
     return rows
 
 
-def _extract_jaeger_parent_id(references: list[dict[str, Any]]) -> str | None:
-    """Extract parent span ID from Jaeger span references."""
-    for ref in references:
-        if ref.get("refType") == "CHILD_OF":
-            return ref.get("spanID")
-    return None
+def _decode_otlp_id(raw_id: Any) -> str:
+    """Decode an OTLP traceId or spanId from hex or protojson base64 into lowercase hex."""
+    if not isinstance(raw_id, str) or not raw_id:
+        return ""
+    if _HEX_ID_RE.fullmatch(raw_id):
+        return raw_id.lower()
+    try:
+        return base64.b64decode(raw_id, validate=True).hex()
+    except ValueError, binascii.Error:
+        return raw_id
 
 
-def _extract_jaeger_tags(tags: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
-    """Extract attributes and status code from Jaeger span tags."""
-    attrs: list[dict[str, Any]] = []
-    status_code = "STATUS_CODE_OK"
-    for tag in tags:
-        k = str(tag.get("key", ""))
-        v = tag.get("value")
-        attrs.append({"key": k, "value": {"stringValue": str(v)}})
-        if k == "error" and v is True:
-            status_code = "STATUS_CODE_ERROR"
-    return attrs, status_code
+def _normalize_otlp_status(raw_status: Any) -> dict[str, Any]:
+    """Normalize OTLP span status dictionary into standard code and message fields."""
+    if not isinstance(raw_status, dict):
+        return {"code": "STATUS_CODE_OK"}
+    raw_code = raw_status.get("code", "STATUS_CODE_OK")
+    code = (
+        "STATUS_CODE_ERROR"
+        if raw_code in ("STATUS_CODE_ERROR", "ERROR", 2, "2")
+        else "STATUS_CODE_OK"
+    )
+    message = str(raw_status.get("message", ""))
+    return {"code": code, "message": message} if message else {"code": code}
 
 
-def _convert_jaeger_span(span: dict[str, Any]) -> dict[str, Any]:
-    """Convert single Jaeger span object into OpenTelemetry span dictionary."""
-    start_us = int(span.get("startTime", 0))
-    dur_us = int(span.get("duration", 0))
-    attrs, status_code = _extract_jaeger_tags(span.get("tags", []))
-    parent_id = _extract_jaeger_parent_id(span.get("references", []))
+def _convert_tempo_span(span: dict[str, Any]) -> dict[str, Any]:
+    """Convert a single Tempo OTLP span object into the normalized span dictionary."""
+    parent_hex = _decode_otlp_id(span.get("parentSpanId"))
+    parent_id = parent_hex if parent_hex and any(ch != "0" for ch in parent_hex) else None
+    start_ns = str(span.get("startTimeUnixNano", "0"))
+    end_ns = str(span.get("endTimeUnixNano", start_ns))
+    raw_attrs = span.get("attributes")
     return {
-        "traceId": span.get("traceID", ""),
-        "spanId": span.get("spanID", ""),
+        "traceId": _decode_otlp_id(span.get("traceId")),
+        "spanId": _decode_otlp_id(span.get("spanId")),
         "parentSpanId": parent_id,
-        "name": span.get("operationName", "unknown"),
-        "startTimeUnixNano": str(start_us * 1000),
-        "endTimeUnixNano": str((start_us + dur_us) * 1000),
-        "status": {"code": status_code},
-        "attributes": attrs,
+        "name": str(span.get("name", "unknown")),
+        "startTimeUnixNano": start_ns,
+        "endTimeUnixNano": end_ns,
+        "status": _normalize_otlp_status(span.get("status")),
+        "attributes": raw_attrs if isinstance(raw_attrs, list) else [],
     }
 
 
-def normalize_jaeger_spans(jaeger_data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert Jaeger HTTP API trace payload into standard OpenTelemetry span dicts."""
-    traces = jaeger_data.get("data", [])
-    if not isinstance(traces, list):
+def _extract_resource_spans(tempo_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract the resourceSpans or batches list from a Tempo /api/v2/traces response."""
+    if not isinstance(tempo_data, dict):
         return []
-    spans_out: list[dict[str, Any]] = []
-    for trace in traces:
-        for span in trace.get("spans", []):
-            spans_out.append(_convert_jaeger_span(span))
-    return spans_out
+    trace_obj = tempo_data.get("trace")
+    candidates = (
+        trace_obj.get("resourceSpans") if isinstance(trace_obj, dict) else None,
+        tempo_data.get("resourceSpans"),
+        tempo_data.get("batches"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            return [item for item in candidate if isinstance(item, dict)]
+    return []
 
 
-def query_jaeger_trace(
+def _iter_scope_spans(resource_span: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return all span dicts nested inside a resourceSpan's scopeSpans."""
+    scopes = resource_span.get("scopeSpans") or resource_span.get("instrumentationLibrarySpans")
+    if not isinstance(scopes, list):
+        return []
+    return [
+        span
+        for scope in scopes
+        if isinstance(scope, dict)
+        for span in (scope.get("spans") or [])
+        if isinstance(span, dict)
+    ]
+
+
+def normalize_tempo_spans(tempo_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert Tempo HTTP API (/api/v2/traces/{id}) OTLP trace payload into standard span dicts."""
+    return [
+        _convert_tempo_span(span)
+        for resource_span in _extract_resource_spans(tempo_data)
+        for span in _iter_scope_spans(resource_span)
+    ]
+
+
+def query_tempo_trace(
     trace_id: str,
-    jaeger_url: str | None = None,
+    tempo_url: str | None = None,
     timeout: float = 5.0,
 ) -> list[dict[str, Any]]:
-    """Fetch trace spans from Jaeger REST API (/api/traces/{trace_id}).
+    """Fetch trace spans from Tempo HTTP API (/api/v2/traces/{trace_id}).
 
-    Jaeger is reached at its configured hostname through a loopback-level client, so the connect
+    Tempo is reached at its configured hostname through a loopback-level client, so the connect
     admits a public or loopback address and refuses private, link-local and metadata ones, whatever
     `ai.allow_private_network` says. TLS and the Host header carry the hostname. `timeout` bounds
     every phase of the request, the connect included.
@@ -122,23 +158,23 @@ def query_jaeger_trace(
     clean_id = trace_id.strip() if trace_id else ""
     if not clean_id or not _TRACE_ID_RE.fullmatch(clean_id):
         return []
-    api_url = f"{(jaeger_url or 'http://localhost:16686').rstrip('/')}/api/traces/{clean_id}"
+    api_url = f"{(tempo_url or 'http://localhost:3200').rstrip('/')}/api/v2/traces/{clean_id}"
     try:
         with new_http_client(level=EgressLevel.LOOPBACK, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(api_url)
             if resp.status_code != 200:
                 return []
-            return normalize_jaeger_spans(resp.json())
+            return normalize_tempo_spans(resp.json())
     except (httpx2.RequestError, httpx2.InvalidURL, SSRFBlockedError, ValueError) as exc:
-        logger.warning("Failed to query Jaeger trace %s: %s", clean_id, exc)
+        logger.warning("Failed to query Tempo trace %s: %s", clean_id, exc)
         return []
 
 
 def resolve_trace_spans(
     trace_id: str | None = None,
-    jaeger_url: str | None = None,
+    tempo_url: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Retrieve trace spans from local buffer first, falling back to Jaeger query."""
+    """Retrieve trace spans from local buffer first, falling back to Tempo query."""
     from devops_cli.telemetry.tracer import get_trace_spans
 
     spans = get_trace_spans(trace_id)
@@ -147,17 +183,17 @@ def resolve_trace_spans(
         return resolved_id, spans
 
     if trace_id:
-        jaeger_spans = query_jaeger_trace(trace_id, jaeger_url=jaeger_url)
-        if jaeger_spans:
-            return trace_id, jaeger_spans
+        tempo_spans = query_tempo_trace(trace_id, tempo_url=tempo_url)
+        if tempo_spans:
+            return trace_id, tempo_spans
 
     return trace_id or "unknown", []
 
 
 __all__ = [
     "flatten_waterfall_tree",
-    "normalize_jaeger_spans",
-    "query_jaeger_trace",
+    "normalize_tempo_spans",
+    "query_tempo_trace",
     "render_waterfall_bar",
     "resolve_trace_spans",
 ]

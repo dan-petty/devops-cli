@@ -223,11 +223,11 @@ def k8s_pods(namespace: str = DEFAULT_K8S_NAMESPACE) -> str:
     )
 
 
-def k8s_jaeger_status(namespace: str = DEFAULT_OBSERVABILITY_NAMESPACE) -> str:
-    """Check Jaeger distributed tracing backend deployment status in cluster."""
+def k8s_tempo_status(namespace: str = DEFAULT_OBSERVABILITY_NAMESPACE) -> str:
+    """Check Tempo distributed tracing backend deployment status in cluster."""
     return _run_tool_cmd(
-        ["kubectl", "get", "jaegers,deployments,services", "-n", namespace],
-        fallback_msg=f"No Jaeger tracing resources found in namespace '{namespace}'.",
+        ["kubectl", "get", "deployments,statefulsets,services", "-n", namespace],
+        fallback_msg=f"No Tempo tracing resources found in namespace '{namespace}'.",
     )
 
 

@@ -310,9 +310,9 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
 ) -> None:
     """Property: Unified cloud metadata superset is rejected with 1.0 containment at every site.
 
-    The sandbox probe and Jaeger no longer keep checks of their own: both dial through the
+    The sandbox probe and Tempo no longer keep checks of their own: both dial through the
     connect-time policy (`devops_cli.http.egress`), which refuses every target here at the loopback
-    level Jaeger uses. The probe's private level admits the link-local host gateways among them,
+    level Tempo uses. The probe's private level admits the link-local host gateways among them,
     as `test_link_local_host_gateways_are_admitted_only_at_the_private_level` pins.
     """
     clean_host = target.strip("[]").rstrip(".")

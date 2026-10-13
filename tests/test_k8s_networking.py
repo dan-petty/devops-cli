@@ -128,7 +128,7 @@ def test_collect_port_forward_services_and_details() -> None:
         "argocd": 8080,
         "grafana": 8030,
         "prometheus": 8090,
-        "jaeger": 16686,
+        "tempo": 3200,
         "pyroscope": 4040,
         "otel": 4318,
         "ollama": 11434,

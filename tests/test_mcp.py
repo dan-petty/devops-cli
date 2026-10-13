@@ -67,7 +67,7 @@ class TestMcpServer:
             "k8s_bootstrap",
             "k8s_deploy_stack",
             "k8s_teardown_stack",
-            "k8s_jaeger_info",
+            "k8s_tempo_info",
             "argo_list",
             "argo_status",
             "grafana_dashboards",
@@ -277,10 +277,10 @@ class TestAllMcpToolsDirectly:
             k8s_deploy_stack,
             k8s_doctor,
             k8s_enable_tls,
-            k8s_jaeger_info,
             k8s_pods,
             k8s_status,
             k8s_teardown_stack,
+            k8s_tempo_info,
             prometheus_query,
             rag_index,
             rag_search,
@@ -321,7 +321,7 @@ class TestAllMcpToolsDirectly:
             assert k8s_bootstrap(auto_start=True) == "mock_output"
             assert k8s_deploy_stack(stack="monitoring") == "mock_output"
             assert k8s_teardown_stack(stack="monitoring") == "mock_output"
-            assert "Jaeger Tracing Endpoints" in k8s_jaeger_info()
+            assert "Tempo Tracing Endpoints" in k8s_tempo_info()
             assert argo_list() == "mock_output"
             assert argo_status(app="argocd") == "mock_output"
             assert grafana_dashboards() == "mock_output"
