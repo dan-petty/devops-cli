@@ -650,3 +650,27 @@ def test_runs_without_a_spread_compare_without_range_columns(run_env: Path) -> N
         {(m.base_range, m.current_range) for m in comparison.metrics.values()},
         "Spread" in result.stdout,
     ) == (0, {(None, None)}, False)
+
+
+def test_cli_runs_check_fails_on_empty_comparison_and_ambiguous_prefix(run_env: Path) -> None:
+    """Verify `ai runs check` exits 1 on an empty comparison and on an ambiguous prefix (#797)."""
+    empty_base = _corpus_arm("20261002T000000Z-aaaa01")
+    empty_curr = _corpus_arm("20261002T000001Z-aaaa02")
+    empty_base.results = {}
+    empty_curr.results = {}
+    save_run(empty_base)
+    save_run(empty_curr)
+
+    res_empty = cli.invoke(
+        ai_runs.app, ["check", empty_curr.run_id, "--baseline", empty_base.run_id]
+    )
+    res_ambiguous = cli.invoke(
+        ai_runs.app, ["check", "20261002T00000", "--baseline", empty_base.run_id]
+    )
+
+    assert (
+        res_empty.exit_code,
+        "no comparable metrics found to check" in res_empty.output,
+        res_ambiguous.exit_code,
+        "Ambiguous run-id prefix '20261002T00000'" in res_ambiguous.output,
+    ) == (1, True, 1, True)
