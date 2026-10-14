@@ -46,7 +46,7 @@ class SpendUsage(BaseModel):
 class SpendGuard(BaseCapability):
     """Capability enforcing token and USD financial spend budgets across agent execution."""
 
-    id: str = "spend"
+    id: str | None = "spend"
     max_usd: float | None = None
     max_tokens: int | None = None
     max_turns: int | None = None

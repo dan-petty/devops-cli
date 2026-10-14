@@ -45,7 +45,7 @@ def _search_single_file_lines(
 class FileSystem(BaseCapability):
     """Capability providing safe, sandboxed file operations with pattern filtering and optimistic concurrency."""
 
-    id: str = "file_system"
+    id: str | None = "file_system"
     root: Path = Field(default_factory=lambda: Path("."))
     allowed_patterns: list[str] = Field(default_factory=list)
     denied_patterns: list[str] = Field(default_factory=list)

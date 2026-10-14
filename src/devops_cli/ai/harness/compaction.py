@@ -254,7 +254,7 @@ def json_lines(val: Any) -> str:
 class ToolOutputLimits(BaseCapability):
     """Capability managing tool output limits with Truncate, Spill, and Summarize bands."""
 
-    id: str = "tool_output_limits"
+    id: str | None = "tool_output_limits"
     max_chars: int = 15000
     bands: list[Band] = Field(
         default_factory=lambda: [Band(over=10000, action=Spill(then=Truncate(max_chars=5000)))]
@@ -456,7 +456,7 @@ def reinject_pinned(messages: list[Any], pinned_items: Sequence[Any]) -> list[An
 class ClampOversizedMessages(BaseCapability):
     """Capability that head/tail-truncates single oversized message parts."""
 
-    id: str = "clamp_oversized_messages"
+    id: str | None = "clamp_oversized_messages"
     max_chars: int = 20000
 
     def compact_messages(self, messages: list[Any]) -> list[Any]:
@@ -491,7 +491,7 @@ class ClampOversizedMessages(BaseCapability):
 class ClearToolResults(BaseCapability):
     """Capability managing context compaction by clearing older tool result messages in place."""
 
-    id: str = "clear_tool_results"
+    id: str | None = "clear_tool_results"
     max_fraction: float = 0.7
     keep_pairs: int = 2
 
@@ -539,7 +539,7 @@ class ClearToolResults(BaseCapability):
 class DeduplicateFileReads(BaseCapability):
     """Capability that blanks superseded file read results when a newer read of the same file exists."""
 
-    id: str = "deduplicate_file_reads"
+    id: str | None = "deduplicate_file_reads"
     file_read_tools: set[str] = Field(
         default_factory=lambda: {"read_file", "view_file", "cat", "get_file", "read_path"}
     )
@@ -608,7 +608,7 @@ class CompactionReceipt(BaseModel):
 class SlidingWindowCompaction(BaseCapability):
     """Capability that drops older whole messages down to a recent tail."""
 
-    id: str = "sliding_window_compaction"
+    id: str | None = "sliding_window_compaction"
     max_messages: int = 20
     keep_user_messages: bool = True
     receipts: bool = False
@@ -648,7 +648,7 @@ class SlidingWindowCompaction(BaseCapability):
 class SummarizingCompaction(BaseCapability):
     """Capability that summarizes older messages into a structured summary message."""
 
-    id: str = "summarizing_compaction"
+    id: str | None = "summarizing_compaction"
     summary_model: Any | None = None
     instructions: str = DEFAULT_SUMMARIZING_INSTRUCTIONS
     keep_tail: int = 4
@@ -744,7 +744,7 @@ def _apply_compactor(compactor: Any, messages: list[Any]) -> list[Any]:
 class FallbackCompaction(BaseCapability):
     """Capability that chains fallback compaction strategies."""
 
-    id: str = "fallback_compaction"
+    id: str | None = "fallback_compaction"
     strategies: list[Any] = Field(default_factory=list)
 
     def compact_messages(self, messages: list[Any]) -> list[Any]:
@@ -761,7 +761,7 @@ class FallbackCompaction(BaseCapability):
 class TieredCompaction(BaseCapability):
     """Cascading compaction strategy running cheap zero-LLM passes before escalating."""
 
-    id: str = "tiered_compaction"
+    id: str | None = "tiered_compaction"
     tiers: list[Any] = Field(default_factory=list)
     max_fraction: float = 0.8
     target_tokens: int = 100000
@@ -802,7 +802,7 @@ class TieredCompaction(BaseCapability):
 class WarnNearLimits(BaseCapability):
     """Capability notifying the model when context consumption approaches token limits."""
 
-    id: str = "warn_near_limits"
+    id: str | None = "warn_near_limits"
     max_context_fraction: float = 0.9
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
@@ -830,7 +830,7 @@ class CacheMark(BaseModel):
 class WarnOnCacheBusts(BaseCapability):
     """Capability that warns when prompt cache hits collapse mid-run."""
 
-    id: str = "warn_on_cache_busts"
+    id: str | None = "warn_on_cache_busts"
     collapse_ratio: float = Field(default=0.5, gt=0.0)
     min_prefix_tokens: int = Field(default=1024, ge=0)
     cache_ttl_seconds: float = Field(default=300.0, gt=0.0)
@@ -842,7 +842,7 @@ class WarnOnCacheBusts(BaseCapability):
         collapse_ratio: float = 0.5,
         min_prefix_tokens: int = 1024,
         cache_ttl_seconds: float = 300.0,
-        id: str = "warn_on_cache_busts",
+        id: str | None = "warn_on_cache_busts",
     ) -> None:
         if collapse_ratio <= 0.0:
             raise HarnessValidationError(
@@ -975,7 +975,7 @@ class WarnOnCacheBusts(BaseCapability):
 class ReportContextUsage(BaseCapability):
     """Capability reporting token counts and context fractions."""
 
-    id: str = "report_context_usage"
+    id: str | None = "report_context_usage"
 
     def get_usage(self, messages: list[Any], context_limit: int = 128000) -> ContextUsage:
         """Calculate token and message usage metrics."""
