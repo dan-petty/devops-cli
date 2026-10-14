@@ -162,7 +162,7 @@ def _try_load_disk_agent(md_file: Path, seen_names: set[str]) -> SubAgent | None
 class SubAgents(BaseCapability):
     """Capability allowing an orchestrator agent to delegate sub-tasks to named child agents."""
 
-    id: str = "sub_agents"
+    id: str | None = "sub_agents"
     agents: list[SubAgent] = Field(default_factory=list)
     models: dict[str, str | ModelOption] = Field(default_factory=dict)
     agent_folders: str | list[Path | str] | None = "agents"
@@ -397,7 +397,7 @@ class SubAgents(BaseCapability):
 class Advisor(BaseCapability):
     """Let an executor model consult a separate advisor model through a provider-native tool or local fallback."""
 
-    id: str = "advisor"
+    id: str | None = "advisor"
     model: Any = Field(default="openai:gpt-4o")
     mode: Literal["auto", "native", "local"] = "auto"
     max_uses: int | None = None
@@ -405,7 +405,7 @@ class Advisor(BaseCapability):
     caching: Literal["5m", "1h"] | None = None
     forward_history: bool = False
     instructions: str = DEFAULT_ADVISOR_INSTRUCTIONS
-    description: str = (
+    description: str | None = (
         "Consult an advisor model for guidance, code reviews, and specialized feedback."
     )
     defer_loading: bool = False
@@ -422,7 +422,7 @@ class Advisor(BaseCapability):
         forward_history: bool = False,
         instructions: str | None = None,
         description: str | None = None,
-        id: str = "advisor",
+        id: str | None = "advisor",
         defer_loading: bool = False,
     ) -> None:
         if max_uses is not None and max_uses < 1:

@@ -37,7 +37,7 @@ GLOBAL_PROMPT_REGISTRY = PromptRegistry()
 class ManagedPrompt(BaseCapability):
     """Capability that dynamically fetches, versions, and renders agent system instructions."""
 
-    id: str = "managed_prompt"
+    id: str | None = "managed_prompt"
     name: str = "default_agent_prompt"
     version: str = "latest"
     fallback_template: str = ""

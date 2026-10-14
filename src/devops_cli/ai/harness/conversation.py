@@ -175,7 +175,7 @@ def _extract_conversation_documents(runs: list[RunRecord]) -> list[dict[str, Any
 class ConversationSearch(BaseCapability):
     """Capability providing BM25-ranked search over persisted conversation history."""
 
-    id: str = "conversation_search"
+    id: str | None = "conversation_search"
     source: Any = None
     scope: Literal["conversation", "all"] | None = None
     max_matches: int = 10

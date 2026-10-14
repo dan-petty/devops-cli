@@ -194,7 +194,7 @@ def restore_media(data: Any, store: MediaStore) -> Any:
 class MediaExternalizer(BaseCapability):
     """Capability that offloads large binary data from agent messages into content-addressed storage."""
 
-    id: str = DEFAULT_MEDIA_EXTERNALIZER_ID
+    id: str | None = DEFAULT_MEDIA_EXTERNALIZER_ID
     store: Any = Field(default_factory=InMemoryMediaStore)
 
     def externalize(self, data: Any) -> Any:

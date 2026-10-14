@@ -125,7 +125,7 @@ class OutputGuardrail(BaseModel):
 class GuardrailCapability(BaseCapability):
     """Capability bundling input, tool, and output guardrail layers."""
 
-    id: str = DEFAULT_GUARDRAIL_CAPABILITY_ID
+    id: str | None = DEFAULT_GUARDRAIL_CAPABILITY_ID
     input_guardrails: list[InputGuardrail] = Field(default_factory=list)
     tool_guardrails: list[ToolGuardrail] = Field(default_factory=list)
     output_guardrails: list[OutputGuardrail] = Field(default_factory=list)
@@ -196,7 +196,7 @@ DEFAULT_INJECTION_PATTERNS: tuple[str, ...] = DEFAULT_PROMPT_INJECTION_PATTERNS
 class PromptInjectionDefender(BaseCapability):
     """Capability protecting agents from direct and indirect prompt injection in inputs and tool returns."""
 
-    id: str = DEFAULT_PROMPT_INJECTION_DEFENDER_ID
+    id: str | None = DEFAULT_PROMPT_INJECTION_DEFENDER_ID
     block_high_risk: bool = True
     replace_with_notice: bool = True
     semantic_detection: bool = False

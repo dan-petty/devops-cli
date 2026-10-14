@@ -1819,15 +1819,16 @@ def _evaluate_pr_blockers(
 
     blockers.extend(_check_run_blockers(pr_data, pr_num, owner, repo_name, allow_pending_checks))
 
-    unresolved: list[Any] = []
     try:
         unresolved = list_pr_review_threads(owner, repo_name, pr_num, unresolved_only=True)
     except GitHubOperationError as exc:
-        print_warning(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
-
-    blockers.extend(
-        _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
-    )
+        blockers.append(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
+    else:
+        blockers.extend(
+            _evaluate_threads_blockers(
+                unresolved, pr_num, allow_replied_threads=allow_replied_threads
+            )
+        )
     changed = _read_pr_files(pr_num, owner, repo_name)
     blockers.extend(_grounding_blockers(pr_data, pr_num, owner, repo_name, changed))
     _check_pr_perimeter_changes(changed)

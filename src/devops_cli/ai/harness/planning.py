@@ -327,7 +327,7 @@ class SqlitePlanStore(PlanStore):
 class Planning(BaseCapability):
     """Structured task planning capability that maintains state and injects cache-safe tail reminders."""
 
-    id: str = "planning"
+    id: str | None = "planning"
     guidance: str | None = None
     cache_ttl: Literal["5m", "1h"] = "5m"
     store: Any = None
