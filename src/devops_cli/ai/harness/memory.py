@@ -510,7 +510,7 @@ class SqliteMemoryStore(BaseModel):
 class Memory(BaseCapability):
     """Persistent, namespaced agent notebook capability with bounded prompt injection and search."""
 
-    id: str = "memory"
+    id: str | None = "memory"
     store: Any = Field(default_factory=InMemoryStore)
     store_resolver: Any = None
     agent_name: str = "main"

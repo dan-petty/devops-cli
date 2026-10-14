@@ -112,7 +112,7 @@ def _validate_and_build_parsed_skill(
 class Skills(BaseCapability):
     """Capability loading Agent Skill instructions as on-demand deferred capabilities."""
 
-    id: str = "skills"
+    id: str | None = "skills"
     directories: tuple[Path, ...] = Field(default_factory=tuple)
     include: frozenset[str] | None = None
     exclude: frozenset[str] = Field(default_factory=frozenset)

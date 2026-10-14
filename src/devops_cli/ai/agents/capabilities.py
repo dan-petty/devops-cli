@@ -66,8 +66,8 @@ class BaseCapability(BaseModel, AbstractCapability[Any]):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
-    id: str = ""
-    description: str = ""
+    id: str | None = ""
+    description: str | None = ""
     defer_loading: bool = False
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
@@ -278,7 +278,7 @@ def _extract_local_tools(local_obj: Any) -> list[AgentTool | Callable[..., Any]]
 class NativeTool(BaseCapability):
     """Capability that configures and exposes provider-native server tools."""
 
-    id: str = "native_tool"
+    id: str | None = "native_tool"
     tool: WebSearchTool | WebFetchTool | CodeExecutionTool | MCPServerTool | BaseModel
 
     def get_model_settings(  # type: ignore[override]
@@ -300,7 +300,7 @@ class NativeTool(BaseCapability):
 class MCP(BaseCapability):
     """Provider-adaptive Model Context Protocol (MCP) capability supporting local and native servers."""
 
-    id: str = "mcp"
+    id: str | None = "mcp"
     url: str | None = None
     native: bool | MCPServerTool = False
     local: Any = True
@@ -341,7 +341,7 @@ class MCP(BaseCapability):
 class WebSearch(BaseCapability):
     """Provider-adaptive Web Search capability supporting native provider search and local fallback."""
 
-    id: str = "web_search"
+    id: str | None = "web_search"
     local: Any = False
     native: bool | WebSearchTool = True
 
@@ -385,7 +385,7 @@ class WebSearch(BaseCapability):
 class WebFetch(BaseCapability):
     """Provider-adaptive Web Fetch capability supporting native provider fetch and local fallback."""
 
-    id: str = "web_fetch"
+    id: str | None = "web_fetch"
     allowed_domains: list[str] | None = None
     blocked_domains: list[str] = Field(default_factory=list)
     local: Any = False
@@ -448,7 +448,7 @@ class WebFetch(BaseCapability):
 class Thinking(BaseCapability):
     """Capability configuring unified thinking and reasoning effort across LLM providers."""
 
-    id: str = "thinking"
+    id: str | None = "thinking"
     effort: str | bool = DEFAULT_THINKING_EFFORT
     budget_tokens: int | None = None
     include_thoughts: bool = True
@@ -508,7 +508,7 @@ def _accepts_positional_arguments(func: Callable[..., Any], count: int) -> bool:
 class HandleDeferredToolCalls(BaseCapability):
     """Capability providing inline handling of deferred tool calls and approvals."""
 
-    id: str = "handle_deferred_tool_calls"
+    id: str | None = "handle_deferred_tool_calls"
     handler: Any = None
 
     def __init__(
@@ -574,7 +574,7 @@ class Capability(BaseCapability):
 class SystemReminders(BaseCapability):
     """Capability that combats instruction fade by re-injecting targeted behavioral guidance on a cadence."""
 
-    id: str = DEFAULT_PLAN_REMINDER_ID
+    id: str | None = DEFAULT_PLAN_REMINDER_ID
     reminders: list[str] = Field(default_factory=list)
     cadence: int = DEFAULT_PLAN_REMINDER_CADENCE
     condition: Any = None
@@ -619,7 +619,7 @@ class SystemReminders(BaseCapability):
 class Instrumentation(BaseCapability):
     """Capability providing OpenTelemetry distributed span tracing and metric instrumentation for agents."""
 
-    id: str = "instrumentation"
+    id: str | None = "instrumentation"
     tracer_name: str = "devops_cli.agent"
     record_spans: bool = True
     record_metrics: bool = True
@@ -642,7 +642,7 @@ class Instrumentation(BaseCapability):
 class UseThreadExecutor(BaseCapability):
     """Capability that executes synchronous tool calls in a dedicated, bounded ThreadPoolExecutor."""
 
-    id: str = DEFAULT_THREAD_EXECUTOR_ID
+    id: str | None = DEFAULT_THREAD_EXECUTOR_ID
     executor: Any = None
     max_workers: int = DEFAULT_THREAD_EXECUTOR_MAX_WORKERS
     thread_name_prefix: str = DEFAULT_THREAD_EXECUTOR_PREFIX
@@ -694,7 +694,7 @@ class ModelSelectionContext[DepsT](BaseModel):
 class SelectModel(BaseCapability):
     """Capability that dynamically selects the LLM model at runtime for each step."""
 
-    id: str = DEFAULT_SELECT_MODEL_ID
+    id: str | None = DEFAULT_SELECT_MODEL_ID
     selector: Any = None
 
     def __init__(
@@ -737,7 +737,7 @@ class ModelResolutionContext[DepsT](BaseModel):
 class ResolveModelId(BaseCapability):
     """Capability that intercepts and resolves custom or tenant-specific model identifiers."""
 
-    id: str = DEFAULT_RESOLVE_MODEL_ID
+    id: str | None = DEFAULT_RESOLVE_MODEL_ID
     resolver: Any = None
 
     def __init__(
@@ -774,7 +774,7 @@ class ResolveModelId(BaseCapability):
 class PrepareTools(BaseCapability):
     """Capability that dynamically prepares, filters, or modifies available tool definitions."""
 
-    id: str = DEFAULT_PREPARE_TOOLS_ID
+    id: str | None = DEFAULT_PREPARE_TOOLS_ID
     prepare_fn: Any = None
 
     def __init__(
@@ -801,7 +801,7 @@ class PrepareTools(BaseCapability):
 class PrefixTools(BaseCapability):
     """Capability that prefixes all tools from a capability with a namespace prefix to prevent collisions."""
 
-    id: str = DEFAULT_PREFIX_TOOLS_ID
+    id: str | None = DEFAULT_PREFIX_TOOLS_ID
     capability: Any = None
     prefix: str = ""
 
@@ -866,7 +866,7 @@ class PrefixTools(BaseCapability):
 class IncludeToolReturnSchemas(BaseCapability):
     """Capability that includes return value JSON schemas in tool definitions sent to the model."""
 
-    id: str = DEFAULT_INCLUDE_RETURN_SCHEMAS_ID
+    id: str | None = DEFAULT_INCLUDE_RETURN_SCHEMAS_ID
     include_return_schema: bool = True
 
     def __init__(
@@ -893,7 +893,7 @@ class IncludeToolReturnSchemas(BaseCapability):
 class SetToolMetadata(BaseCapability):
     """Capability that merges custom key-value metadata pairs onto tool definitions."""
 
-    id: str = DEFAULT_SET_TOOL_METADATA_ID
+    id: str | None = DEFAULT_SET_TOOL_METADATA_ID
     capability: Any = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -964,7 +964,7 @@ class SetToolMetadata(BaseCapability):
 class RaiseContentFilterError(BaseCapability):
     """Capability that enforces raising a ContentFilterError whenever a model response is filtered."""
 
-    id: str = DEFAULT_RAISE_CONTENT_FILTER_ID
+    id: str | None = DEFAULT_RAISE_CONTENT_FILTER_ID
 
     def __init__(
         self,
@@ -989,7 +989,7 @@ class RaiseContentFilterError(BaseCapability):
 class ReinjectSystemPrompt(BaseCapability):
     """Capability that ensures an agent's configured system prompt is present in message history."""
 
-    id: str = DEFAULT_REINJECT_SYSTEM_PROMPT_ID
+    id: str | None = DEFAULT_REINJECT_SYSTEM_PROMPT_ID
     replace_existing: bool = False
 
     def __init__(
@@ -1039,7 +1039,7 @@ class ReinjectSystemPrompt(BaseCapability):
 class ProcessHistory(BaseCapability):
     """Capability that intercepts and transforms message history before model execution."""
 
-    id: str = DEFAULT_PROCESS_HISTORY_ID
+    id: str | None = DEFAULT_PROCESS_HISTORY_ID
     processor: Any = None
 
     def __init__(
@@ -1081,7 +1081,7 @@ class AgentStreamEvent(BaseModel):
 class ProcessEventStream(BaseCapability):
     """Capability that intercepts, observes, or transforms the event stream during agent execution."""
 
-    id: str = DEFAULT_PROCESS_EVENT_STREAM_ID
+    id: str | None = DEFAULT_PROCESS_EVENT_STREAM_ID
     handler: Any = None
 
     def __init__(

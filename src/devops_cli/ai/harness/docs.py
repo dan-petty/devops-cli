@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 class PydanticAIDocs(BaseCapability):
     """Capability that locates and returns Pydantic AI documentation on demand."""
 
-    id: str = "pydantic_ai_docs"
+    id: str | None = "pydantic_ai_docs"
     local_docs_path: Path | None = None
     cache: bool = True
     memoized_docs: dict[str, str] = Field(default_factory=dict)

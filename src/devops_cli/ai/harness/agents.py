@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 class Coder(BaseCapability):
     """Composite harness stack for autonomous coding agents."""
 
-    id: str = "coder_harness"
+    id: str | None = "coder_harness"
     workspace_dir: Path = Field(default_factory=lambda: Path("."))
     allowed_commands: list[str] = Field(
         default_factory=lambda: [
@@ -116,7 +116,7 @@ def coder_agent(
 class Researcher(BaseCapability):
     """Composite harness stack for autonomous web and document research agents."""
 
-    id: str = "researcher_harness"
+    id: str | None = "researcher_harness"
     allowed_domains: list[str] | None = None
     instructions: str | None = DEFAULT_RESEARCHER_INSTRUCTIONS
 
@@ -249,7 +249,7 @@ def _validate_diff_base(diff_base: str | None) -> str | None:
 class Macroscope(BaseCapability):
     """Capability running Macroscope CLI code reviews and feeding structured findings to the agent."""
 
-    id: str = "macroscope"
+    id: str | None = "macroscope"
     base: str | None = None
     command: str = "macroscope"
     cwd: Path = Field(default_factory=lambda: Path("."))
@@ -329,7 +329,7 @@ class Macroscope(BaseCapability):
 class PlaywrightBrowser(BaseCapability):
     """Capability managing a headless Chromium browser instance via Playwright."""
 
-    id: str = "playwright_browser"
+    id: str | None = "playwright_browser"
     headless: bool = True
     allowed_domains: list[str] | None = None
     block_private_addresses: bool = True

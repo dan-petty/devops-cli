@@ -22,7 +22,7 @@ from devops_cli.ai.durable import (
 class StepPersistence(BaseCapability):
     """Capability providing step-by-step durable execution, checkpointing, and run forking."""
 
-    id: str = "step_persistence"
+    id: str | None = "step_persistence"
     name: str = "step_persistence"
     store: Any = Field(default_factory=InMemoryStepStore)
     current_run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])

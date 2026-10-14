@@ -69,7 +69,7 @@ def _format_root_inventory_lines(r_name: str, r: Any) -> list[str]:
 class RepoContext(BaseCapability):
     """Capability that discovers and loads a repository's accumulated coding-assistant context engineering."""
 
-    id: str = "repo_context"
+    id: str | None = "repo_context"
     workspace_dir: Path = Field(default_factory=lambda: Path("."))
     home_dir: Path | None = None
     filenames: tuple[str, ...] = ("CLAUDE.md", "AGENTS.md")
@@ -99,7 +99,7 @@ class RepoContext(BaseCapability):
         traversal_tool_names: frozenset[str] | Sequence[str] | None = None,
         traversal_path_arg: str = "path",
         asset_roots: Sequence[str] = (".claude", ".agents", ".codex", ".grok"),
-        id: str = "repo_context",
+        id: str | None = "repo_context",
     ) -> None:
         ws_path = Path(workspace_dir).resolve()
         h_path = Path(home_dir).resolve() if home_dir is not None else None

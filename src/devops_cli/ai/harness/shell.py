@@ -177,7 +177,7 @@ def _check_command_permissions(
 class Shell(BaseCapability):
     """Capability for executing shell commands with allowlists, denylists, background processes, and credential stripping."""
 
-    id: str = "shell"
+    id: str | None = "shell"
     cwd: Path = Field(default_factory=lambda: Path("."))
     allowed_commands: list[str] = Field(default_factory=list)
     denied_commands: list[str] = Field(default_factory=lambda: list(DEFAULT_DENIED_COMMANDS))
