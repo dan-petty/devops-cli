@@ -10,14 +10,15 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.instruction_generator import ProjectMetadata, generate_agents_md
+from devops_cli.ci.fail_to_pass import TestCaseOutcome as CaseOutcome
 from devops_cli.ci.fail_to_pass import (
-    TestCaseOutcome,
     changed_test_files,
     extract_escape_reason,
     materialise_base_with_head_tests,
     parse_junit_xml,
     parse_pr_labels,
     pytest_replay_argv,
+    run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
 
@@ -212,6 +213,39 @@ def test_fail_to_pass_materialises_base_and_overlays_head_tests(
     )
 
 
+def test_a_new_module_s_test_that_cannot_import_on_base_leaves_the_other_tests_counted(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A fix that adds a module and its test file cannot import that file on base; pytest then
+    stops at collection unless told to continue, and the fix's other failing test goes unseen."""
+    files = {
+        "conftest.py": "",
+        "mod.py": "VALUE = 1\n",
+        "tests/test_mod.py": "from mod import VALUE\n\n\ndef test_value():\n    assert VALUE == 1\n",
+    }
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "fix/bug")
+    fixed = {
+        "mod.py": "VALUE = 2\n",
+        "newmod.py": "NEW = True\n",
+        "tests/test_mod.py": "from mod import VALUE\n\n\ndef test_value():\n    assert VALUE == 2\n",
+        "tests/test_newmod.py": "from newmod import NEW\n\n\ndef test_new():\n    assert NEW\n",
+    }
+    for name, text in fixed.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "fix")
+
+    report = run_fail_to_pass(tmp_path, base="main", title="fix(mod): value is 2")
+
+    assert (report.failed_count, report.errored_count, report.satisfied) == (1, 1, True)
+
+
 def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     """`uv run devops ci` gains no stage, and helpers parse labels, XML, and instructions."""
     outcomes = parse_junit_xml(JUNIT_ONE_FAILURE)
@@ -270,6 +304,6 @@ def test_fail_to_pass_dry_run_and_no_changed_tests(monkeypatch: pytest.MonkeyPat
 
 def test_fail_to_pass_outcome_model_properties() -> None:
     """TestCaseOutcome formats test_id with and without classname."""
-    grouped = TestCaseOutcome(classname="tests.test_x", name="test_one", status="failed")
-    ungrouped = TestCaseOutcome(classname="", name="tests.test_x", status="errored")
+    grouped = CaseOutcome(classname="tests.test_x", name="test_one", status="failed")
+    ungrouped = CaseOutcome(classname="", name="tests.test_x", status="errored")
     assert (grouped.test_id, ungrouped.test_id) == ("tests.test_x::test_one", "tests.test_x")

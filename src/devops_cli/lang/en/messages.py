@@ -731,6 +731,16 @@ class ScanMessages:
     trivy_passed: str = "✓ No vulnerabilities, secrets, or flaws found by Trivy."
     gitleaks_executing: str = "Executing Gitleaks secret scan on '{target}'..."
     gitleaks_passed: str = "✓ No secrets or credential leaks detected."
+    zizmor_executing: str = "Auditing GitHub Actions workflows in '{target}' with zizmor..."
+    zizmor_passed: str = "✓ zizmor found nothing in the workflows."
+    zizmor_title: str = "zizmor Workflow Audit: {target}"
+    zizmor_blocking: str = (
+        "{count} finding(s) from {rules} block the gate; each row links zizmor's remedy."
+    )
+    zizmor_reported: str = (
+        "{count} finding(s) from other zizmor audits are reported and do not block."
+    )
+    zizmor_failed: str = "zizmor could not run (exit {code}): {detail}"
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
@@ -896,6 +906,11 @@ class CIMessages:
     deps: str = "deptry"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
+    zizmor: str = "zizmor (github workflow security)"
+    audit_vulnerable: str = "Dependency audit found vulnerabilities (uv audit exited {code})."
+    audit_not_run: str = (
+        "Dependency audit could not run (uv audit exited {code}); uv's error is above."
+    )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
     ci_summary_title: str = "CI Summary"

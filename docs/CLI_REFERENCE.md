@@ -2982,6 +2982,29 @@ devops scan secrets [OPTIONS] <target>
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops scan workflows`
+
+**Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
+and excessive permissions fail it, and every other finding is shown.**
+
+```bash
+devops scan workflows [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Directory of GitHub Actions workflows and actions to audit with zizmor. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops scan sast`
 
 **Run static application security testing (SAST) via Semgrep.**

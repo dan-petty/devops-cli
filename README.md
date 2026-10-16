@@ -287,6 +287,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops uv run` | Run an arbitrary command using `uv run`. |
 | **scan** | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 |  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
+|  | `devops scan workflows [OPTIONS] <target>` | Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
+and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
 |  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |

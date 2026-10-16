@@ -8,15 +8,18 @@ risks from inline expressions inside run blocks are eliminated.
 from __future__ import annotations
 
 import copy
-import shlex
+import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from devops_cli.core.command_resolver import ArgvPlaceholder, resolve_devops_argv
+from devops_cli.commands.ci import get_check_spec
+from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.tools_lock import load_tools_lock
+from tests.markdown_examples import CodeSnippet, devops_commands
 
 WORKFLOWS_DIR = Path(".github/workflows")
 RELEASE_PATH = WORKFLOWS_DIR / "release.yml"
@@ -186,42 +189,139 @@ def test_defect_pr_hardening_audit_workflow_mutation() -> None:
         assert_audit_workflow_contract(mutated3)
 
 
-def _tokenize_devops_line(line: str) -> list[str | ArgvPlaceholder]:
-    """Tokenize a devops command line, replacing shell expressions with placeholders."""
-    cmd_str = line.removeprefix("uv run devops ").strip()
+# ── Every `devops` command the automation runs (#861) ─────────────────────────
+
+GITHUB_DIR = Path(".github")
+PRE_COMMIT_PATH = Path(".pre-commit-config.yaml")
+
+
+def _automation_files() -> list[Path]:
+    """Every workflow and composite action."""
+    return sorted([*WORKFLOWS_DIR.glob("*.y*ml"), *(GITHUB_DIR / "actions").glob("*/action.y*ml")])
+
+
+def _run_blocks(node: Any) -> Iterator[str]:
+    """Every `run:` script under `node`: workflow job steps and composite action steps alike."""
+    if isinstance(node, dict):
+        if isinstance(node.get("run"), str):
+            yield node["run"]
+        for value in node.values():
+            yield from _run_blocks(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _run_blocks(value)
+
+
+def _extract_devops_commands(document: Any) -> list[list[ArgvToken]]:
+    """The words after `devops` in each command the document's `run:` scripts run, read as a
+    shell reads them: a variable or command substitution is a placeholder."""
     return [
-        ArgvPlaceholder(expression=t, single_token=True) if t.startswith("$") or "${" in t else t
-        for t in shlex.split(cmd_str)
+        tokens
+        for script in _run_blocks(document)
+        for _, tokens in devops_commands(CodeSnippet(1, script, fenced=True))
     ]
 
 
-def _extract_devops_commands(workflow: dict[str, Any]) -> list[list[str | ArgvPlaceholder]]:
-    """Extract all `uv run devops` command lines from workflow steps."""
-    commands: list[list[str | ArgvPlaceholder]] = []
-    jobs = workflow.get("jobs", {})
-    steps = [
-        step
-        for job in jobs.values()
-        if isinstance(job, dict)
-        for step in job.get("steps", [])
-        if isinstance(step, dict)
+def _pre_commit_commands() -> list[list[ArgvToken]]:
+    """Each pre-commit hook's `devops` command: its entry, its `args`, then the staged files
+    pre-commit passes unless `pass_filenames` is false."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    hooks = [hook for repo in config["repos"] for hook in repo.get("hooks", [])]
+    return [
+        [
+            *tokens,
+            *hook.get("args", []),
+            *(
+                [ArgvPlaceholder(expression="staged files")]
+                if hook.get("pass_filenames", True)
+                else []
+            ),
+        ]
+        for hook in hooks
+        for _, tokens in devops_commands(CodeSnippet(1, str(hook.get("entry", "")), fenced=True))
     ]
-    for step in steps:
-        run = str(step.get("run", ""))
-        for raw_line in run.splitlines():
-            line = raw_line.strip()
-            if line.startswith("uv run devops "):
-                commands.append(_tokenize_devops_line(line))
-    return commands
 
 
-def test_audit_workflow_devops_commands_resolve() -> None:
-    """Verify all `uv run devops` command lines in the audit workflow resolve against Typer app."""
-    workflow = _load_workflow(AUDIT_PATH)
-    commands = _extract_devops_commands(workflow)
-    assert len(commands) >= 2, "Expected at least 2 devops commands in audit workflow"
-    findings = [resolve_devops_argv(tokens) for tokens in commands]
-    assert all(f is None for f in findings), f"Unresolved devops commands in workflow: {findings}"
+def test_every_devops_command_the_workflows_actions_and_hooks_run_resolves() -> None:
+    """A renamed or removed command or option breaks the workflow that runs it only when that
+    workflow next runs; this finds it against the command tree first."""
+    workflow_commands = [
+        tokens
+        for path in _automation_files()
+        for tokens in _extract_devops_commands(_load_workflow(path))
+    ]
+    hook_commands = _pre_commit_commands()
+    unresolved = [
+        (" ".join(map(str, tokens)), finding.describe())
+        for tokens in [*workflow_commands, *hook_commands]
+        if (finding := resolve_devops_argv(tokens)) is not None
+    ]
+    assert (bool(workflow_commands), bool(hook_commands), unresolved) == (True, True, [])
+
+
+def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
+    """The negative control: extraction and resolution together report a command that does not
+    exist, inside a command substitution and a compound line."""
+    workflow = {
+        "jobs": {
+            "job": {
+                "steps": [
+                    {"run": 'OUT=$(uv run devops gh milestones clsoe "$VERSION") || true'},
+                    {"run": 'uv run devops release notes --raw -v \\\n  "$VERSION"'},
+                ]
+            }
+        }
+    }
+    found = [resolve_devops_argv(tokens) for tokens in _extract_devops_commands(workflow)]
+    assert [None if f is None else f.token for f in found] == ["clsoe", None]
+
+
+def test_no_run_block_interpolates_an_actions_expression() -> None:
+    """Actions pastes a `${{ }}` expression into the script before the shell parses it, so a
+    value holding `$(...)` runs; each value reaches `run:` through the step's `env:` (#861)."""
+    interpolating = [
+        str(path)
+        for path in _automation_files()
+        for script in _run_blocks(_load_workflow(path))
+        if "${{" in script
+    ]
+    assert interpolating == []
+
+
+def _uses(node: Any) -> Iterator[str]:
+    """Every `uses:` reference under `node`: steps, composite action steps and reusable workflows."""
+    if isinstance(node, dict):
+        if isinstance(node.get("uses"), str):
+            yield node["uses"]
+        for value in node.values():
+            yield from _uses(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _uses(value)
+
+
+def test_every_remote_action_is_pinned_to_a_commit_sha() -> None:
+    """A tag or branch can be moved to other code; a 40-character commit SHA cannot. Local
+    `./` actions are this repository's own."""
+    unpinned = [
+        f"{path}: {ref}"
+        for path in _automation_files()
+        for ref in _uses(_load_workflow(path))
+        if not ref.startswith("./") and not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref)
+    ]
+    assert unpinned == []
+
+
+def test_sdlc_names_only_the_supply_chain_controls_the_repository_runs() -> None:
+    """SDLC.md once claimed weekly Dependabot audits, pip-audit and SLSA Level 3, none of which
+    the repository had; the audit and the workflow gate it names are the checks `devops ci`
+    runs."""
+    sdlc = Path("docs/SDLC.md").read_text(encoding="utf-8")
+    assert (
+        [claim for claim in ("Dependabot", "pip-audit", "SLSA Level 3") if claim in sdlc],
+        get_check_spec("audit").cmd,
+        "zizmor" in sdlc,
+    ) == ([], ["uv", "audit"], True)
 
 
 def test_workflow_contract_fail_to_pass() -> None:
@@ -263,5 +363,5 @@ def test_workflow_contract_fail_to_pass() -> None:
         True,
         False,
         True,
-        [None],
+        [None, None],
     )

@@ -3,9 +3,10 @@
 `devops ci fail-to-pass` resolves the merge base of `--base` and `--head`, lists added or
 modified `tests/**/test_*.py` files, materialises the base tree in a temporary directory
 with the head's `tests/` overlaid, and runs those test files with the current pytest
-(`-o addopts=`, `-p no:cacheprovider`, `--junitxml`). A defect PR exits non-zero unless at
-least one changed test fails in the call phase on base, or the PR body declares
-`Fail-to-pass: not applicable: <reason>`.
+(`-o addopts=`, `-p no:cacheprovider`, `--continue-on-collection-errors`, `--junitxml`), so a
+test file that cannot be collected on base is reported as errored and the others still run.
+A defect PR exits non-zero unless at least one changed test fails in the call phase on base,
+or the PR body declares `Fail-to-pass: not applicable: <reason>`.
 """
 
 from __future__ import annotations

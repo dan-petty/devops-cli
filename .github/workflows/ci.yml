@@ -167,7 +167,7 @@ jobs:
         if: steps.image_changes.outputs.changed == 'true'
         id: image_repo
         run: |
-          echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
 
       - name: Check PR Open Status Prior to Publishing Image
         if: steps.image_changes.outputs.changed == 'true'

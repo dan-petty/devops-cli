@@ -42,6 +42,7 @@ BIN_TERRAFORM: str = "terraform"
 BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
 BIN_UV: str = "uv"
+BIN_ZIZMOR: str = "zizmor"
 
 
 # ── Command Argument List Builders ───────────────────────────────────────────
@@ -194,6 +195,12 @@ def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str
     else:
         cmd.extend(["--source", str(target_path)])
     return cmd
+
+
+def build_zizmor_cmd(target_path: Path | str) -> list[str]:
+    """Build a zizmor GitHub Actions audit with no network access and JSON output. With
+    `--no-exit-codes` zizmor exits 0 whatever it finds, so any other exit means it did not run."""
+    return [BIN_ZIZMOR, "--offline", "--no-exit-codes", "--format", "json", str(target_path)]
 
 
 def build_semgrep_cmd(
