@@ -6,7 +6,9 @@
       "lines": [18, 47],
       "class": "Network Exposure",
       "issue": 953,
-      "evidence": "cidr: 0.0.0.0/0"
+      "evidence": "cidr: 0.0.0.0/0",
+      "tool": "semgrep",
+      "rule": "k8s-networkpolicy-ingress-any"
     },
     {
       "path": "k8s/otel/networkpolicy.yaml",
@@ -14,7 +16,9 @@
       "lines": [18, 35],
       "class": "Network Exposure",
       "issue": 913,
-      "evidence": "cidr: 0.0.0.0/0"
+      "evidence": "cidr: 0.0.0.0/0",
+      "tool": "semgrep",
+      "rule": "k8s-networkpolicy-ingress-any"
     },
     {
       "path": "src/devops_cli/ai/rag/investigator.py",
@@ -22,7 +26,9 @@
       "lines": [280, 295],
       "class": "Error Handling",
       "issue": 423,
-      "evidence": "except Exception as exc:"
+      "evidence": "except Exception as exc:",
+      "tool": "ruff",
+      "rule": "BLE001"
     },
     {
       "path": "docs/VISION.md",
@@ -30,7 +36,9 @@
       "lines": [12, 12],
       "class": "Security Claims",
       "issue": 921,
-      "evidence": "gating `trust_remote_code=True` via static AST/Semgrep inspection"
+      "evidence": "gating `trust_remote_code=True` via static AST/Semgrep inspection",
+      "tool": "none",
+      "rule": "none"
     },
     {
       "path": "src/devops_cli/ai/spend/pricing.py",
@@ -38,7 +46,9 @@
       "lines": [53, 56],
       "class": "Error Handling",
       "issue": 423,
-      "evidence": "except Exception:"
+      "evidence": "except Exception:",
+      "tool": "ruff",
+      "rule": "BLE001"
     },
     {
       "path": "src/devops_cli/ai/spend/pricing.py",
@@ -46,7 +56,9 @@
       "lines": [65, 68],
       "class": "Error Handling",
       "issue": 423,
-      "evidence": "except Exception:"
+      "evidence": "except Exception:",
+      "tool": "ruff",
+      "rule": "BLE001"
     }
   ]
 }

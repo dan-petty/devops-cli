@@ -502,3 +502,28 @@ devops review templates check [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---
+
+## `devops review rules`
+
+```bash
+devops review rules COMMAND [ARGS]...
+```
+
+### `devops review rules test`
+
+**Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145).**
+
+```bash
+devops review rules test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
+| `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

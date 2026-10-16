@@ -115,6 +115,13 @@ class ReviewMessages:
         "[bold yellow]Network & Egress References Audit[/bold yellow]"
     )
     summary: str = "[bold]Summary[/bold]"
+    rules_test_passed: str = (
+        "Tested {count} rule(s) with Semgrep {version}; wrote [bold]{path}[/bold]."
+    )
+    rules_test_checked: str = (
+        "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
+    )
+    rules_test_dry_run: str = r"[yellow]\[dry-run][/yellow] Would run `semgrep --test --metrics off {path}` and write {lock}."
 
 
 @dataclass(frozen=True)
