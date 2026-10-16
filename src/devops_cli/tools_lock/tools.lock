@@ -11,6 +11,8 @@
 # alone gives it: popeye's `checksums.sha256`, get.helm.sh's `<archive>.sha256sum` and
 # dl.k8s.io's `kubectl.sha256`. Trivy's version is also the `version` of every
 # `aquasecurity/trivy-action` step in `.github/workflows/`.
+# cloudflared's release notes give each macOS checksum for the binary inside the `.tgz`, not
+# the archive: check the archive's digest by unpacking it and hashing `cloudflared`.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
@@ -144,6 +146,33 @@ sha256 = "2b414b2d1d4c224db3ca07bec343522270242acca8e8f8f55865a32a3ef49b9c"
 [binary.argocd.platforms.darwin-arm64]
 url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-darwin-arm64"
 sha256 = "aac1cd7606c5960513edfc2a3ee7226c3860f0982f63b93b2f7e8b5c4d880873"
+
+[binary.cloudflared]
+version = "2026.9.3"
+description = "Cloudflare Tunnel client, for kubectl over cloudflared access tcp"
+source = "https://github.com/cloudflare/cloudflared"
+bin = "cloudflared"
+format = "binary"
+
+[binary.cloudflared.platforms.linux-amd64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-amd64"
+sha256 = "77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2"
+
+[binary.cloudflared.platforms.linux-arm64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-arm64"
+sha256 = "aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d"
+
+[binary.cloudflared.platforms.darwin-amd64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-darwin-amd64.tgz"
+sha256 = "d1155d0837487f261183b15c1eab6c4ebcad9dc49b94675f1524c3564cea3977"
+format = "tar.gz"
+member = "cloudflared"
+
+[binary.cloudflared.platforms.darwin-arm64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-darwin-arm64.tgz"
+sha256 = "587c2cfb1c230fe36c7fa7727da78be459dae028cabe8c001291999350f07095"
+format = "tar.gz"
+member = "cloudflared"
 
 [binary.kubectl-argo-rollouts]
 version = "1.10.0"

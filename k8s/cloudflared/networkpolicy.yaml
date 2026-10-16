@@ -40,6 +40,17 @@ spec:
           port: 7844
         - protocol: TCP
           port: 7844
+    # Allow the tunnel's k8s.<domain> TCP route to reach the API server. The `kubernetes`
+    # Service resolves to the node's address on 6443, which no namespace selector matches, so
+    # the peer is an ipBlock with the cloud metadata address excluded, as Argo CD's is.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 6443
     # Allow forwarding traffic exclusively to Traefik in kube-system.
     # NOTE: no `ports:` restriction here — this cluster's kube-router NetworkPolicy
     # engine fails to enforce (as "allow") egress rules that combine a peer

@@ -571,6 +571,29 @@ Expose homelab Kubernetes services securely to the internet without public ports
    devops k8s render k8s/ingress/ingress-routes.yaml
    ```
 
+### 4. The Kubernetes API at `k8s.<domain>`
+
+Off the home network, `kubectl` reaches the API server through the tunnel as a TCP route. An HTTP hostname cannot carry it: Cloudflare ends TLS at its edge, which drops kubectl's client certificate. `cloudflared access tcp` on the workstation carries the connection to the edge after an Access login, and TLS stays end to end between kubectl and the API server.
+
+1. Route the hostname to the API server. `tunnel sync` merges into the tunnel's configuration and places a new hostname ahead of any wildcard rule that would take its traffic (cloudflared uses the first rule that matches). Use a hostname an Access application covers: `devops cloudflare access status` lists them, and `devops cloudflare access sync --domain k8s.<domain> -e <email>` adds one.
+   ```bash
+   devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443 --dry-run
+   devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443
+   ```
+   `k8s/cloudflared/networkpolicy.yaml` lets cloudflared reach the API server on 6443.
+2. On the workstation, install `cloudflared` from `tools.lock` and open the local end of the route. The first connection prints an Access login URL to open.
+   ```bash
+   devops install-tools --tool cloudflared
+   cloudflared access tcp --hostname k8s.<domain> --url 127.0.0.1:16443
+   ```
+3. Add a context that reaches the API server through it, with the credentials and CA of the cluster entry you use at home (`<cluster>` and `<user>` in `kubectl config view`):
+   ```bash
+   kubectl config set-cluster <cluster>-tunnel --server=https://127.0.0.1:16443 --tls-server-name=kubernetes.default.svc
+   kubectl config set clusters.<cluster>-tunnel.certificate-authority-data "$(kubectl config view --raw -o jsonpath='{.clusters[?(@.name=="<cluster>")].cluster.certificate-authority-data}')"
+   kubectl config set-context <cluster>-tunnel --cluster=<cluster>-tunnel --user=<user>
+   kubectl --context <cluster>-tunnel get nodes
+   ```
+
 ## Directory Structure
 
 ```

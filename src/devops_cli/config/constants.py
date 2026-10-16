@@ -590,6 +590,8 @@ CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
 CONST_CLOUDFLARE_CATCHALL_SERVICE = "http_status:404"
 CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS: tuple[str, ...] = ("*", "@")
+# The only wildcard a tunnel ingress hostname takes: a leading `*.` (cloudflared ingress/rule.go).
+CONST_CLOUDFLARE_WILDCARD_PREFIX = "*."
 CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
 CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
 CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
