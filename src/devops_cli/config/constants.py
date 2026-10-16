@@ -3112,6 +3112,73 @@ CONST_C901_SUPPRESSION: Final[re.Pattern[str]] = re.compile(
 CONST_RUFF_C901_SUPPRESSION_COMMENT: Final[re.Pattern[str]] = re.compile(
     r"#[^\S\n]*ruff[^\S\n]*:[^\S\n]*[\w-]+[^\S\n]*\[[^\]\n]*\bC901\b", re.IGNORECASE
 )
+# Suppression comment and configuration kinds tracked against ceilings (#849).
+CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
+CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
+CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
+CONST_SUPPRESSION_KIND_FILE_DIRECTIVE: Final[str] = "file-level directive"
+CONST_SUPPRESSION_KIND_AST_GREP_IGNORE: Final[str] = "ast-grep-ignore"
+CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: Final[str] = "per-file-ignores"
+CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
+CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
+CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
+    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
+    CONST_SUPPRESSION_KIND_NOSEC,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
+    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
+    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
+)
+CONST_PYPROJECT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
+    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
+    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
+)
+CONST_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    *CONST_COMMENT_SUPPRESSION_KINDS,
+    *CONST_PYPROJECT_SUPPRESSION_KINDS,
+)
+# Fast pre-filter over source text before tokenizing, and comment-token patterns (#849).
+CONST_SUPPRESSION_COMMENT_PREFILTER_RE: Final[re.Pattern[str]] = re.compile(
+    r"#[^\n]*(?:type[^\S\n]*:[^\S\n]*ignore\b|noqa\b|nosec\b"
+    r"|pragma[^\S\n]*:[^\S\n]*no[^\S\n]+(?:cover|mutate)\b"
+    r"|(?:ruff|flake8|mypy|pyright|pylint|bandit)[^\S\n]*:|ast-grep-ignore\b)",
+    re.IGNORECASE,
+)
+CONST_TYPE_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*type[^\S\n]*:[^\S\n]*ignore\b", re.IGNORECASE
+)
+CONST_NOQA_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*noqa(?:[^\S\n]*:[^\S\n]*"
+    r"(?P<codes>[A-Z0-9]+(?:(?:[^\S\n]*,[^\S\n]*|[^\S\n]+)[A-Z0-9]+)*)|(?=$|[^\S\n]+#))",
+    re.IGNORECASE,
+)
+CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
+CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_MUTATE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+mutate\b", re.IGNORECASE
+)
+CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*(?:(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b"
+    r"|ruff[^\S\n]*:[^\S\n]*(?:file-ignore|disable|ignore)\b"
+    r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
+)
 
 # Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
 # "human", which routed every finding the verifier never reached into the human
