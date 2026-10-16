@@ -291,7 +291,6 @@ def test_strict_keyring_access_raises_instead_of_reading_as_missing(
 ) -> None:
     """A locked or failing keyring raises in the strict helpers; nothing falls back to memory."""
     import keyring
-    from keyring.backend import KeyringBackend
     from keyring.errors import KeyringError, KeyringLocked
 
     from devops_cli.config.settings import (
@@ -301,8 +300,8 @@ def test_strict_keyring_access_raises_instead_of_reading_as_missing(
         keyring_write,
     )
 
-    class Raising(KeyringBackend):
-        priority = 1  # type: ignore[assignment]
+    class Raising:
+        priority = 1
         error: Exception = KeyringLocked("locked")
 
         def get_password(self, service: str, username: str) -> str | None:

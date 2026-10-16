@@ -90,7 +90,12 @@ class MypyScanner(BaseSecurityScanner):
 
     def build_command(self, target_path: Path | list[Path], **kwargs: Any) -> list[str]:
         """Build argument command list for invoking mypy."""
+        from devops_cli.review.canary import resolve_mypy_python_version
+
         cmd = [self.binary_name, "--no-error-summary"]
+        py_ver = kwargs.get("python_version") or resolve_mypy_python_version(kwargs.get("tree"))
+        if py_ver:
+            cmd.append(f"--python-version={py_ver}")
         if isinstance(target_path, list):
             valid_files = [str(p.resolve()) for p in target_path if p.exists() and p.is_file()]
             if not valid_files:
@@ -127,11 +132,56 @@ class MypyScanner(BaseSecurityScanner):
         ]
 
 
+def _collect_mypy_target_files(target: Path | list[Path]) -> list[Path]:
+    """Resolve list of existing `.py` files from `target`."""
+    if isinstance(target, list):
+        return [p for p in target if p.is_file() and p.suffix == ".py"]
+    if target.is_file() and target.suffix == ".py":
+        return [target]
+    if target.is_dir():
+        return [p for p in target.rglob("*.py") if p.is_file()]
+    return []
+
+
+def _check_mypy_preconditions(
+    effective_tree: Path,
+    effective_checkout: Path,
+    python_version: str | None,
+) -> tuple[str | None, ScanOutcome | None]:
+    """Validate `uv.lock` match and `python_version` presence before invoking mypy."""
+    from devops_cli.review.canary import resolve_mypy_python_version
+
+    has_lockfile = (effective_tree / "uv.lock").is_file() or (
+        effective_checkout / "uv.lock"
+    ).is_file()
+    if has_lockfile and not verify_uv_lock_match(effective_tree, effective_checkout):
+        return None, ScanOutcome(
+            status="coverage_gap",
+            findings=[],
+            reason="worktree uv.lock hash does not match checkout; uv sync never runs on a reviewed tree",
+        )
+    resolved_ver = python_version or resolve_mypy_python_version(effective_tree)
+    if resolved_ver is None:
+        return None, ScanOutcome(
+            status="coverage_gap",
+            findings=[],
+            reason="missing mypy python_version in pyproject.toml",
+        )
+    if not verify_uv_lock_match(effective_tree, effective_checkout):
+        return None, ScanOutcome(
+            status="coverage_gap",
+            findings=[],
+            reason="worktree uv.lock hash does not match checkout; uv sync never runs on a reviewed tree",
+        )
+    return resolved_ver, None
+
+
 def run_mypy_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     *,
     tree: Path | None = None,
     checkout_root: Path | None = None,
+    python_version: str | None = None,
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 ) -> ScanOutcome:
     """Run mypy on changed modules with project config and uv.lock environment validation."""
@@ -145,26 +195,16 @@ def run_mypy_scan(
         checkout_root if checkout_root is not None else main_worktree_root(effective_tree)
     )
 
-    # Environment check: uv.lock hash match
-    if not verify_uv_lock_match(effective_tree, effective_checkout):
-        return ScanOutcome(
-            status="coverage_gap",
-            findings=[],
-            reason="worktree uv.lock hash does not match checkout; uv sync never runs on a reviewed tree",
-        )
+    resolved_ver, gap_outcome = _check_mypy_preconditions(
+        effective_tree, effective_checkout, python_version
+    )
+    if gap_outcome is not None:
+        return gap_outcome
 
-    # Environment isolation: python -I with checkout's .venv python and dedicated cache
     venv_python = effective_checkout / ".venv" / "bin" / "python"
     python_bin = str(venv_python) if venv_python.is_file() else sys.executable
 
-    files: list[Path] = []
-    if isinstance(target, list):
-        files = [p for p in target if p.is_file() and p.suffix == ".py"]
-    elif isinstance(target, Path) and target.is_file() and target.suffix == ".py":
-        files = [target]
-    elif isinstance(target, Path) and target.is_dir():
-        files = [p for p in target.rglob("*.py") if p.is_file()]
-
+    files = _collect_mypy_target_files(target)
     if not files:
         return ScanOutcome(status="no files", findings=[])
 
@@ -178,6 +218,7 @@ def run_mypy_scan(
             "-I",
             "-m",
             "mypy",
+            f"--python-version={resolved_ver}",
             *(["--config-file", str(config_file.resolve())] if config_file.is_file() else []),
             "--cache-dir",
             tmp_cache,

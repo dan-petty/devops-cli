@@ -386,6 +386,7 @@ CONST_BANDIT_INI_NAME: Final[str] = ".bandit"
 # scanner's per-file or per-batch runs, report the worst status any of them had.
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "failed",
+    "coverage_gap",
     "unavailable",
     "not installed",
     "dry-run",
@@ -3909,3 +3910,107 @@ CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
         "mechanisms": ("idempotency", "deduplication", "replay_prevention", "token", "unique_key"),
     },
 }
+
+# ── Review Tool Canary Constants (#1143) ─────────────────────────────────────
+CONST_CANARY_TOOLS: Final[tuple[str, ...]] = (
+    "semgrep",
+    "ruff",
+    "bandit",
+    "mypy",
+    "kube-linter",
+    "pluto",
+)
+
+CONST_CANARY_TOOL_TO_ANALYZER: Final[dict[str, str]] = {
+    "semgrep": "Semgrep",
+    "bandit": "Bandit",
+    "kube-linter": "Kube-linter",
+    "pluto": "Pluto",
+}
+
+CONST_CANARY_EXPECTED_RESULTS: Final[dict[str, frozenset[tuple[str, int]]]] = {
+    "semgrep": frozenset({("canary-pep758-tuple", 17)}),
+    "ruff": frozenset({("B006", 21)}),
+    "bandit": frozenset({("B307", 26)}),
+    "mypy": frozenset({("assignment", 29)}),
+    "kube-linter": frozenset({("privileged-container", 15)}),
+    "pluto": frozenset({("extensions/v1beta1", 1)}),
+}
+
+CONST_CANARY_PYTHON_SOURCE: Final[str] = """from __future__ import annotations
+
+type Items[T] = list[T]
+
+
+def make_forward(value: ForwardTarget) -> ForwardTarget:
+    return value
+
+
+class ForwardTarget:
+    pass
+
+
+def handle_pep758() -> str:
+    try:
+        return "ok"
+    except ValueError, TypeError:
+        return "caught"
+
+
+def mutable_default(items: list[int] = []) -> list[int]:
+    return items
+
+
+def run_eval(expr: str) -> object:
+    return eval(expr)
+
+
+bad_typed: int = "not-an-int"
+"""
+
+CONST_CANARY_SEMGREP_PROBES_YAML: Final[str] = """rules:
+  - id: canary-pep758-tuple
+    languages: [python]
+    severity: ERROR
+    message: PEP 758 unparenthesized exception tuple parsed as tuple
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except ($X, $Y):
+              ...
+      - focus-metavariable: $X
+  - id: canary-pep758-as-binding
+    languages: [python]
+    severity: ERROR
+    message: PEP 758 misparsed as exception binding
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except $X as $Y:
+              ...
+      - focus-metavariable: $X
+"""
+
+CONST_CANARY_MANIFEST_YAML: Final[str] = """apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: canary-ingress
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: canary-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27
+      securityContext:
+        privileged: true
+"""
+
+CONST_CANARY_DOCKERFILE_SOURCE: Final[str] = """FROM alpine:3.20
+USER root
+RUN echo "canary"
+"""
