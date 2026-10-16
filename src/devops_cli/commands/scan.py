@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import build_zizmor_cmd
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -16,14 +17,17 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
+    DEFAULT_WORKFLOWS_SCAN_PATH,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
     print_error,
+    print_info,
     print_muted,
     print_success,
     print_table,
@@ -47,6 +51,7 @@ from devops_cli.security.suppression import (
     load_policy,
 )
 from devops_cli.security.trivy import run_trivy_scan
+from devops_cli.security.zizmor import ZizmorFinding, run_zizmor
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +281,78 @@ def scan_secrets(
             action="gitleaks_secret_scan",
             details={"findings_count": len(findings)},
         )
+    return None
+
+
+# =============================================================================
+# Command: devops scan workflows
+# =============================================================================
+
+
+def _report_zizmor(target: Path, found: list[ZizmorFinding]) -> bool:
+    """Show every finding, then which of them block; True when none does."""
+    if not found:
+        print_success(MESSAGES.scan.zizmor_passed)
+        return True
+    _render_scan_results_table(
+        title=MESSAGES.scan.zizmor_title.format(target=target),
+        findings=[finding.as_finding() for finding in found],
+    )
+    blocking = [finding for finding in found if finding.blocks]
+    if len(blocking) < len(found):
+        reported = MESSAGES.scan.zizmor_reported.format(count=len(found) - len(blocking))
+        print_info(reported, prefix=False)
+    if blocking:
+        rules = ", ".join(sorted({finding.rule for finding in blocking}))
+        print_error(MESSAGES.scan.zizmor_blocking.format(count=len(blocking), rules=rules))
+    return not blocking
+
+
+@app.command("workflows")
+def scan_workflows(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target_workflows),
+    ] = DEFAULT_WORKFLOWS_SCAN_PATH,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
+    and excessive permissions fail it, and every other finding is shown."""
+    set_dry_run(dry_run)
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan workflows {target}",
+            target=str(target),
+            action="zizmor_workflow_audit",
+            details={"command": build_zizmor_cmd(target)},
+        )
+    print_muted(MESSAGES.scan.zizmor_executing.format(target=target))
+    try:
+        found = run_zizmor(target)
+    except ToolExecutionError as exc:
+        print_error(str(exc), safe=True)
+        raise typer.Exit(1) from exc
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
+        passed = _report_zizmor(target, found)
+    else:
+        emit_serialized(
+            [finding.model_dump() | {"blocks": finding.blocks} for finding in found], resolved
+        )
+        passed = not any(finding.blocks for finding in found)
+    if not passed:
+        raise typer.Exit(1)
     return None
 
 

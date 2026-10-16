@@ -1,6 +1,6 @@
 # Enterprise Software Development Life Cycle (SDLC) Framework — DevOps CLI
 
-This document defines the comprehensive **Enterprise Software Development Life Cycle (SDLC)** architecture, operational procedures, quality gates, and governance policies governing `devops-cli`. It synthesizes industry-standard frameworks—including OpenSSF Best Practices, SLSA Level 3 supply chain security, Google Engineering Practices, and DORA operational metrics—into a unified, deterministic development lifecycle for human engineers and agentic AI assistants.
+This document defines the comprehensive **Enterprise Software Development Life Cycle (SDLC)** architecture, operational procedures, quality gates, and governance policies governing `devops-cli`. It synthesizes industry-standard frameworks—including OpenSSF Best Practices, SLSA build provenance, Google Engineering Practices, and DORA operational metrics—into a unified, deterministic development lifecycle for human engineers and agentic AI assistants.
 
 ---
 
@@ -22,7 +22,7 @@ flowchart LR
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
 2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
-4. **Supply Chain Integrity (SLSA Level 3)**: Locked dependency graph (`uv.lock`), weekly Dependabot vulnerability audits, cryptographic hash validation, and automated static security analysis (`bandit`, `pip-audit`, `detect-private-key`).
+4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit` in every `devops ci` run, hash-pinned tool downloads (`tools.lock`), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Multi-Persona AI Review & Fact Grounding**: Multi-agent code review pipeline evaluates all changes across five specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`), grounded by the local DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`).
 6. **Branch Isolation & Human-in-the-Loop Governance**: Strict Git hierarchy isolating features to topic branches targeting active release branches (`release/vX.Y.Z`). AI agents cannot merge code autonomously; maintainers approve and squash-merge.
 7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and agentic review stage.
@@ -170,9 +170,10 @@ flowchart TD
         G4[ruff check]
         G5[ruff format]
         G6[mypy --strict]
-        G7[uv audit / pip-audit]
+        G7[uv audit]
         G8[bandit SAST security]
         G9[actionlint workflow check]
+        G9b[zizmor workflow security]
         G10[docs sync & check]
         G11[uv_check]
         G12[lockfile check]
@@ -190,7 +191,7 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
 - `devops-ci-test-changed`: Runs targeted test suite covering staged files.
-- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint`) before pushes.
+- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes.
 
 #### The Primary CI Verification Gate (`devops ci`)
 Before opening or updating a PR, engineers and agents execute `devops ci` (or `uv run devops ci`). The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
@@ -278,7 +279,7 @@ gitGraph
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review IDs, subagent IDs, or arbitrary numbers.
   - Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
-- **Automated Dependency Updates (`.github/renovate.json`)**: Renovate monitors `github-actions` and `docker` dependencies with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
+- **Automated Dependency Updates (`.github/renovate.json`)**: The configuration has Renovate propose `github-actions` and `docker` updates with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels; Renovate acts only where its GitHub App is installed for the repository. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must carry `type/*` and `scope/*` labels, audited manually via `devops gh labels audit` (not enforced in CI).
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.

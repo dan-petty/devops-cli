@@ -1176,6 +1176,20 @@ CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
+# uv's exit status for a check that ran and failed; it exits 2 when it could not run.
+CONST_UV_EXIT_FAILURE: int = 1
+# zizmor audits whose findings fail `devops scan workflows` and the `devops ci` gate (#861).
+# Every other audit's findings are shown and do not fail it.
+CONST_ZIZMOR_BLOCKING_RULES: frozenset[str] = frozenset(
+    {"template-injection", "unpinned-uses", "excessive-permissions"}
+)
+# zizmor's severities (its `Severity` enum, `Unknown` aside), as the scan table names them.
+CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
+    "High": "HIGH",
+    "Medium": "MEDIUM",
+    "Low": "LOW",
+    "Informational": "INFO",
+}
 CONST_EXIT_CANCELLED: int = 130
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"

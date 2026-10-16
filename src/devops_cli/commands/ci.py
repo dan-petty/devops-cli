@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
     CONST_GIT_MAIN_BRANCH,
+    CONST_UV_EXIT_FAILURE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
@@ -198,17 +199,17 @@ def _planned_request_for_cmd(
     )
 
 
-def _run(
+def _returncode(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
     env: dict[str, str] | None = None,
-) -> bool:
-    """Run a CI check subprocess synchronously."""
+) -> int:
+    """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run."""
     if is_dry_run():
         req = _planned_request_for_cmd(cmd, env=env)
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
-        return True
+        return 0
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
@@ -216,7 +217,17 @@ def _run(
     result = _get("run_subprocess")(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
-    return bool(result.returncode == 0)
+    return int(result.returncode)
+
+
+def _run(
+    cmd: list[str],
+    timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    capture_output: bool = False,
+    env: dict[str, str] | None = None,
+) -> bool:
+    """Run a CI check subprocess synchronously; whether it passed."""
+    return _returncode(cmd, timeout=timeout, capture_output=capture_output, env=env) == 0
 
 
 def _section(title: str) -> None:
@@ -482,6 +493,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "actionlint"],
             span_name="ci.step.actionlint",
             metric_step="actionlint",
+        ),
+        CheckSpec(
+            name="zizmor",
+            display_title=MESSAGES.ci.zizmor,
+            cmd=["uv", "run", "devops", "scan", "workflows"],
+            span_name="ci.step.zizmor",
+            metric_step="zizmor",
         ),
         CheckSpec(
             name="docs",
@@ -1813,9 +1831,12 @@ def maintain(
         )
         raise typer.Exit(1)
 
-    # 2. Dependency security audit
-    if not _run(["uv", "run", "pip-audit"]):
-        print_error("Dependency audit found vulnerabilities.", prefix=False)
+    # 2. Dependency security audit, by the `audit` check's own command
+    audited = _returncode(get_check_spec("audit").cmd)
+    if audited != 0:
+        failed = audited == CONST_UV_EXIT_FAILURE
+        message = MESSAGES.ci.audit_vulnerable if failed else MESSAGES.ci.audit_not_run
+        print_error(message.format(code=audited), prefix=False)
         raise typer.Exit(1)
 
     print_success("✓ Toolchain and lockfile maintenance checks passed.")

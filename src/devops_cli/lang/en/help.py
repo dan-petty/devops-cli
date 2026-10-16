@@ -1385,6 +1385,9 @@ class ScanCommandHelp:
     dive: str = "Run Dive container image layer analysis."
     target: str = "Target directory, file, or repository to scan."
     target_secrets: str = "Target directory or file to scan for secrets."
+    target_workflows: str = (
+        "Directory of GitHub Actions workflows and actions to audit with zizmor."
+    )
     target_semgrep: str = "Target directory or file to scan with Semgrep AST rules."
     target_checkov: str = "Target directory or file to scan with Checkov IaC rules."
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."

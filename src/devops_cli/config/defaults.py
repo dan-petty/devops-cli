@@ -450,6 +450,8 @@ DEFAULT_RERANKER_DECLARATION_BONUS: float = 0.2
 DEFAULT_RERANKER_SYMBOL_BONUS: float = 0.1
 DEFAULT_FILE_FORMAT_AUTO: Literal["text", "bytes", "json", "yaml", "yml", "auto"] = "auto"
 DEFAULT_CURRENT_PATH: Path = Path(".")
+# The directory `devops scan workflows` audits: GitHub Actions workflows and composite actions.
+DEFAULT_WORKFLOWS_SCAN_PATH: Path = Path(".github")
 
 # ── Kubernetes, Port Forward & Homelab Defaults ───────────────────────────────
 DEFAULT_K8S_DIR: Path = Path("k8s")
