@@ -222,3 +222,46 @@ def test_audit_workflow_devops_commands_resolve() -> None:
     assert len(commands) >= 2, "Expected at least 2 devops commands in audit workflow"
     findings = [resolve_devops_argv(tokens) for tokens in commands]
     assert all(f is None for f in findings), f"Unresolved devops commands in workflow: {findings}"
+
+
+def test_workflow_contract_fail_to_pass() -> None:
+    """Validate `.github/workflows/fail-to-pass.yml` triggers, env, self-check, and no `${{` in `run:` (#844)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
+    pr_trigger = workflow.get("on", {}).get("pull_request", {})
+    jobs = workflow.get("jobs", {})
+    gate_steps = jobs.get("fail-to-pass", {}).get("steps", [])
+    self_steps = jobs.get("self-check", {}).get("steps", [])
+    all_steps = [*gate_steps, *self_steps]
+    replay_step = next(
+        (s for s in gate_steps if "devops ci fail-to-pass" in str(s.get("run", ""))),
+        {},
+    )
+    self_replay = next(
+        (s for s in self_steps if "5768cd9" in str(s.get("run", ""))),
+        {},
+    )
+    commands = _extract_devops_commands(workflow)
+    assert (
+        pr_trigger.get("types"),
+        pr_trigger.get("branches"),
+        all(
+            s.get("with", {}).get("fetch-depth") == 0
+            for s in all_steps
+            if "actions/checkout" in str(s.get("uses", ""))
+        ),
+        {"PR_TITLE", "PR_LABELS", "PR_BODY"} <= set(replay_step.get("env", {})),
+        "devops ci fail-to-pass" in str(replay_step.get("run", "")),
+        any("${{" in str(s.get("run", "")) for s in all_steps),
+        "36b2bee" in str(self_replay.get("run", ""))
+        and "16 failed and 24 passed in tests/test_ai_fixer.py" in str(self_replay.get("run", "")),
+        [resolve_devops_argv(tokens) for tokens in commands],
+    ) == (
+        ["opened", "synchronize", "reopened", "edited", "labeled"],
+        ["main", "release/**"],
+        True,
+        True,
+        True,
+        False,
+        True,
+        [None],
+    )

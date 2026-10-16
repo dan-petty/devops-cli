@@ -1716,6 +1716,22 @@ CONST_MUTMUT_COUNTED_STATUSES: Final[tuple[str, ...]] = (
 )
 CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests")
 
+# ── Fail-to-Pass Test Replay (`devops ci fail-to-pass`, #844) ────────────────
+CONST_FAIL_TO_PASS_ESCAPE_PATTERN: Final[str] = (
+    r"(?im)^Fail-to-pass:\s*not\s+applicable:\s*(.+?)\s*$"
+)
+CONST_FAIL_TO_PASS_PYTEST_FLAGS: Final[tuple[str, ...]] = (
+    "-o",
+    "addopts=",
+    "-p",
+    "no:cacheprovider",
+)
+CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
+    "failure": "failed",
+    "error": "errored",
+    "skipped": "skipped",
+}
+
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
