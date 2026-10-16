@@ -1,4 +1,4 @@
-"""Automated unit test synthesizer and test execution verifier."""
+"""Unit test scaffold generator."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from devops_cli.config.defaults import DEFAULT_SYNTHESIZED_TEST_STATUS
 
 
 class SynthesizedTestSuite(BaseModel):
-    """Synthesized unit test suite for a source module or function."""
+    """Generated unit test scaffold suite for a source module or function."""
 
     target_file: str
     function_names: list[str] = Field(default_factory=list)
@@ -32,11 +32,20 @@ class SynthesizedTestSuite(BaseModel):
         }
 
 
+def _resolve_import_path(target_file: Path) -> str:
+    """Resolve a valid Python dotted import path for `target_file`, falling back to its stem."""
+    raw = target_file.with_suffix("").as_posix().lstrip("./").replace("/", ".")
+    candidate = raw.split("src.", 1)[1] if "src." in raw else target_file.stem
+    if candidate and all(part.isidentifier() for part in candidate.split(".")):
+        return candidate
+    return target_file.stem if target_file.stem.isidentifier() else "target_module"
+
+
 def synthesize_unit_tests(
     target_file: Path,
     function_filter: str | None = None,
 ) -> SynthesizedTestSuite:
-    """Analyze a source file via AST and synthesize isolated pytest unit tests."""
+    """Analyze a source file via AST and generate failing pytest unit test scaffolds."""
     resolved = target_file.resolve()
     if not resolved.is_file():
         return SynthesizedTestSuite(
@@ -47,10 +56,8 @@ def synthesize_unit_tests(
             validation_status="NOT_FOUND",
         )
     content = resolved.read_text(encoding="utf-8", errors="replace")
-    module_stem = target_file.stem
-    import_path = str(target_file).replace("/", ".").replace(".py", "").lstrip(".")
-    if "src." in import_path:
-        import_path = import_path.split("src.", 1)[1]
+    module_stem = target_file.stem if target_file.stem.isidentifier() else "target_module"
+    import_path = _resolve_import_path(target_file)
 
     functions_found: list[str] = []
     test_cases: list[str] = []
@@ -68,27 +75,29 @@ def synthesize_unit_tests(
                 test_fn_name = f"test_{node.name}_isolated_behavior"
                 test_cases.append(f'''def {test_fn_name}() -> None:
     """Verify standard behavior for {node.name}."""
-    # Test assertion synthesized by devops ai test-gen
-    assert hasattr({module_stem}, "{node.name}")
+    pytest.fail("expected behaviour of {node.name} not written")
 ''')
     except Exception:
         pass
 
     if not functions_found:
         functions_found.append("default_behavior")
-        test_cases.append(f'''def test_{module_stem}_import() -> None:
-    """Verify module can be imported cleanly."""
-    import {import_path}
-    assert {import_path} is not None
+        test_cases.append(f'''def test_{module_stem}_scaffold() -> None:
+    """Verify standard behavior for {module_stem}."""
+    pytest.fail("expected behaviour of {module_stem} not written")
 ''')
 
-    header = f'''"""Auto-synthesized unit test suite for {target_file.name}."""
+    import_line = (
+        f"import {import_path}\n"
+        if import_path == module_stem
+        else f"import {import_path} as {module_stem}\n"
+    )
+    header = f'''"""Unit test scaffold suite for {target_file.name}."""
 
 from __future__ import annotations
 
 import pytest
-import {import_path} as {module_stem}
-
+{import_line}
 '''
     full_code = header + "\n".join(test_cases)
     return SynthesizedTestSuite(

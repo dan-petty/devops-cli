@@ -177,9 +177,9 @@ class AICommandHelp:
         "data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else "
         "under ~/.local/share/devops-cli (default: the configured feedback dataset)."
     )
-    test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
-    test_function: str = "Specific function to synthesize tests for."
-    target_file: str = "Target source file to synthesize unit tests for."
+    test_gen: str = "Generate failing unit test scaffolds for functions and modules."
+    test_function: str = "Specific function to generate a test scaffold for."
+    target_file: str = "Target source file to generate unit test scaffolds for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
     chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
     quiesce: str = "Set the constellation quiesce flag with a reason; it stops nothing."

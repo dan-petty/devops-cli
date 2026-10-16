@@ -3458,7 +3458,7 @@ devops ai prompt-eval [OPTIONS]
 
 ### `devops ai test-gen`
 
-**Synthesize isolated pytest unit test suites for functions or source files.**
+**Generate failing pytest unit test scaffolds for functions or source files.**
 
 ```bash
 devops ai test-gen [OPTIONS] <target_file>
@@ -3468,13 +3468,13 @@ devops ai test-gen [OPTIONS] <target_file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for. |
+| `<target_file>` | `path` | Yes | Target source file to generate unit test scaffolds for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--function`, `-f` | `string` | - | Specific function to generate a test scaffold for. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

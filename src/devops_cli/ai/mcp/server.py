@@ -1306,7 +1306,7 @@ def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
 
 @mcp.tool()
 def ai_test_gen(target_file: str) -> str:
-    """Synthesize isolated pytest unit test suite for a target Python file."""
+    """Generate failing pytest unit test scaffolds for a target Python file."""
     _validate_mcp_arg("target_file", target_file)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "test-gen", target_file],
