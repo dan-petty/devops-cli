@@ -104,6 +104,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
 | `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
+| `RoadmapIntakeError` | `ROADMAP_INTAKE_FAILED` | `1` | Roadmap | Raised after an intake round in which the writes failed for one or more candidates. |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
 | `RunCancelled` | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |

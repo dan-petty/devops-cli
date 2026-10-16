@@ -1606,23 +1606,25 @@ def test_a_capped_intake_decides_every_candidate_over_successive_polls_fresh_one
     )
 
 
-def test_a_placement_that_raises_before_any_write_leaves_its_candidates_behind_the_fresh_ones(
+def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_round_goes_on(
     tmp_path: Path,
 ) -> None:
-    """The record is written before any placement, so a round whose first placement fails at
-    its first gh write keeps its decisions: the next round decides the fresh candidates first,
-    then those the failed round decided (#1360)."""
+    """A round whose first placement fails at its first gh write still places the other four
+    and fails the job (#1443). The record is written before any placement, so the next round
+    decides the fresh candidates first, then the failed one, and none of the four again (#1360)."""
     store, _, titles = _candidates(7)
     model = _IntakeModel()
     table = _intake_table(model, [])
     stopping = StoppingStore(store, Fault(at=1, write="label_issue"))
     with pytest.raises(RoadmapRunError):
         _poll_round(stopping.as_store(), tmp_path, table=table)
+    on_board = tuple(store.item(number) is not None for number in range(1, 6))
     asked = len(model.asked)
     _poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
-    assert (stopping.writes, tuple(model.asked[asked:])) == (
+    assert (stopping.writes[:1], on_board, tuple(model.asked[asked:])) == (
         ["label_issue"],
-        (*titles[5:], *titles[:3]),
+        (False, True, True, True, True),
+        (*titles[5:], titles[0]),
     )
 
 

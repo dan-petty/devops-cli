@@ -62,6 +62,7 @@ from devops_cli.roadmap.intake import (
     apply_intake,
     dry_run_intake,
     plan_intake,
+    raise_for_failed_placements,
     render_intake,
     render_intake_dry_run,
 )
@@ -422,6 +423,8 @@ def _intake(
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))
     for number in applied.finished:
         print_info(MESSAGES.roadmap.intake_finished.format(number=number))
+    with _exit_on_failure("Intake finished with candidates it could not write"):
+        raise_for_failed_placements(applied)
 
 
 @app.command("close", help=HELP.roadmap.close)

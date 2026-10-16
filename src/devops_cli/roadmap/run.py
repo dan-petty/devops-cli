@@ -75,6 +75,7 @@ from devops_cli.roadmap.intake import (
     Outcome,
     apply_intake,
     plan_intake,
+    raise_for_failed_placements,
 )
 from devops_cli.roadmap.reprioritize import current_release, is_due
 from devops_cli.roadmap.store import (
@@ -457,8 +458,8 @@ def _run_intake_adapter(
     """Decide at most `limit` of `repo`'s candidates, fresh ones first, and place them (#1360).
     The record of what it decided is written before any placement, so intake keeps the round's
     skips and folds when a placement raises, and a candidate whose placement raised is decided
-    again after the fresh ones. The placements after a raising one in the same round are not
-    made; #1443 gives each placement its own failure."""
+    again after the fresh ones. A candidate whose write fails is skipped, the round's others are
+    placed, and the job then fails naming it (#1443)."""
     from devops_cli.roadmap.config import read_roadmap_config
     from devops_cli.roadmap.intake_model import build_intake_model
 
@@ -475,7 +476,7 @@ def _run_intake_adapter(
     )
     _write_intake_record(record_path, record.after(plan, now))
     if plan.has_writes:
-        apply_intake(store, plan)
+        raise_for_failed_placements(apply_intake(store, plan))
     return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
 
 

@@ -128,7 +128,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.exceptions.git import GitHubFileNotFoundError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
+from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
@@ -434,16 +439,34 @@ class IntakePlan:
 
 
 @dataclass(frozen=True)
+class PlacementFailure:
+    """A candidate intake skipped because one of its writes failed: its issue number, None for
+    a new candidate never filed, its title and the error's class (#1443)."""
+
+    number: int | None
+    title: str
+    error: str
+
+    @property
+    def name(self) -> str:
+        """How messages name the candidate: its number, or its title when it has none."""
+        if self.number is not None:
+            return f"#{self.number}"
+        return MESSAGES.roadmap.intake_failed_new.format(title=self.title[:80])
+
+
+@dataclass(frozen=True)
 class IntakeApplied:
     """What a run wrote: items placed, duplicates closed, and the issues it filed. `finished`
     names each candidate whose card the add returned holding a Priority, a card a person
     archived that the add restored or one a lagging listing left out: intake wrote nothing
-    else to it (#1403)."""
+    else to it (#1403). `failed` names each candidate a failed write made it skip (#1443)."""
 
-    placed: int
-    closed: int
-    filed: tuple[int, ...]
+    placed: int = 0
+    closed: int = 0
+    filed: tuple[int, ...] = ()
     finished: tuple[int, ...] = ()
+    failed: tuple[PlacementFailure, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1390,31 +1413,73 @@ def _maybe_refine_intake(
         logger.warning("Intake refine hook failed for #%d: %s", item_number, exc)
 
 
+def _apply_decision(
+    store: RoadmapStore, decision: IntakeDecision, refine_hook: Callable[[RoadmapStore, int], Any]
+) -> IntakeApplied:
+    """One candidate's writes, and what they wrote."""
+    if decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
+        assert decision.original is not None
+        store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
+        return IntakeApplied(closed=1)
+    if decision.outcome is not Outcome.PLACE:
+        return IntakeApplied()
+    number, applied = _apply_placement(store, decision)
+    filed = () if decision.subject.number else (number,)
+    if applied is None:
+        return IntakeApplied(filed=filed, finished=(number,))
+    _maybe_refine_intake(refine_hook, store, applied, number)
+    return IntakeApplied(placed=1, filed=filed)
+
+
+def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementFailure:
+    """Record `subject` as skipped for its failed write, with the error's class."""
+    failure = PlacementFailure(subject.number, subject.title, type(exc).__name__)
+    logger.warning(MESSAGES.roadmap.intake_skipped.format(name=failure.name, error=exc))
+    return failure
+
+
 def apply_intake(
     store: RoadmapStore,
     plan: IntakePlan,
     *,
     refine: Callable[[RoadmapStore, int], Any] | None = None,
 ) -> IntakeApplied:
-    """Make the plan's writes, one candidate at a time."""
-    filed: list[int] = []
-    finished: list[int] = []
-    placed = closed = 0
+    """Make the plan's writes, one candidate at a time. A candidate whose write fails is
+    skipped and named in `failed`, and the others are still written (#1443). A rate limit or a
+    GraphQL budget refusal stops the round, since every later write would be refused too."""
     refine_hook = refine or refine_item
+    written: list[IntakeApplied] = []
+    failed: list[PlacementFailure] = []
     for decision in plan.decisions:
-        if decision.outcome is Outcome.PLACE:
-            number, applied = _apply_placement(store, decision)
-            filed += [] if decision.subject.number else [number]
-            if applied is None:
-                finished.append(number)
-                continue
-            placed += 1
-            _maybe_refine_intake(refine_hook, store, applied, number)
-        elif decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
-            assert decision.original is not None
-            store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
-            closed += 1
-    return IntakeApplied(placed=placed, closed=closed, filed=tuple(filed), finished=tuple(finished))
+        try:
+            written.append(_apply_decision(store, decision, refine_hook))
+        except GitHubRateLimitError:
+            raise
+        except GitHubOperationError as exc:
+            failed.append(_failed_placement(decision.subject, exc))
+    return IntakeApplied(
+        placed=sum(each.placed for each in written),
+        closed=sum(each.closed for each in written),
+        filed=tuple(number for each in written for number in each.filed),
+        finished=tuple(number for each in written for number in each.finished),
+        failed=tuple(failed),
+    )
+
+
+def raise_for_failed_placements(applied: IntakeApplied) -> None:
+    """Fail a round in which any candidate's write failed, once the others are written: the
+    error names each skipped candidate with its error's class (#1443)."""
+    if not applied.failed:
+        return
+    texts = MESSAGES.roadmap
+    items = ", ".join(
+        texts.intake_failed_item.format(name=failure.name, error=failure.error)
+        for failure in applied.failed
+    )
+    raise RoadmapIntakeError(
+        texts.intake_failed.format(count=len(applied.failed), items=items),
+        failed_items=[failure.number for failure in applied.failed if failure.number is not None],
+    )
 
 
 def intake_candidate(
@@ -1432,6 +1497,8 @@ def intake_candidate(
     plan = plan_intake(store, repo=repo, config=config, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
     applied = apply_intake(store, plan) if confirm else None
+    if applied is not None:
+        raise_for_failed_placements(applied)
     number = applied.filed[0] if applied and applied.filed else None
     return CandidateOutcome(plan=plan, decision=decision, number=number)
 
@@ -1533,6 +1600,7 @@ __all__ = [
     "NewCandidate",
     "Outcome",
     "Placement",
+    "PlacementFailure",
     "Proposal",
     "QuotaDecision",
     "QuotaStanding",
@@ -1542,6 +1610,7 @@ __all__ = [
     "dry_run_intake",
     "intake_candidate",
     "plan_intake",
+    "raise_for_failed_placements",
     "read_quota",
     "refine_item",
     "render_intake",
