@@ -1911,6 +1911,15 @@ class RoadmapMessages:
         "#{number}'s card holds a Priority, so it was already placed: the add restored the "
         "card if a person had archived it, and intake wrote nothing else to it."
     )
+    intake_skipped: str = (
+        "Intake skipped {name}: its writes failed, and the next run tries it again: {error}"
+    )
+    intake_failed: str = (
+        "the writes failed for {count} candidate(s), and intake skipped them after writing the "
+        "others; the next run tries them again: {items}"
+    )
+    intake_failed_item: str = "{name} ({error})"
+    intake_failed_new: str = '"{title}"'
     triage_no_board: str = (
         "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
     )
