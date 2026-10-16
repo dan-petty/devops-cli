@@ -20,7 +20,7 @@ def strip_json_comments(text: str) -> str:
     return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
 
 
-def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:  # noqa: C901
+def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:
     """Extract and deserialize JSON from raw text, markdown code blocks, or conversational LLM output.
 
     Args:
@@ -48,40 +48,13 @@ def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:  # noqa
         except json.JSONDecodeError:
             pass
 
-    # 2. Try direct JSON parsing
-    try:
-        return json.loads(clean_text)
-    except json.JSONDecodeError:
-        pass
+    # 2. Route through the unified repair_json seam (strict json.loads first, then json-repair)
+    from devops_cli.ai.response_repair import repair_json
+    from devops_cli.config.constants import CONST_JSON_REPAIR_SOURCE_EXTRACT_JSON_BLOCK
 
-    # 3. Try bracket extraction heuristic ({...} or [...])
-    start_brace = clean_text.find("{")
-    end_brace = clean_text.rfind("}")
-    if start_brace != -1 and end_brace > start_brace:
-        candidate = clean_text[start_brace : end_brace + 1]
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    start_bracket = clean_text.find("[")
-    end_bracket = clean_text.rfind("]")
-    if start_bracket != -1 and end_bracket > start_bracket:
-        candidate = clean_text[start_bracket : end_bracket + 1]
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    # 4. Fallback to json_repair if available
-    try:
-        import json_repair
-
-        repaired = json_repair.loads(clean_text)
-        if repaired != "" and repaired is not None and not isinstance(repaired, str):
-            return repaired
-    except Exception:
-        pass
+    repaired, _ = repair_json(clean_text, source=CONST_JSON_REPAIR_SOURCE_EXTRACT_JSON_BLOCK)
+    if repaired != "" and repaired is not None and not isinstance(repaired, str):
+        return repaired
 
     if default is not _JSON_UNSET:
         return default

@@ -1161,9 +1161,11 @@ CONST_MAX_ERROR_DETAIL_LENGTH = 256
 
 # ── AI Client Structured Output Metric Invariants ─────────────────────────────
 CONST_METRIC_AI_STRUCTURED_SUCCESS = "ai.client.structured_success"
-CONST_METRIC_AI_STRUCTURED_REPAIR_SUCCESS = "ai.client.structured_repair_success"
 CONST_METRIC_AI_STRUCTURED_RETRY_COUNT = "ai.client.structured_retry_count"
 CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation_failure"
+CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING: Final[str] = "repair_json_string"
+CONST_JSON_REPAIR_SOURCE_EXTRACT_JSON_BLOCK: Final[str] = "extract_json_block"
+CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED: Final[str] = "chat_structured"
 
 
 CONST_EXIT_SUCCESS: int = 0

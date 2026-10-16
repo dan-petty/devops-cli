@@ -111,6 +111,12 @@ AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
     "USD",
     "Equivalent hosted cloud spend avoided by local model execution",
 )
+AI_JSON_REPAIRS_TOTAL = Instrument(
+    "devops_cli_ai_json_repairs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "LLM JSON replies repaired after strict parsing failed, by entry point source",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -252,6 +258,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
     AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
+    AI_JSON_REPAIRS_TOTAL,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
@@ -308,6 +315,7 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_JSON_REPAIRS_TOTAL",
     "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
