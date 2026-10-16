@@ -192,15 +192,20 @@ class TestMcpCli:
             )
 
     def test_export_schemas_command(self, runner: CliRunner, tmp_path: Path) -> None:
-        """devops mcp export-schemas must write JSON files and instructions."""
+        """devops mcp export-schemas must write JSON files with annotations and instructions."""
+        import json
+
         out_dir = tmp_path / "mcp_schemas"
         result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
-        assert result.exit_code == 0
-        assert (out_dir / "instructions.md").exists()
-        assert (out_dir / "scan_trivy.json").exists()
-        assert (out_dir / "vault_set.json").exists()
-        assert "Exported" in result.output
-        assert "instructions" in result.output
+        trivy_schema = json.loads((out_dir / "scan_trivy.json").read_text(encoding="utf-8"))
+        vault_schema = json.loads((out_dir / "vault_set.json").read_text(encoding="utf-8"))
+        assert (
+            result.exit_code,
+            (out_dir / "instructions.md").exists(),
+            trivy_schema.get("annotations"),
+            vault_schema.get("annotations"),
+            "Exported" in result.output and "instructions" in result.output,
+        ) == (0, True, {"readOnlyHint": True}, {"readOnlyHint": False}, True)
 
     def test_export_schemas_without_instructions(self, runner: CliRunner, tmp_path: Path) -> None:
         """devops mcp export-schemas without instructions writes empty file and adjusts message."""
@@ -238,12 +243,16 @@ class TestTfMcpTools:
         from devops_cli.ai.mcp.server import tf_apply
 
         with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Apply complete!") as mock:
-            res = tf_apply(directory="tf/aws", auto_approve=True)
-            assert res == "Apply complete!"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "apply" in args
-            assert "--auto-approve" in args
+            res_default = tf_apply(directory="tf/aws")
+            default_args = mock.call_args[0][0]
+            res_approved = tf_apply(directory="tf/aws", auto_approve=True)
+            approved_args = mock.call_args[0][0]
+            assert (
+                res_default,
+                res_approved,
+                "apply" in default_args and "--auto-approve" not in default_args,
+                "apply" in approved_args and "--auto-approve" in approved_args,
+            ) == ("Apply complete!", "Apply complete!", True, True)
 
     def test_tf_output_tool(self) -> None:
         from devops_cli.ai.mcp.server import tf_output

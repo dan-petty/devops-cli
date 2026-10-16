@@ -208,6 +208,59 @@ def test_fastmcp_tool_docstrings_and_parameters() -> None:
         )
 
 
+def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
+    """Every registered FastMCP tool sets readOnlyHint, and argument-mutating tools carry False (#857)."""
+    import asyncio
+
+    from devops_cli.ai.mcp.server import mcp
+    from devops_cli.config.constants import CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR
+    from devops_cli.docs.generator import DocGenerator
+
+    registered = asyncio.run(mcp._list_tools())
+    missing_hint = [
+        t.name
+        for t in registered
+        if t.annotations is None or not isinstance(t.annotations.read_only_hint, bool)
+    ]
+    hints_by_name = {
+        t.name: t.annotations.read_only_hint for t in registered if t.annotations is not None
+    }
+    floor_expected_false = CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR | {
+        "gh_label_sync",
+        "k8s_teardown_stack",
+        "pr_close",
+        "review_pr",
+        "tf_apply",
+        "valkey_flush",
+        "vault_set",
+    }
+    wrong_floor = sorted(
+        name for name in floor_expected_false if hints_by_name.get(name) is not False
+    )
+    info_by_name = {info.name: info for info in list_mcp_tools()}
+    info_mismatches = [
+        name
+        for name, expected in hints_by_name.items()
+        if (
+            info_by_name[name].read_only_hint,
+            info_by_name[name]["readOnlyHint"],
+            "readOnlyHint" in info_by_name[name],
+        )
+        != (expected, expected, True)
+    ]
+    doc_generator = DocGenerator()
+    mcp_docs = doc_generator.introspect_mcp_tools()
+    rendered_md = doc_generator.render_mcp_tools_markdown(mcp_docs)
+    assert (
+        missing_hint,
+        wrong_floor,
+        info_mismatches,
+        hints_by_name.get("repos_list"),
+        "**Annotations:** `readOnlyHint: false`" in rendered_md,
+        "**Annotations:** `readOnlyHint: true`" in rendered_md,
+    ) == ([], [], [], True, True, True)
+
+
 def test_fastmcp_arg_validation() -> None:
     """Verify that _validate_mcp_arg catches flag injection attempts."""
     import pytest
