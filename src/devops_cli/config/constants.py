@@ -236,6 +236,15 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
+CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR: Final[frozenset[str]] = frozenset(
+    {
+        "argo_rollout_analyze",
+        "docker_sign",
+        "gh_project_reconcile",
+        "rag_drift",
+        "roadmap_render",
+    }
+)
 # The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
 # resolves every list literal under src/devops_cli that starts with one (#868). Such a list
 # spells the command word as a quoted literal in one of Python's two quote characters, so a

@@ -133,6 +133,7 @@ class MCPToolDoc(BaseModel):
 
     name: str
     description: str
+    read_only_hint: bool | None = None
     parameters: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -185,9 +186,13 @@ def _mcp_tool_to_doc(tool: Any) -> MCPToolDoc:
         or getattr(tool, "inputSchema", None)
         or {}
     )
+    annotations = getattr(tool, "annotations", None)
+    raw_hint = getattr(annotations, "read_only_hint", None) if annotations is not None else None
+    read_only_hint = raw_hint if isinstance(raw_hint, bool) else None
     return MCPToolDoc(
         name=tool.name,
         description=tool.description or "",
+        read_only_hint=read_only_hint,
         parameters=_parse_mcp_input_schema_parameters(input_schema),
     )
 
@@ -616,14 +621,17 @@ class DocGenerator:
             "",
             "## Available Tools",
             "",
-            "| Tool Name | Description |",
-            "|---|---|",
+            "| Tool Name | `readOnlyHint` | Description |",
+            "|---|---|---|",
         ]
 
         for tool in sorted(tools, key=lambda t: t.name):
             anchor = tool.name.replace("_", "-")
             summary = " ".join(tool.description.splitlines()).strip()
-            lines.append(f"| [`{tool.name}`](#{anchor}) | {summary} |")
+            hint_cell = (
+                f"`{str(tool.read_only_hint).lower()}`" if tool.read_only_hint is not None else "-"
+            )
+            lines.append(f"| [`{tool.name}`](#{anchor}) | {hint_cell} | {summary} |")
 
         lines.append("")
         lines.append("---")
@@ -634,6 +642,9 @@ class DocGenerator:
             lines.append("")
             lines.append(f"{tool.description}")
             lines.append("")
+            if tool.read_only_hint is not None:
+                lines.append(f"**Annotations:** `readOnlyHint: {str(tool.read_only_hint).lower()}`")
+                lines.append("")
             if tool.parameters:
                 lines.append("**Parameters:**")
                 lines.append("")

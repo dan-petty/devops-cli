@@ -111,10 +111,16 @@ def export_schemas_cmd(
 
     count = 0
     for t in tools:
+        annotations = (
+            t.annotations.model_dump(by_alias=True, exclude_none=True)
+            if t.annotations is not None
+            else {}
+        )
         schema = {
             "name": t.name,
             "description": t.description,
             "parameters": t.parameters,
+            "annotations": annotations,
         }
         dest = out_dir / f"{t.name}.json"
         dest.write_text(json.dumps(schema, separators=(",", ":")), encoding="utf-8")
