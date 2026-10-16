@@ -22,6 +22,7 @@ points devops-cli at the cluster's collector.
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM tokens, by type (prompt or completion), provider, model, server and backend. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM spend, by provider, model, server and backend. |
 | `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution. |
+| `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |

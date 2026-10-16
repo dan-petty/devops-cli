@@ -24,11 +24,13 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.text_utils import normalize_unicode_text, unique_lines
+from devops_cli.config.constants import CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING
 from devops_cli.config.defaults import (
     DEFAULT_JSON_REPAIR_MAX_LENGTH,
     DEFAULT_TOOL_EXTRACT_OVERLAP,
     DEFAULT_TOOL_EXTRACT_PAGE_SIZE,
 )
+from devops_cli.telemetry.instruments import AI_JSON_REPAIRS_TOTAL, emit
 
 __all__ = [
     "ExtractedToolCall",
@@ -37,6 +39,7 @@ __all__ = [
     "extract_tool_invocations",
     "fix_llm_response",
     "parse_model_response",
+    "repair_json",
     "repair_json_string",
 ]
 
@@ -102,6 +105,41 @@ def _lone_answer(values: Any) -> Any:
     return answers[0] if len(answers) == 1 else None
 
 
+def _repair_cleaned_json(cleaned: str) -> Any:
+    """Repair cleaned text via json-repair, extracting a lone structured answer when prose holds brackets."""
+    whole = _repair_loads(cleaned)
+    if _is_structured(whole):
+        return whole
+    answer = _lone_answer(whole)
+    if answer is not None:
+        return answer
+    return whole if whole not in ("", None) else None
+
+
+def repair_json(
+    text: str,
+    *,
+    source: str,
+    max_length: int | None = None,
+) -> tuple[Any, bool]:
+    """Parse JSON strictly first, falling back to json-repair and counting repairs by entry point (#875)."""
+    cleaned = _clean_repair_text(text, max_length)
+    if cleaned is None:
+        return None, False
+    try:
+        return json.loads(cleaned), False
+    except json.JSONDecodeError, RecursionError:
+        pass
+    fenced = _fenced_json(cleaned)
+    if len(fenced) == 1:
+        return fenced[0], False
+    repaired = _repair_cleaned_json(cleaned)
+    if repaired is None:
+        return None, False
+    emit(AI_JSON_REPAIRS_TOTAL, 1.0, attributes={"source": source})
+    return repaired, True
+
+
 def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
     """Extract and repair valid or partially-malformed JSON from text using json-repair.
 
@@ -110,19 +148,12 @@ def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
     markdown link or `items[0]`, as values beside the answer, so a list of such values
     yields its one object or list of objects.
     """
-    cleaned = _clean_repair_text(text, max_length)
-    if cleaned is None:
-        return None
-    fenced = _fenced_json(cleaned)
-    if len(fenced) == 1:
-        return fenced[0]
-    whole = _repair_loads(cleaned)
-    if _is_structured(whole):
-        return whole
-    answer = _lone_answer(whole)
-    if answer is not None:
-        return answer
-    return whole if whole not in ("", None) else None
+    value, _ = repair_json(
+        text,
+        source=CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING,
+        max_length=max_length,
+    )
+    return value
 
 
 def _strip_reasoning(text: str) -> str:
