@@ -9,7 +9,7 @@ import tokenize
 import tomllib
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from graphlib import CycleError
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,12 @@ from devops_cli.config.defaults import (
     DEFAULT_SUPPRESSION_CEILINGS,
 )
 from devops_cli.core.code_metrics import measure_tree
+from devops_cli.core.import_graph import (
+    build_import_graph,
+    import_cycle_violations,
+    interface_layer_violations,
+    verify_acyclic_imports,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -207,18 +213,25 @@ def _parse_src() -> dict[Path, ast.Module]:
 
 
 def test_the_source_tree_keeps_its_structural_invariants() -> None:
-    """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep.
+    """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep,
+    the module-level import graph has no cycles, and no module outside `devops_cli.commands.*`
+    and `devops_cli.main` imports `devops_cli.commands` (#773, #848).
 
     The function body is depth 1, as the structural-invariants commit hook counts it. This is
     the one test that parses the whole tree: further whole-tree rules belong here, on its parse.
     """
+    trees = _parse_src()
     too_deep = [
         f"{path}:{fn.line_number}: {fn.name} nesting {fn.max_nesting_depth}"
-        for path, tree in _parse_src().items()
+        for path, tree in trees.items()
         for fn in measure_tree(tree)
         if fn.max_nesting_depth > DEFAULT_MAX_NESTING_DEPTH
     ]
-    assert too_deep == []
+    assert (
+        too_deep,
+        import_cycle_violations(trees),
+        interface_layer_violations(trees),
+    ) == ([], [], [])
 
 
 def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
@@ -350,144 +363,128 @@ def test_finding_is_constructed_only_by_admission() -> None:
     assert (tuple(callers), tuple(calls_outside_admit)) == ((), ())
 
 
-def _resolve_import_edge(
-    sub: ast.Import,
-    mod: str,
-    module_files: dict[str, Path],
-    graph: dict[str, set[str]],
+def _parse_fixture_trees(root: Path, files: Mapping[str, str]) -> dict[Path, ast.Module]:
+    """Write `files` under `root` and return their parsed AST modules."""
+    trees: dict[Path, ast.Module] = {}
+    for rel, code in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(code, encoding="utf-8")
+        trees[path] = ast.parse(code, filename=str(path))
+    return trees
+
+
+def test_package_init_importing_sub_where_sub_imports_from_pkg_reports_no_cycle(
+    tmp_path: Path,
 ) -> None:
-    for alias in sub.names:
-        name = alias.name
-        while name and name not in module_files and "." in name:
-            name = name.rsplit(".", 1)[0]
-        if name in module_files and name != mod:
-            graph[mod].add(name)
-
-
-def _resolve_import_from_edge(
-    sub: ast.ImportFrom,
-    mod: str,
-    pkg_parts: list[str],
-    module_files: dict[str, Path],
-    graph: dict[str, set[str]],
-) -> None:
-    target = None
-    if sub.level > 0:
-        level = sub.level - 1
-        base = pkg_parts[: len(pkg_parts) - level] if level <= len(pkg_parts) else []
-        parts = base + (sub.module.split(".") if sub.module else [])
-        target = ".".join(parts)
-    elif sub.module:
-        target = sub.module
-
-    if not target:
-        return
-
-    base_target = target
-    while base_target and base_target not in module_files and "." in base_target:
-        base_target = base_target.rsplit(".", 1)[0]
-    if base_target in module_files and base_target != mod:
-        graph[mod].add(base_target)
-
-    for alias in sub.names:
-        child_mod = f"{target}.{alias.name}"
-        if child_mod in module_files and child_mod != mod:
-            graph[mod].add(child_mod)
-
-
-def _record_import_edges(
-    mod: str,
-    py_file: Path,
-    module_files: dict[str, Path],
-    graph: dict[str, set[str]],
-) -> None:
-    """Add one module's import edges to the dependency graph.
-
-    Extracted from the caller so the walk does not sit six blocks deep. AGENTS.md caps
-    nesting at 5, and the commit-time sentinel added in #443 enforces it across every
-    staged Python file -- including this one, which predated the gate.
+    """A package `__init__` doing `from . import sub`, where `sub` does `from pkg import name`,
+    reports no cycle; `from pkg import name` resolves to `pkg.name` when `name` is a submodule
+    and to the package otherwise (#848).
     """
-    tree = ast.parse(py_file.read_text(encoding="utf-8"))
-    pkg_parts = list(py_file.relative_to(Path("src")).parent.parts)
-    for node in tree.body:
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Import):
-                _resolve_import_edge(sub, mod, module_files, graph)
-            elif isinstance(sub, ast.ImportFrom):
-                _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
+    trees = _parse_fixture_trees(
+        tmp_path,
+        {
+            "pkg/__init__.py": "from . import sub\n",
+            "pkg/sub.py": "from pkg import name\nfrom other import CONST\n",
+            "pkg/name.py": "VALUE = 1\n",
+            "other/__init__.py": "CONST = 2\n",
+        },
+    )
+    graph = build_import_graph(trees, root=tmp_path)
+    assert (
+        import_cycle_violations(trees, root=tmp_path),
+        graph.edges["pkg"],
+        graph.edges["pkg.sub"],
+    ) == (
+        [],
+        {"pkg.sub"},
+        {"pkg.name", "other"},
+    )
 
 
-@dataclass
-class _TarjanState:
-    graph: dict[str, set[str]]
-    index: int = 0
-    indices: dict[str, int] = field(default_factory=dict)
-    lowlinks: dict[str, int] = field(default_factory=dict)
-    on_stack: set[str] = field(default_factory=set)
-    stack: list[str] = field(default_factory=list)
-    cycles: list[list[str]] = field(default_factory=list)
+def test_top_level_mutual_imports_fail_naming_both_modules(tmp_path: Path) -> None:
+    """Top-level mutual imports fail `verify_acyclic_imports` and `import_cycle_violations`,
+    naming both modules, file:line, the rule, and the fix (#848).
+    """
+    trees = _parse_fixture_trees(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/alpha.py": "from pkg import beta\n",
+            "pkg/beta.py": "from pkg import alpha\n",
+        },
+    )
+    with pytest.raises(CycleError) as exc_info:
+        verify_acyclic_imports(trees, root=tmp_path)
+    cycle_msg = str(exc_info.value.args[0])
+    violations = import_cycle_violations(trees, root=tmp_path)
+    assert (
+        len(violations) == 1,
+        "pkg.alpha" in cycle_msg and "pkg.beta" in cycle_msg,
+        "pkg/alpha.py:1" in violations[0] and "pkg/beta.py:1" in violations[0],
+        "rule:" in violations[0] and "fix:" in violations[0],
+    ) == (True, True, True, True)
 
 
-def _strongconnect(state: _TarjanState, v: str) -> None:
-    state.indices[v] = state.index
-    state.lowlinks[v] = state.index
-    state.index += 1
-    state.stack.append(v)
-    state.on_stack.add(v)
-
-    for w in state.graph.get(v, ()):
-        if w not in state.indices:
-            _strongconnect(state, w)
-            state.lowlinks[v] = min(state.lowlinks[v], state.lowlinks[w])
-        elif w in state.on_stack:
-            state.lowlinks[v] = min(state.lowlinks[v], state.indices[w])
-
-    if state.lowlinks[v] == state.indices[v]:
-        scc: list[str] = []
-        while True:
-            w = state.stack.pop()
-            state.on_stack.remove(w)
-            scc.append(w)
-            if w == v:
-                break
-        if len(scc) > 1:
-            state.cycles.append(scc)
-
-
-def _import_cycles(root: Path) -> list[list[str]]:
-    assert root.is_dir(), f"Directory {root} does not exist"
-    graph: dict[str, set[str]] = defaultdict(set)
-    module_files: dict[str, Path] = {}
-
-    for py_file in root.rglob("*.py"):
-        rel = py_file.relative_to(Path("src"))
-        parts = list(rel.with_suffix("").parts)
-        if parts[-1] == "__init__":
-            parts = parts[:-1]
-        mod = ".".join(parts)
-        module_files[mod] = py_file
-
-    for mod, py_file in module_files.items():
-        _record_import_edges(mod, py_file, module_files, graph)
-
-    state = _TarjanState(graph=graph)
-    for node in module_files:
-        if node not in state.indices:
-            _strongconnect(state, node)
-    return state.cycles
+def test_mutual_imports_only_in_functions_or_type_checking_add_no_cycle(
+    tmp_path: Path,
+) -> None:
+    """Mutual imports guarded by `TYPE_CHECKING` or inside function bodies add no cycle (#848)."""
+    trees = _parse_fixture_trees(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/alpha.py": (
+                "from typing import TYPE_CHECKING\n"
+                "if TYPE_CHECKING:\n"
+                "    from pkg import beta\n"
+                "def call_beta() -> None:\n"
+                "    import pkg.beta\n"
+            ),
+            "pkg/beta.py": (
+                "import typing\n"
+                "if typing.TYPE_CHECKING:\n"
+                "    import pkg.alpha\n"
+                "async def call_alpha() -> None:\n"
+                "    from pkg import alpha\n"
+            ),
+        },
+    )
+    graph = build_import_graph(trees, root=tmp_path)
+    assert (
+        import_cycle_violations(trees, root=tmp_path),
+        graph.edges["pkg.alpha"],
+        graph.edges["pkg.beta"],
+    ) == ([], set(), set())
 
 
-def test_no_circular_imports_in_decoupled_subsystems() -> None:
-    """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
-    subsystems = [
-        Path("src/devops_cli/commands/k8s"),
-        Path("src/devops_cli/output"),
-        Path("src/devops_cli/ai/review"),
-        Path("src/devops_cli/config"),
-    ]
-    for root in subsystems:
-        cycles = _import_cycles(root)
-        assert not cycles, f"Import cycles detected in {root}: {cycles}"
+def test_function_local_import_of_commands_outside_commands_fails_with_file_and_line(
+    tmp_path: Path,
+) -> None:
+    """A function-local import of `devops_cli.commands.x` outside `devops_cli.commands.*` and
+    `devops_cli.main` fails with file:line, the rule, and the fix (#848).
+    """
+    trees = _parse_fixture_trees(
+        tmp_path,
+        {
+            "devops_cli/__init__.py": "",
+            "devops_cli/main.py": "from devops_cli.commands import release\n",
+            "devops_cli/commands/__init__.py": "",
+            "devops_cli/commands/pr.py": "from devops_cli.commands.gh import _resolve_repo\n",
+            "devops_cli/core/cli.py": "def load_main() -> None:\n    import devops_cli.main\n",
+            "devops_cli/ai/service.py": (
+                "def BadLayerReach() -> None:\n"
+                "    from devops_cli.commands.ai_ingest import index_libraries\n"
+            ),
+        },
+    )
+    violations = interface_layer_violations(trees, root=tmp_path)
+    assert (
+        len(violations) == 1,
+        "devops_cli/ai/service.py:2" in violations[0],
+        "devops_cli.commands.ai_ingest" in violations[0],
+        "rule:" in violations[0] and "fix:" in violations[0],
+    ) == (True, True, True, True)
 
 
 def test_task_md_is_decommissioned() -> None:

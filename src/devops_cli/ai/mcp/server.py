@@ -2977,10 +2977,9 @@ def get_ai_spend_resource() -> str:
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
-    from devops_cli.ai.rag.library_store import library_contracts_dir
-    from devops_cli.commands.ai_ingest import _load_local_contracts
+    from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_contracts
 
-    contracts = _load_local_contracts(library_contracts_dir())
+    contracts = load_local_contracts(library_contracts_dir())
     payload = [
         {
             "package_name": c.package_name,
