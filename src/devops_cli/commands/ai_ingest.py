@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
-from devops_cli.ai.rag.library_store import library_contracts_dir
+from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_contracts
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import exit_on_error, new_typer
@@ -17,7 +17,6 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.library_store import LibraryVectorStore
-    from devops_cli.models.library import LibraryContract
 
 logger = logging.getLogger(__name__)
 
@@ -114,24 +113,6 @@ def ingest_docs(
         columns=[("Property", "cyan"), ("Value", "bold green")],
         rows=rows,
     )
-
-
-def _load_local_contracts(contracts_dir: Path) -> list[LibraryContract]:
-    """Load all valid LibraryContract instances from a local directory."""
-    from devops_cli.models.library import LibraryContract
-
-    contracts: list[LibraryContract] = []
-    if not contracts_dir.exists():
-        return contracts
-
-    for filepath in sorted(contracts_dir.glob("*.json")):
-        try:
-            contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
-            contracts.append(contract)
-        except Exception as exc:
-            logger.debug("Skipping invalid contract file %s: %s", filepath.name, exc)
-            continue
-    return contracts
 
 
 def _render_index_libraries_table(contracts: list[Any], dry_run: bool) -> None:
@@ -296,7 +277,7 @@ def index_libraries(
     from devops_cli.output import print_warning
 
     contracts_dir = contracts_dir or library_contracts_dir()
-    contracts = _load_local_contracts(contracts_dir)
+    contracts = load_local_contracts(contracts_dir)
     if not contracts:
         print_warning(f"No library contract JSON files found in {contracts_dir}.")
         return

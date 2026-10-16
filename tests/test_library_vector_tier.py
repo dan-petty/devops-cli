@@ -356,7 +356,7 @@ def test_index_contract_indexes_methods() -> None:
 
 
 def test_load_local_contracts_skips_invalid_json(tmp_path: Path) -> None:
-    from devops_cli.commands.ai_ingest import _load_local_contracts
+    from devops_cli.ai.rag.library_store import load_local_contracts
 
     valid_contract = _create_sample_contract()
     valid_file = tmp_path / "valid.json"
@@ -368,7 +368,7 @@ def test_load_local_contracts_skips_invalid_json(tmp_path: Path) -> None:
     empty_file = tmp_path / "empty.json"
     empty_file.write_text("{}", encoding="utf-8")
 
-    loaded = _load_local_contracts(tmp_path)
+    loaded = load_local_contracts(tmp_path)
     assert len(loaded) == 1
     assert loaded[0].package_name == "demo-pkg"
 

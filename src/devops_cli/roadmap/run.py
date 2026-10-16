@@ -499,8 +499,8 @@ def _run_close_adapter(
     plan = plan_close(store, repo=repo, checks=checks)
     closed_items = tuple(c.number for c in plan.closings)
     if plan.has_writes and clone_path is not None:
-        from devops_cli.commands.release import cut_release
         from devops_cli.output.file_writer import write_text_file
+        from devops_cli.release.cut import cut_release
         from devops_cli.roadmap.config import read_roadmap_config
         from devops_cli.roadmap.render import render_roadmap
 
@@ -1017,10 +1017,10 @@ def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: 
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
     `clone_dirname` for a coalesced trigger batch, ending, however the round ends, with its
     GraphQL spend line; a round a budget refusal ended reads no budget for it."""
-    from devops_cli.commands.roadmap import _open_roadmap
+    from devops_cli.roadmap.config import open_roadmap
 
     repo = batch.repo
-    _target, _config, store = _open_roadmap(repo, None, CONST_ROADMAP_RUN_BOARD_FILTER)
+    _config, store = open_roadmap(repo, ref=None, board_filter=CONST_ROADMAP_RUN_BOARD_FILTER)
     refused = False
     try:
         run_due_jobs(repo, store, batch=batch, table=table, clone_dirname=clone_dirname)

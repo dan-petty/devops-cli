@@ -40,6 +40,25 @@ def library_contracts_dir() -> Path:
     return resolve_review_data_path(load_settings().data.dir / CONST_LIBRARIES_DIR_NAME)
 
 
+def load_local_contracts(contracts_dir: Path) -> list[LibraryContract]:
+    """Load all valid LibraryContract instances from a local directory (#848)."""
+    contracts: list[LibraryContract] = []
+    if not contracts_dir.exists():
+        return contracts
+
+    for filepath in sorted(contracts_dir.glob("*.json")):
+        try:
+            contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
+            contracts.append(contract)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.debug("Skipping invalid contract file %s: %s", filepath.name, exc)
+            continue
+    return contracts
+
+
+_load_local_contracts = load_local_contracts
+
+
 def _format_fn_signature(fn: FunctionSignature) -> str:
     """Format a FunctionSignature model into Pythonic signature string."""
     params = [f"{p.name}: {p.annotation}" if p.annotation else p.name for p in fn.parameters]

@@ -469,7 +469,7 @@ def _close(
     elif plan.has_writes:
 
         def cut(planned: Cut) -> None:
-            from devops_cli.commands.release import cut_release
+            from devops_cli.release.cut import cut_release
 
             def write_roadmap(clone: Path) -> None:
                 text = render_roadmap(store, repo=target, config=config)
