@@ -16,7 +16,10 @@ from devops_cli.config.constants import (
     CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS,
     CONST_DOC_CREDENTIAL_NAME_WORDS,
     CONST_DOC_CREDENTIAL_NAMING_WORD,
+    CONST_DOMAIN_EXCEPTION_MODULES,
     CONST_MARKDOWN_HEADING_LEVEL,
+    CONST_PROJECT_CONFIG_CANDIDATES,
+    CONST_SETTINGS_SECTION_METADATA,
     CONST_STANDARD_HTML_TAGS,
 )
 from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
@@ -120,6 +123,8 @@ class CommandGroupDoc(BaseModel):
     module_path: str
     summary: str
     description: str
+    usage: str = ""
+    params: list[ParamDoc] = Field(default_factory=list)
     commands: list[CommandDoc] = Field(default_factory=list)
 
 
@@ -131,16 +136,27 @@ class MCPToolDoc(BaseModel):
     parameters: list[dict[str, Any]] = Field(default_factory=list)
 
 
-def _extract_mcp_prop_type(prop_data: dict[str, Any]) -> str:
-    """Extract human-readable schema type from an MCP property schema, supporting anyOf/oneOf."""
-    direct_type = prop_data.get("type")
-    if direct_type:
-        return str(direct_type)
+def _select_non_null_mcp_variant(prop_data: dict[str, Any]) -> dict[str, Any]:
+    """Return the first non-null variant dict when a schema property uses anyOf/oneOf."""
     variants = prop_data.get("anyOf") or prop_data.get("oneOf") or []
     for sub in variants:
-        if isinstance(sub, dict) and sub.get("type") and sub.get("type") != "null":
-            return str(sub["type"])
-    return "string"
+        if isinstance(sub, dict) and sub.get("type") != "null":
+            return sub
+    return prop_data
+
+
+def _extract_mcp_prop_type(prop_data: dict[str, Any]) -> str:
+    """Extract human-readable schema type from an MCP property schema, including items and enums."""
+    variant = _select_non_null_mcp_variant(prop_data) if not prop_data.get("type") else prop_data
+    base_type = str(variant.get("type") or "string")
+    items = variant.get("items")
+    if base_type == "array" and isinstance(items, dict):
+        return f"array[{_extract_mcp_prop_type(items)}]"
+    enum_values = variant.get("enum")
+    if isinstance(enum_values, list) and enum_values:
+        joined = ", ".join(str(v) for v in enum_values)
+        return f"{base_type} ({joined})"
+    return base_type
 
 
 def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]]:
@@ -364,6 +380,8 @@ class DocGenerator:
             module_path=module_path,
             summary=summary or doc.summary,
             description=doc.description or summary,
+            usage=doc.usage if doc.is_group else "",
+            params=doc.params if doc.is_group else [],
             commands=commands_list,
         )
 
@@ -379,13 +397,10 @@ class DocGenerator:
                 return None
             return self._introspect_leaf_or_group(click_cmd, name, module_path, summary)
         except Exception as exc:
-            return CommandGroupDoc(
-                name=name,
-                module_path=module_path,
-                summary=summary,
-                description=f"Error introspecting module: {exc}",
-                commands=[],
-            )
+            raise RuntimeError(
+                f"Failed to introspect command group '{name}' ({module_path}): {exc}. "
+                "A missing optional dependency now fails the docs stage, by design."
+            ) from exc
 
     def introspect_all_groups(self) -> list[CommandGroupDoc]:
         """Introspect all command groups declared in main._COMMAND_SPECS."""
@@ -429,8 +444,11 @@ class DocGenerator:
                 finally:
                     pool.shutdown(wait=False, cancel_futures=True)
             return asyncio.run(_get_tools())
-        except Exception:
-            return []
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to introspect FastMCP tools (devops_cli.ai.mcp.server): {exc}. "
+                "A missing optional dependency now fails the docs stage, by design."
+            ) from exc
 
     def introspect_mcp_tools(self) -> list[MCPToolDoc]:
         """Collect all registered FastMCP tools."""
@@ -438,6 +456,54 @@ class DocGenerator:
             tools = self._fetch_mcp_tools()
             span.set_attributes({"tool_count": len(tools)})
             return tools
+
+    @staticmethod
+    def _append_params_tables(params: list[ParamDoc], lines: list[str]) -> None:
+        """Append Arguments and Options markdown tables for a parameter list."""
+        args = [p for p in params if p.kind == "argument"]
+        opts = [p for p in params if p.kind in ("option", "flag")]
+
+        if args:
+            lines.extend(
+                [
+                    "**Arguments:**",
+                    "",
+                    "| Argument | Type | Required | Description |",
+                    "|---|---|---|---|",
+                    *(
+                        f"| {f'`{a.flags[0]}`' if a.flags else f'`{a.name}`'} | "
+                        f"`{a.type_name}` | {'Yes' if a.required else 'No'} | "
+                        f"{a.description or '-'} |"
+                        for a in args
+                    ),
+                    "",
+                ]
+            )
+
+        if opts:
+            lines.extend(
+                [
+                    "**Options:**",
+                    "",
+                    "| Option / Flag | Type | Default | Description |",
+                    "|---|---|---|---|",
+                    *(
+                        f"| {_option_flags_cell(o)} | `{o.type_name}` | "
+                        f"{f'`{o.default}`' if o.default is not None else '-'} | "
+                        f"{o.description or '-'}{f' *(Env: `{o.envvar}`)*' if o.envvar else ''} |"
+                        for o in opts
+                    ),
+                    "",
+                ]
+            )
+
+    def _append_group_callback_section(self, group: CommandGroupDoc, lines: list[str]) -> None:
+        """Append group-level usage and callback parameter tables when the group has options."""
+        if not group.params:
+            return
+        if group.usage:
+            lines.extend(["```bash", group.usage, "```", ""])
+        self._append_params_tables(group.params, lines)
 
     def render_cli_reference_markdown(self, groups: list[CommandGroupDoc]) -> str:
         """Render complete CLI Reference documentation in Markdown format."""
@@ -454,29 +520,22 @@ class DocGenerator:
         for group in groups:
             anchor = group.name.replace("_", "-")
             lines.append(f"- [`devops {group.name}`](#devops-{anchor}) — {group.summary}")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+        lines.extend(["", "---", ""])
 
         for group in groups:
-            lines.append(f"## devops {group.name}")
-            lines.append("")
-            lines.append(f"{group.summary}")
-            lines.append("")
+            lines.extend([f"## devops {group.name}", "", f"{group.summary}", ""])
             if group.description and group.description != group.summary:
-                lines.append(f"{group.description}")
-                lines.append("")
+                lines.extend([f"{group.description}", ""])
+            self._append_group_callback_section(group, lines)
 
             if not group.commands:
-                lines.append("*No subcommands available.*")
-                lines.append("")
+                lines.extend(["*No subcommands available.*", ""])
                 continue
 
             for cmd in group.commands:
                 self._render_command_markdown(cmd, lines, level=3)
 
-            lines.append("---")
-            lines.append("")
+            lines.extend(["---", ""])
 
         return "\n".join(lines)
 
@@ -488,52 +547,17 @@ class DocGenerator:
     ) -> None:
         """Render a single command or recursive subcommands into Markdown lines."""
         heading = "#" * level
-        lines.append(f"{heading} `{cmd.full_path}`")
-        lines.append("")
+        lines.extend([f"{heading} `{cmd.full_path}`", ""])
         if cmd.summary:
-            lines.append(f"**{cmd.summary}**")
-            lines.append("")
+            lines.extend([f"**{cmd.summary}**", ""])
         if cmd.description and cmd.description != cmd.summary:
-            lines.append(f"{cmd.description}")
-            lines.append("")
+            lines.extend([f"{cmd.description}", ""])
 
-        lines.append("```bash")
-        lines.append(cmd.usage)
-        lines.append("```")
-        lines.append("")
+        lines.extend(["```bash", cmd.usage, "```", ""])
+        self._append_params_tables(cmd.params, lines)
 
-        args = [p for p in cmd.params if p.kind == "argument"]
-        opts = [p for p in cmd.params if p.kind in ("option", "flag")]
-
-        if args:
-            lines.append("**Arguments:**")
-            lines.append("")
-            lines.append("| Argument | Type | Required | Description |")
-            lines.append("|---|---|---|---|")
-            for arg in args:
-                flag_str = f"`{arg.flags[0]}`" if arg.flags else f"`{arg.name}`"
-                req_str = "Yes" if arg.required else "No"
-                lines.append(
-                    f"| {flag_str} | `{arg.type_name}` | {req_str} | {arg.description or '-'} |"
-                )
-            lines.append("")
-
-        if opts:
-            lines.append("**Options:**")
-            lines.append("")
-            lines.append("| Option / Flag | Type | Default | Description |")
-            lines.append("|---|---|---|---|")
-            for opt in opts:
-                flags_str = _option_flags_cell(opt)
-                default_str = f"`{opt.default}`" if opt.default is not None else "-"
-                env_str = f" *(Env: `{opt.envvar}`)*" if opt.envvar else ""
-                desc = f"{opt.description or '-'}{env_str}"
-                lines.append(f"| {flags_str} | `{opt.type_name}` | {default_str} | {desc} |")
-            lines.append("")
-
-        if cmd.subcommands:
-            for sub in cmd.subcommands:
-                self._render_command_markdown(sub, lines, level=level + 1)
+        for sub in cmd.subcommands:
+            self._render_command_markdown(sub, lines, level=level + 1)
 
     def render_command_group_markdown(self, group: CommandGroupDoc) -> str:
         """Render documentation for a single command group."""
@@ -542,13 +566,12 @@ class DocGenerator:
             "",
             f"{group.summary}",
             "",
-            "## Commands",
-            "",
         ]
+        self._append_group_callback_section(group, lines)
+        lines.extend(["## Commands", ""])
         for cmd in group.commands:
             self._render_command_markdown(cmd, lines, level=2)
-            lines.append("---")
-            lines.append("")
+            lines.extend(["---", ""])
         return "\n".join(lines)
 
     def render_env_vars_markdown(self, env_specs: list[EnvVarSpec]) -> str:
@@ -740,11 +763,36 @@ class DocGenerator:
 
         return False, f"Could not find Command Matrix table or markers in {target}"
 
+    def _format_settings_field_row(
+        self,
+        field_name: str,
+        field_info: Any,
+        def_val: Any,
+        opt_key: str,
+        option_to_env: dict[str, str],
+    ) -> str:
+        """Render a single configuration field row for CONFIGURATION.md."""
+        env_var = option_to_env.get(opt_key, "-")
+        env_str = f"`{env_var}`" if env_var != "-" else "-"
+        type_ann = field_info.annotation
+        type_str = getattr(type_ann, "__name__", str(type_ann)).replace("pathlib.", "")
+        if "Optional[" in type_str:
+            type_str = type_str.replace("Optional[", "").rstrip("]")
+        def_str = f"`{def_val}`" if def_val is not None else "-"
+        if isinstance(def_val, Path):
+            def_str = f"`{_format_param_default_str(def_val, self.root_dir)}`"
+        desc = field_info.description or "-"
+        return f"| `{field_name}` | `{type_str}` | {def_str} | {env_str} | {desc} |"
+
     def generate_configuration_docs(self) -> str:
         """Programmatically generate Markdown configuration reference from Settings schema."""
         from devops_cli.config.env import OPTION_TO_ENV_VAR
         from devops_cli.config.settings import Settings
 
+        candidates_str = (
+            ", ".join(f"`{c}`" for c in CONST_PROJECT_CONFIG_CANDIDATES[:-1])
+            + f" or `{CONST_PROJECT_CONFIG_CANDIDATES[-1]}`"
+        )
         lines: list[str] = [
             "# DevOps CLI Configuration Reference",
             "",
@@ -754,8 +802,7 @@ class DocGenerator:
             "1. **CLI Flags & Arguments** (highest precedence)",
             "2. **Environment Variables** (`DEVOPS_CLI_*`)",
             "3. **Local Project Configuration** (the file `DEVOPS_CLI_CONFIG` names, else the "
-            "nearest `config.yaml`, `.devops/config.yaml` or `.devops.yaml` from the working "
-            "directory up to its repository root)",
+            f"nearest {candidates_str} from the working directory up to its repository root)",
             "4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)",
             "5. **System Defaults**",
             "",
@@ -779,115 +826,117 @@ class DocGenerator:
             "",
         ]
 
-        sections = [
-            (
-                "SSH Configuration (`ssh`)",
-                "ssh",
-                "SSH key generation, rotation, signing, and GitHub registration settings.",
-            ),
-            (
-                "Repositories Configuration (`repos`)",
-                "repos",
-                "Multi-repository workspace discovery, cloning, and sync settings.",
-            ),
-            (
-                "Workspace Configuration (`workspace`)",
-                "workspace",
-                "Multi-root VS Code workspace file management and data tier settings.",
-            ),
-            (
-                "Telemetry & Metrics (`telemetry`)",
-                "telemetry",
-                "OpenTelemetry distributed tracing and Prometheus metric export settings.",
-            ),
-            (
-                "Kubernetes Configuration (`k8s`)",
-                "k8s",
-                "Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.",
-            ),
-            (
-                "Security Scanner Configuration (`security`)",
-                "security",
-                "Security scanning engines, vulnerability audits, and policy enforcement.",
-            ),
-            (
-                "AI & LLM Configuration (`ai`)",
-                "ai",
-                "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
-            ),
-            (
-                "Qdrant Vector Store (`qdrant`)",
-                "qdrant",
-                "The vector store that RAG searches query and indexing writes to.",
-            ),
-            (
-                "Data Storage Tier (`data`)",
-                "data",
-                "Local artifact caches, review findings, session histories, and log paths.",
-            ),
-            (
-                "OIDC & Authentication (`oidc`)",
-                "oidc",
-                "OpenID Connect authentication and identity token settings.",
-            ),
-        ]
-
         settings = Settings()
-        for title, section_key, description in sections:
-            section_model = getattr(settings, section_key, None)
-            if section_model is None:
+        scalar_rows: list[str] = []
+        for section_key, top_info in Settings.model_fields.items():
+            section_val = getattr(settings, section_key, None)
+            if not isinstance(section_val, BaseModel):
+                scalar_rows.append(
+                    self._format_settings_field_row(
+                        section_key, top_info, section_val, section_key, OPTION_TO_ENV_VAR
+                    )
+                )
                 continue
 
-            lines.append(f"## {title}")
-            lines.append("")
-            lines.append(description)
-            lines.append("")
-            lines.append("| Option | Type | Default | Environment Variable | Description |")
-            lines.append("|---|---|---|---|---|")
+            title, description = CONST_SETTINGS_SECTION_METADATA.get(
+                section_key,
+                (
+                    f"{section_key.replace('_', ' ').title()} Configuration (`{section_key}`)",
+                    top_info.description or f"{section_key} configuration settings.",
+                ),
+            )
+            lines.extend(
+                [
+                    f"## {title}",
+                    "",
+                    description,
+                    "",
+                    "| Option | Type | Default | Environment Variable | Description |",
+                    "|---|---|---|---|---|",
+                    *(
+                        self._format_settings_field_row(
+                            field_name,
+                            field_info,
+                            getattr(section_val, field_name, None),
+                            f"{section_key}.{field_name}",
+                            OPTION_TO_ENV_VAR,
+                        )
+                        for field_name, field_info in section_val.__class__.model_fields.items()
+                    ),
+                    "",
+                ]
+            )
 
-            for field_name, field_info in section_model.__class__.model_fields.items():
-                opt_key = f"{section_key}.{field_name}"
-                env_var = OPTION_TO_ENV_VAR.get(opt_key, "-")
-                env_str = f"`{env_var}`" if env_var != "-" else "-"
-                type_ann = field_info.annotation
-                type_str = getattr(type_ann, "__name__", str(type_ann)).replace("pathlib.", "")
-                if "Optional[" in type_str:
-                    type_str = type_str.replace("Optional[", "").rstrip("]")
-                def_val = getattr(section_model, field_name, None)
-                def_str = f"`{def_val}`" if def_val is not None else "-"
-                if isinstance(def_val, Path):
-                    def_str = f"`{_format_param_default_str(def_val, self.root_dir)}`"
-                desc = field_info.description or "-"
-                lines.append(f"| `{field_name}` | `{type_str}` | {def_str} | {env_str} | {desc} |")
-
-            lines.append("")
+        if scalar_rows:
+            lines.extend(
+                [
+                    "## Top-Level Settings",
+                    "",
+                    "Top-level workstation and environment settings.",
+                    "",
+                    "| Option | Type | Default | Environment Variable | Description |",
+                    "|---|---|---|---|---|",
+                    *scalar_rows,
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
-    def generate_error_catalog_docs(self) -> str:
-        """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
+    @staticmethod
+    def _import_all_exception_modules() -> None:
+        """Import every module defining DevOpsCLIError subclasses, failing closed on error."""
         import importlib
+        import pkgutil
 
-        from devops_cli.exceptions.base import DevOpsCLIError
+        import devops_cli.exceptions
 
-        exception_modules = [
-            ("AI & LLM Subsystem", "devops_cli.exceptions.ai"),
-            ("Configuration Subsystem", "devops_cli.exceptions.config"),
-            ("Git Operations Subsystem", "devops_cli.exceptions.git"),
-            ("Kubernetes Subsystem", "devops_cli.exceptions.k8s"),
-            ("Network & Egress Subsystem", "devops_cli.exceptions.network"),
-            ("Security & Scanner Subsystem", "devops_cli.exceptions.security"),
-            ("SSH Key Management", "devops_cli.exceptions.ssh"),
-            ("Tool Execution Subsystem", "devops_cli.exceptions.tools"),
-            ("Input Validation Subsystem", "devops_cli.exceptions.validation"),
-            ("Core & MCP Subsystem", "devops_cli.exceptions.base"),
+        module_names = [
+            *(
+                mod_name
+                for _, mod_name, _ in pkgutil.iter_modules(
+                    devops_cli.exceptions.__path__, prefix="devops_cli.exceptions."
+                )
+            ),
+            *CONST_DOMAIN_EXCEPTION_MODULES,
         ]
-
-        for _, mod_name in exception_modules:
+        for mod_name in module_names:
             try:
                 importlib.import_module(mod_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to import exception module '{mod_name}': {exc}. "
+                    "A missing optional dependency now fails the docs stage, by design."
+                ) from exc
+
+    @staticmethod
+    def _instantiate_error_for_catalog(err_cls: type[Exception]) -> tuple[str, int]:
+        """Instantiate a DevOpsCLIError subclass with dummy required arguments to read its codes."""
+        import inspect
+
+        params = list(inspect.signature(err_cls).parameters.values())
+        pos_args = [
+            "error"
+            for p in params
+            if p.default is inspect.Parameter.empty
+            and p.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        kw_args = {
+            p.name: "error"
+            for p in params
+            if p.default is inspect.Parameter.empty and p.kind == inspect.Parameter.KEYWORD_ONLY
+        }
+        inst = err_cls(*pos_args, **kw_args)
+        return str(getattr(inst, "error_code", err_cls.__name__)), int(
+            getattr(inst, "exit_code", 1)
+        )
+
+    def generate_error_catalog_docs(self) -> str:
+        """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
+        from devops_cli.exceptions.base import DevOpsCLIError
+
+        self._import_all_exception_modules()
 
         lines: list[str] = [
             "# DevOps CLI Exit Code & Error Catalog",
@@ -911,30 +960,26 @@ class DocGenerator:
             "An error code may be shared by a base class and its subclasses; the exception column",
             "names the class each row describes. One code never maps to two exit statuses.",
             "",
+            "The Exit Code column is the exception's `exit_code` attribute. Only `devops cloudflare`, "
+            "`devops valkey` and `devops sandbox` exit with it today; other commands exit 1 when one "
+            "of these exceptions escapes.",
+            "",
             "| Exception | Error Code | Exit Code | Domain | Description |",
             "|---|---|---|---|---|",
         ]
 
-        def get_all_subclasses(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:
-            subclasses: list[type[DevOpsCLIError]] = []
+        def get_all_subclasses(cls: type[DevOpsCLIError]) -> set[type[DevOpsCLIError]]:
+            subclasses: set[type[DevOpsCLIError]] = set()
             for sub in cls.__subclasses__():
-                subclasses.append(sub)
-                subclasses.extend(get_all_subclasses(sub))
+                subclasses.add(sub)
+                subclasses.update(get_all_subclasses(sub))
             return subclasses
 
         all_errs = sorted(get_all_subclasses(DevOpsCLIError), key=lambda c: c.__name__)
 
         for err_cls in all_errs:
             doc = (err_cls.__doc__ or "").strip().split("\n")[0]
-            # Instantiate dummy to get default error_code and exit_code if possible
-            try:
-                inst = err_cls("error message")
-                err_code = getattr(inst, "error_code", err_cls.__name__)
-                exit_code = getattr(inst, "exit_code", 1)
-            except Exception:
-                err_code = getattr(err_cls, "DEFAULT_ERROR_CODE", err_cls.__name__)
-                exit_code = getattr(err_cls, "DEFAULT_EXIT_CODE", 1)
-
+            err_code, exit_code = self._instantiate_error_for_catalog(err_cls)
             domain = (
                 err_cls.__module__.replace("devops_cli.exceptions.", "")
                 .replace("devops_cli.exceptions", "core")

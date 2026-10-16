@@ -108,7 +108,6 @@
   "src/devops_cli/crypto/tls_certificates.py": 1,
   "src/devops_cli/docker/engine.py": 5,
   "src/devops_cli/docker/sandbox.py": 2,
-  "src/devops_cli/docs/generator.py": 5,
   "src/devops_cli/git/operations.py": 8,
   "src/devops_cli/git/worktree.py": 4,
   "src/devops_cli/github/client.py": 3,

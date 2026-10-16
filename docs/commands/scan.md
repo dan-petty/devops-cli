@@ -2,6 +2,17 @@
 
 Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 
+```bash
+devops scan [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ## Commands
 
 ## `devops scan trivy`

@@ -632,6 +632,19 @@ devops workspace clean [OPTIONS]
 
 Install and manage DevOps tool binaries.
 
+```bash
+devops install-tools [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tool`, `-t` | `string` | - | Install a specific tool. |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
+| `--only-missing` | `boolean` | - | Only install tools that are not linked at their locked version. |
+| `--check` | `boolean` | - | Install nothing: report each tool not linked at its locked version, and exit 1 if any. |
+
 ### `devops install-tools status`
 
 **Show each tool's locked version and where its command is installed, without a request.**
@@ -2532,6 +2545,22 @@ devops config audit-keys [OPTIONS]
 
 Run tests, linting, formatting, and type-checks.
 
+```bash
+devops ci [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
+| `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
+| `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
+| `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
+| `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ci test`
 
 **Run the test suite, or only the tests covering the given source files.**
@@ -2877,6 +2906,17 @@ devops uv run
 
 Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 
+```bash
+devops scan [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops scan trivy`
 
 **Run Aqua Trivy vulnerability, secret, and misconfiguration scan.**
@@ -3119,6 +3159,16 @@ devops scan sarif [OPTIONS] <document>
 ## devops ai
 
 Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
+
+```bash
+devops ai [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics. |
 
 ### `devops ai config`
 
@@ -5289,6 +5339,16 @@ devops ai research analogies [OPTIONS]
 ## devops review
 
 AI-powered multi-persona code review and security audits.
+
+```bash
+devops review [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops review path`
 

@@ -19,6 +19,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 An error code may be shared by a base class and its subclasses; the exception column
 names the class each row describes. One code never maps to two exit statuses.
 
+The Exit Code column is the exception's `exit_code` attribute. Only `devops cloudflare`, `devops valkey` and `devops sandbox` exit with it today; other commands exit 1 when one of these exceptions escapes.
+
 | Exception | Error Code | Exit Code | Domain | Description |
 |---|---|---|---|---|
 | `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when an AI provider request fails with a user-actionable message. |
@@ -32,7 +34,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `CallDeferred` | `CALL_DEFERRED` | `18` | Ai | Raised by a tool when execution is deferred to an external worker or async system. |
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
 | `ChaosExecutionError` | `CHAOS_EXECUTION_ERROR` | `1` | K8s | Raised when chaos engineering injection or validation fails. |
-| `ChecksumMismatchError` | `ChecksumMismatchError` | `1` | Tools | Raised when downloaded tool archive SHA-256 does not match expected checksum. |
+| `ChecksumMismatchError` | `CHECKSUM_MISMATCH` | `1` | Tools | Raised when downloaded tool archive SHA-256 does not match expected checksum. |
 | `CloudflareAPIError` | `CLOUDFLARE_API_ERROR` | `1` | Cloudflare | Raised when a Cloudflare API call returns an error response. |
 | `CloudflareAuthError` | `CLOUDFLARE_AUTH_ERROR` | `1` | Cloudflare | Raised when Cloudflare authentication or token verification fails. |
 | `CloudflareError` | `CLOUDFLARE_ERROR` | `1` | Cloudflare | Base exception for Cloudflare domain errors. |
@@ -80,6 +82,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
 | `LogfireConfigurationError` | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
+| `MemoryOperationConflictError` | `HARNESS_EXECUTION_ERROR` | `1` | Devops_cli.ai.harness.memory | Raised when an optimistic concurrency conflict or duplicate operation occurs in memory store. |
 | `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
 | `ModelAPIError` | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
@@ -110,7 +113,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `SandboxNotFoundError` | `SANDBOX_NOT_FOUND_ERROR` | `1` | Sandbox | Raised when requested sandbox instance or container cannot be found. |
 | `SandboxPortAllocationError` | `SANDBOX_PORT_ALLOCATION_ERROR` | `1` | Sandbox | Raised when host port allocation encounters collisions or range exhaustion. |
 | `SandboxValidationError` | `SANDBOX_VALIDATION_ERROR` | `1` | Sandbox | Raised when sandbox configuration or directory mount paths violate security boundaries. |
-| `SecretExposureError` | `SecretExposureError` | `1` | Security | Raised when an unmasked credential or private key is detected in uncommitted diffs. |
+| `SecretExposureError` | `SECRET_EXPOSURE_DETECTED` | `4` | Security | Raised when an unmasked credential or private key is detected in uncommitted diffs. |
 | `SecurityError` | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
 | `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
 | `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
@@ -121,7 +124,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `SuspendedResponseExpired` | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
-| `ToolDownloadError` | `ToolDownloadError` | `1` | Tools | Raised when an external tool download fails or is rejected. |
+| `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `ToolExecutionError` | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |
 | `TraceValidationError` | `VALIDATION_ERROR` | `1` | Devops_cli.telemetry.context | Raised when trace metadata or flags fail validation. |
