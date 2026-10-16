@@ -89,6 +89,10 @@ applicationSet:
 
 configs:
   cm:
+    # Web terminal: a shell in any pod an Application manages, from the pod's Terminal tab. The
+    # chart grants argocd-server `create` on pods/exec when this is "true", and the built-in
+    # role:admin already holds `exec, create`, so no RBAC policy is added here.
+    exec.enabled: "true"
     resource.customizations: |
       networking.k8s.io/Ingress:
         health.lua: |
