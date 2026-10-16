@@ -171,6 +171,7 @@ def _get_reviews_base_dir() -> Path:
     relative, for whichever command reads or writes it (`resolve_review_data_path`, #972)."""
     from devops_cli.config.settings import load_settings
     from devops_cli.core.repo import resolve_review_data_path
+    from devops_cli.dry_run.state import is_dry_run
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
@@ -179,7 +180,8 @@ def _get_reviews_base_dir() -> Path:
         settings = load_settings()
         d = settings.data.reviews_dir
     d = resolve_review_data_path(d)
-    d.mkdir(parents=True, exist_ok=True)
+    if not is_dry_run():
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 
