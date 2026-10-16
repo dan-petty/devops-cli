@@ -342,6 +342,12 @@ def test_chart_pvc_and_crd_safety_values() -> None:
     )
 
 
+def test_argocd_enables_the_web_terminal() -> None:
+    """The chart grants argocd-server pods/exec only when `exec.enabled` renders as "true"."""
+    argocd_val = _load_yaml(ARGOCD_DIR / "values.yaml")
+    assert argocd_val["configs"]["cm"]["exec.enabled"] == "true"
+
+
 # ── Perimeters & Network Policies ────────────────────────────────────────────
 
 

@@ -39,6 +39,7 @@ devops k8s deploy-stack --stack all
 ```bash
 # ArgoCD UI
 minikube service argocd-server -n argocd --url
+# Shell in a pod from the UI: open its Application, select the pod, then the Terminal tab
 
 # ArgoCD initial admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
