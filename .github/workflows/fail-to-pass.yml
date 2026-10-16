@@ -1,0 +1,88 @@
+name: Fail-to-Pass Test Replay
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled]
+    branches: [main, "release/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fail-to-pass-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  fail-to-pass:
+    name: Fail-to-Pass Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: fail-to-pass
+
+      - name: Replay changed tests against base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          uv run devops ci fail-to-pass --base "origin/${BASE_REF}"
+
+  self-check:
+    name: Fail-to-Pass Self-Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect Fail-to-Pass Implementation Changes
+        id: changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          WATCHED_PATHS: |
+            .github/workflows/fail-to-pass.yml
+            src/devops_cli/ci/fail_to_pass.py
+            src/devops_cli/commands/ci.py
+            tests/test_fail_to_pass.py
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          readarray -t WATCHED < <(printf '%s\n' "$WATCHED_PATHS" | sed '/^[[:space:]]*$/d')
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv toolchain
+        if: steps.changes.outputs.changed == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: fail-to-pass-self-check
+
+      - name: Replay 5768cd9 against 36b2bee
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git fetch --no-tags origin 36b2beebb76f6524339dc19f29cfca36afe99b48 5768cd92a4fb4df7975c7d9262f430f8a4201d9e
+          OUTPUT=$(uv run devops ci fail-to-pass --base 36b2bee --head 5768cd9 --title "fix(ai): keep a reply's structured output when its prose contains brackets (#802)")
+          printf '%s\n' "$OUTPUT"
+          printf '%s\n' "$OUTPUT" | grep -F "16 failed and 24 passed in tests/test_ai_fixer.py"

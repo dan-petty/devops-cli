@@ -2839,6 +2839,25 @@ devops ci mutate [OPTIONS] <paths>
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci fail-to-pass`
+
+**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched.**
+
+```bash
+devops ci fail-to-pass [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree. |
+| `--title` | `string` | - | Pull request title used to classify defect PRs (defaults to PR_TITLE). |
+| `--labels` | `string` | - | Comma-separated or JSON list of PR labels (defaults to PR_LABELS). |
+| `--body` | `string` | - | Pull request body checked for a 'Fail-to-pass: not applicable: \<reason\>' line (defaults to PR_BODY). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops uv

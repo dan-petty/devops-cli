@@ -1918,3 +1918,62 @@ def mutate(
         _get("write_stderr")(results.stderr)
         raise typer.Exit(1)
     _report_mutation(results.stdout, targets)
+
+
+def _append_step_summary(text: str) -> None:
+    """Append `text` to `$GITHUB_STEP_SUMMARY` when running in GitHub Actions."""
+    if (summary_env := os.environ.get("GITHUB_STEP_SUMMARY")) and (
+        summary_path := Path(summary_env)
+    ).parent.is_dir():
+        with summary_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{text}\n")
+
+
+@app.command(name="fail-to-pass", help=HELP.ci.fail_to_pass)
+def fail_to_pass(
+    base: Annotated[
+        str, typer.Option("--base", "-b", help=HELP.options.base_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
+    head: Annotated[str, typer.Option("--head", help=HELP.ci.fail_to_pass_head)] = "HEAD",
+    title: Annotated[str | None, typer.Option("--title", help=HELP.ci.fail_to_pass_title)] = None,
+    labels: Annotated[
+        str | None, typer.Option("--labels", help=HELP.ci.fail_to_pass_labels)
+    ] = None,
+    body: Annotated[str | None, typer.Option("--body", help=HELP.ci.fail_to_pass_body)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Replay changed tests against the merge-base tree to prove a fix's tests fail on base (#844)."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ci fail-to-pass",
+            action="replay_tests_on_base",
+            details={"base": base, "head": head},
+        )
+        return
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    from devops_cli.ci.fail_to_pass import (
+        format_fail_to_pass_report,
+        parse_pr_labels,
+        run_fail_to_pass,
+    )
+    from devops_cli.exceptions import GitOperationError
+
+    resolved_title = title if title is not None else os.environ.get("PR_TITLE")
+    resolved_labels = parse_pr_labels(labels if labels is not None else os.environ.get("PR_LABELS"))
+    resolved_body = body if body is not None else os.environ.get("PR_BODY")
+    with exit_on_error(GitOperationError):
+        report = run_fail_to_pass(
+            _get_project_root(),
+            base=base,
+            head=head,
+            title=resolved_title,
+            labels=resolved_labels,
+            body=resolved_body,
+        )
+    output = format_fail_to_pass_report(report)
+    _append_step_summary(output)
+    if not report.satisfied:
+        _get("print_error")(output, prefix=False)
+        raise typer.Exit(1)
+    _get("print_info")(output, prefix=False, safe=True)

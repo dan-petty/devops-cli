@@ -950,6 +950,19 @@ class CIMessages:
     )
     mutate_survivor: str = "{path}:{line} {qualname}"
     mutate_counts: str = "Mutants of the selected functions: {counts}."
+    fail_to_pass_not_applicable: str = "Fail-to-pass: not applicable: {reason}"
+    fail_to_pass_test_line: str = "  {status} on base: {test_id}{detail}"
+    fail_to_pass_summary: str = (
+        "{failed} failed on base ({failed} failed and {passed} passed in {files}; "
+        "{errored} errored)."
+    )
+    fail_to_pass_no_tests: str = (
+        "Defect PR modifies no tests/**/test_*.py files and declares no "
+        "'Fail-to-pass: not applicable: <reason>' line."
+    )
+    fail_to_pass_none_failed: str = (
+        "Defect PR requires at least one changed test to fail in the call phase on base ({tests})."
+    )
 
 
 @dataclass(frozen=True)
