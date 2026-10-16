@@ -63,7 +63,9 @@ def _parse_semgrep_result(
     scan_root: Path | str | None = None,
 ) -> Finding:
     """Convert a single Semgrep JSON result dictionary into a Finding model."""
-    check_id = str(res.get("check_id") or "SEMGREP")
+    from devops_cli.review.rules_pack import normalize_pack_check_id
+
+    check_id = normalize_pack_check_id(str(res.get("check_id") or "SEMGREP"))
     raw_path = str(res.get("path") or default_path or "workspace")
     path_str = relativize_scan_path(raw_path, scan_root) if scan_root else raw_path
     start_line = res.get("start", {}).get("line")
@@ -123,7 +125,12 @@ def _files_command(names: list[str], config: str) -> list[str] | None:
     """The command that scans the named files; None when none is named."""
     if not names:
         return None
-    return [BIN_SEMGREP, "scan", "--json", "--config", config, "--disable-nosem", "--quiet", *names]
+    from devops_cli.review.rules_pack import RULE_PACK_DIR
+
+    configs = ["--config", config]
+    if config == DEFAULT_SEMGREP_CONFIG and RULE_PACK_DIR.is_dir():
+        configs.extend(["--config", str(RULE_PACK_DIR)])
+    return [BIN_SEMGREP, "scan", "--json", *configs, "--disable-nosem", "--quiet", *names]
 
 
 def _build_scan_command(

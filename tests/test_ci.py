@@ -2056,6 +2056,14 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "static",
             "Security Scan",
         ): "Runs devops scan report to generate SARIF findings for GitHub code scanning",
+        (
+            "rule-pack",
+            "Detect Changed Rule Pack Files",
+        ): "Git diff to check whether src/devops_cli/review/rules/** changed",
+        (
+            "rule-pack",
+            "Run Semgrep Rule Pack Tests",
+        ): "Path-filtered Semgrep --test and rules.lock check when rules change",
     }
 
     all_specs = get_check_specs()

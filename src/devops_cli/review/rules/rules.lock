@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "k8s-networkpolicy-ingress-any": {
+      "rule_file": "k8s-networkpolicy-ingress-any.yaml",
+      "rule_sha256": "f8aebcf83150b0098ba7be2d6945434e2dff23d3232499b145882744922bf22f",
+      "test_file": "k8s-networkpolicy-ingress-any.test.yaml",
+      "test_sha256": "8ef3036ed546e73a0519f21c5227ad9c99c2f43423cf1dc6c1f3a00512623455",
+      "semgrep_version": "1.179.0"
+    }
+  }
+}
