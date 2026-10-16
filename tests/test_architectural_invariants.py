@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 import tomllib
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -15,12 +17,20 @@ import pathspec
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_AST_GREP_IGNORE_COMMENT_RE,
+    CONST_AST_GREP_NET_RULE_ID_RE,
     CONST_BLIND_EXCEPTION_TYPES,
     CONST_C901_SUPPRESSION,
     CONST_COMPLEXITY_CAP_ROOTS,
     CONST_COMPLEXITY_LINT_RULES,
+    CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
+    CONST_NOQA_COMMENT_RE,
+    CONST_NOQA_RULE_CODE_RE,
+    CONST_NOSEC_COMMENT_RE,
+    CONST_PRAGMA_NO_COVER_COMMENT_RE,
+    CONST_PRAGMA_NO_MUTATE_COMMENT_RE,
     CONST_RUFF_C901_SUPPRESSION_COMMENT,
     CONST_RUFF_CONFIG_FILE_NAMES,
     CONST_RUFF_EXCLUDE,
@@ -31,13 +41,28 @@ from devops_cli.config.constants import (
     CONST_RUFF_PER_FILE_IGNORE_KEYS,
     CONST_RUFF_SOURCE_SUFFIXES,
     CONST_RUFF_TOP_LEVEL_KEYS,
+    CONST_SUPPRESSION_COMMENT_PREFILTER_RE,
+    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
+    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
+    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
+    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
+    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
+    CONST_SUPPRESSION_KIND_NOSEC,
+    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
+    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
+    CONST_SUPPRESSION_KINDS,
     CONST_SUPPRESSION_LINT_RULES,
     CONST_TEST_ASSERTION_LINT_RULES,
+    CONST_TYPE_IGNORE_COMMENT_RE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_C901_SUPPRESSION_CEILING,
     DEFAULT_MAX_COMPLEXITY,
     DEFAULT_MAX_NESTING_DEPTH,
+    DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
+    DEFAULT_SUPPRESSION_CEILINGS,
 )
 from devops_cli.core.code_metrics import measure_tree
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -1498,3 +1523,254 @@ def test_a_no_mutate_pragma_is_reported(tmp_path: Path) -> None:
         "y = 2  # pragma: no cover\nx = 1  # pragma: no mutate\n", encoding="utf-8"
     )
     assert _no_mutate_pragmas(tmp_path) == ["src/mod.py:2"]
+
+
+_SIMPLE_COMMENT_SUPPRESSION_PATTERNS = (
+    (CONST_TYPE_IGNORE_COMMENT_RE, CONST_SUPPRESSION_KIND_TYPE_IGNORE),
+    (CONST_NOSEC_COMMENT_RE, CONST_SUPPRESSION_KIND_NOSEC),
+    (CONST_PRAGMA_NO_COVER_COMMENT_RE, CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER),
+    (CONST_PRAGMA_NO_MUTATE_COMMENT_RE, CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE),
+    (CONST_FILE_DIRECTIVE_COMMENT_RE, CONST_SUPPRESSION_KIND_FILE_DIRECTIVE),
+)
+
+
+def _noqa_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
+    """Extract per-rule-code noqa suppression kinds from one comment token."""
+    kinds: list[str] = []
+    for match in CONST_NOQA_COMMENT_RE.finditer(comment):
+        raw_codes = match.group("codes")
+        if not raw_codes:
+            kinds.append(f"{tree_name} {CONST_SUPPRESSION_KIND_NOQA_PREFIX}")
+            continue
+        for code in CONST_NOQA_RULE_CODE_RE.findall(raw_codes.upper()):
+            kinds.append(f"{tree_name} {CONST_SUPPRESSION_KIND_NOQA_PREFIX}: {code}")
+    return kinds
+
+
+def _ast_grep_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
+    """Extract one ast-grep-ignore kind per net-* rule id in a src comment token."""
+    if tree_name != "src":
+        return []
+    return [
+        f"{tree_name} {CONST_SUPPRESSION_KIND_AST_GREP_IGNORE}"
+        for match in CONST_AST_GREP_IGNORE_COMMENT_RE.finditer(comment)
+        for _ in CONST_AST_GREP_NET_RULE_ID_RE.findall(match.group("ids") or "")
+    ]
+
+
+def _comment_token_suppressions(tree_name: str, comment: str) -> list[str]:
+    """Return all suppression kinds present in a single comment token."""
+    simple = [
+        f"{tree_name} {kind}"
+        for pattern, kind in _SIMPLE_COMMENT_SUPPRESSION_PATTERNS
+        for _ in pattern.finditer(comment)
+    ]
+    return [
+        *simple,
+        *_noqa_kinds_from_comment(tree_name, comment),
+        *_ast_grep_kinds_from_comment(tree_name, comment),
+    ]
+
+
+def _file_comment_suppressions(
+    py_file: Path,
+    project: Path,
+    tree_name: str,
+    by_kind: dict[str, dict[str, int]],
+) -> None:
+    """Tokenize a Python file when its raw text holds candidate markers and count comment tokens."""
+    text = py_file.read_text(encoding="utf-8")
+    if not CONST_SUPPRESSION_COMMENT_PREFILTER_RE.search(text):
+        return
+    rel_posix = py_file.relative_to(project).as_posix()
+    comments = (
+        tok.string
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+        if tok.type == tokenize.COMMENT
+        and CONST_SUPPRESSION_COMMENT_PREFILTER_RE.search(tok.string)
+    )
+    for comment in comments:
+        for kind in _comment_token_suppressions(tree_name, comment):
+            by_kind[kind][rel_posix] = by_kind[kind].get(rel_posix, 0) + 1
+
+
+def _pyproject_per_file_ignores_count(ruff_cfg: Mapping[str, Any]) -> int:
+    """Count per-file-ignores entries across top-level and lint Ruff tables."""
+    tables = (ruff_cfg, ruff_cfg.get("lint", {}))
+    entries = [
+        codes
+        for table in tables
+        if isinstance(table, Mapping)
+        for key in CONST_RUFF_PER_FILE_IGNORE_KEYS
+        for codes in (table.get(key) or {}).values()
+    ]
+    return sum(max(len(codes), 1) if isinstance(codes, list) else 1 for codes in entries)
+
+
+def _pyproject_coverage_omit_count(cov_cfg: Mapping[str, Any]) -> int:
+    """Count coverage omit entries across [tool.coverage] and its sub-tables."""
+    sections = [cov_cfg, *(v for v in cov_cfg.values() if isinstance(v, Mapping))]
+    return sum(len(sec.get("omit", [])) for sec in sections if isinstance(sec.get("omit"), list))
+
+
+def _pyproject_suppressions(
+    pyproject: Mapping[str, Any],
+    by_kind: dict[str, dict[str, int]],
+) -> None:
+    """Record per-file-ignores, mypy overrides, and coverage omit counts from pyproject.toml."""
+    tool = pyproject.get("tool", {})
+    counts = {
+        CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: _pyproject_per_file_ignores_count(
+            tool.get("ruff", {})
+        ),
+        CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: len(tool.get("mypy", {}).get("overrides", [])),
+        CONST_SUPPRESSION_KIND_COVERAGE_OMIT: _pyproject_coverage_omit_count(
+            tool.get("coverage", {})
+        ),
+    }
+    for kind, count in counts.items():
+        if count > 0:
+            by_kind[kind]["pyproject.toml"] = count
+
+
+def _collect_suppressions(
+    project: Path,
+    pyproject: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Collect all comment-token and pyproject.toml suppressions across src and tests (#849)."""
+    by_kind: dict[str, dict[str, int]] = defaultdict(dict)
+    for tree_name in CONST_COMPLEXITY_CAP_ROOTS:
+        tree_root = project / tree_name
+        if not tree_root.is_dir():
+            continue
+        for py_file in sorted(tree_root.rglob("*.py")):
+            _file_comment_suppressions(py_file, project, tree_name, by_kind)
+    if pyproject is None and (project / "pyproject.toml").is_file():
+        pyproject = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    if pyproject is not None:
+        _pyproject_suppressions(pyproject, by_kind)
+    return dict(by_kind)
+
+
+def _suppression_ceiling_breaches(
+    project: Path,
+    ceilings: Mapping[str, int] = DEFAULT_SUPPRESSION_CEILINGS,
+    pyproject: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Return a diagnostic message for each suppression kind whose count exceeds its ceiling (#849)."""
+    by_kind = _collect_suppressions(project, pyproject=pyproject)
+    breaches: list[str] = []
+    for kind in sorted(set(ceilings) | set(by_kind)):
+        files = by_kind.get(kind, {})
+        total = sum(files.values())
+        ceiling = ceilings.get(kind, 0)
+        if total > ceiling:
+            breaches.append(
+                f"{kind}: {total} > ceiling {ceiling} in {sorted(files)}. "
+                "Fix the cause, or raise the ceiling in src/devops_cli/config/defaults.py "
+                "with a reason recorded in the task file (docs/agent/tasks/)."
+            )
+    return breaches
+
+
+def test_suppressions_stay_under_their_ceilings() -> None:
+    """Suppression comments in src/ and tests/ and waivers in pyproject.toml may not exceed ceilings (#849)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    assert (
+        len(CONST_SUPPRESSION_KINDS),
+        DEFAULT_SUPPRESSION_CEILINGS["src noqa: C901"],
+        DEFAULT_SUPPRESSION_CEILINGS["src ast-grep-ignore"],
+    ) == (
+        10,
+        DEFAULT_C901_SUPPRESSION_CEILING,
+        DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
+    )
+    breaches = _suppression_ceiling_breaches(repo_root)
+    assert breaches == [], "\n".join(breaches)
+
+
+def test_adding_a_type_ignore_in_src_fails_naming_kind_ceiling_and_file(tmp_path: Path) -> None:
+    """Adding one `# type: ignore` in src fails the ceiling check naming kind, ceiling, and file (#849)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "mod.py").write_text(
+        "x: int = 'a'  # type: ignore[assignment]\ny: int = 'b'  # type: ignore[assignment]\n",
+        encoding="utf-8",
+    )
+    ceilings = {"src type: ignore": 1}
+    breaches = _suppression_ceiling_breaches(tmp_path, ceilings=ceilings, pyproject={})
+    assert (
+        len(breaches) == 1,
+        "src type: ignore" in breaches[0],
+        "ceiling 1" in breaches[0],
+        "src/mod.py" in breaches[0],
+        "task file" in breaches[0],
+    ) == (True, True, True, True, True)
+
+
+def test_nanosecond_comment_and_string_literals_are_not_counted(tmp_path: Path) -> None:
+    """A comment with 'nanosecond' and string literals holding suppression text are ignored (#849)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "tracer.py").write_text(
+        "# Each interval is a nanosecond long, so points never overlap.\n"
+        'literal = "# type: ignore[assignment]  # nosec B108  # pragma: no cover"\n',
+        encoding="utf-8",
+    )
+    assert (
+        _collect_suppressions(tmp_path, pyproject={}),
+        _suppression_ceiling_breaches(tmp_path, ceilings={}, pyproject={}),
+    ) == ({}, [])
+
+
+def test_removing_a_suppression_keeps_the_ceiling_check_green(tmp_path: Path) -> None:
+    """Counts strictly below the ceiling stay green under `count <= ceiling` (#849)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "mod.py").write_text(
+        "x: int = 'a'  # type: ignore[assignment]\n",
+        encoding="utf-8",
+    )
+    assert (
+        _suppression_ceiling_breaches(
+            tmp_path,
+            ceilings={"src type: ignore": 5, "src nosec": 2},
+            pyproject={},
+        )
+        == []
+    )
+
+
+def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path) -> None:
+    """Verify per-rule noqa, nosec, pragmas, file-level directives, ast-grep-ignore, and pyproject waivers (#849)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "mod.py").write_text(
+        f"{_RUFF_FILE_NOQA}: F401\n"
+        "a = 1  # noqa: F401, E402\n"
+        "b = 2  # nosec B108\n"
+        "c = 3  # pragma: no cover\n"
+        "d = 4  # pragma: no mutate\n"
+        "e = 5  # ast-grep-ignore: net-url-split, net-host-parse\n",
+        encoding="utf-8",
+    )
+    pyproject = {
+        "tool": {
+            "ruff": {"lint": {"per-file-ignores": {"tests/*": ["S101", "D100"]}}},
+            "mypy": {"overrides": [{"module": "foo.*"}, {"module": "bar.*"}]},
+            "coverage": {"run": {"omit": ["src/generated/*"]}},
+        }
+    }
+    collected = _collect_suppressions(tmp_path, pyproject=pyproject)
+    assert collected == {
+        "src file-level directive": {"src/mod.py": 1},
+        "src noqa: F401": {"src/mod.py": 1},
+        "src noqa: E402": {"src/mod.py": 1},
+        "src nosec": {"src/mod.py": 1},
+        "src pragma: no cover": {"src/mod.py": 1},
+        "src pragma: no mutate": {"src/mod.py": 1},
+        "src ast-grep-ignore": {"src/mod.py": 2},
+        "per-file-ignores": {"pyproject.toml": 2},
+        "[[tool.mypy.overrides]]": {"pyproject.toml": 2},
+        "coverage omit": {"pyproject.toml": 1},
+    }
