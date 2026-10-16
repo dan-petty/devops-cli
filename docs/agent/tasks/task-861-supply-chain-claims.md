@@ -11,5 +11,6 @@
 - [x] zizmor 1.30.1 is pinned in the dev group. `devops scan workflows` runs it offline with `--no-exit-codes`, shows every finding, and fails on `template-injection`, `unpinned-uses` and `excessive-permissions` (`CONST_ZIZMOR_BLOCKING_RULES`) or when zizmor could not run. `devops ci` runs it as the `zizmor` check, which CI's static analysis job runs.
 - [x] No `run:` block interpolates a `${{ }}` expression: the five steps take their values through `env:`, and `ci.yml` reads the runner's `GITHUB_REPOSITORY`.
 - [x] A contract test resolves every `devops` command in the workflows, composite actions and pre-commit hooks with `resolve_devops_argv`, with a negative control; others pin that no `run:` block holds an expression and that every remote `uses:` is pinned to a commit SHA.
+- [x] `devops ci fail-to-pass` replays with `--continue-on-collection-errors`: this change's new `tests/test_security_zizmor.py` cannot import its module on base, and pytest had then run none of the other changed test files, so the gate saw no failing test. A test replays a fix that adds a module on a throwaway repository.
 - SARIF upload of zizmor findings waits for #419, as the refinement records.
 - Pending a person: the repository setting that requires SHA-pinned actions (`sha_pinning_required`) and the Renovate GitHub App installation are repository settings outside this change.

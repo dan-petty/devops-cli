@@ -1736,11 +1736,14 @@ CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests
 CONST_FAIL_TO_PASS_ESCAPE_PATTERN: Final[str] = (
     r"(?im)^Fail-to-pass:\s*not\s+applicable:\s*(.+?)\s*$"
 )
+# A changed test file that imports a module the fix adds cannot be collected on base; without
+# `--continue-on-collection-errors` pytest then runs none of the other changed files (#861).
 CONST_FAIL_TO_PASS_PYTEST_FLAGS: Final[tuple[str, ...]] = (
     "-o",
     "addopts=",
     "-p",
     "no:cacheprovider",
+    "--continue-on-collection-errors",
 )
 CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
     "failure": "failed",
