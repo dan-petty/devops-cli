@@ -30,10 +30,10 @@ from devops_cli.config.constants import (
     CONST_KEYRING_SERVICE as KEYRING_SERVICE,
 )
 from devops_cli.config.constants import (
-    CONST_PROJECT_CONFIG_ENV as PROJECT_CONFIG_ENV,
+    CONST_PROJECT_CONFIG_CANDIDATES as PROJECT_CONFIG_CANDIDATES,
 )
 from devops_cli.config.constants import (
-    CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
+    CONST_PROJECT_CONFIG_ENV as PROJECT_CONFIG_ENV,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
@@ -1101,16 +1101,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     if reads_untrusted_trees():
         return None
 
-    candidate_names = (
-        PROJECT_CONFIG_FILENAME,
-        f".devcontainer/{PROJECT_CONFIG_FILENAME}",
-        f".devops/{PROJECT_CONFIG_FILENAME}",
-        ".devops.yaml",
-        ".devcontainer/.devops.yaml",
-    )
     start_dir = (base_dir or Path.cwd()).resolve()
     for d in (start_dir, *start_dir.parents):
-        candidate = _match_dir_candidate(d, candidate_names)
+        candidate = _match_dir_candidate(d, PROJECT_CONFIG_CANDIDATES)
         if candidate is not None:
             return candidate
         if (d / ".git").exists() or (d / ".devcontainer").exists():

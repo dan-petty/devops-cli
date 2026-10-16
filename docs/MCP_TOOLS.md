@@ -493,7 +493,7 @@ Run devops-cli complete quality gate or an individual check in check-only mode w
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `check` | `string` | No | `all` | - |
+| `check` | `string (all, test, lint, format, typecheck, audit, security, actionlint, docs, uv-check, lockfile, outdated, devcontainer)` | No | `all` | - |
 
 ### `config_audit_keys`
 
@@ -525,14 +525,14 @@ Execute command inside an isolated Docker container sandbox.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `command` | `array` | Yes | - | - |
+| `command` | `array[string]` | Yes | - | - |
 | `image` | `string` | No | `python:3.14-slim` | - |
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
 | `network` | `string` | No | `isolated` | - |
 | `network_mode` | `string` | No | - | - |
-| `public_whitelist` | `array` | No | - | - |
-| `local_whitelist` | `array` | No | - | - |
+| `public_whitelist` | `array[string]` | No | - | - |
+| `local_whitelist` | `array[string]` | No | - | - |
 | `read_only` | `boolean` | No | `False` | - |
 
 ### `docker_sign`
@@ -547,7 +547,7 @@ Sign a container image using Sigstore Cosign (keyless or keyed).
 | `key` | `string` | No | - | - |
 | `keyless` | `boolean` | No | `True` | - |
 | `oidc_token` | `string` | No | - | - |
-| `annotations` | `array` | No | - | - |
+| `annotations` | `array[string]` | No | - | - |
 | `upload` | `boolean` | No | `True` | - |
 | `dry_run` | `boolean` | No | `False` | - |
 
@@ -771,7 +771,7 @@ remain and fails with exit status 1. Reconcile adds no card.
 |---|---|---|---|---|
 | `project_number` | `integer` | No | - | - |
 | `repo` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `mode` | `string (dry-run, plan, write)` | No | `plan` | - |
 
 ### `gh_project_status`
 
@@ -1358,7 +1358,7 @@ and returns the requests a run makes. A person or the service runs
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `mode` | `string (dry-run, plan)` | No | `plan` | - |
 
 ### `roadmap_intake`
 
@@ -1377,12 +1377,12 @@ the tool reads no file of the caller's choosing.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `issues` | `array` | No | - | - |
+| `issues` | `array[integer]` | No | - | - |
 | `title` | `string` | No | - | - |
 | `body` | `string` | No | - | - |
 | `source` | `string` | No | - | - |
-| `borrow_reason` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `borrow_reason` | `string (split, follow-up)` | No | - | - |
+| `mode` | `string (dry-run, plan, confirm)` | No | `plan` | - |
 
 ### `roadmap_migrate`
 
@@ -1398,7 +1398,7 @@ person reviews the plan and runs `devops roadmap migrate --confirm`.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `mode` | `string (dry-run, plan)` | No | `plan` | - |
 
 ### `roadmap_refine`
 
@@ -1431,7 +1431,7 @@ requests a run makes; `mode="write"` writes the file.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `mode` | `string (dry-run, plan, write)` | No | `plan` | - |
 
 ### `roadmap_reprioritize`
 
@@ -1448,7 +1448,7 @@ run makes; `mode="confirm"` makes the changes.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `mode` | `string` | No | `plan` | - |
+| `mode` | `string (dry-run, plan, confirm)` | No | `plan` | - |
 
 ### `roadmap_run`
 
@@ -1470,16 +1470,16 @@ Deploy an isolated workload container sandbox with security containment and port
 |---|---|---|---|---|
 | `image` | `string` | No | `python:3.14-slim` | - |
 | `name` | `string` | No | - | - |
-| `ports` | `array` | No | - | - |
+| `ports` | `array[integer]` | No | - | - |
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
 | `cpus` | `number` | No | `2.0` | - |
 | `network` | `string` | No | `isolated` | - |
 | `network_mode` | `string` | No | - | - |
-| `public_whitelist` | `array` | No | - | - |
-| `local_whitelist` | `array` | No | - | - |
+| `public_whitelist` | `array[string]` | No | - | - |
+| `local_whitelist` | `array[string]` | No | - | - |
 | `read_only` | `boolean` | No | `True` | - |
-| `command` | `array` | No | - | - |
+| `command` | `array[string]` | No | - | - |
 
 ### `sandbox_exec`
 
@@ -1490,7 +1490,7 @@ Execute a command inside an active sandbox container.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `instance_id` | `string` | Yes | - | - |
-| `command` | `array` | Yes | - | - |
+| `command` | `array[string]` | Yes | - | - |
 | `workdir` | `string` | No | - | - |
 
 ### `sandbox_network_policy`
@@ -1508,8 +1508,8 @@ in the sandbox_namespace, public_whitelist and local_whitelist modes.
 | `network_mode` | `string` | No | `isolated` | - |
 | `name` | `string` | No | `app-sandbox` | - |
 | `namespace` | `string` | No | `sandbox` | - |
-| `public_whitelist` | `array` | No | - | - |
-| `local_whitelist` | `array` | No | - | - |
+| `public_whitelist` | `array[string]` | No | - | - |
+| `local_whitelist` | `array[string]` | No | - | - |
 | `allow_collector` | `boolean` | No | `False` | - |
 
 ### `sandbox_status`
@@ -1867,7 +1867,7 @@ Store secret key-value pairs in HashiCorp Vault KV-v2 engine.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | - |
-| `key_values` | `array` | Yes | - | - |
+| `key_values` | `array[string]` | Yes | - | - |
 
 ### `vault_status`
 
@@ -1888,7 +1888,7 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | - |
-| `keys` | `array` | No | - | - |
+| `keys` | `array[string]` | No | - | - |
 
 ### `workspace_list`
 

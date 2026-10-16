@@ -2,6 +2,22 @@
 
 Run tests, linting, formatting, and type-checks.
 
+```bash
+devops ci [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
+| `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
+| `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
+| `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
+| `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ## Commands
 
 ## `devops ci test`

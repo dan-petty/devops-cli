@@ -5,13 +5,21 @@ This document is automatically generated from `Settings` (`src/devops_cli/config
 DevOps CLI supports hierarchical configuration resolution through:
 1. **CLI Flags & Arguments** (highest precedence)
 2. **Environment Variables** (`DEVOPS_CLI_*`)
-3. **Local Project Configuration** (the file `DEVOPS_CLI_CONFIG` names, else the nearest `config.yaml`, `.devops/config.yaml` or `.devops.yaml` from the working directory up to its repository root)
+3. **Local Project Configuration** (the file `DEVOPS_CLI_CONFIG` names, else the nearest `config.yaml`, `.devcontainer/config.yaml`, `.devops/config.yaml`, `.devops.yaml` or `.devcontainer/.devops.yaml` from the working directory up to its repository root)
 4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)
 5. **System Defaults**
 
 A `devops review` command reads a tree it does not own. Started in a repository other than devops-cli's own, it looks for no project configuration, reading only the file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under `~/.local/share/devops-cli` rather than under that repository, so its default data directory is `~/.local/share/devops-cli/.data`. What a review keeps -- its sessions, the feedback dataset, runs, samples, library contracts and AI spend -- every other command started outside devops-cli's own repository reads and writes there too. devops-cli's own repository is the one whose checkout holds the source of the devops-cli that runs, as an editable install's does; its code already runs, so a review started there, or in any worktree of it, reads its project configuration and keeps all data under its main worktree's `.data`, as every other command does. A clone nested in that checkout is another repository, and an installed devops-cli trusts no repository this way. An absolute `DEVOPS_CLI_DATA_DIR` or `data.dir` names the data directory every command uses.
 
 ---
+
+## GitHub Configuration (`github`)
+
+GitHub authentication, default owner, and repository settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `default_org` | `Union` | - | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | - |
 
 ## SSH Configuration (`ssh`)
 
@@ -39,9 +47,82 @@ Multi-root VS Code workspace file management and data tier settings.
 |---|---|---|---|---|
 | `file` | `Path` | `.code-workspace` | `DEVOPS_CLI_WORKSPACE_FILE` | - |
 
+## Grafana Configuration (`grafana`)
+
+Grafana endpoint, authentication, and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_GRAFANA_URL` | - |
+
+## Prometheus Configuration (`prometheus`)
+
+Prometheus query endpoint, authentication, and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_PROMETHEUS_URL` | - |
+
+## Argo CD Configuration (`argocd`)
+
+Argo CD server endpoint, authentication, TLS, and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_ARGOCD_URL` | - |
+
+## Qdrant Vector Store (`qdrant`)
+
+The vector store that RAG searches query and indexing writes to.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | `http://localhost:6333` | `DEVOPS_CLI_QDRANT_URL` | - |
+| `collection_prefix` | `str` | `devops` | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | - |
+| `api_key` | `Union` | - | `DEVOPS_CLI_QDRANT_API_KEY` | - |
+| `timeout` | `float` | `300.0` | `DEVOPS_CLI_QDRANT_TIMEOUT` | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
+
+## Valkey Configuration (`valkey`)
+
+Valkey caching endpoint, authentication, TLS, and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `host` | `str` | `localhost:6379` | `DEVOPS_CLI_VALKEY_HOST` | - |
+| `port` | `int` | `6379` | `DEVOPS_CLI_VALKEY_PORT` | - |
+| `url` | `Union` | - | - | - |
+| `password` | `Union` | - | `DEVOPS_CLI_VALKEY_PASSWORD` | - |
+| `db` | `int` | `0` | `DEVOPS_CLI_VALKEY_DB` | - |
+| `timeout` | `float` | `2.0` | `DEVOPS_CLI_VALKEY_TIMEOUT` | - |
+| `threat_intel_ttl` | `int` | `86400` | - | - |
+
+## Shared Run Index (`runs`)
+
+PostgreSQL connection settings for the shared AI run index.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `index_url` | `Union` | - | `DEVOPS_CLI_RUNS_INDEX_URL` | - |
+
+## Tempo Configuration (`tempo`)
+
+Grafana Tempo distributed tracing query endpoint and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | `http://localhost:3200` | - | - |
+
+## Pyroscope Configuration (`pyroscope`)
+
+Grafana Pyroscope continuous profiling endpoint and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | `http://localhost:4040` | - | - |
+
 ## Telemetry & Metrics (`telemetry`)
 
-OpenTelemetry distributed tracing and Prometheus metric export settings.
+OpenTelemetry export and Logfire settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
@@ -53,7 +134,7 @@ OpenTelemetry distributed tracing and Prometheus metric export settings.
 
 ## Kubernetes Configuration (`k8s`)
 
-Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
+Kubernetes context, ingress domain, and service addressing settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
@@ -61,6 +142,27 @@ Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
 | `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. example.com) |
 | `addressing` | `Union` | - | - | Default addressing mode for cluster services: nodeport, proxy, or fqdn. |
 | `github_account` | `Union` | - | `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN; `--github-account` overrides it |
+
+## Cloudflare Configuration (`cloudflare`)
+
+Cloudflare API token and zone settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `domain` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_DOMAIN` | Root or zone domain name managed in Cloudflare (e.g. example.com) |
+| `tunnel` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_TUNNEL` | Cloudflare tunnel name or identifier (e.g. homelab) |
+| `account_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
+| `zone_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID |
+| `public_ip_bypass` | `Union` | - | - | Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication |
+| `access` | `CloudflareAccessConfig` | `enabled=False allowed_emails=[] idp='google' bypass_ips=[] public_ip_bypass=None` | - | Cloudflare Zero Trust Access application and policy configuration |
+
+## Sandbox Configuration (`sandbox`)
+
+Isolated container sandbox runtime, resource limits, and network policy settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `exclude_home_dir` | `bool` | `True` | - | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |
 
 ## AI & LLM Configuration (`ai`)
 
@@ -96,16 +198,13 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `durable` | `AIDurableConfig` | `engine='sqlite' store_path=PosixPath('.data/durable_runs.db') task_queue='devops-cli-tasks' workflow_id_prefix='devops-run-'` | - | - |
 | `task_name` | `Union` | - | - | - |
 
-## Qdrant Vector Store (`qdrant`)
+## Open WebUI Configuration (`open_webui`)
 
-The vector store that RAG searches query and indexing writes to.
+Open WebUI endpoint, authentication, and service addressing settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `url` | `Union` | `http://localhost:6333` | `DEVOPS_CLI_QDRANT_URL` | - |
-| `collection_prefix` | `str` | `devops` | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | - |
-| `api_key` | `Union` | - | `DEVOPS_CLI_QDRANT_API_KEY` | - |
-| `timeout` | `float` | `300.0` | `DEVOPS_CLI_QDRANT_TIMEOUT` | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
+| `url` | `Union` | - | - | - |
 
 ## Data Storage Tier (`data`)
 
@@ -126,3 +225,30 @@ Local artifact caches, review findings, session histories, and log paths.
 | `tls_dir` | `Path` | `.data/tls` | `DEVOPS_CLI_DATA_TLS_DIR` | - |
 | `audit_log_path` | `Path` | `.data/logs/audit.jsonl` | `DEVOPS_CLI_DATA_AUDIT_LOG_PATH` | - |
 | `feedback_dataset_path` | `Path` | `.data/feedback_dataset.jsonl` | `DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH` | - |
+
+## Service Configuration (`service`)
+
+In-cluster webhook receiver and background job runner settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `repos` | `list` | `[]` | `DEVOPS_CLI_SERVICE_REPOS` | - |
+| `machine_account` | `Union` | - | `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | - |
+| `poll_interval_seconds` | `int` | `300` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | - |
+| `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | - |
+
+## Tavily Search Configuration (`tavily`)
+
+Tavily web search API authentication settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `api_key` | `Union` | - | `DEVOPS_CLI_TAVILY_API_KEY` | - |
+
+## Top-Level Settings
+
+Top-level workstation and environment settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `domain` | `Union` | - | - | Default domain name for the environment or workstation |

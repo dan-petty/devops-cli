@@ -2,6 +2,16 @@
 
 AI-powered multi-persona code review and security audits.
 
+```bash
+devops review [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+
 ## Commands
 
 ## `devops review path`

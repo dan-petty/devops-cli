@@ -2,6 +2,16 @@
 
 Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
 
+```bash
+devops ai [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics. |
+
 ## Commands
 
 ## `devops ai config`

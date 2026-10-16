@@ -24,6 +24,117 @@ CONST_KEYRING_SERVICE = CONST_APP_NAME
 # secret (`require_persistent_keyring`).
 CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
+CONST_PROJECT_CONFIG_CANDIDATES: Final[tuple[str, ...]] = (
+    CONST_PROJECT_CONFIG_FILENAME,
+    f".devcontainer/{CONST_PROJECT_CONFIG_FILENAME}",
+    f".devops/{CONST_PROJECT_CONFIG_FILENAME}",
+    ".devops.yaml",
+    ".devcontainer/.devops.yaml",
+)
+CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
+    "github": (
+        "GitHub Configuration (`github`)",
+        "GitHub authentication, default owner, and repository settings.",
+    ),
+    "ssh": (
+        "SSH Configuration (`ssh`)",
+        "SSH key generation, rotation, signing, and GitHub registration settings.",
+    ),
+    "repos": (
+        "Repositories Configuration (`repos`)",
+        "Multi-repository workspace discovery, cloning, and sync settings.",
+    ),
+    "workspace": (
+        "Workspace Configuration (`workspace`)",
+        "Multi-root VS Code workspace file management and data tier settings.",
+    ),
+    "grafana": (
+        "Grafana Configuration (`grafana`)",
+        "Grafana endpoint, authentication, and service addressing settings.",
+    ),
+    "prometheus": (
+        "Prometheus Configuration (`prometheus`)",
+        "Prometheus query endpoint, authentication, and service addressing settings.",
+    ),
+    "argocd": (
+        "Argo CD Configuration (`argocd`)",
+        "Argo CD server endpoint, authentication, TLS, and service addressing settings.",
+    ),
+    "qdrant": (
+        "Qdrant Vector Store (`qdrant`)",
+        "The vector store that RAG searches query and indexing writes to.",
+    ),
+    "valkey": (
+        "Valkey Configuration (`valkey`)",
+        "Valkey caching endpoint, authentication, TLS, and service addressing settings.",
+    ),
+    "runs": (
+        "Shared Run Index (`runs`)",
+        "PostgreSQL connection settings for the shared AI run index.",
+    ),
+    "tempo": (
+        "Tempo Configuration (`tempo`)",
+        "Grafana Tempo distributed tracing query endpoint and service addressing settings.",
+    ),
+    "pyroscope": (
+        "Pyroscope Configuration (`pyroscope`)",
+        "Grafana Pyroscope continuous profiling endpoint and service addressing settings.",
+    ),
+    "telemetry": (
+        "Telemetry & Metrics (`telemetry`)",
+        "OpenTelemetry export and Logfire settings.",
+    ),
+    "k8s": (
+        "Kubernetes Configuration (`k8s`)",
+        "Kubernetes context, ingress domain, and service addressing settings.",
+    ),
+    "cloudflare": (
+        "Cloudflare Configuration (`cloudflare`)",
+        "Cloudflare API token and zone settings.",
+    ),
+    "sandbox": (
+        "Sandbox Configuration (`sandbox`)",
+        "Isolated container sandbox runtime, resource limits, and network policy settings.",
+    ),
+    "ai": (
+        "AI & LLM Configuration (`ai`)",
+        "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
+    ),
+    "open_webui": (
+        "Open WebUI Configuration (`open_webui`)",
+        "Open WebUI endpoint, authentication, and service addressing settings.",
+    ),
+    "data": (
+        "Data Storage Tier (`data`)",
+        "Local artifact caches, review findings, session histories, and log paths.",
+    ),
+    "service": (
+        "Service Configuration (`service`)",
+        "In-cluster webhook receiver and background job runner settings.",
+    ),
+    "tavily": (
+        "Tavily Search Configuration (`tavily`)",
+        "Tavily web search API authentication settings.",
+    ),
+}
+CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
+    "devops_cli.ai.agents.spend",
+    "devops_cli.ai.agents.testing",
+    "devops_cli.ai.client.models",
+    "devops_cli.ai.gateway_tune",
+    "devops_cli.ai.harness.memory",
+    "devops_cli.ai.pool_load",
+    "devops_cli.ai.rag.embeddings",
+    "devops_cli.ai.rag.qdrant",
+    "devops_cli.ai.run_store",
+    "devops_cli.core.templating",
+    "devops_cli.http.client",
+    "devops_cli.k8s.node_port",
+    "devops_cli.k8s.service_proxy",
+    "devops_cli.review.state",
+    "devops_cli.telemetry.context",
+    "devops_cli.telemetry.memory_profiler",
+)
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
 # long. The kernel stamps files from a coarse clock, so a file rewritten moments after
@@ -1056,9 +1167,11 @@ CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation
 
 CONST_EXIT_SUCCESS: int = 0
 CONST_EXIT_FAILURE: int = 1
+CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
+CONST_EXIT_CANCELLED: int = 130
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"
