@@ -1758,7 +1758,36 @@ def test_an_unanswered_prompt_leaves_the_keyring_for_the_next_terminal(
 
     assert (result.exit_code, keyring_container) == (1, [])
     assert pending.exists()
-    assert "next terminal you open will ask again" in " ".join(result.output.split())
+    assert "next terminal you open will ask again" in result.output
+
+
+@pytest.mark.parametrize("abandoned", [TimeoutError, EOFError, KeyboardInterrupt])
+def test_an_abandoned_prompt_ends_its_line_before_the_next_message(
+    abandoned: type[BaseException],
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """getpass writes its newline only after an answer, so the message would follow the prompt."""
+    import sys
+
+    (tmp_path / ".keyring-unlock-pending").touch()
+
+    def prompt_then_give_up(prompt: str = "") -> str:
+        sys.stdout.write(prompt)
+        raise abandoned
+
+    monkeypatch.setattr("getpass.getpass", prompt_then_give_up)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    prompt, message = result.output.splitlines()[:2]
+    assert (prompt.endswith("password: "), message) == (
+        True,
+        "Keyring left locked; the next terminal you open will ask again, or run "
+        "`devops devcontainer unlock-keyring`.",
+    )
 
 
 def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

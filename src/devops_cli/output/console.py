@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from rich.console import Console as _RichConsole
@@ -292,18 +293,22 @@ def print(  # noqa: C901
         )
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="panel")
 
+    # A message reaches the terminal as one line for it to wrap. Rich's own wrapping writes a
+    # newline at a space, which splits a command the reader copies (#1588).
+    emit = partial(active_console.print, soft_wrap=True)
+
     # 8. Step format
     if level == "step":
         esc_content = escape_text(str(content))
         detail_suffix = f" [dim]({escape_text(detail)})[/dim]" if detail else ""
-        active_console.print(f"[bold blue]➔[/bold blue] [bold]{esc_content}[/bold]{detail_suffix}")
+        emit(f"[bold blue]➔[/bold blue] [bold]{esc_content}[/bold]{detail_suffix}")
         return PrintResult(success=True, level="step", stream=stream_name, rendered_type="step")
 
     # 9. Leveled / Plain string messaging
     raw_message = str(content)
     formatted_message = escape_text(raw_message) if safe else raw_message
     if level == "raw":
-        active_console.print(formatted_message)
+        emit(formatted_message)
         return PrintResult(success=True, level="raw", stream=stream_name, rendered_type="text")
 
     defaults: dict[str, tuple[str, str]] = {
@@ -325,23 +330,21 @@ def print(  # noqa: C901
         prefix_symbol = default_level_prefix
 
     if style is not None:
-        active_console.print(f"[{style}]{prefix_symbol}{formatted_message}[/{style}]")
+        emit(f"[{style}]{prefix_symbol}{formatted_message}[/{style}]")
     elif prefix_symbol:
         if level == "info":
-            active_console.print(
+            emit(
                 f"[{default_level_style}]{prefix_symbol}[/{default_level_style}]{formatted_message}"
             )
         else:
-            active_console.print(
+            emit(
                 f"[{default_level_style}]{prefix_symbol}{formatted_message}[/{default_level_style}]"
             )
     else:
         if level in {"error", "warning", "muted", "success", "step"}:
-            active_console.print(
-                f"[{default_level_style}]{formatted_message}[/{default_level_style}]"
-            )
+            emit(f"[{default_level_style}]{formatted_message}[/{default_level_style}]")
         else:
-            active_console.print(formatted_message)
+            emit(formatted_message)
 
     return PrintResult(success=True, level=level, stream=stream_name, rendered_type="message")
 

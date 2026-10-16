@@ -55,6 +55,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
     write_json_file,
+    write_stdout,
     write_text_file,
 )
 from devops_cli.telemetry.tracer import trace_span
@@ -1523,6 +1524,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
             print_error(ERRORS.devcontainer.keyring_password_mismatch)
             return False
     except TimeoutError, EOFError, KeyboardInterrupt:
+        write_stdout("\n")  # getpass ends the prompt's line only once it is answered
         print_info(MESSAGES.devcontainer.keyring_unlock_skipped, prefix=False)
         return False
 

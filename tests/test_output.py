@@ -903,6 +903,22 @@ def test_print_safe_escapes_markup_across_levels() -> None:
     assert "[dim]val[/dim]" in tbl_out
 
 
+@pytest.mark.parametrize("level", ["raw", "success", "error", "warning", "info", "muted", "step"])
+def test_a_message_wider_than_the_console_reaches_the_terminal_as_one_line(level: str) -> None:
+    """Rich would break it at a space, and a reader copying the command would get two lines."""
+    from rich.console import Console
+
+    from devops_cli.output.console import print as d_print
+
+    buf = io.StringIO()
+    message = "Keyring left locked; run `devops devcontainer unlock-keyring`."
+
+    d_print(message, level=level, console=Console(file=buf, color_system=None, width=40))
+
+    out = buf.getvalue()
+    assert (out.count("\n"), "`devops devcontainer unlock-keyring`" in out) == (1, True)
+
+
 def test_format_link_and_badges_escape_markup() -> None:
     """Verify format_link and format_status_badge escape Rich markup characters."""
     from devops_cli.output.formatters.scalars import format_link, format_status_badge
