@@ -190,7 +190,7 @@ def install_binary(name: str, entry: BinaryTool, target_dir: Path) -> None:
     with _staged(tool_install_dir(name, entry.version)) as stage:
         data = _download(artifact.url)
         _verify_sha256(name, data, artifact.sha256)
-        _UNPACKERS[entry.format](data, artifact, stage / entry.bin)
+        _UNPACKERS[entry.format_of(artifact)](data, artifact, stage / entry.bin)
     _link_commands(name, entry, target_dir)
 
 

@@ -575,6 +575,59 @@ def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_
     assert (len(put_calls), put_body) == (1, expected_put)
 
 
+@pytest.mark.parametrize(
+    ("existing", "subdomain", "order"),
+    [
+        (
+            ["*.example.com", "example.com"],
+            "k8s",
+            ["k8s.example.com", "*.example.com", "example.com", None],
+        ),
+        (
+            ["*.lab.example.com", "*.example.com"],
+            "k8s.lab",
+            ["k8s.lab.example.com", "*.lab.example.com", "*.example.com", None],
+        ),
+        (["a.example.com"], "k8s", ["a.example.com", "k8s.example.com", None]),
+    ],
+    ids=["under-a-wildcard", "under-the-nearest-wildcard", "no-wildcard"],
+)
+def test_a_new_hostname_goes_before_the_wildcard_cloudflared_would_match_it_to(
+    existing: list[str], subdomain: str, order: list[str | None]
+) -> None:
+    """cloudflared takes the first rule whose hostname matches, and `*.example.com` matches any
+    name ending in `.example.com`: a host added after it would never be reached (#1595)."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    current = {
+        "config": {
+            "ingress": [
+                *({"hostname": host, "service": "http://traefik:80"} for host in existing),
+                {"service": "http_status:404"},
+            ]
+        }
+    }
+    sent: list[Any] = []
+
+    def fake_request(method: str, path: str, **kwargs: Any) -> Any:
+        if method == "GET":
+            return current
+        sent.append(kwargs["json_data"]["config"]["ingress"])
+        return {"config": kwargs["json_data"]["config"], "version": 2}
+
+    with (
+        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
+        patch.object(client, "_request", side_effect=fake_request),
+    ):
+        client.sync_tunnel_routes(
+            tunnel_id="tunnel-1",
+            domain="example.com",
+            service="tcp://kubernetes.default.svc.cluster.local:443",
+            subdomains=[subdomain],
+        )
+
+    assert [rule.get("hostname") for rule in sent[0]] == order
+
+
 def test_cloudflare_tunnel_sync_aborts_on_get_failure(mock_settings: Settings) -> None:
     """When GET of current tunnel config fails, sync raises an error and sends no PUT request."""
     mock_client = MagicMock()

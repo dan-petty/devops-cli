@@ -245,14 +245,16 @@ def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     assert cidrs == []
 
 
-def test_argocd_api_server_egress_admits_6443_through_ipblock() -> None:
-    """Verify Argo CD's API-server egress admits 6443 through an ipBlock peer (#1371).
+@pytest.mark.parametrize("namespace", ["argocd", "cloudflared"])
+def test_api_server_egress_admits_6443_through_ipblock(namespace: str) -> None:
+    """Argo CD reconciles through the API server (#1371), and cloudflared carries the tunnel's
+    `k8s.<domain>` TCP route to it (#1595).
 
     Namespace-only selectors (default, kube-system) never match the node IP the
     `kubernetes` service resolves to. An ipBlock peer with metadata SSRF protection
-    allows Argo CD to reach the API server on 6443.
+    allows the pods to reach the API server on 6443.
     """
-    doc = yaml.safe_load((K8S_DIR / "argocd" / "networkpolicy.yaml").read_text("utf-8"))
+    doc = yaml.safe_load((K8S_DIR / namespace / "networkpolicy.yaml").read_text("utf-8"))
     egress = doc["spec"]["egress"]
     rule = next(r for r in egress if any(p.get("port") == 6443 for p in r.get("ports", [])))
     ip_blocks = [to["ipBlock"] for to in rule.get("to", []) if "ipBlock" in to]
