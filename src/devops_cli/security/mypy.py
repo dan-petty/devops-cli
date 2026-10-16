@@ -135,6 +135,11 @@ def run_mypy_scan(
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 ) -> ScanOutcome:
     """Run mypy on changed modules with project config and uv.lock environment validation."""
+    from devops_cli.dry_run.state import is_dry_run
+
+    if is_dry_run():
+        return ScanOutcome(status="dry_run", findings=MypyScanner().dry_run_scan(target))
+
     effective_tree = tree if tree is not None else Path.cwd()
     effective_checkout = (
         checkout_root if checkout_root is not None else main_worktree_root(effective_tree)

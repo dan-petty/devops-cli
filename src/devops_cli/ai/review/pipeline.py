@@ -1839,10 +1839,13 @@ def _persist_file_review_payload(
     file_span: Any,
 ) -> tuple[float, int]:
     """Persist payload JSON to disk and record telemetry span attributes."""
-    sanitized_name = _sanitize_filename(fpath) + ".json"
-    json_target = files_dir / sanitized_name
-    json_target.parent.mkdir(parents=True, exist_ok=True)
-    json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+    from devops_cli.dry_run.state import is_dry_run
+
+    if not is_dry_run():
+        sanitized_name = _sanitize_filename(fpath) + ".json"
+        json_target = files_dir / sanitized_name
+        json_target.parent.mkdir(parents=True, exist_ok=True)
+        json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
     elapsed_sec = time.monotonic() - t_start
     n_findings = len(file_findings)
@@ -2360,8 +2363,11 @@ class ReviewPipelineOrchestrator:
             session_dir or _get_reviews_base_dir().resolve() / self.session_id
         )
         self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
-        self.session_dir.mkdir(parents=True, exist_ok=True)
-        self.files_dir.mkdir(parents=True, exist_ok=True)
+        from devops_cli.dry_run.state import is_dry_run
+
+        if not is_dry_run():
+            self.session_dir.mkdir(parents=True, exist_ok=True)
+            self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client: ReviewLLMClient = llm_client or LLMClient()
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
@@ -3065,10 +3071,6 @@ class ReviewPipelineOrchestrator:
         initial_findings.extend(self._audit_file_dependencies(fpath, file_deps, dep_cache))
         initial_findings.extend(self._audit_file_network_references(fpath, file_nets, net_cache))
 
-        sanitized_name = _sanitize_filename(fpath) + ".json"
-        json_file = self.files_dir / sanitized_name
-        json_file.parent.mkdir(parents=True, exist_ok=True)
-
         payload = FileReviewPayload(
             file_path=fpath,
             metadata=fmeta,
@@ -3078,7 +3080,13 @@ class ReviewPipelineOrchestrator:
             network_references=file_nets,
             ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
         )
-        json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+        from devops_cli.dry_run.state import is_dry_run
+
+        if not is_dry_run():
+            sanitized_name = _sanitize_filename(fpath) + ".json"
+            json_file = self.files_dir / sanitized_name
+            json_file.parent.mkdir(parents=True, exist_ok=True)
+            json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
         return payload
 
     def _assemble_single_file_payload(
@@ -3708,10 +3716,13 @@ class ReviewPipelineOrchestrator:
             f"finding(s) from {len(payload.findings)} total candidate(s)"
         )
 
-        sanitized_name = _sanitize_filename(payload.file_path) + ".json"
-        json_target = self.files_dir / sanitized_name
-        json_target.parent.mkdir(parents=True, exist_ok=True)
-        json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+        from devops_cli.dry_run.state import is_dry_run
+
+        if not is_dry_run():
+            sanitized_name = _sanitize_filename(payload.file_path) + ".json"
+            json_target = self.files_dir / sanitized_name
+            json_target.parent.mkdir(parents=True, exist_ok=True)
+            json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
     def execute_finding_reranking(
         self,
@@ -4582,6 +4593,51 @@ class ReviewPipelineOrchestrator:
         )
         return {"added": added, "removed": removed, "retained": retained}
 
+    def _persist_session_artifacts(
+        self,
+        payload_out: ReviewSessionPayload,
+        candidates: ReviewSessionPayload,
+        report_md: str,
+    ) -> None:
+        """Persist session findings, candidates, SARIF, and markdown report unless in dry-run."""
+        from devops_cli.dry_run.state import is_dry_run
+
+        if is_dry_run():
+            return
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        (self.session_dir / "findings.json").write_text(
+            payload_out.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
+            candidates.model_dump_json(indent=2), encoding="utf-8"
+        )
+        from devops_cli.security.normalization import NormalizedFinding
+        from devops_cli.security.sarif import write_sarif
+
+        sarif_findings = [
+            NormalizedFinding(
+                tool=af.tool,
+                tool_version=af.tool_version,
+                rule_id=af.rule_id,
+                severity=af.severity,
+                message=af.message,
+                path=af.path,
+                line=af.line,
+                symbol=af.symbol,
+                description=af.description,
+                fix=af.fix,
+                partial_fingerprints=dict(af.partial_fingerprints),
+                rule_properties=dict(af.properties),
+                baseline_state=af.baseline_state,
+                logical_locations=tuple([{"name": af.logical_location}])
+                if af.logical_location
+                else (),
+            )
+            for af in getattr(self, "admitted_scanner_findings", [])
+        ]
+        write_sarif(sarif_findings, self.session_dir / CONST_REVIEW_SARIF_FILENAME)
+        (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+
     def generate_consolidated_report(
         self,
         file_payloads: list[FileReviewPayload],
@@ -4638,44 +4694,12 @@ class ReviewPipelineOrchestrator:
         )
 
         assert_verdict_invariants(all_findings)
-        findings_json_path = self.session_dir / "findings.json"
-        findings_json_path.write_text(payload_out.model_dump_json(indent=2), encoding="utf-8")
-
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
             subject=self.subject,
             personas=resolved_personas,
             findings=candidate_findings,
         )
-        (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
-            candidates.model_dump_json(indent=2), encoding="utf-8"
-        )
-
-        from devops_cli.security.normalization import NormalizedFinding
-        from devops_cli.security.sarif import write_sarif
-
-        sarif_findings: list[NormalizedFinding] = []
-        for af in getattr(self, "admitted_scanner_findings", []):
-            loc_tuple = tuple([{"name": af.logical_location}]) if af.logical_location else ()
-            sarif_findings.append(
-                NormalizedFinding(
-                    tool=af.tool,
-                    tool_version=af.tool_version,
-                    rule_id=af.rule_id,
-                    severity=af.severity,
-                    message=af.message,
-                    path=af.path,
-                    line=af.line,
-                    symbol=af.symbol,
-                    description=af.description,
-                    fix=af.fix,
-                    partial_fingerprints=dict(af.partial_fingerprints),
-                    rule_properties=dict(af.properties),
-                    baseline_state=af.baseline_state,
-                    logical_locations=loc_tuple,
-                )
-            )
-        write_sarif(sarif_findings, self.session_dir / CONST_REVIEW_SARIF_FILENAME)
 
         if profiler := active_profiler():
             profiler.set_findings(
@@ -4698,7 +4722,7 @@ class ReviewPipelineOrchestrator:
             candidate_findings=candidates.findings,
             symbol_delta_summary=symbol_delta,
         )
-        (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+        self._persist_session_artifacts(payload_out, candidates, report_md)
 
         self._render_console_errored_files_table(None)
         self._render_console_findings_table(None, reportable_findings)
