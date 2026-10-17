@@ -383,6 +383,7 @@ class TestSingleRetryLayerAndStatusRules:
             assert (
                 calls,
                 payloads[0].ai_scratchpad.get("stage"),
-            ) == (6, "reviewed")
+                payloads[0].ai_scratchpad.get("error"),
+            ) == (6, "reviewed", None)
         finally:
             close_shared_clients()
