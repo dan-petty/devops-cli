@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -73,6 +75,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up uv toolchain
@@ -119,6 +122,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       # IMAGE_CONTENT_PATHS mirrors everything that determines the published image: the
@@ -212,6 +216,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Image Content Changes
@@ -259,6 +264,9 @@ jobs:
           load: true
           push: false
           tags: devops-cli-service:local
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -303,6 +311,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -327,6 +337,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Changed Test Files
@@ -372,6 +383,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Changed Rule Pack Files

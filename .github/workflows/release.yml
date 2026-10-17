@@ -48,6 +48,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: true
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -160,6 +161,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -262,6 +265,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -319,6 +324,9 @@ jobs:
           load: true
           push: false
           tags: devops-cli-service:local
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -359,6 +367,9 @@ jobs:
           outputs: type=image,name=${{ env.SERVICE_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
