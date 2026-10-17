@@ -225,6 +225,54 @@ def test_a_chainer_hiding_a_plaintext_backend_is_rejected(monkeypatch: pytest.Mo
     assert _ensure_keyring_backend() is False
 
 
+def test_a_fake_backend_class_a_test_defines_is_not_left_for_later_tests() -> None:
+    """keyring registers every backend class and picks the highest-priority one when it next
+    detects a backend: a `FakeChainer` from the tests here, priority 10, became a later test's
+    keyring, whose writes failed on its stand-in member's missing `set_password`."""
+    import keyring.core
+    from keyring.backend import KeyringBackend
+
+    from tests.keyring_isolation import keyring_backends_restored
+
+    chosen = keyring.core._keyring_backend
+    with keyring_backends_restored():
+        fake = _chainer_of(type("EncryptedKeyring", (), {"priority": 5})())
+        keyring.core._keyring_backend = fake
+        during = type(fake) in KeyringBackend._classes
+    assert (
+        during,
+        type(fake) in KeyringBackend._classes,
+        keyring.core._keyring_backend is chosen,
+    ) == (True, False, True)
+
+
+def test_a_locked_backend_class_a_test_defines_is_no_viable_backend_after_it() -> None:
+    """A `ChainerBackend` asks `get_viable_backends()` for its members: a priority-1 test backend
+    raising `KeyringLocked` stayed one, and later settings reads warned that the keyring was
+    locked (#1601)."""
+    from keyring.backend import KeyringBackend
+    from keyring.errors import KeyringLocked
+
+    from tests.keyring_isolation import keyring_backends_restored
+
+    def locked(*_: object) -> None:
+        raise KeyringLocked("locked")
+
+    with keyring_backends_restored():
+        raising = type(
+            "Raising",
+            (KeyringBackend,),
+            {
+                "priority": 1,
+                "get_password": locked,
+                "set_password": locked,
+                "delete_password": locked,
+            },
+        )
+        during = raising in KeyringBackend.get_viable_backends()
+    assert (during, raising in KeyringBackend.get_viable_backends()) == (True, False)
+
+
 def test_a_chainer_of_encrypted_backends_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     """Rejecting every chainer would lock out hosts with two real keyrings installed."""
     import keyring
