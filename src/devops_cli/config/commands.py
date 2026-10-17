@@ -155,12 +155,20 @@ def build_kubelinter_cmd(target_path: Path | str) -> list[str]:
     return [BIN_KUBELINTER, "lint", str(target_path), "--format", "json"]
 
 
-def build_pluto_cmd(target_path: Path | str, binary_name: str = BIN_PLUTO) -> list[str]:
+def build_pluto_cmd(
+    target_path: Path | str,
+    binary_name: str = BIN_PLUTO,
+    target_versions: str | None = None,
+) -> list[str]:
     """Build a Pluto deprecated Kubernetes API scanner command."""
     p = Path(target_path)
     if p.is_file() or (not p.is_dir() and p.suffix.lower() in CONST_K8S_MANIFEST_EXTENSIONS):
-        return [binary_name, "detect", str(target_path), "-o", "json"]
-    return [binary_name, "detect-files", "-d", str(target_path), "-o", "json"]
+        cmd = [binary_name, "detect", str(target_path), "-o", "json"]
+    else:
+        cmd = [binary_name, "detect-files", "-d", str(target_path), "-o", "json"]
+    if target_versions:
+        cmd.extend(["--target-versions", target_versions])
+    return cmd
 
 
 def build_uv_audit_cmd() -> list[str]:

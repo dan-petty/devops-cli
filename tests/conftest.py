@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import errno
+import functools
 import ipaddress
+import json
 import os
 import socket
 import subprocess
@@ -482,6 +484,35 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.setattr(process, "_github_lookup_failure", None)
     yield PINNED_GITHUB_TOKEN
     drop_session()
+
+
+@functools.lru_cache(maxsize=1)
+def _load_recorded_canary_outputs() -> dict[str, Any]:
+    """Load recorded canary outputs once per worker process for offline test isolation."""
+    fixture_path = Path(__file__).parent / "fixtures" / "review_canary" / "recorded_outputs.json"
+    data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
+def _recorded_canary_subprocess(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Return the recorded canary output for `cmd` without spawning a real scanner binary."""
+    bin_name = Path(cmd[0]).name
+    tool_key = "mypy" if "-m" in cmd and "mypy" in cmd else bin_name
+    entry = _load_recorded_canary_outputs().get(tool_key, {})
+    out = entry.get("output", "") if isinstance(entry, dict) else ""
+    stdout_str = out if isinstance(out, str) else json.dumps(out)
+    return subprocess.CompletedProcess(cmd, 0, stdout_str, "")
+
+
+@pytest.fixture(autouse=True)
+def pin_review_tool_canaries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Feed review tool canaries recorded outputs and clear the canary cache between tests (#1143)."""
+    from devops_cli.review import canary as canary_module
+
+    canary_module.clear_canary_cache()
+    monkeypatch.setattr(canary_module, "run_subprocess", _recorded_canary_subprocess)
+    yield
+    canary_module.clear_canary_cache()
 
 
 def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:

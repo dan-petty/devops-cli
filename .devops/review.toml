@@ -1,3 +1,6 @@
+# Declared Kubernetes target version for Pluto API deprecation checks (#1143)
+kubernetes_version = "v1.37.1"
+
 # Review path classes configuration (#1047)
 [paths]
 src = ["src/**"]

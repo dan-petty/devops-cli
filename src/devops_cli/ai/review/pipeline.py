@@ -100,6 +100,7 @@ from devops_cli.config.commands import (
     BIN_TRIVY,
 )
 from devops_cli.config.constants import (
+    CONST_CANARY_TOOL_TO_ANALYZER,
     CONST_DEFAULT_REVIEW_ADVISORY_RULES,
     CONST_DEPENDENCY_SEVERITY_CLEAN,
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
@@ -635,6 +636,7 @@ def _admit_single_candidate(
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
+    canary_passed: bool = True,
     rejection_counts: dict[str, int] | None = None,
 ) -> tuple[Any | None, SavedFinding | None]:
     """Admit a single scanner finding candidate into a frozen finding (#871).
@@ -680,6 +682,7 @@ def _admit_single_candidate(
         suppressions=suppressions,
         added_diff_lines=added_diff_lines,
         base_fingerprints=base_fingerprints,
+        canary_passed=canary_passed,
         rejection_counts=rejection_counts,
     )
     if admitted is None:
@@ -703,6 +706,7 @@ def _admit_scanner_findings(
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
+    canary_results: Mapping[str, bool] | None = None,
     rejection_counts: dict[str, int] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
     """Admit static scanner candidates into frozen review findings (#871)."""
@@ -725,6 +729,12 @@ def _admit_scanner_findings(
     admitted_saved: list[SavedFinding] = []
 
     for idx, sf in enumerate(findings):
+        tool_name = str(getattr(sf, "_tool", None) or "scanner").lower()
+        tool_canary_ok = (
+            canary_results.get(tool_name, canary_results.get(str(getattr(sf, "_tool", "")), True))
+            if canary_results is not None
+            else True
+        )
         frozen, saved = _admit_single_candidate(
             sf,
             idx,
@@ -737,6 +747,7 @@ def _admit_scanner_findings(
             suppressions=suppressions,
             added_diff_lines=added_diff_lines,
             base_fingerprints=base_fingerprints,
+            canary_passed=tool_canary_ok,
             rejection_counts=rejection_counts,
         )
         if frozen is not None:
@@ -763,6 +774,10 @@ def _is_scannable_manifest(path: Path) -> bool:
 def _scan_kubernetes_manifests(
     yaml_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tree: Path | None = None,
+    kubernetes_version: str | None = None,
+    require_kubernetes_version: bool = False,
 ) -> list[SavedFinding]:
     """Scan Kubernetes YAML manifests with Kube-linter and Pluto.
 
@@ -780,7 +795,13 @@ def _scan_kubernetes_manifests(
         if kl:
             findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
 
-        pl = run_pluto_scan(yp, isolated=True)
+        pl = run_pluto_scan(
+            yp,
+            isolated=True,
+            tree=tree,
+            kubernetes_version=kubernetes_version,
+            require_version=require_kubernetes_version,
+        )
         _observe_outcome(outcomes, "Pluto", pl)
         if pl:
             findings.extend(_wrap_static_findings(pl, tool="pluto"))
@@ -1321,6 +1342,8 @@ def _static_analyzer_state_from_outcome(outcome: Any) -> str:
         return ANALYZER_NOT_INSTALLED
     if status == "failed":
         return ANALYZER_FAILED
+    if status == "coverage_gap":
+        return "coverage_gap"
     if status in ("not_applicable", "no files"):
         return ANALYZER_NO_FILES
     if status == "dry-run":
@@ -1362,7 +1385,7 @@ def _static_analyzer_reasons(
     reasons: dict[str, str] = {}
     for name, state in states.items():
         reason = getattr(outcomes.get(name), "reason", "")
-        if state == ANALYZER_FAILED and reason:
+        if state in (ANALYZER_FAILED, "coverage_gap") and reason:
             reasons[name] = str(reason)
     return reasons
 
@@ -1555,7 +1578,8 @@ def _observe_outcome(outcomes: dict[str, Any] | None, name: str, outcome: Any) -
     """Keep an analyzer's outcome for the report, its first or a failed one, and add the time
     the scan ran to the review's profile."""
     if outcomes is not None and (
-        name not in outcomes or getattr(outcome, "status", None) == ANALYZER_FAILED
+        name not in outcomes
+        or getattr(outcome, "status", None) in (ANALYZER_FAILED, "coverage_gap")
     ):
         outcomes[name] = outcome
     seconds = _run_seconds(outcome)
@@ -1564,15 +1588,22 @@ def _observe_outcome(outcomes: dict[str, Any] | None, name: str, outcome: Any) -
 
 
 def _call_scanner_helper(
-    func: Any, paths: list[Path], outcomes: dict[str, Any]
+    func: Any,
+    paths: list[Path],
+    outcomes: dict[str, Any],
+    **kwargs: Any,
 ) -> list[SavedFinding]:
-    """Invoke scanner helper with outcomes dict if supported by callable signature."""
+    """Invoke scanner helper with outcomes dict and optional keyword arguments."""
     try:
         sig = inspect.signature(func)
-        if "outcomes" in sig.parameters or any(
+        accepts_var_kw = any(
             p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        ):
-            res = func(paths, outcomes=outcomes)
+        )
+        supported_kw = (
+            kwargs if accepts_var_kw else {k: v for k, v in kwargs.items() if k in sig.parameters}
+        )
+        if "outcomes" in sig.parameters or accepts_var_kw:
+            res = func(paths, outcomes=outcomes, **supported_kw)
             return list(res) if isinstance(res, list) else []
     except ValueError, TypeError:
         pass
@@ -2076,11 +2107,30 @@ def _classify_scanner_files(
     )
 
 
+def _tool_language_version(tool: str, tree: Path, kubernetes_version: str | None) -> str:
+    """Resolve declared language or platform version for `tool` in `tree`."""
+    from devops_cli.review.canary import (
+        resolve_mypy_python_version,
+        resolve_ruff_target_version,
+    )
+
+    norm = tool.lower()
+    if norm == "ruff":
+        return resolve_ruff_target_version(tree) or ""
+    if norm == "mypy":
+        return resolve_mypy_python_version(tree) or ""
+    if norm == "pluto":
+        return kubernetes_version or ""
+    return ""
+
+
 def _run_scanners_for_buckets(
     buckets: ScannerFileBuckets,
     *,
     tree: Path | None = None,
     observed_outcomes: dict[str, Any] | None = None,
+    kubernetes_version: str | None = None,
+    require_kubernetes_version: bool = False,
 ) -> list[SavedFinding]:
     """Execute Bandit, Kube-linter/Pluto, Trivy, Gitleaks, and Semgrep scanners (#871)."""
     from devops_cli.security.bandit import run_bandit_scan
@@ -2094,7 +2144,16 @@ def _run_scanners_for_buckets(
         findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
 
     if buckets.yaml:
-        findings.extend(_call_scanner_helper(_scan_kubernetes_manifests, buckets.yaml, outcomes))
+        findings.extend(
+            _call_scanner_helper(
+                _scan_kubernetes_manifests,
+                buckets.yaml,
+                outcomes,
+                tree=tree,
+                kubernetes_version=kubernetes_version,
+                require_kubernetes_version=require_kubernetes_version,
+            )
+        )
 
     if buckets.container:
         findings.extend(
@@ -2380,9 +2439,16 @@ class ReviewPipelineOrchestrator:
         # The review.toml the path classes come from: its suppressions, the most severe a
         # scanner finding in each path class is admitted as (#871, #1301), and the advisory
         # rules and complexity limits for the ruff and mypy evidence (#873).
+        from devops_cli.review.canary import resolve_review_kubernetes_version
+
         review_config = load_review_config(base_revision, repo_root)
         self.suppressions: list[Any] = load_review_suppressions(review_config)
         self.severity_caps: dict[str, str] = load_severity_caps(review_config)
+        self.kubernetes_version: str | None = resolve_review_kubernetes_version(
+            review_config, tree=reviewed_tree(target_dir)
+        )
+        self.canary_results: dict[str, bool] = {}
+        self.rejection_counts: dict[str, int] = {}
         self.complexity_deltas: list[dict[str, Any]] = []
         self.advisory_rules: list[str]
         self.complexity_cap: int
@@ -2392,6 +2458,27 @@ class ReviewPipelineOrchestrator:
         )
         self._conventions_by_dir: dict[Path, str] = {}
         self.personas: list[str] = []
+
+    def _ensure_tool_canaries(self, tools: Sequence[str]) -> None:
+        """Run or read cached canary results for active review tools (#1143)."""
+        from devops_cli.dry_run.state import is_dry_run
+        from devops_cli.review.canary import get_canary_cache, run_tool_canary
+
+        tree = reviewed_tree(self.target_dir)
+        cached_by_tool = {k.tool: v.passed for k, v in get_canary_cache().items()}
+        for tool in tools:
+            norm = tool.lower()
+            if norm in self.canary_results:
+                continue
+            if norm in cached_by_tool:
+                self.canary_results[norm] = cached_by_tool[norm]
+                continue
+            if is_dry_run():
+                self.canary_results[norm] = True
+                continue
+            lang_ver = _tool_language_version(norm, tree, self.kubernetes_version)
+            res = run_tool_canary(norm, language_version=lang_ver)
+            self.canary_results[norm] = res.passed
 
     def _resolve_file_path(self, fpath: str) -> Path:
         """Resolve fpath to an existing file within target_dir or its repository, never outside.
@@ -2590,11 +2677,21 @@ class ReviewPipelineOrchestrator:
                 yaml_paths = buckets.yaml
                 docker_lock_paths = buckets.container
 
+                self._ensure_tool_canaries(
+                    [
+                        *(("bandit",) if py_paths else ()),
+                        *(("kube-linter", "pluto") if yaml_paths else ()),
+                        *(("semgrep",) if buckets.any_files else ()),
+                    ]
+                )
+
                 all_static_findings.extend(
                     _run_scanners_for_buckets(
                         buckets,
                         tree=reviewed_tree(self.target_dir),
                         observed_outcomes=observed_outcomes,
+                        kubernetes_version=self.kubernetes_version,
+                        require_kubernetes_version=True,
                     )
                 )
 
@@ -2612,7 +2709,6 @@ class ReviewPipelineOrchestrator:
                     if added_diff_lines is not None
                     else getattr(self, "added_diff_lines", None)
                 )
-                rejections: dict[str, int] = {}
                 admitted_frozen, admitted_saved = _admit_scanner_findings(
                     all_static_findings,
                     session_id=self.session_id,
@@ -2625,7 +2721,8 @@ class ReviewPipelineOrchestrator:
                     suppressions=getattr(self, "suppressions", None),
                     added_diff_lines=eff_added,
                     base_fingerprints=getattr(self, "base_fingerprints", None),
-                    rejection_counts=rejections,
+                    canary_results=self.canary_results,
+                    rejection_counts=self.rejection_counts,
                 )
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
@@ -2650,7 +2747,7 @@ class ReviewPipelineOrchestrator:
                 active_prof = active_profiler()
                 if active_prof:
                     active_prof.set_coverage(self.coverage)
-                    active_prof.set_rejections(rejections)
+                    active_prof.set_rejections(self.rejection_counts)
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, [*file_paths, *self.secret_scan_files]
@@ -2692,6 +2789,8 @@ class ReviewPipelineOrchestrator:
             if not py_paths:
                 return evidence_findings_by_file
 
+            self._ensure_tool_canaries(("ruff", "mypy"))
+            rev_tree = reviewed_tree(self.target_dir)
             checkout_root = main_worktree_root(self.target_dir) if self.target_dir else None
             is_branch_pr = self.subject.get("type") in ("branch", "pr")
             hunks = getattr(self, "diff_hunks", None)
@@ -2701,12 +2800,14 @@ class ReviewPipelineOrchestrator:
                 diff_hunks=hunks,
                 is_branch_or_pr=is_branch_pr,
                 isolated=True,
+                tree=rev_tree,
+                require_version=True,
             )
             all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
 
             mypy_res = run_mypy_scan(
                 py_paths,
-                tree=reviewed_tree(self.target_dir),
+                tree=rev_tree,
                 checkout_root=checkout_root,
             )
             all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
@@ -2727,11 +2828,10 @@ class ReviewPipelineOrchestrator:
                 if added_diff_lines is not None
                 else getattr(self, "added_diff_lines", None)
             )
-            rejections: dict[str, int] = {}
             admitted_frozen, admitted_saved = _admit_scanner_findings(
                 all_evidence,
                 session_id=self.session_id,
-                worktree_root=reviewed_tree(self.target_dir),
+                worktree_root=rev_tree,
                 file_paths=file_paths,
                 secret_scan_files=self.secret_scan_files,
                 resolve_file_path=self._resolve_file_path,
@@ -2739,7 +2839,8 @@ class ReviewPipelineOrchestrator:
                 suppressions=getattr(self, "suppressions", None),
                 added_diff_lines=eff_added,
                 base_fingerprints=getattr(self, "base_fingerprints", None),
-                rejection_counts=rejections,
+                canary_results=self.canary_results,
+                rejection_counts=self.rejection_counts,
             )
             self.admitted_scanner_findings.extend(admitted_frozen)
             evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
@@ -2758,6 +2859,12 @@ class ReviewPipelineOrchestrator:
         self.static_analyzer_reasons = _static_analyzer_reasons(
             self.static_analyzers, observed_outcomes
         )
+        for tool_key, analyzer_name in CONST_CANARY_TOOL_TO_ANALYZER.items():
+            if self.canary_results.get(tool_key) is False and self.static_analyzers.get(
+                analyzer_name
+            ) in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS):
+                self.static_analyzers[analyzer_name] = ANALYZER_FAILED
+                self.static_analyzer_reasons[analyzer_name] = "canary failed"
         if profiler := active_profiler():
             profiler.set_static_analyzers(self.static_analyzers, self.static_analyzer_reasons)
 
