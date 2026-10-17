@@ -312,6 +312,23 @@ def test_every_remote_action_is_pinned_to_a_commit_sha() -> None:
     assert unpinned == []
 
 
+def test_every_checkout_states_its_credentials_and_only_a_pushing_job_keeps_them() -> None:
+    """actions/checkout leaves the job's token in `.git/config` unless told not to, where any later
+    step, or an uploaded artifact, can read it (zizmor's artipacked). Only a job that runs
+    `git push` keeps it."""
+    checkouts = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.y*ml")):
+        for job_id, job in _load_workflow(path).get("jobs", {}).items():
+            steps = job.get("steps", [])
+            pushes = any(re.search(r"\bgit\s+push\b", str(s.get("run", ""))) for s in steps)
+            checkouts += [
+                (f"{path.name}:{job_id}", step.get("with", {}).get("persist-credentials"), pushes)
+                for step in steps
+                if str(step.get("uses", "")).startswith("actions/checkout@")
+            ]
+    assert [(where, kept) for where, kept, pushes in checkouts if kept is not pushes] == []
+
+
 def test_sdlc_names_only_the_supply_chain_controls_the_repository_runs() -> None:
     """SDLC.md once claimed weekly Dependabot audits, pip-audit and SLSA Level 3, none of which
     the repository had; the audit and the workflow gate it names are the checks `devops ci`

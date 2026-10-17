@@ -1,0 +1,9 @@
+# zizmor configuration (#861, #1608). `devops scan workflows` fails on template-injection,
+# unpinned-uses and excessive-permissions; every other audit's findings are published to code
+# scanning by `devops scan report`.
+rules:
+  # zizmor asks for GitHub's `$/<path>` syntax for this repository's own actions, but actionlint
+  # 1.7.12, the `devops ci` actionlint check, rejects it ("ref is missing"). Re-enable this audit
+  # once the pinned actionlint accepts `$/`.
+  self-repository:
+    disable: true

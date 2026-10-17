@@ -23,7 +23,7 @@ RUN tar -xzf "/tmp/gh_${TARGETARCH}.tar.gz" -C /tmp && \
     install -m 755 "/tmp/gh_2.102.0_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 
-FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
+FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS service
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \
