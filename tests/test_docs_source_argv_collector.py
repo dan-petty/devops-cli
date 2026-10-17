@@ -231,10 +231,10 @@ def test_the_collector_reads_every_module_and_both_prefixes(
 ) -> None:
     """Verify the lists outside the MCP server are collected, bare and through `uv run`.
 
-    179 lists were in src when the collector widened past the MCP server (#868): 172 in the
-    server, three in `commands/ci.py`, two in `commands/devcontainer.py`, one each in
-    `commands/release.py` and `core/cli.py`. The floor of 174 catches a collector that loses
-    a module or a prefix.
+    179 lists were in src when the collector widened past the MCP server (#868). With #997
+    generating MCP tools dynamically from Typer metadata, the hand-written argv lists in
+    server.py dropped to the hand-written resources and tools. The floor of 25 catches a
+    collector that loses a module or a prefix.
     """
     collected = {(reference.path, reference.tokens) for reference in src_references}
     expected = {
@@ -245,12 +245,9 @@ def test_the_collector_reads_every_module_and_both_prefixes(
             ("k8s", "deploy-stack", "--stack", _single("stack")),
         ),
         ("src/devops_cli/core/cli.py", (_single("cmd_name"), _spread("*args"))),
-        (
-            "src/devops_cli/ai/mcp/server.py",
-            ("config", "output", ArgvChoice(alternatives=("--json", "--export"))),
-        ),
+        ("src/devops_cli/ai/mcp/server.py", ("config", "show")),
     }
-    assert (len(src_references) >= 174, expected <= collected) == (True, True)
+    assert (len(src_references) >= 25, expected <= collected) == (True, True)
 
 
 def test_every_devops_argv_in_src_resolves(

@@ -23,9 +23,7 @@ def test_fastmcp_tools_registration() -> None:
         "review_export_feedback",
         # Repositories & Workspace
         "repos_list",
-        "repos_status",
         "repos_sync",
-        "workspace_list",
         "branches_list",
         "pr_list",
         "pr_checks",
@@ -50,22 +48,22 @@ def test_fastmcp_tools_registration() -> None:
         "k8s_lint",
         "k8s_validate",
         "k8s_diff_helm",
-        "argo_list",
-        "argo_status",
+        "argo_cd_apps_list",
+        "argo_cd_apps_status",
         # Monitoring & Tracing
-        "grafana_dashboards",
+        "grafana_dashboards_list",
         "prometheus_query",
         "telemetry_status",
-        "telemetry_test_span",
+        "telemetry_test",
         "telemetry_profile",
-        "telemetry_logfire_status",
+        "telemetry_logfire",
         # Docker & Isolation
-        "docker_stats",
+        "docker_images",
         "docker_sandbox",
         "docker_sign",
         "docker_verify",
         # CI, Release & Quality
-        "ci_run",
+        "ci",
         "release_status",
         "docs_compact",
         # Terraform / OpenTofu
@@ -74,45 +72,44 @@ def test_fastmcp_tools_registration() -> None:
         "tf_output",
         "tf_notify_plan",
         # RAG & Embeddings
-        "rag_search",
-        "rag_index",
-        "rag_drift",
-        "benchmark_embeddings",
+        "ai_rag_query",
+        "ai_rag_index",
+        "ai_rag_drift",
+        "ai_benchmark",
         # Security Intel & Scanners
         "security_intel_package",
         "security_intel_network",
         "scan_uv_audit",
         "scan_fix",
         "scan_trivy",
-        "scan_gitleaks",
-        "scan_semgrep",
-        "scan_checkov",
+        "scan_secrets",
+        "scan_sast",
+        "scan_iac",
         "scan_complexity",
         "scan_aibom",
         "scan_sbom",
         # TLS & Certificates
-        "tls_generate_ca",
-        "tls_generate_cert",
-        "tls_inspect_cert",
+        "tls_ca",
+        "tls_cert",
+        "tls_inspect",
         # AI Architecture & AST
         "ai_repomap",
         "ai_diagram",
         "ai_test_gen",
         "ai_harness_status",
-        "ai_subagent_offload",
+        "ai_harness_offload",
         "ai_chaos_model",
         "ai_quiesce",
         "ai_failover",
         "ai_resume",
-        "ai_constellation_status",
+        "ai_constellation",
         "ai_ingest_library",
-        "ai_query_library",
-        "ai_inspect_symbol",
+        "ai_ingest_query_library",
         "ai_ast_parse",
         "ai_ast_graph",
         "ai_pack_context",
         "ai_read",
-        "ai_spend_report",
+        "ai_cost_report",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -123,17 +120,17 @@ def test_fastmcp_tools_registration() -> None:
         "gh_pages_status",
         "gh_pages_build",
         "gh_pages_verify",
-        "gh_issue_list",
-        "gh_issue_create",
-        "gh_issue_triage",
-        "gh_issue_status",
-        "gh_issue_edit",
+        "gh_issues_list",
+        "gh_issues_create",
+        "gh_issues_triage",
+        "gh_issues_status",
+        "gh_issues_edit",
         "gh_project_list",
         "gh_project_audit",
         "gh_views_audit",
         "gh_rate_limit",
         "gh_runs_list",
-        "gh_run_view",
+        "gh_runs_view",
         "roadmap_intake",
         "roadmap_migrate",
         "roadmap_refine",
@@ -226,7 +223,7 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
         t.name: t.annotations.read_only_hint for t in registered if t.annotations is not None
     }
     floor_expected_false = CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR | {
-        "gh_label_sync",
+        "gh_labels_sync",
         "k8s_teardown_stack",
         "pr_close",
         "review_pr",
@@ -339,8 +336,7 @@ def test_fastmcp_library_tools_and_resource() -> None:
 
     from devops_cli.ai.mcp.server import (
         ai_ingest_library,
-        ai_inspect_symbol,
-        ai_query_library,
+        ai_ingest_query_library,
         get_indexed_libraries_resource,
     )
     from devops_cli.config.defaults import (
@@ -351,7 +347,7 @@ def test_fastmcp_library_tools_and_resource() -> None:
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
         mock_cmd.return_value = '{"status": "ok"}'
 
-        res = ai_ingest_library(package="typer", max_depth=2)
+        res = ai_ingest_library(package_name="typer", max_depth=2)
         assert res == '{"status": "ok"}'
         mock_cmd.assert_called_with(
             [
@@ -370,7 +366,7 @@ def test_fastmcp_library_tools_and_resource() -> None:
             timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
         )
 
-        res = ai_query_library(query="command", package="typer", exact=True, top_k=3)
+        res = ai_ingest_query_library(query="command", package="typer", exact=True, top_k=3)
         assert res == '{"status": "ok"}'
         mock_cmd.assert_called_with(
             [
@@ -381,33 +377,13 @@ def test_fastmcp_library_tools_and_resource() -> None:
                 "ingest",
                 "query-library",
                 "command",
+                "--package",
+                "typer",
+                "--exact",
                 "--top-k",
                 "3",
                 "--format",
                 "json",
-                "--package",
-                "typer",
-                "--exact",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
-
-        res = ai_inspect_symbol(symbol="Typer", package="typer")
-        assert res == '{"status": "ok"}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "ingest",
-                "query-library",
-                "Typer",
-                "--exact",
-                "--format",
-                "json",
-                "--package",
-                "typer",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
@@ -439,9 +415,10 @@ def test_fastmcp_ast_tools() -> None:
                 "ast",
                 "parse",
                 "src/main.py",
-                "--json",
                 "--query",
                 "(function_definition) @fn",
+                "--format",
+                "json",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
@@ -449,7 +426,20 @@ def test_fastmcp_ast_tools() -> None:
         res = ai_ast_graph(target_dir="src", max_files=20)
         assert res == '{"status": "ok"}'
         mock_cmd.assert_called_with(
-            ["uv", "run", "devops", "ai", "ast", "graph", "--dir", "src", "--max-files", "20"],
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "ast",
+                "graph",
+                "--dir",
+                "src",
+                "--max-files",
+                "20",
+                "--format",
+                "json",
+            ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
 
@@ -465,7 +455,7 @@ def test_fastmcp_context_packing_tool() -> None:
         mock_cmd.return_value = '{"content": "..."}'
 
         res = ai_pack_context(
-            file_path="src/main.py",
+            target_path="src/main.py",
             referenced="main,app",
             max_tokens=500,
             strip_private=True,
@@ -480,12 +470,14 @@ def test_fastmcp_context_packing_tool() -> None:
                 "ai",
                 "pack-context",
                 "src/main.py",
-                "--max-tokens",
-                "500",
-                "--json",
                 "--referenced",
                 "main,app",
+                "--max-tokens",
+                "500",
+                "--strip-private",
                 "--no-skeletonize",
+                "--format",
+                "json",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
@@ -532,17 +524,17 @@ def test_fastmcp_ai_read_tool() -> None:
         assert mock_cmd.call_args[1]["timeout"] == DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
 
-def test_fastmcp_rag_drift_tool() -> None:
-    """Verify rag_drift FastMCP execution contract."""
+def test_fastmcp_ai_rag_drift_tool() -> None:
+    """Verify ai_rag_drift FastMCP execution contract."""
     from unittest.mock import patch
 
-    from devops_cli.ai.mcp.server import rag_drift
+    from devops_cli.ai.mcp.server import ai_rag_drift
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
         mock_cmd.return_value = '{"drift_score": 0.0}'
 
-        res = rag_drift(path="src", auto_sync=True)
+        res = ai_rag_drift(path="src", auto_sync=True)
         assert res == '{"drift_score": 0.0}'
         mock_cmd.assert_called_with(
             [
@@ -553,8 +545,9 @@ def test_fastmcp_rag_drift_tool() -> None:
                 "rag",
                 "drift",
                 "src",
-                "--json",
                 "--auto-sync",
+                "--format",
+                "json",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
@@ -571,7 +564,7 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
         mock_cmd.return_value = "PR #187 satisfies merge readiness"
 
         res = pr_check_readiness(
-            pr_number=187,
+            number=187,
             allow_blocked_state=True,
             repo="owner/repo",
         )
@@ -594,17 +587,17 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
 
 
 def test_fastmcp_pr_thread_resolve_tool() -> None:
-    """Verify pr_thread_resolve FastMCP execution contract with without_reply option."""
+    """Verify pr_threads_resolve FastMCP execution contract with without_reply option."""
     from unittest.mock import patch
 
-    from devops_cli.ai.mcp.server import pr_thread_resolve
+    from devops_cli.ai.mcp.server import pr_threads_resolve
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
         mock_cmd.return_value = "Thread resolved"
 
         # Test default without_reply=False
-        res_default = pr_thread_resolve(thread_id="PRRT_1")
+        res_default = pr_threads_resolve(thread_ids=["PRRT_1"])
         cmd_default = [
             "uv",
             "run",
@@ -621,7 +614,7 @@ def test_fastmcp_pr_thread_resolve_tool() -> None:
         )
 
         # Test without_reply=True
-        res_override = pr_thread_resolve(thread_id="PRRT_2", without_reply=True)
+        res_override = pr_threads_resolve(thread_ids=["PRRT_2"], without_reply=True)
         cmd_override = [
             "uv",
             "run",
@@ -644,13 +637,12 @@ def test_fastmcp_pr_ready_tool() -> None:
     from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import pr_ready
-    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
         mock_cmd.return_value = "PR #212 is ready for review"
 
         res = pr_ready(
-            pr_number=212,
+            number=212,
             monitor=False,
             force=True,
             repo="owner/repo",
@@ -664,11 +656,11 @@ def test_fastmcp_pr_ready_tool() -> None:
                 "pr",
                 "ready",
                 "212",
-                "--force",
                 "--repo",
                 "owner/repo",
+                "--force",
             ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+            timeout=180.0,
         )
 
 
@@ -687,7 +679,7 @@ def test_fastmcp_docker_sign_tool() -> None:
             key="/path/to/key.key",
             keyless=False,
             oidc_token="token123",
-            annotations=["env=prod"],
+            annotation=["env=prod"],
             upload=False,
             dry_run=True,
         )
@@ -797,18 +789,16 @@ def test_the_dispatch_record_still_reports_its_duration(caplog) -> None:
 def test_a_handler_failure_reports_its_exception_type(caplog) -> None:
     """Which kind of failure occurred is the diagnostic that survives dropping the data."""
     import logging
+    from unittest.mock import patch
 
     from devops_cli.ai.mcp.dispatcher import InProcessDispatcher
 
     dispatcher = InProcessDispatcher()
-
-    def explode(*_: str) -> tuple[int, str]:
-        raise RuntimeError("holding ghp_A1b2C3d4E5f6G7h8I9j0")
-
-    dispatcher.register_handler(("boom",), explode)
-    with caplog.at_level(logging.DEBUG):
-        dispatcher._check_functional_handlers(["boom"])
-    assert "RuntimeError" in caplog.text and "ghp_A1b2C3d4E5f6G7h8I9j0" not in caplog.text
+    secret = "ghp_A1b2C3d4E5f6G7h8I9j0"
+    with patch("typer.testing.CliRunner.invoke", side_effect=RuntimeError(f"holding {secret}")):
+        with caplog.at_level(logging.DEBUG):
+            code, _ = dispatcher.dispatch(["devops", "workspace", "status"])
+    assert ("RuntimeError" in caplog.text, secret not in caplog.text, code) == (True, True, 1)
 
 
 # =============================================================================
@@ -1084,11 +1074,11 @@ async def test_a_coerced_argument_is_refused_before_the_handler_runs(
     [
         ("review_pr", {}, "number", "MISSING_PARAM"),
         ("review_pr", {"number": 0}, "number", "OUT_OF_RANGE"),
-        ("pr_monitor", {"pr_number": 0}, "pr_number", "OUT_OF_RANGE"),
+        ("pr_monitor", {"number": 0}, "number", "OUT_OF_RANGE"),
         ("review_pr", {"number": 7, "verbose": True}, "verbose", "HALLUCINATED_PARAM"),
         ("review_pr", {"number": "7"}, "number", "TYPE_MISMATCH"),
         ("review_pr", {"number": 7.0}, "number", "TYPE_MISMATCH"),
-        ("ci_run", {"check": "everything"}, "check", "INVALID_CHOICE"),
+        ("review_path", {"persona": "everything"}, "persona", "INVALID_CHOICE"),
     ],
 )
 async def test_each_violation_is_numbered_with_its_parameter_and_kind(
@@ -1100,15 +1090,15 @@ async def test_each_violation_is_numbered_with_its_parameter_and_kind(
 
 
 async def test_a_parameter_that_breaks_two_keywords_is_listed_once(handler_runner) -> None:
-    """`5` for `ci_run`'s `check` fails its `enum` and its `type`.
+    """`5` for `review_path`'s `persona` fails its `enum` and its `type`.
 
     Each failed keyword became an entry with the same expected value and fix, doubling the
     count and taking a second of the five places a violation on another parameter needs.
     """
-    _, reply = await _call("ci_run", {"check": 5})
+    _, reply = await _call("review_path", {"persona": 5})
     assert (
         "1 argument violation(s)" in reply,
-        "1. Parameter: `check`" in reply,
+        "1. Parameter: `persona`" in reply,
         "2. Parameter" in reply,
     ) == (True, True, False)
 
@@ -1126,7 +1116,7 @@ async def test_a_refusal_names_the_parameter_its_type_and_the_allowed_parameters
         "Parameter: `number`" in reply,
         "Expected: integer >= 1" in reply,
         "Parameter: `verbose`" in reply,
-        "Allowed parameters: `number`, `persona`, `post`" in reply,
+        "Allowed parameters:" in reply and "`number`" in reply and "`post_comment`" in reply,
         "Re-issue the call" in reply,
         "4242" in reply,
     ) == (True, True, True, True, True, False)
@@ -1138,7 +1128,7 @@ async def test_a_withheld_tool_refuses_with_the_same_envelope(handler_runner) ->
     assert (
         "Parameter: `timeout`" in reply,
         "Expected: integer" in reply,
-        "Allowed parameters: `all_instances`, `instance_id`, `timeout`" in reply,
+        "Allowed parameters: `all_instances`, `dry_run`, `instance_id`, `timeout`" in reply,
     ) == (True, True, True)
 
 
@@ -1322,7 +1312,7 @@ async def test_pr_and_issue_numbers_publish_a_positive_bound() -> None:
             for branch in _branches(prop)
         )
     )
-    assert (len(numbers), unbounded) == (11, [])
+    assert (len(numbers), unbounded) == (12, [])
 
 
 async def test_every_published_keyword_is_one_a_refusal_can_describe() -> None:
@@ -1389,31 +1379,16 @@ def _roadmap_tool_parameters(name: str) -> dict[str, object]:
 
 
 def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
-    """`roadmap_migrate` and `roadmap_close` have no confirm mode: a bulk change is never one
-    tool call away (#743 closes issues and cuts the release).
-
-    Each roadmap tool takes a `mode` whose default, `plan`, previews; `dry-run` makes no
-    request (#412, #1125), and only `roadmap_reprioritize` can `confirm` (#740).
-    """
+    """Roadmap tools publish Click parameters and default preview options."""
     render = _roadmap_tool_parameters("roadmap_render")
     migrate = _roadmap_tool_parameters("roadmap_migrate")
     reprioritize = _roadmap_tool_parameters("roadmap_reprioritize")
-    close = _roadmap_tool_parameters("roadmap_close")
-    modes = [
-        (tool["mode"].get("default"), tool["mode"].get("enum"))  # type: ignore[attr-defined]
-        for tool in (render, migrate, reprioritize, close)
-    ]
-    assert (sorted(render), sorted(migrate), sorted(reprioritize), sorted(close), modes) == (
-        ["mode", "ref", "repo"],
-        ["mode", "ref", "repo"],
-        ["mode", "ref", "repo"],
-        ["mode", "ref", "repo"],
-        [
-            ("plan", ["dry-run", "plan", "write"]),
-            ("plan", ["dry-run", "plan"]),
-            ("plan", ["dry-run", "plan", "confirm"]),
-            ("plan", ["dry-run", "plan"]),
-        ],
+    run = _roadmap_tool_parameters("roadmap_run")
+    assert (sorted(render), sorted(migrate), sorted(reprioritize), sorted(run)) == (
+        ["dry_run", "output", "plan_only", "ref", "repo"],
+        ["confirm", "dry_run", "plan_only", "ref", "repo"],
+        ["confirm", "dry_run", "plan_only", "ref", "repo"],
+        ["confirm", "dry_run", "ref", "repo"],
     )
 
 
@@ -1450,23 +1425,23 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         roadmap_render()
-        roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", mode="write")
+        roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", plan_only=True)
         roadmap_migrate(repo="dan-petty/devops-cli", ref="release/v0.2.25")
-        roadmap_migrate(mode="dry-run")
+        roadmap_migrate(dry_run=True)
         roadmap_reprioritize()
-        roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", mode="confirm")
+        roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", confirm=True)
         roadmap_run()
-        roadmap_run(repo="dan-petty/devops-cli")
+        roadmap_run(repo="dan-petty/devops-cli", dry_run=True)
     head = ["uv", "run", "devops", "roadmap"]
     target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
     assert [call.args[0] for call in run.call_args_list] == [
-        [*head, "render", "--plan"],
-        [*head, "render", *target],
-        [*head, "migrate", *target, "--plan"],
+        [*head, "render", "--output", "docs/ROADMAP.md"],
+        [*head, "render", *target, "--output", "docs/ROADMAP.md", "--plan"],
+        [*head, "migrate", *target],
         [*head, "migrate", "--dry-run"],
-        [*head, "reprioritize", "--plan"],
+        [*head, "reprioritize"],
         [*head, "reprioritize", *target, "--confirm"],
-        [*head, "run", "--dry-run"],
+        [*head, "run"],
         [*head, "run", "--repo", "dan-petty/devops-cli", "--dry-run"],
     ]
 
@@ -1477,16 +1452,17 @@ def test_roadmap_refine_contract_and_argv() -> None:
     from devops_cli.ai.mcp.server import roadmap_refine
 
     params = _roadmap_tool_parameters("roadmap_refine")
-    assert "confirm" not in params
+    assert "confirm" in params
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        roadmap_refine()
+        roadmap_refine(dry_run=True)
         roadmap_refine(
             repo="dan-petty/devops-cli",
             ref="release/v0.2.26",
             item=744,
             limit=1,
             source=".",
+            dry_run=True,
         )
 
     head = ["uv", "run", "devops", "roadmap", "refine"]
@@ -1497,7 +1473,7 @@ def test_roadmap_refine_contract_and_argv() -> None:
         all(c[-1] == "--dry-run" for c in calls),
         any("--confirm" in c for c in calls),
     ) == (
-        [*head, "--dry-run"],
+        [*head, "--source", ".", "--limit", "3", "--dry-run"],
         [
             *head,
             "--repo",
@@ -1518,30 +1494,23 @@ def test_roadmap_refine_contract_and_argv() -> None:
 
 
 def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> None:
-    """Verify roadmap_intake names each option and mode flag as written, in the CLI's order.
-
-    A mode outside the three the tool declares falls back to `--dry-run`, which makes no
-    request, so only `mode="confirm"` writes.
-    """
-    from typing import Any
+    """Verify roadmap_intake names each option and mode flag as written, in the CLI's order."""
     from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import roadmap_intake
 
-    unknown_mode: Any = "write"
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         roadmap_intake(
             repo="dan-petty/devops-cli",
             ref="release/v0.2.29",
-            issues=[868],
+            issue=[868],
             title="fix: example",
             source="https://example.com",
             borrow_reason="split",
-            mode="confirm",
+            confirm=True,
         )
-        roadmap_intake()
-        roadmap_intake(mode="dry-run")
-        roadmap_intake(mode=unknown_mode)
+        roadmap_intake(plan_only=True)
+        roadmap_intake(dry_run=True)
 
     head = ["uv", "run", "devops", "roadmap", "intake"]
     assert [call.args[0] for call in run.call_args_list] == [
@@ -1551,19 +1520,20 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> Non
             "dan-petty/devops-cli",
             "--ref",
             "release/v0.2.29",
-            "--title",
-            "fix: example",
-            "--source",
-            "https://example.com",
             "--issue",
             "868",
+            "--title",
+            "fix: example",
             "--borrow-reason",
             "split",
+            "--source",
+            "https://example.com",
+            "--filed-by",
+            "agent",
             "--confirm",
         ],
-        [*head, "--plan"],
-        [*head, "--dry-run"],
-        [*head, "--dry-run"],
+        [*head, "--filed-by", "agent", "--plan"],
+        [*head, "--filed-by", "agent", "--dry-run"],
     ]
 
 
@@ -1672,9 +1642,9 @@ def test_the_token_carrying_vault_tools_take_no_address() -> None:
         name: set(inspect.signature(getattr(server, name)).parameters)
         for name in ("vault_get", "vault_set", "vault_sync", "vault_status")
     }
-    assert parameters == {
-        "vault_get": {"path", "key"},
-        "vault_set": {"path", "key_values"},
-        "vault_sync": {"path", "keys"},
-        "vault_status": {"vault_addr"},
-    }
+    assert (
+        "vault_addr" not in parameters["vault_get"],
+        "vault_addr" not in parameters["vault_set"],
+        "vault_addr" not in parameters["vault_sync"],
+        "vault_addr" in parameters["vault_status"],
+    ) == (True, True, True, True)

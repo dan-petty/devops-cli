@@ -135,7 +135,7 @@ def test_get_default_tools_includes_mcp() -> None:
     assert "k8s_tempo_status" in tool_names
     assert "scan_osv" in tool_names
     assert "check_threat_intel" in tool_names
-    assert "ci_run" in tool_names
+    assert "ci" in tool_names
 
 
 def test_get_persona_tools_selection() -> None:
@@ -155,12 +155,12 @@ def test_get_persona_tools_selection() -> None:
     assert "argo_apps" in arch_tools
 
     qa_tools = [t.__name__ for t in get_persona_tools(Persona.QA)]
-    assert "ci_run" in qa_tools
+    assert "ci" in qa_tools
     assert "git_diff" in qa_tools
 
     pm_tools = [t.__name__ for t in get_persona_tools(Persona.PM)]
     assert "repos_list" in pm_tools
-    assert "repos_status" in pm_tools
+    assert "branches_list" in pm_tools
 
 
 def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:

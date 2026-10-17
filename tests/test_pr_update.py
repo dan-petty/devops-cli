@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp.server import pr_update_branch
+from devops_cli.ai.mcp.server import pr_update
 from devops_cli.commands.pr import (
     _build_update_branch_cmd,
     _execute_update_branch,
@@ -232,8 +232,8 @@ def test_update_missing_args(monkeypatch: pytest.MonkeyPatch) -> None:
     ) == (1, True)
 
 
-def test_mcp_pr_update_branch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test FastMCP pr_update_branch tool command assembly."""
+def test_mcp_pr_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test FastMCP pr_update tool command assembly."""
     captured_cmds: list[list[str]] = []
 
     def mock_run_mcp_cmd(cmd: list[str], **kwargs: Any) -> str:
@@ -242,8 +242,8 @@ def test_mcp_pr_update_branch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("devops_cli.ai.mcp.server._run_mcp_cmd", mock_run_mcp_cmd)
 
-    res = pr_update_branch(
-        pr_number=55,
+    res = pr_update(
+        number=55,
         repo="owner/repo",
         expected_head_sha="sha123",
         dry_run=True,

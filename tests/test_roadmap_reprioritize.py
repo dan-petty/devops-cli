@@ -3059,13 +3059,14 @@ def test_the_mcp_mirror_previews_unless_its_mode_is_confirm(board: Roadmap) -> N
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
         mcp_server.roadmap_reprioritize(repo=REPO)
         previewed = len(board.store.job_writes())
-        mcp_server.roadmap_reprioritize(repo=REPO, mode="confirm")
+        mcp_server.roadmap_reprioritize(repo=REPO, confirm=True)
+    properties = tool.parameters["properties"] if tool else {}
     assert (
         "roadmap_reprioritize" in names,
-        tool.parameters["properties"]["mode"]["default"] if tool else None,
+        "plan_only" in properties,
         previewed,
         len(board.store.job_writes()) > previewed,
-    ) == (True, "plan", 3, True)
+    ) == (True, True, 3, True)
 
 
 def test_the_needs_split_label_the_rules_read_is_one_the_repository_declares() -> None:

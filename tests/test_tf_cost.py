@@ -215,11 +215,11 @@ def test_tf_cost_command_dry_run(tmp_path: Path) -> None:
         assert "devops tf cost" in result.output
 
 
-def test_tf_cost_estimate_mcp_tool(tmp_path: Path) -> None:
-    """Verify FastMCP tool tf_cost_estimate produces valid JSON output."""
-    from devops_cli.ai.mcp.server import tf_cost_estimate
+def test_tf_cost_breakdown_mcp_tool(tmp_path: Path) -> None:
+    """Verify FastMCP tool tf_cost_breakdown produces valid JSON output."""
+    from devops_cli.ai.mcp.server import tf_cost_breakdown
 
-    out = tf_cost_estimate(directory=str(tmp_path), mock=True)
+    out = tf_cost_breakdown(directory=str(tmp_path), mock=True)
     assert "total_monthly_cost" in out
 
 

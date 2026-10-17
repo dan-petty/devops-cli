@@ -261,7 +261,7 @@ def test_fastmcp_k8s_security_stream(mock_run: MagicMock) -> None:
     from devops_cli.ai.mcp.server import k8s_security_stream
 
     mock_run.return_value = '{"total_alerts": 1}'
-    res = k8s_security_stream(namespace="falco", severity="Critical", tail_lines=50, simulate=True)
+    res = k8s_security_stream(namespace="falco", severity="Critical", tail=50, simulate=True)
     assert res == '{"total_alerts": 1}'
     mock_run.assert_called_once()
     cmd = mock_run.call_args[0][0]
@@ -272,13 +272,14 @@ def test_fastmcp_k8s_security_stream(mock_run: MagicMock) -> None:
 
 
 def test_fastmcp_k8s_security_stream_validation() -> None:
+    from fastmcp.exceptions import ToolError
+
     from devops_cli.ai.mcp.server import k8s_security_stream
-    from devops_cli.exceptions import ValidationError
 
-    with pytest.raises(ValidationError, match="tail_lines must be between"):
-        k8s_security_stream(tail_lines=0)
+    with pytest.raises(ToolError, match="1<=x<=10000"):
+        k8s_security_stream(tail=0)
 
-    with pytest.raises(ValidationError, match="Invalid severity"):
+    with pytest.raises(ToolError, match="Invalid severity"):
         k8s_security_stream(severity="NonExistent")
 
 

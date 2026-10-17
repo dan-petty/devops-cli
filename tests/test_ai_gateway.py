@@ -355,8 +355,8 @@ class TestFastMCPGatewayTools:
     def test_fastmcp_gateway_tools_registered(self) -> None:
         """Verify FastMCP server exports gateway tools and resources."""
         from devops_cli.ai.mcp.server import (
-            ai_backend_probe,
             ai_gateway_failover,
+            ai_gateway_probe_backend,
             ai_gateway_routes,
             ai_gateway_status,
             get_ai_gateway_resource,
@@ -366,7 +366,7 @@ class TestFastMCPGatewayTools:
             ai_gateway_status()
             ai_gateway_routes()
             ai_gateway_failover("devops-coder", simulate=True)
-            ai_backend_probe("ollama")
+            ai_gateway_probe_backend("ollama")
             get_ai_gateway_resource()
 
         assert mock_run.call_count == 5

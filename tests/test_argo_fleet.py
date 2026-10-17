@@ -261,13 +261,13 @@ def test_mcp_argo_fleet_sync_tool() -> None:
 
 
 def test_mcp_argo_rollout_analyze_tool() -> None:
-    """Verify FastMCP tool argo_rollout_analyze."""
-    from devops_cli.ai.mcp.server import argo_rollout_analyze
+    """Verify FastMCP tool argo_rollouts_analyze."""
+    from devops_cli.ai.mcp.server import argo_rollouts_analyze
 
     with patch(
         "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"passed": true}'
     ) as mock_cmd:
-        out = argo_rollout_analyze(rollout_name="cart", auto_abort=True)
+        out = argo_rollouts_analyze(name="cart", auto_abort=True)
         assert "true" in out
         assert "analyze" in mock_cmd.call_args[0][0]
 
@@ -551,12 +551,12 @@ def test_rollout_dry_run_propagation() -> None:
 
 def test_mcp_argo_rollout_analyze_no_auto_abort() -> None:
     """Verify FastMCP tool passes --no-auto-abort when auto_abort is False."""
-    from devops_cli.ai.mcp.server import argo_rollout_analyze
+    from devops_cli.ai.mcp.server import argo_rollouts_analyze
 
     with patch(
         "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"passed": true}'
     ) as mock_cmd:
-        out = argo_rollout_analyze(rollout_name="cart", auto_abort=False)
+        out = argo_rollouts_analyze(name="cart", auto_abort=False)
         assert "true" in out
         cmd = mock_cmd.call_args[0][0]
         assert "--no-auto-abort" in cmd

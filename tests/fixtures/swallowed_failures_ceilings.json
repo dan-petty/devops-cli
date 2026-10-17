@@ -39,7 +39,7 @@
   "src/devops_cli/ai/inspection.py": 2,
   "src/devops_cli/ai/library/drift_auditor.py": 2,
   "src/devops_cli/ai/library/introspector.py": 6,
-  "src/devops_cli/ai/mcp/dispatcher.py": 8,
+  "src/devops_cli/ai/mcp/dispatcher.py": 6,
   "src/devops_cli/ai/mcp/server.py": 2,
   "src/devops_cli/ai/output/__init__.py": 2,
   "src/devops_cli/ai/personas/__init__.py": 1,

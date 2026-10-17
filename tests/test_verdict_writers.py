@@ -255,7 +255,7 @@ def test_mcp_review_findings_passes_status_for_all_four_states(
     monkeypatch.setattr("devops_cli.ai.mcp.server._run_mcp_cmd", mock_run_mcp_cmd)
 
     for st in ("VERIFIED", "UNVERIFIED", "INVALIDATED", "MITIGATED"):
-        res = review_findings(session_id="sess-1", status=st)
+        res = review_findings(session="sess-1", status_filter=st)
         assert res == "OK"
 
     assert [cmd[-2:] for cmd in invocations] == [

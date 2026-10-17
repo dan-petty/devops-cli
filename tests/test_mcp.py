@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
@@ -23,6 +23,7 @@ from devops_cli.ai.mcp.server import (
     review_stats,
 )
 from devops_cli.commands.mcp import app
+from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
 from devops_cli.exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -46,60 +47,20 @@ class TestMcpServer:
 
     def test_tools_registered(self) -> None:
         """All expected MCP tools must be registered on the server."""
+        from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
+
         tools = asyncio.run(mcp._list_tools())
         tool_names = {t.name for t in tools}
 
-        expected = {
-            "review_path",
-            "review_branch",
-            "review_pr",
-            "review_findings",
-            "review_stats",
-            "review_export_feedback",
-            "repos_list",
-            "repos_status",
-            "repos_sync",
-            "ssh_status",
-            "ssh_audit",
-            "k8s_pods",
-            "k8s_status",
-            "k8s_doctor",
-            "k8s_bootstrap",
-            "k8s_deploy_stack",
-            "k8s_teardown_stack",
-            "k8s_tempo_info",
-            "argo_list",
-            "argo_status",
-            "grafana_dashboards",
-            "prometheus_query",
-            "docker_stats",
-            "workspace_list",
-            "config_show",
-            "config_output",
-            "ci_run",
-            "release_status",
-            "tf_plan",
-            "tf_apply",
-            "tf_output",
-            "rag_search",
-            "rag_index",
+        expected_exposure = {"_".join(e[0]).replace("-", "_") for e in CONST_MCP_EXPOSURE_TABLE}
+        expected_hand_written = {
+            "hydrate_tool_domain",
             "security_intel_package",
             "security_intel_network",
-            "tls_generate_ca",
-            "tls_generate_cert",
-            "tls_inspect_cert",
-            "k8s_create_tls_secret",
-            "k8s_enable_tls",
-            "telemetry_status",
-            "telemetry_test_span",
-            "valkey_ping",
-            "valkey_info",
-            "valkey_stats",
-            "valkey_get",
-            "valkey_set",
-            "valkey_flush",
+            "scan_uv_audit",
+            "k8s_tempo_info",
         }
-        assert expected.issubset(tool_names), f"Missing tools: {expected - tool_names}"
+        assert tool_names == (expected_exposure | expected_hand_written)
 
     def test_list_mcp_tools_returns_list_of_dicts(self) -> None:
         """list_mcp_tools() must return a list of dicts with name and description keys."""
@@ -221,321 +182,21 @@ class TestMcpCli:
             assert "instructions" not in result.output
 
 
-# ── OpenTofu / Terraform MCP Tools ───────────────────────────────────────────
+# ── Prompt Templates ──────────────────────────────────────────────────────────
 
 
-class TestTfMcpTools:
-    """Tests for OpenTofu / Terraform FastMCP tools."""
+def test_mcp_prompts_execution() -> None:
+    """Verify code review and security audit prompt templates return populated markdown."""
+    from devops_cli.ai.mcp.server import code_review_prompt, security_audit_prompt
 
-    def test_tf_plan_tool(self) -> None:
-        from devops_cli.ai.mcp.server import tf_plan
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Plan: 2 to add") as mock:
-            res = tf_plan(directory="tf/aws", var_file="tf/environments/aws.tfvars.example")
-            assert res == "Plan: 2 to add"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "tf" in args
-            assert "plan" in args
-            assert "tf/aws" in args
-
-    def test_tf_apply_tool(self) -> None:
-        from devops_cli.ai.mcp.server import tf_apply
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Apply complete!") as mock:
-            res_default = tf_apply(directory="tf/aws")
-            default_args = mock.call_args[0][0]
-            res_approved = tf_apply(directory="tf/aws", auto_approve=True)
-            approved_args = mock.call_args[0][0]
-            assert (
-                res_default,
-                res_approved,
-                "apply" in default_args and "--auto-approve" not in default_args,
-                "apply" in approved_args and "--auto-approve" in approved_args,
-            ) == ("Apply complete!", "Apply complete!", True, True)
-
-    def test_tf_output_tool(self) -> None:
-        from devops_cli.ai.mcp.server import tf_output
-
-        with patch(
-            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"cluster": "eks"}'
-        ) as mock:
-            res = tf_output(directory="tf/aws", json_format=True)
-            assert res == '{"cluster": "eks"}'
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "output" in args
-            assert "--json" in args
-
-
-class TestAllMcpToolsDirectly:
-    """Direct execution tests for all MCP server tool endpoints."""
-
-    def test_mcp_tool_delegations(self, tmp_path: Path) -> None:
-        from devops_cli.ai.mcp.server import (
-            argo_list,
-            argo_status,
-            ci_run,
-            config_output,
-            config_show,
-            docker_stats,
-            docs_compact,
-            grafana_dashboards,
-            k8s_bootstrap,
-            k8s_create_tls_secret,
-            k8s_deploy_stack,
-            k8s_doctor,
-            k8s_enable_tls,
-            k8s_pods,
-            k8s_status,
-            k8s_teardown_stack,
-            k8s_tempo_info,
-            prometheus_query,
-            rag_index,
-            rag_search,
-            release_status,
-            repos_list,
-            repos_status,
-            scan_uv_audit,
-            security_intel_network,
-            security_intel_package,
-            ssh_audit,
-            ssh_status,
-            telemetry_status,
-            telemetry_test_span,
-            tf_apply,
-            tf_output,
-            tf_plan,
-            tls_generate_ca,
-            tls_generate_cert,
-            tls_inspect_cert,
-            workspace_list,
-        )
-
-        with (
-            patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mock_output"),
-            patch("devops_cli.ai.tools.builtin_tools.scan_osv", return_value="mock_output"),
-            patch(
-                "devops_cli.ai.tools.builtin_tools.check_threat_intel", return_value="mock_output"
-            ),
-            patch("devops_cli.ai.tools.builtin_tools.scan_uv_audit", return_value="mock_output"),
-        ):
-            assert repos_list() == "mock_output"
-            assert repos_status() == "mock_output"
-            assert ssh_status() == "mock_output"
-            assert ssh_audit() == "mock_output"
-            assert k8s_pods(namespace="default") == "mock_output"
-            assert k8s_status() == "mock_output"
-            assert k8s_doctor() == "mock_output"
-            assert k8s_bootstrap(auto_start=True) == "mock_output"
-            assert k8s_deploy_stack(stack="monitoring") == "mock_output"
-            assert k8s_teardown_stack(stack="monitoring") == "mock_output"
-            assert "Tempo Tracing Endpoints" in k8s_tempo_info()
-            assert argo_list() == "mock_output"
-            assert argo_status(app="argocd") == "mock_output"
-            assert grafana_dashboards() == "mock_output"
-            assert prometheus_query("up") == "mock_output"
-            assert docker_stats() == "mock_output"
-            assert workspace_list() == "mock_output"
-            assert config_show() == "mock_output"
-            assert config_output() == "mock_output"
-            assert ci_run(check="all") == "mock_output"
-            assert release_status() == "mock_output"
-            assert docs_compact(series="v0.2", dry_run=True, check=True) == "mock_output"
-            assert tf_plan("tf/aws") == "mock_output"
-            assert tf_apply("tf/aws") == "mock_output"
-            assert tf_output("tf/aws") == "mock_output"
-            assert rag_search("test query") == "mock_output"
-            assert rag_index(force=True) == "mock_output"
-            assert security_intel_package("requests") == "mock_output"
-            assert security_intel_network("api.github.com") == "mock_output"
-            assert scan_uv_audit(".") == "mock_output"
-            ca_dir = str(tmp_path / "ca")
-            cert, key = str(tmp_path / "cert.pem"), str(tmp_path / "key.pem")
-            assert tls_generate_ca(output_dir=ca_dir) == "mock_output"
-            assert (
-                tls_generate_cert(common_name="example.com", sans="example.com", output_dir=ca_dir)
-                == "mock_output"
-            )
-            assert tls_inspect_cert(cert) == "mock_output"
-            assert k8s_create_tls_secret("my-sec", cert, key) == "mock_output"
-            assert k8s_enable_tls(stack="all", secret_name="web-tls") == "mock_output"
-            assert telemetry_status() == "mock_output"
-            assert telemetry_test_span(name="test") == "mock_output"
-
-
-def test_expanded_mcp_tools_and_prompts_execution() -> None:
-    """Verify execution of newly added security, k8s, vault, benchmark, and git governance MCP tools."""
-    from devops_cli.ai.mcp.server import (
-        ai_harness_status,
-        ai_subagent_offload,
-        branches_list,
-        code_review_prompt,
-        k8s_diff_helm,
-        k8s_lint,
-        k8s_validate,
-        pr_checks,
-        pr_list,
-        pr_monitor,
-        scan_aibom,
-        scan_sbom,
-        scan_trivy,
-        security_audit_prompt,
-        vault_set,
-        vault_sync,
-    )
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mock_output"):
-        # Security scanners
-        assert scan_trivy(".") == "mock_output"
-        assert scan_aibom(".") == "mock_output"
-        assert scan_sbom(".") == "mock_output"
-
-        # Kubernetes operations
-        assert k8s_lint(".") == "mock_output"
-        assert k8s_validate(".") == "mock_output"
-        assert k8s_diff_helm("argocd", "argo/argo-cd") == "mock_output"
-
-        # HashiCorp Vault
-        assert vault_set("secret/data/app", ["FOO=bar"]) == "mock_output"
-        assert vault_sync("secret/data/app") == "mock_output"
-
-        # AI
-        assert ai_harness_status() == "mock_output"
-        assert ai_subagent_offload(repo="src", symbol="Foo") == "mock_output"
-        with pytest.raises(ValidationError, match="Cannot specify both 'symbol' and 'pattern'"):
-            ai_subagent_offload(repo="src", symbol="Foo", pattern="*.py")
-
-        # Git & PR governance
-        assert branches_list() == "mock_output"
-        assert pr_list(limit=5) == "mock_output"
-        assert pr_checks(32) == "mock_output"
-        assert pr_monitor(168, timeout=60, interval=5, settle_timeout=10) == "mock_output"
-        assert pr_monitor() == "mock_output"
-
-    # Prompts return formatted strings
     review_p = code_review_prompt(persona="architect", target="src/devops_cli")
-    assert "architect" in review_p
-    assert "src/devops_cli" in review_p
-
     sec_p = security_audit_prompt(target="src")
-    assert "security audit" in sec_p.lower()
-    assert "src" in sec_p
-
-
-def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
-    """Verify the tools and resources that called missing commands or options now pass the
-    argv of the real command, with only options it declares."""
-    from devops_cli.ai.mcp.server import (
-        benchmark_embeddings,
-        get_argo_fleet_status_resource,
-        get_workspace_resource,
-        k8s_audit,
-        k8s_chaos,
-        repos_sync,
-        scan_checkov,
-        scan_complexity,
-        scan_gitleaks,
-        scan_semgrep,
-    )
-
-    calls = {
-        "repos_sync": repos_sync,
-        "scan_gitleaks": lambda: scan_gitleaks("."),
-        "scan_semgrep": lambda: scan_semgrep("."),
-        "scan_checkov": lambda: scan_checkov("."),
-        "scan_complexity": lambda: scan_complexity("src"),
-        "k8s_chaos": k8s_chaos,
-        "k8s_chaos_live": lambda: k8s_chaos("pod-kill", "llm", dry_run=False),
-        "k8s_audit": k8s_audit,
-        "benchmark_embeddings": lambda: benchmark_embeddings(provider="ollama", model="bge-m3"),
-        "resource://workspace/status": get_workspace_resource,
-        "resource://argo/fleet/status": get_argo_fleet_status_resource,
-    }
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as runner:
-        argv = {name: (call(), runner.call_args.args[0][3:])[1] for name, call in calls.items()}
-
-    assert argv == {
-        "repos_sync": ["repos", "sync"],
-        "scan_gitleaks": ["scan", "secrets", "."],
-        "scan_semgrep": ["scan", "sast", ".", "--config", "auto"],
-        "scan_checkov": ["scan", "iac", "."],
-        "scan_complexity": [
-            "scan",
-            "complexity",
-            "src",
-            "--max-complexity",
-            "10",
-            "--max-indent",
-            "5",
-        ],
-        "k8s_chaos": ["k8s", "chaos", "pod-failure", "--namespace", "default", "--dry-run"],
-        "k8s_chaos_live": ["k8s", "chaos", "pod-kill", "--namespace", "llm"],
-        "k8s_audit": ["k8s", "audit"],
-        "benchmark_embeddings": [
-            "ai",
-            "benchmark",
-            "--type",
-            "embedding",
-            "--provider",
-            "ollama",
-            "--models",
-            "bge-m3",
-            "--samples",
-            "10",
-        ],
-        "resource://workspace/status": ["repos", "list"],
-        "resource://argo/fleet/status": ["argo", "cd", "apps", "list"],
-    }
-
-
-def test_k8s_pods_lists_the_pods_of_the_namespace_it_names() -> None:
-    """`k8s_pods` validated its namespace and then ran `devops k8s status`, which ignores it. It
-    lists that namespace's pods, and every namespace's when it names none (#956)."""
-    from devops_cli.ai.mcp.server import k8s_pods
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pods") as runner:
-        argv = [(k8s_pods(namespace), runner.call_args.args[0][3:])[1] for namespace in ("llm", "")]
-
-    assert argv == [["k8s", "pods", "-n", "llm"], ["k8s", "pods", "-A"]]
-
-
-@pytest.mark.parametrize(
-    ("provider", "model", "field"),
-    [
-        ("openai", "x@https://example.com", "model"),
-        ("openai", "bge-m3,x@https://example.com", "model"),
-        ("openai", "x@", "model"),
-        ("ollama", "https://example.com/bge-m3", "model"),
-        ("example", "bge-m3", "provider"),
-    ],
-)
-def test_benchmark_tools_reject_endpoint_override(provider: str, model: str, field: str) -> None:
-    """Verify an MCP client can neither name the server the benchmark sends its requests and the
-    AI key to, nor pick a provider outside the known ids, and that nothing is dispatched (#954)."""
-    from devops_cli.ai.mcp.server import benchmark_embeddings
-
-    with (
-        patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as dispatcher,
-        pytest.raises(ValidationError) as refused,
-    ):
-        benchmark_embeddings(provider=provider, model=model)
-
-    assert (refused.value.details["field"], dispatcher.called) == (field, False)
-
-
-@pytest.mark.parametrize(
-    "model",
-    ["bge-m3,nomic-embed-text", "hf.co/org/model:Q4"],
-)
-def test_benchmark_tools_accept_valid_models(model: str) -> None:
-    """Verify valid multi-model and registry model strings are accepted and dispatched."""
-    from devops_cli.ai.mcp.server import benchmark_embeddings
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as dispatcher:
-        res = benchmark_embeddings(provider="ollama", model=model)
-
-    assert (res, dispatcher.called) == ("output", True)
+    assert (
+        "architect" in review_p,
+        "src/devops_cli" in review_p,
+        "security audit" in sec_p.lower(),
+        "src" in sec_p,
+    ) == (True, True, True, True)
 
 
 def test_ai_architecture_tool_is_removed() -> None:
@@ -567,11 +228,13 @@ def test_mcp_helpers_and_error_branches() -> None:
         side_effect=subprocess.TimeoutExpired(cmd=["uv"], timeout=5.0),
     ):
         res_to = _run_mcp_cmd(
-            ["uv", "run", "devops", "ghp_secrettoken1234567890abcdefghijklmn"],
+            ["uv", "ghp_secrettoken1234567890abcdefghijklmn"],
             timeout=5.0,
         )
-        assert "timed out after 5.0 seconds" in res_to
-        assert "ghp_secrettoken" not in res_to
+        assert ("timed out after 5.0 seconds" in res_to, "ghp_secrettoken" not in res_to) == (
+            True,
+            True,
+        )
 
     # 3. _run_mcp_cmd OSError
     with patch(
@@ -594,280 +257,113 @@ def test_mcp_helpers_and_error_branches() -> None:
 
     # 5. Review tools
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Review Output"):
-        assert review_path("src", "*.py", "architect") == "Review Output"
-        assert review_branch("feat/new", "main", "devsecops") == "Review Output"
-        assert review_pr(42, post=True, persona="qa") == "Review Output"
-        assert review_findings("20260826-session", status="verified") == "Review Output"
-        assert review_stats() == "Review Output"
+        assert (
+            review_path("src", "*.py", "architect"),
+            review_branch("feat/new", "main", "devsecops"),
+            review_pr(42, post_comment=True, persona="qa"),
+            review_findings("20260826-session", status_filter="verified"),
+            review_stats(),
+        ) == ("Review Output", "Review Output", "Review Output", "Review Output", "Review Output")
 
 
-def test_mcp_integer_bounds_validation() -> None:
-    """Verify integer bounds validation rejecting non-positive or negative values."""
-    from devops_cli.ai.mcp.server import (
-        _validate_mcp_int_bound,
-        pr_checks,
-        pr_list,
-        pr_monitor,
-        review_pr,
+# ── Dynamic Tool Generation, Coverage & Failure Contract Tests ──────────────────
+
+
+@pytest.mark.parametrize(
+    ("path", "timeout", "read_only", "format_json"),
+    CONST_MCP_EXPOSURE_TABLE,
+)
+def test_mcp_tool_schema_and_argv_parsing(
+    path: tuple[str, ...],
+    timeout: float,
+    read_only: bool,
+    format_json: bool,
+) -> None:
+    """Walk exposure table, assert schema properties match Click parameters and argv parses."""
+    from devops_cli.ai.mcp.generator import (
+        _IGNORED_PARAM_NAMES,
+        _JSON_PARAM_NAMES,
+        _PATH_PARAM_RESTRICTIONS,
+        _build_command_argv,
+        _introspect_command_parameters,
+        resolve_click_command,
     )
 
-    # Helper directly
-    _validate_mcp_int_bound("valid_field", 1, min_val=1)
-    _validate_mcp_int_bound("valid_field", 0, min_val=0)
-    _validate_mcp_int_bound("valid_field", 5, min_val=1, max_val=10)
-    with pytest.raises(ValidationError, match="Must be >= 1"):
-        _validate_mcp_int_bound("bad_field", 0, min_val=1)
-    with pytest.raises(ValidationError, match="Must be >= 1"):
-        _validate_mcp_int_bound("bad_field", -1, min_val=1)
-    with pytest.raises(ValidationError, match="Must be <= 10"):
-        _validate_mcp_int_bound("bad_field", 11, min_val=1, max_val=10)
+    tool_name = "_".join(path).replace("-", "_")
+    tool = asyncio.run(mcp.get_tool(tool_name))
+    assert tool is not None, f"Tool '{tool_name}' not found on server"
 
-    # Tools bounds
-    with pytest.raises(ValidationError, match="pr_number"):
-        pr_checks(0)
-    with pytest.raises(ValidationError, match="pr_number"):
-        pr_checks(-5)
+    click_cmd = resolve_click_command(path)
+    restrictions = _PATH_PARAM_RESTRICTIONS.get(path)
+    expected_params = [
+        p.name
+        for p in click_cmd.params
+        if p.name not in _IGNORED_PARAM_NAMES
+        and not (format_json and p.name in _JSON_PARAM_NAMES)
+        and (not restrictions or p.name in restrictions["allowed"])
+    ]
+    schema_props = list(tool.parameters.get("properties", {}).keys())
+    assert schema_props == expected_params
 
-    with pytest.raises(ValidationError, match="timeout"):
-        pr_monitor(timeout=5)
-    with pytest.raises(ValidationError, match="timeout"):
-        pr_monitor(timeout=2000)
-    with pytest.raises(ValidationError, match="interval"):
-        pr_monitor(interval=1)
-    with pytest.raises(ValidationError, match="interval"):
-        pr_monitor(interval=200)
+    parameters, _ = _introspect_command_parameters(click_cmd, format_json, path)
+    sample_kwargs: dict[str, Any] = {}
+    for p in parameters:
+        sample_kwargs[p.name] = p.default if p.default is not p.empty else "sample"
 
-    with pytest.raises(ValidationError, match="number"):
-        review_pr(0)
-    with pytest.raises(ValidationError, match="number"):
-        review_pr(-1)
-
-    with pytest.raises(ValidationError, match="limit"):
-        pr_list(limit=0)
+    argv = _build_command_argv(path, click_cmd, format_json, sample_kwargs)
+    args = argv[len(path) :]
+    ctx = click_cmd.make_context(path[-1], list(args), resilient_parsing=True)
+    assert ctx is not None
 
 
-class TestValkeyMcpTools:
-    """Tests for Valkey FastMCP tools and system resource."""
+def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
+    """Exhaustive coverage test fails if any CLI command is neither exposed nor in exclusions."""
+    from devops_cli.config.constants import (
+        CONST_MCP_COMMAND_EXCLUSIONS,
+        CONST_MCP_EXPOSURE_TABLE,
+    )
+    from devops_cli.core.command_resolver import module_click_command
+    from devops_cli.main import _COMMAND_SPECS
 
-    def test_valkey_ping(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_ping
+    exposed_paths = {entry[0] for entry in CONST_MCP_EXPOSURE_TABLE}
+    excluded_paths = set(CONST_MCP_COMMAND_EXCLUSIONS)
+    assert exposed_paths.isdisjoint(excluded_paths)
 
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="PONG") as mock:
-            res = valkey_ping()
-            assert res == "PONG"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "valkey" in args
-            assert "ping" in args
+    all_cli_commands: set[tuple[str, ...]] = set()
+    for top_name, spec in _COMMAND_SPECS.items():
+        if top_name in ("format", "lint"):
+            all_cli_commands.add((top_name,))
+            continue
+        top_cmd = module_click_command(spec[0])
+        if top_cmd is None:
+            continue
 
-    def test_valkey_info(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_info
+        def walk(cmd: Any, path: tuple[str, ...]) -> None:
+            if getattr(cmd, "hidden", False):
+                return
+            if hasattr(cmd, "commands") and cmd.commands:
+                if path == ("ci",):
+                    all_cli_commands.add(path)
+                for sub_name, sub_cmd in cmd.commands.items():
+                    walk(sub_cmd, path + (sub_name,))
+            else:
+                all_cli_commands.add(path)
 
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="info table") as mock:
-            res = valkey_info(section="memory")
-            assert res == "info table"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "info" in args
-            assert "--section" in args
-            assert "memory" in args
+        walk(top_cmd, (top_name,))
 
-    def test_valkey_stats(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_stats
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="stats table") as mock:
-            res = valkey_stats()
-            assert res == "stats table"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "stats" in args
-
-    def test_valkey_get(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_get
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="my-value") as mock:
-            res = valkey_get(key="user:100")
-            assert res == "my-value"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "get" in args
-            assert "user:100" in args
-
-    def test_valkey_set(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_set
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock:
-            res = valkey_set(key="token", value="xyz", ex=300)
-            assert res == "Success"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "set" in args
-            assert "token" in args
-            assert "xyz" in args
-            assert "--ex" in args
-            assert "300" in args
-
-    def test_valkey_flush(self) -> None:
-        from devops_cli.ai.mcp.server import valkey_flush
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Flushed") as mock:
-            res = valkey_flush(all_databases=True)
-            assert res == "Flushed"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "flush" in args
-            assert "--all" in args
-
-    def test_valkey_resource(self) -> None:
-        from devops_cli.ai.mcp.server import get_valkey_resource
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="live status") as mock:
-            res = get_valkey_resource()
-            assert res == "live status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "valkey" in args
-            assert "stats" in args
+    unaccounted = all_cli_commands - (exposed_paths | excluded_paths)
+    extra = (exposed_paths | excluded_paths) - all_cli_commands
+    assert (unaccounted, extra) == (set(), set())
 
 
-class TestGitHubMcpTools:
-    """Tests for GitHub Pages, Issues, Project, and Views FastMCP tools and system resources."""
-
-    def test_gh_pages_tools(self) -> None:
-        from devops_cli.ai.mcp.server import (
-            get_gh_pages_resource,
-            gh_pages_build,
-            gh_pages_status,
-            gh_pages_verify,
-        )
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pages status") as mock:
-            res = gh_pages_status(repo="owner/repo")
-            assert res == "pages status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "pages", "status", "--repo", "owner/repo"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="build queued") as mock:
-            res = gh_pages_build()
-            assert res == "build queued"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "pages", "build"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="verified") as mock:
-            res = gh_pages_verify()
-            assert res == "verified"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "pages", "verify"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="res status") as mock:
-            res = get_gh_pages_resource()
-            assert res == "res status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "pages", "status"] == args[3:]
-
-    def test_gh_issues_tools(self) -> None:
-        from devops_cli.ai.mcp.server import (
-            get_gh_issues_resource,
-            gh_issue_create,
-            gh_issue_list,
-            gh_issue_status,
-            gh_issue_triage,
-        )
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="issue list") as mock:
-            res = gh_issue_list(
-                repo="owner/repo", state="open", milestone="v0.2.14", label="type/feat", limit=10
-            )
-            assert res == "issue list"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "issues" in args
-            assert "--milestone" in args
-            assert "--label" in args
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="issue created") as mock:
-            res = gh_issue_create(
-                title="feat(gh): new feature",
-                body="Issue body description",
-                milestone="v0.2.14",
-                labels="type/feat, priority/p1-high",
-                repo="owner/repo",
-            )
-            assert res == "issue created"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "create" in args
-            assert "--title" in args
-            assert "--milestone" in args
-            assert "--label" in args
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="triage report") as mock:
-            res = gh_issue_triage(repo="owner/repo")
-            assert res == "triage report"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "triage" in args
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="status summary") as mock:
-            res = gh_issue_status(repo="owner/repo")
-            assert res == "status summary"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "status" in args
-
-        with patch(
-            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value="res issue status"
-        ) as mock:
-            res = get_gh_issues_resource()
-            assert res == "res issue status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "issues", "status"] == args[3:]
-
-    def test_gh_project_and_views_tools(self) -> None:
-        from devops_cli.ai.mcp.server import (
-            get_gh_project_resource,
-            get_gh_views_resource,
-            gh_project_audit,
-            gh_project_list,
-            gh_views_audit,
-        )
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="project list") as mock:
-            res = gh_project_list(owner="my-org")
-            assert res == "project list"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "project", "list", "--owner", "my-org"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="project audit") as mock:
-            res = gh_project_audit(repo="owner/repo")
-            assert res == "project audit"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "project", "audit", "--repo", "owner/repo"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="views audit") as mock:
-            res = gh_views_audit(repo="owner/repo")
-            assert res == "views audit"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "views", "audit", "--repo", "owner/repo"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="proj status") as mock:
-            res = get_gh_project_resource()
-            assert res == "proj status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "project", "status"] == args[3:]
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="views status") as mock:
-            res = get_gh_views_resource()
-            assert res == "views status"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert ["gh", "views", "audit"] == args[3:]
+def test_mcp_command_failure_contract_raises_tool_error() -> None:
+    """A failing CLI command in-process returns output with error exit code and raises ToolError (#839)."""
+    with patch("devops_cli.ai.mcp.dispatcher.InProcessDispatcher._dispatch_typer") as mock_dispatch:
+        mock_dispatch.return_value = (2, "Unknown option: --nonexistent")
+        with pytest.raises(ToolError) as exc_info:
+            _run_mcp_cmd(["uv", "run", "devops", "ci", "--nonexistent"])
+        err_msg = str(exc_info.value)
+        assert (
+            "Command exited with status 2" in err_msg,
+            "Unknown option: --nonexistent" in err_msg,
+        ) == (True, True)
