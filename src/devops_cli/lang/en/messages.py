@@ -642,6 +642,24 @@ class PRMessages:
     grounding_tasks_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
+    # A release-process PR changes more than its kind may, so it is held to grounding (#1344).
+    grounding_cut_changes_more: str = (
+        "PR #{number} is not grounded: a cut is exempt when it only modifies the cut's files "
+        "({cut_files}) and removes changelog fragments ({fragments}), as the cut commit does, "
+        "and {head} also changes {outside}."
+    )
+    grounding_merge_changes_more: str = (
+        "PR #{number} is not grounded: a merge of {default} is exempt when it only changes the "
+        "cut's files and the files {default} changed since its merge base with {base}, and "
+        "{head} also changes {outside}."
+    )
+    grounding_merge_changes_unread: str = (
+        "PR #{number} is not grounded: the files {default} changed since its merge base with "
+        "{base} could not be read, so nothing shows that {head} only merges {default} ({error})."
+    )
+    grounding_merge_changes_capped: str = (
+        "GitHub listed {count} files, its limit, so the list may be cut short"
+    )
     grounding_release_files_changed: str = (
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
         "never conflict on them."

@@ -6590,13 +6590,18 @@ devops pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
-body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
-the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
-changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
-release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
-docs/agent/tasks/ is exempt.
+and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
+(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
+CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
+the default branch (chore/open-vX.Y.Z) only changes those files and what the default
+branch changed since its merge base, read with one compare request. Either head may end
+in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
+grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
+issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
+docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
+section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
+section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
+without docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -7694,13 +7699,18 @@ devops gh pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
-body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
-the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
-changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
-release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
-docs/agent/tasks/ is exempt.
+and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
+(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
+CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
+the default branch (chore/open-vX.Y.Z) only changes those files and what the default
+branch changed since its merge base, read with one compare request. Either head may end
+in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
+grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
+issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
+docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
+section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
+section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
+without docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
