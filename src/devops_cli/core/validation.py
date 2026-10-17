@@ -67,7 +67,7 @@ _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
 )
 
 
-def _parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+def parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse an IPv4 or IPv6 literal, including legacy inet_aton forms, without getaddrinfo."""
     try:
         return ipaddress.ip_address(host)
@@ -84,7 +84,7 @@ def is_loopback_host(host: str) -> bool:
     clean = str(host).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
     if clean == CONST_LOOPBACK_HOSTNAME:
         return True
-    addr = _parse_numeric_ip(clean)
+    addr = parse_numeric_ip(clean)
     return addr is not None and addr.is_loopback
 
 
@@ -117,12 +117,12 @@ def _is_cloud_metadata_net(
 
 def _check_numeric_metadata(host: str) -> bool | None:
     """Check if host is an IP literal or numeric representation, returning metadata status or None."""
-    addr = _parse_numeric_ip(host)
+    addr = parse_numeric_ip(host)
     if addr is not None:
         return _is_cloud_metadata_addr(addr)
     try:
         h_parsed = httpx2.URL(scheme="http", host=host).host
-        parsed_addr = _parse_numeric_ip(h_parsed)
+        parsed_addr = parse_numeric_ip(h_parsed)
         if parsed_addr is not None:
             return _is_cloud_metadata_addr(parsed_addr)
     except Exception:
@@ -282,7 +282,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
 
 def _is_numeric_host(host: str) -> bool:
     """Check whether host is a numeric IP representation."""
-    return _parse_numeric_ip(host) is not None
+    return parse_numeric_ip(host) is not None
 
 
 def _validate_dns_name_syntax(

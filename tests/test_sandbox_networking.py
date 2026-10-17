@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
@@ -22,11 +23,13 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
 )
 from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+from devops_cli.exceptions import SandboxValidationError
 from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxNetworkConfig,
     SandboxNetworkMode,
     _build_dns_egress_rule,
+    _build_whitelist_egress,
     _parse_whitelist_entry,
     _resolve_local_host,
     _resolve_public_host,
@@ -45,9 +48,8 @@ _WHITELIST_POLICIES: dict[str, dict[str, Any]] = {
         "mode": SandboxNetworkMode.LOCAL_WHITELIST,
         "local_whitelist": [
             "http://localhost:11434",
-            "192.168.1.50",
-            "http://10.0.0.5:8000",
-            "host.docker.internal",
+            "192.0.2.50",
+            "http://198.51.100.5:8000",
         ],
     },
     "public ipv6 and ipv4 addresses": {
@@ -80,7 +82,7 @@ _WHITELIST_POLICIES: dict[str, dict[str, Any]] = {
     },
     "local url with a port": {
         "mode": SandboxNetworkMode.LOCAL_WHITELIST,
-        "local_whitelist": ["http://localhost:11434"],
+        "local_whitelist": ["http://192.0.2.50:11434"],
     },
     "two names, one with a port": {
         "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
@@ -101,6 +103,24 @@ def _tcp_rule(cidrs: list[str], port: int) -> dict[str, Any]:
         "to": [{"ipBlock": {"cidr": cidr}} for cidr in cidrs],
         "ports": [{"protocol": "TCP", "port": port}],
     }
+
+
+@pytest.fixture
+def failed_lookups(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int]]:
+    """Fail every `socket.getaddrinfo` call, recording its host and flags.
+
+    A test reads the record to show that no DNS query was made: only a call with
+    `AI_NUMERICHOST`, which parses a numeric host and never queries, may appear in it.
+    """
+    calls: list[tuple[str, int]] = []
+
+    def fail(host: Any, *args: Any, **kwargs: Any) -> list[Any]:
+        flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
+        calls.append((str(host), int(flags)))
+        raise socket.gaierror(socket.EAI_NONAME, f"lookups fail in this test: {host}")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail)
+    return calls
 
 
 def test_sandbox_network_mode_enum_and_constants() -> None:
@@ -237,8 +257,12 @@ def test_sandbox_network_config_public_whitelist_validation_and_policy(public_dn
         )
 
 
+@pytest.mark.usefixtures("failed_lookups")
 def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None:
-    """Verify local whitelist validates endpoints, rejects cloud metadata, and configures routing."""
+    """Verify local whitelist validates endpoints, rejects cloud metadata, and configures routing.
+
+    The `localhost` entry opens no rule: NetworkPolicy never polices a pod's loopback.
+    """
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local urls and addresses"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
@@ -246,10 +270,8 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
         "NetworkPolicy",
         [
             _build_dns_egress_rule(),
-            _tcp_rule(["127.0.0.1/32"], 11434),
-            _tcp_rule(["192.168.1.50/32"], 443),
-            _tcp_rule(["10.0.0.5/32"], 8000),
-            _tcp_rule(["127.0.0.1/32"], 443),
+            _tcp_rule(["192.0.2.50/32"], 443),
+            _tcp_rule(["198.51.100.5/32"], 8000),
         ],
     )
 
@@ -284,6 +306,59 @@ def test_sandbox_local_whitelist_accepts_private_suffix_and_rejects_public_dns_a
     )
     with pytest.raises(ValueError, match=r"non-private address"):
         cfg.to_k8s_network_policy()
+
+
+@pytest.mark.parametrize(
+    "entry", ["host.docker.internal", "HOST.DOCKER.INTERNAL.", "http://Host.Docker.Internal:8080"]
+)
+def test_the_host_gateway_name_is_refused_in_the_local_whitelist_without_a_lookup(
+    entry: str, failed_lookups: list[tuple[str, int]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`host.docker.internal` names the container runtime's gateway on the workstation, which a
+    cluster pod cannot reach, so the entry is refused and the user asked for an IP or CIDR.
+
+    It is refused before the private-host check, even one that would admit the name, so it
+    never reaches a resolver. Case and a trailing dot do not matter, as in DNS. The refusal is a
+    `SandboxValidationError`, which Pydantic reports as the validation error's cause (#1174).
+    """
+    monkeypatch.setattr(
+        "devops_cli.sandbox.models.is_loopback_or_private_host", lambda *_args, **_kwargs: True
+    )
+    with pytest.raises(
+        PydanticValidationError, match="IP address or CIDR the cluster reaches the host on"
+    ) as refusal:
+        SandboxNetworkConfig(mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[entry])
+    causes = [error["ctx"]["error"] for error in refusal.value.errors()]
+    assert (failed_lookups, [type(cause) for cause in causes]) == ([], [SandboxValidationError])
+
+
+@pytest.mark.parametrize(
+    "entry", ["http://localhost:11434", "127.0.0.1", "[::1]:8080", "127.0.0.0/8", "::1/128"]
+)
+def test_a_loopback_entry_opens_no_egress_rule(
+    entry: str, failed_lookups: list[tuple[str, int]]
+) -> None:
+    """NetworkPolicy never polices a pod's loopback, so a loopback entry adds no rule, and
+    nothing is looked up to build the policy (#1174)."""
+    policy = SandboxNetworkConfig(
+        mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[entry]
+    ).to_k8s_network_policy()
+    assert (
+        policy["spec"]["egress"],
+        [host for host, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
+    ) == ([_build_dns_egress_rule()], [])
+
+
+@pytest.mark.usefixtures("failed_lookups")
+def test_a_loopback_host_or_network_resolves_to_no_address() -> None:
+    """`localhost`, a loopback address and a loopback network leave nothing to allow (#1174)."""
+    hosts = ("localhost", "LOCALHOST.", "127.0.0.1", "::1", "127.0.0.0/8", "::1/128")
+    assert [_resolve_local_host(host) for host in hosts] == [[] for _host in hosts]
+
+
+def test_an_entry_that_resolves_to_no_address_adds_no_rule() -> None:
+    """A rule with an empty `to` allows every destination on its port, so none is built (#1174)."""
+    assert _build_whitelist_egress(["example.com"], lambda _host: []) == [_build_dns_egress_rule()]
 
 
 def test_sandbox_deploy_config_integration(tmp_path: Path) -> None:
@@ -588,12 +663,10 @@ def test_resolve_public_host_ipv6_emits_full_prefix() -> None:
 def test_resolve_local_host_ipv6_emits_full_prefix() -> None:
     """Verify _resolve_local_host emits /128 for private IPv6 and /32 for IPv4."""
     assert (
-        _resolve_local_host("::1"),
         _resolve_local_host("fd00::1"),
         _resolve_local_host("fd00::/8"),
         _resolve_local_host("192.168.1.50"),
     ) == (
-        ["::1/128"],
         ["fd00::1/128"],
         ["fd00::/8"],
         ["192.168.1.50/32"],
@@ -654,7 +727,7 @@ def test_sandbox_network_config_ipv6_whitelists() -> None:
         ("http url", [(["93.184.215.14/32"], 80)]),
         ("bare name", [(["93.184.215.14/32"], 443)]),
         ("bracketed ipv6 with a port", [(["2606:4700::1/128"], 8443)]),
-        ("local url with a port", [(["127.0.0.1/32"], 11434)]),
+        ("local url with a port", [(["192.0.2.50/32"], 11434)]),
     ],
 )
 def test_a_whitelist_entry_opens_only_its_own_port(
@@ -702,6 +775,14 @@ def test_every_whitelist_rule_but_the_dns_rule_names_its_ports(case: str) -> Non
     """No whitelist policy these tests build opens every port to an address."""
     rules = _egress_without_dns(_WHITELIST_POLICIES[case])
     assert (bool(rules), all(rule.get("ports") for rule in rules)) == (True, True)
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize("case", sorted(_WHITELIST_POLICIES))
+def test_every_whitelist_rule_names_a_destination(case: str) -> None:
+    """No rule has an empty or missing `to`, which would allow every destination (#1174)."""
+    policy = SandboxNetworkConfig(**_WHITELIST_POLICIES[case]).to_k8s_network_policy()
+    assert [rule for rule in policy["spec"]["egress"] if not rule.get("to")] == []
 
 
 _COLLECTOR_RULE: dict[str, Any] = {

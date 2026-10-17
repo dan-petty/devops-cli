@@ -190,7 +190,10 @@ def test_property_absolute_tilde_and_file_schemes_denied_when_not_allowed(
 def test_property_resolve_hosts_emit_correct_prefix_lengths(
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> None:
-    """Property: _resolve_public_host and _resolve_local_host emit /128 for IPv6 and /32 for IPv4."""
+    """Property: _resolve_public_host and _resolve_local_host emit /128 for IPv6 and /32 for IPv4.
+
+    A loopback address emits nothing: NetworkPolicy never polices a pod's loopback (#1174).
+    """
     from unittest.mock import patch
 
     ip_str = str(ip)
@@ -201,14 +204,15 @@ def test_property_resolve_hosts_emit_correct_prefix_lengths(
     net = ipaddress.ip_network(ip_str, strict=False)
     is_public = not is_non_public_ip(net)
 
+    if ip.is_loopback:
+        assert _resolve_local_host(ip_str) == []
+        return
     with patch("socket.getaddrinfo", return_value=mock_addr):
         if is_public:
             blocks_direct = _resolve_public_host(ip_str)
             blocks_dns = _resolve_public_host("example.com")
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
-        elif (ip.is_private or ip.is_loopback) and not is_cloud_metadata_host(
-            ip, resolve_dns=False
-        ):
+        elif ip.is_private and not is_cloud_metadata_host(ip, resolve_dns=False):
             blocks_direct = _resolve_local_host(ip_str)
             blocks_dns = _resolve_local_host("service.internal")
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])

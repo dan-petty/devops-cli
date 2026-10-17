@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+
 import pytest
 
 from devops_cli.models.vulnerability import NetworkReference
@@ -9,7 +12,10 @@ from devops_cli.security.reference_extractor import (
     deduplicate_network_references,
     extract_dependencies_from_text,
     extract_network_references,
+    is_example_ip,
+    is_private_or_local_ip,
     is_public_ip,
+    network_target_address,
     sort_network_references,
 )
 
@@ -22,6 +28,152 @@ def test_is_public_ip() -> None:
     assert is_public_ip("10.0.0.1") is False
     assert is_public_ip("172.16.0.1") is False
     assert is_public_ip("invalid-ip") is False
+
+
+# Each address and the one class it is in. Documentation space is RFC 5737, RFC 3849, RFC 9637,
+# RFC 2544 and RFC 5180. Public is global, not reserved and not multicast; everything else
+# specified is local, including `64:ff9b::a00:1` (the NAT64 form of 10.0.0.1), `4000::1` and
+# `5f00::1`, which the stdlib reads as global but reserved, and `fec0::1`, deprecated site-local
+# space it reads as global. An IPv4-mapped address is in the class of the IPv4 address it carries.
+_ADDRESS_CLASSES: list[tuple[str, str]] = [
+    *(
+        (address, "public")
+        for address in ("8.8.8.8", "2606:4700::1", "192.0.0.9", "2001:1::1", "2001:4:112::1")
+    ),
+    *(
+        (address, "documentation")
+        for address in (
+            "192.0.2.1",
+            "198.18.0.1",
+            "2001:db8::1",
+            "2001:2::1",
+            "3fff::1",
+            "::ffff:192.0.2.1",
+        )
+    ),
+    *(
+        (address, "local")
+        for address in (
+            "192.168.1.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "100.64.0.1",
+            "192.0.0.1",
+            "192.88.99.1",
+            "240.0.0.1",
+            "255.255.255.255",
+            "224.0.0.1",
+            "ff02::1",
+            "100::1",
+            "2001::1",
+            "2002:a00:1::1",
+            "64:ff9b::a00:1",
+            "4000::1",
+            "5f00::1",
+            "fec0::1",
+            "::ffff:192.88.99.2",
+        )
+    ),
+    ("::", "unspecified"),
+]
+
+
+@pytest.mark.parametrize(("address", "address_class"), _ADDRESS_CLASSES)
+def test_every_specified_address_is_in_exactly_one_class(address: str, address_class: str) -> None:
+    """Public, documentation and local partition the specified addresses; an unspecified one is
+    in none of them. An address in no class used to fall through `check_threat_intel` to a
+    Cloudflare Radar lookup, as multicast did (#1174)."""
+    assert (is_public_ip(address), is_example_ip(address), is_private_or_local_ip(address)) == (
+        address_class == "public",
+        address_class == "documentation",
+        address_class == "local",
+    )
+
+
+@pytest.mark.parametrize("address", ["192.88.99.2", "fec0::1"])
+def test_the_stdlib_still_reads_each_non_global_network_as_global(address: str) -> None:
+    """Each entry of `CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL` exists only while this holds.
+
+    IANA lists 192.88.99.2/32 as not globally reachable (RFC 6751), and the rest of
+    192.88.99.0/24 as deprecated (RFC 7526). Site-local fec0::/10 was IPv6's private space until
+    RFC 3879 deprecated it, and IANA lists it as reserved by the IETF. When a case fails, CPython
+    has followed IANA: delete that network from the constant, and the constant with its last
+    entry.
+    """
+    assert ipaddress.ip_address(address).is_global is True
+
+
+@pytest.mark.parametrize(
+    ("target", "address_class"),
+    [
+        ("8.8.8.8.", "public"),
+        ("192.0.2.1,", "documentation"),
+        ("100.64.0.1.", "local"),
+        ("224.0.0.1,", "local"),
+        ("10.0.0.1)", "local"),
+        ("fec0::1.", "local"),
+    ],
+)
+def test_an_address_is_classed_without_the_punctuation_prose_leaves_after_it(
+    target: str, address_class: str
+) -> None:
+    """The classes read a target as `is_example_or_invalid_network_target` reads it, without the
+    `.,;)>]"'` prose leaves after it. A trailing dot is never part of an address literal, so
+    `100.64.0.1.` is local; it used to be in no class and went to Cloudflare Radar (#1174)."""
+    assert (is_public_ip(target), is_example_ip(target), is_private_or_local_ip(target)) == (
+        address_class == "public",
+        address_class == "documentation",
+        address_class == "local",
+    )
+
+
+@pytest.mark.parametrize(
+    ("target", "address"),
+    [
+        ("100.64.0.1.", "100.64.0.1"),
+        ("224.0.0.1,", "224.0.0.1"),
+        ("http://100.64.0.1./v1", "100.64.0.1"),
+        ("100.64.0.1:443", "100.64.0.1"),
+        ("[::1]:8080", "::1"),
+        ("::ffff:192.88.99.1", "192.88.99.1"),
+        ("2130706433", "127.0.0.1"),
+        ("127.1", "127.0.0.1"),
+        ("0x7f.0.0.1", "127.0.0.1"),
+        ("example.com", None),
+        ("localhost", None),
+        ("555-0100", None),
+    ],
+)
+def test_a_network_target_names_the_address_a_resolver_would_dial(
+    target: str, address: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A URL or `host:port` names its host, prose punctuation is not part of it, and the legacy
+    numeric spellings `inet_aton` reads (`2130706433`, `127.1`, `0x7f.0.0.1`) name the address a
+    resolver dials. A name names no address, and nothing is looked up (#1174)."""
+
+    def _no_lookup(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("no lookup may be made")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _no_lookup)
+    expected = None if address is None else ipaddress.ip_address(address)
+    assert network_target_address(target) == expected
+
+
+def test_a_report_tags_documentation_space_as_an_example_and_reserved_space_as_local() -> None:
+    """3fff::/20 (RFC 9637) is a documented example; multicast, shared address space and 6to4
+    relay anycast are local, and none of them is reported as public (#1174)."""
+    refs = extract_network_references(
+        "doc 3fff::1 group 224.0.0.1 cgnat 100.64.0.1 relay 192.88.99.1 dns 8.8.8.8",
+        "notes.md",
+        exclude_examples=False,
+    )
+    assert {ref.target: (ref.scope, ref.security_status) for ref in refs} == {
+        "3fff::1": ("local", "✓ Safe (Documented Example)"),
+        "224.0.0.1": ("local", "✓ Safe (Local)"),
+        "100.64.0.1": ("local", "✓ Safe (Local)"),
+        "192.88.99.1": ("local", "✓ Safe (Local)"),
+        "8.8.8.8": ("external", "✓ Safe"),
+    }
 
 
 def test_extract_dependencies_requirements_txt() -> None:
@@ -855,14 +1007,12 @@ def test_reference_extractor_advanced_edge_cases() -> None:
 
 
 def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
-    """Verify RFC 2606/6761/6890/5737/3849 example domains, IPs, and phone exclusions."""
+    """Verify RFC 2606/6761 example domains, documentation and benchmarking addresses, and
+    phone exclusions."""
     from devops_cli.security.reference_extractor import (
-        is_example_ip,
         is_example_or_invalid_domain,
         is_example_or_invalid_network_target,
-        is_example_or_reserved_ip,
         is_example_phone_number,
-        is_public_ip,
     )
 
     # 1. RFC 2606 reserved domains and TLDs
@@ -888,54 +1038,36 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     assert is_example_or_invalid_domain("api.cloudflare.com") is False
     assert is_example_or_invalid_domain("openai.com") is False
 
-    # 2. RFC 5737 IPv4 documentation spaces
-    test_net_ips = [
+    # 2-4. Documentation (RFC 5737, RFC 3849, RFC 9637) and benchmarking (RFC 2544, RFC 5180)
+    # addresses are examples; shared address space (RFC 6598), the discard prefix (RFC 6666) and
+    # public addresses are not. Each address's class is pinned by
+    # `test_every_specified_address_is_in_exactly_one_class`.
+    example_ips = [
         "192.0.2.1",  # TEST-NET-1
         "192.0.2.254",
         "198.51.100.1",  # TEST-NET-2
         "198.51.100.50",
         "203.0.113.1",  # TEST-NET-3
         "203.0.113.254",
-    ]
-    for ip in test_net_ips:
-        assert is_example_ip(ip) is True, f"Failed is_example_ip: {ip}"
-        assert is_example_or_reserved_ip(ip) is True, f"Failed is_example_or_reserved_ip: {ip}"
-        assert is_public_ip(ip) is False, f"Should not be public IP: {ip}"
-        assert is_example_or_invalid_network_target(ip) is True
-
-    # 3. RFC 3849 & IAB Statement IPv6 documentation spaces
-    ipv6_doc_ips = [
         "2001:db8::1",
         "2001:db8:85a3::8a2e:370:7334",
         "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
-    ]
-    for ip in ipv6_doc_ips:
-        assert is_example_ip(ip) is True, f"Failed IPv6 is_example_ip: {ip}"
-        assert is_example_or_reserved_ip(ip) is True
-        assert is_public_ip(ip) is False
-        assert is_example_or_invalid_network_target(ip) is True
-
-    # 4. RFC 6890 / Special IPv4 & IPv6 blocks (CGNAT, Benchmarking, Discard)
-    special_ips = [
-        "100.64.0.1",  # CGNAT RFC 6598
-        "100.127.255.254",
-        "198.18.0.1",  # Benchmarking RFC 2544
+        "3fff::1",
+        "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "198.18.0.1",
         "198.19.255.254",
-        "100::1",  # Discard prefix RFC 6666
-        "2001:2::1",  # IPv6 Benchmarking RFC 5180
+        "2001:2::1",
     ]
-    for ip in special_ips:
-        assert is_example_or_reserved_ip(ip) is True, f"Failed special IP: {ip}"
-        assert is_public_ip(ip) is False
-        assert is_example_or_invalid_network_target(ip) is True
-
-    # 5. Public IPs must be recognized correctly
-    public_ips = ["8.8.8.8", "1.1.1.1", "93.184.216.34"]
-    for ip in public_ips:
-        assert is_example_ip(ip) is False
-        assert is_example_or_reserved_ip(ip) is False
-        assert is_public_ip(ip) is True
-        assert is_example_or_invalid_network_target(ip) is False
+    not_example_ips = [
+        "100.64.0.1",
+        "100.127.255.254",
+        "100::1",
+        "8.8.8.8",
+        "1.1.1.1",
+        "93.184.216.34",
+    ]
+    assert [ip for ip in example_ips if not is_example_or_invalid_network_target(ip)] == []
+    assert [ip for ip in not_example_ips if is_example_or_invalid_network_target(ip)] == []
 
     # 6. ATIS-0300115 / NANPA and UK Ofcom fictitious phone numbers
     fictitious_phones = [
