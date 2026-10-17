@@ -1194,6 +1194,14 @@ CONST_ZIZMOR_BLOCKING_RULES: frozenset[str] = frozenset(
     {"template-injection", "unpinned-uses", "excessive-permissions"}
 )
 # zizmor's severities (its `Severity` enum, `Unknown` aside), as the scan table names them.
+# The GitHub Actions files zizmor audits: `.github/workflows/*.y(a)ml` and `action.y(a)ml`.
+CONST_GITHUB_ACTIONS_ROOT: Final[str] = ".github"
+CONST_GITHUB_WORKFLOWS_DIRNAME: Final[str] = "workflows"
+CONST_GITHUB_ACTION_FILE_STEM: Final[str] = "action"
+CONST_YAML_SUFFIXES: Final[tuple[str, ...]] = (".yaml", ".yml")
+# The configuration an isolated zizmor scan is handed in place of the scanned tree's: no rules
+# changed (#972).
+CONST_REVIEW_SCAN_ZIZMOR_CONFIG: Final[str] = "rules: {}\n"
 CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
     "High": "HIGH",
     "Medium": "MEDIUM",

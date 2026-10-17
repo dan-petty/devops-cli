@@ -205,10 +205,10 @@ def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str
     return cmd
 
 
-def build_zizmor_cmd(target_path: Path | str) -> list[str]:
+def build_zizmor_cmd(*targets: Path | str) -> list[str]:
     """Build a zizmor GitHub Actions audit with no network access and JSON output. With
     `--no-exit-codes` zizmor exits 0 whatever it finds, so any other exit means it did not run."""
-    return [BIN_ZIZMOR, "--offline", "--no-exit-codes", "--format", "json", str(target_path)]
+    return [BIN_ZIZMOR, "--offline", "--no-exit-codes", "--format", "json", *map(str, targets)]
 
 
 def build_semgrep_cmd(

@@ -741,6 +741,7 @@ class ScanMessages:
         "{count} finding(s) from other zizmor audits are reported and do not block."
     )
     zizmor_failed: str = "zizmor could not run (exit {code}): {detail}"
+    zizmor_not_applicable: str = "No GitHub Actions workflows or action files in the target"
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
