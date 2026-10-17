@@ -606,6 +606,16 @@ def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
 
 
 @pytest.fixture(autouse=True)
+def isolate_keyring_backends() -> Iterator[None]:
+    """Unregister the keyring backend classes a test defines and restore keyring's chosen backend,
+    so no test's fake backend becomes a later test's keyring (`tests/keyring_isolation.py`)."""
+    from tests.keyring_isolation import keyring_backends_restored
+
+    with keyring_backends_restored():
+        yield
+
+
+@pytest.fixture(autouse=True)
 def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG."""
     from devops_cli.config.settings import reset_settings_cache
