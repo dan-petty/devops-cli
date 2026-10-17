@@ -95,6 +95,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
+from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 
@@ -316,12 +317,12 @@ class SandboxConfig(BaseModel):
 
 
 class KubernetesConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
     context: str = Field(
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
     )
-    domain: str | None = Field(
+    domain: OptionalConfiguredDomain = Field(
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. example.com)",
     )
@@ -363,8 +364,8 @@ class CloudflareAccessConfig(BaseModel):
 
 
 class CloudflareConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    domain: str | None = Field(
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
+    domain: OptionalConfiguredDomain = Field(
         default=None,
         description="Root or zone domain name managed in Cloudflare (e.g. example.com)",
     )

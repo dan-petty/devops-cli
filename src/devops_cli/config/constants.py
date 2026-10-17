@@ -2542,13 +2542,6 @@ CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
 CONST_LOCAL_TRANSPORT_LABELS: Final[frozenset[str]] = frozenset(
     {"direct", "local", "in-process", "internal", "none"}
 )
-CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
-    ".local",
-    ".localhost",
-    ".cluster.local",
-    ".internal",
-    ".lan",
-)
 
 # ── Kubernetes Informer & Service Constants ──────────────────────────────────
 CONST_K8S_EVENT_ADDED: Final[str] = "ADDED"

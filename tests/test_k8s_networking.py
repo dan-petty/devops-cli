@@ -13,7 +13,6 @@ from devops_cli.commands.k8s.networking import (
     _build_port_forward_details,
     _collect_port_forward_services,
     _configure_llm_stack_urls,
-    _is_fqdn_url,
     _resolve_accessible_url,
     _resolve_effective_addressing,
     _select_best_ingress_host,
@@ -261,19 +260,40 @@ def test_port_forward_defaults_do_not_update_config() -> None:
         assert mock_conf.called is True
 
 
-def test_is_fqdn_url() -> None:
-    """_is_fqdn_url correctly identifies valid FQDN endpoints and rejects IPs/loopbacks."""
+def test_is_public_dns_name() -> None:
+    """is_public_dns_name classifies PSL suffixes, special-use roots, IPs, and malformed labels (#887)."""
+    from devops_cli.core.dns_names import is_public_dns_name
+
     results = (
-        _is_fqdn_url("https://argocd.example.com"),
-        _is_fqdn_url("http://chat.example.com:8080"),
-        _is_fqdn_url("http://192.0.2.1:30500"),
-        _is_fqdn_url("http://127.0.0.1:8080"),
-        _is_fqdn_url("http://localhost:11434"),
-        _is_fqdn_url("http://service.default.svc.cluster.local:8080"),
-        _is_fqdn_url(""),
-        _is_fqdn_url(None),
+        is_public_dns_name("grafana.corp"),
+        is_public_dns_name("grafana.home.arpa"),
+        is_public_dns_name("grafana.test"),
+        is_public_dns_name("ollama.home"),
+        is_public_dns_name("co.uk"),
+        is_public_dns_name("1.2.0.192.in-addr.arpa"),
+        is_public_dns_name("resolver.arpa"),
+        is_public_dns_name("x.onion"),
+        is_public_dns_name("localhost"),
+        is_public_dns_name("192.0.2.1"),
+        is_public_dns_name("a..b.example.com"),
+        is_public_dns_name("example.com"),
+        is_public_dns_name("EXAMPLE.COM."),
     )
-    expected = (True, True, False, False, False, False, False, False)
+    expected = (
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+    )
     assert results == expected
 
 
@@ -288,6 +308,17 @@ def test_should_update_url_preserves_fqdn() -> None:
     assert results == (False, False, True, False)
 
 
+def test_should_update_url_private_suffix_table() -> None:
+    """_should_update_url keeps configured URLs whose host is a name on private zones (#887)."""
+    results = (
+        _should_update_url("https://grafana.corp", "http://192.0.2.4:30080"),
+        _should_update_url("https://grafana.home.arpa", "http://localhost:8080"),
+        _should_update_url("https://node1.example.internal", "http://192.0.2.4:30080"),
+        _should_update_url("http://localhost:3000", "http://192.0.2.4:30080"),
+    )
+    assert results == (False, False, False, True)
+
+
 def test_select_best_ingress_host() -> None:
     """_select_best_ingress_host prefers host matching the configured domain."""
     hosts = ["argocd.example.com", "argocd.homelab.example.com"]
@@ -298,6 +329,21 @@ def test_select_best_ingress_host() -> None:
         "argocd.homelab.example.com",
         "argocd.example.com",
         None,
+    )
+
+
+def test_select_best_ingress_host_lookalike_and_malformed() -> None:
+    """_select_best_ingress_host rejects lookalike suffix matches and skips malformed hosts (#887)."""
+    lookalike_hosts = ["grafana.evilexample.com", "grafana.example.com"]
+    malformed_hosts = ["a..b.example.com", "grafana.example.com"]
+    assert (
+        _select_best_ingress_host(lookalike_hosts, preferred_domain="example.com"),
+        _select_best_ingress_host(lookalike_hosts, preferred_domain="EXAMPLE.COM."),
+        _select_best_ingress_host(malformed_hosts, preferred_domain="example.com"),
+    ) == (
+        "grafana.example.com",
+        "grafana.example.com",
+        "grafana.example.com",
     )
 
 

@@ -159,10 +159,7 @@ def _validate_local_whitelist_item(item: str) -> None:
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
         )
-    if not is_loopback_or_private_host(host, resolve_dns=False) and host not in (
-        "localhost",
-        "host.docker.internal",
-    ):
+    if not is_loopback_or_private_host(host, resolve_dns=False):
         raise ValueError(
             f"Local whitelist entry '{item}' (host '{host}') must resolve to a private or loopback destination."
         )

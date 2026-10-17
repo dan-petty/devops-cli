@@ -31,6 +31,7 @@ from devops_cli.ai.harness.filesystem import FileSystem
 from devops_cli.ai.harness.planning import Planning
 from devops_cli.ai.harness.repo_context import RepoContext
 from devops_cli.ai.harness.shell import Shell
+from devops_cli.core.dns_names import ConfiguredDomain, is_at_or_under
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class Researcher(BaseCapability):
     """Composite harness stack for autonomous web and document research agents."""
 
     id: str | None = "researcher_harness"
-    allowed_domains: list[str] | None = None
+    allowed_domains: list[ConfiguredDomain] | None = None
     instructions: str | None = DEFAULT_RESEARCHER_INSTRUCTIONS
 
     def __init__(
@@ -326,12 +327,48 @@ class Macroscope(BaseCapability):
         return additions
 
 
+def _is_allowed_browser_host(host: str, allowed_domains: list[str]) -> bool:
+    """Return True when host matches any allowed domain under DNS label rules."""
+    import dns.exception
+
+    if not host:
+        return False
+    try:
+        return any(is_at_or_under(host, d) for d in allowed_domains)
+    except dns.exception.DNSException:
+        return False
+
+
+def _validate_browser_navigation(
+    url: str,
+    *,
+    block_private_addresses: bool,
+    allowed_domains: list[str] | None,
+) -> str | None:
+    """Return an error message if browser navigation to url is blocked by egress policy."""
+    from urllib.parse import urlsplit
+
+    from devops_cli.ai.common_tools import is_private_ip_or_localhost
+
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        return f"Navigation blocked: Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
+    if block_private_addresses and is_private_ip_or_localhost(url):
+        return f"Egress blocked: Access to private/loopback URL '{url}' is forbidden."
+    if allowed_domains:
+        parsed_host = parsed.hostname or ""
+        if not _is_allowed_browser_host(parsed_host, allowed_domains):
+            allowed_set = {d.lower().strip() for d in allowed_domains}
+            return f"Egress blocked: Host '{parsed_host}' from URL '{url}' is not in allowed domains: {sorted(allowed_set)}."
+    return None
+
+
 class PlaywrightBrowser(BaseCapability):
     """Capability managing a headless Chromium browser instance via Playwright."""
 
     id: str | None = "playwright_browser"
     headless: bool = True
-    allowed_domains: list[str] | None = None
+    allowed_domains: list[ConfiguredDomain] | None = None
     block_private_addresses: bool = True
     screenshot_on_navigate: bool = False
     max_content_tokens: int = 4000
@@ -377,23 +414,13 @@ class PlaywrightBrowser(BaseCapability):
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         def navigate(url: str, timeout_ms: int | None = None) -> str:
             """Navigate to a URL and return title, URL, and visible page text."""
-            from urllib.parse import urlparse
-
-            parsed = urlparse(url)
-            if parsed.scheme.lower() not in ("http", "https"):
-                return f"Navigation blocked: Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
-
-            from devops_cli.ai.common_tools import is_private_ip_or_localhost
-
-            if self.block_private_addresses and is_private_ip_or_localhost(url):
-                return f"Egress blocked: Access to private/loopback URL '{url}' is forbidden."
-
-            if self.allowed_domains:
-                parsed_host = (urlparse(url).netloc or "").split(":")[0].lower()
-                allowed_set = {d.lower().strip() for d in self.allowed_domains}
-                if not any(parsed_host == d or parsed_host.endswith("." + d) for d in allowed_set):
-                    return f"Egress blocked: Host '{parsed_host}' from URL '{url}' is not in allowed domains: {sorted(allowed_set)}."
-
+            blocked = _validate_browser_navigation(
+                url,
+                block_private_addresses=self.block_private_addresses,
+                allowed_domains=self.allowed_domains,
+            )
+            if blocked:
+                return blocked
             return f"Navigated to {url}. Title: Page Title. Content loaded."
 
         def snapshot(timeout_ms: int | None = None) -> str:

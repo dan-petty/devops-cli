@@ -17,7 +17,6 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import tldextract
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
@@ -29,11 +28,10 @@ from devops_cli.config.constants import (
     CONST_SPECIAL_USE_TLDS,
 )
 from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
+from devops_cli.core.dns_names import get_tld_extractor
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
 logger = logging.getLogger(__name__)
-
-_TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
 # Standard RFC 2606 and RFC 6761 reserved domain suffixes and TLDs
 _RFC2606_RESERVED_TLDS = CONST_RFC2606_RESERVED_TLDS
@@ -141,7 +139,7 @@ def is_example_or_invalid_domain(target: str) -> bool:
         return True
     if any(clean.endswith("." + tld) for tld in _RFC2606_RESERVED_TLDS):
         return True
-    ext = _TLD_EXTRACTOR(clean)
+    ext = get_tld_extractor()(clean)
     if ext.suffix and ext.suffix.lower() in _RFC2606_RESERVED_TLDS:
         return True
     return False
@@ -243,7 +241,7 @@ def is_local_or_reserved_domain(target: str) -> bool:
         return False
     if any(clean.endswith("." + d) for d in _SPECIAL_USE_TLDS):
         return True
-    ext = _TLD_EXTRACTOR(clean)
+    ext = get_tld_extractor()(clean)
     if ext.suffix and ext.suffix.lower() in _SPECIAL_USE_TLDS:
         return True
     return False

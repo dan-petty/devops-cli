@@ -43,7 +43,7 @@ dependencies = [
     "pydantic-graph==2.54.0",
     "opentelemetry-api==1.44.0",
     "secretstorage==3.5.0; sys_platform == 'linux'",
-    "dnspython==2.8.0",
+    "dnspython[idna]==2.8.0",
     "genai-prices==0.1.9",
     "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
     "textual==8.2.8",

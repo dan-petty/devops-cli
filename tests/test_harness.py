@@ -348,6 +348,36 @@ def test_playwright_browser_capability() -> None:
     assert "Network requests:" in tools["network_requests"].function()  # type: ignore[union-attr]
 
 
+def test_playwright_browser_navigate_domain_and_ipv6_table() -> None:
+    """Verify PlaywrightBrowser.navigate uses urlsplit hostname and is_at_or_under (#887)."""
+    from devops_cli.ai.harness import PlaywrightBrowser
+
+    def run_navigate(cap: PlaywrightBrowser, url: str) -> str:
+        nav_tool = {getattr(t, "name", ""): t for t in cap.get_tools()}["navigate"]
+        fn = getattr(nav_tool, "function")
+        return str(fn(url))
+
+    cap_default = PlaywrightBrowser(
+        block_private_addresses=True,
+        allowed_domains=["example.com"],
+    )
+    cap_no_private = PlaywrightBrowser(
+        block_private_addresses=False,
+        allowed_domains=["example.com"],
+    )
+    cap_ipv6 = PlaywrightBrowser(
+        block_private_addresses=False,
+        allowed_domains=["2001:db8::1"],
+    )
+
+    assert (
+        "Egress blocked" in run_navigate(cap_default, "http://example.com:80@8.8.8.8/"),
+        "Navigated to http://EXAMPLE.COM./" in run_navigate(cap_default, "http://EXAMPLE.COM./"),
+        "Egress blocked" in run_navigate(cap_no_private, "http://a..b.example.com/"),
+        "Navigated to http://[2001:db8::1]/" in run_navigate(cap_ipv6, "http://[2001:db8::1]/"),
+    ) == (True, True, True, True)
+
+
 def test_file_system_edge_cases(tmp_path: Path) -> None:
     from devops_cli.ai.harness import FileSystem
 

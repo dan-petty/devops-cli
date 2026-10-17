@@ -627,3 +627,41 @@ def test_is_local_configured_cluster_and_gateway(
         False,
         True,
     )
+
+
+def test_pricing_local_vs_remote_and_configured_domain_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify pricing counts non-public and malformed hosts as local, and matches k8s.domain on DNS labels (#887)."""
+    from devops_cli.ai.spend.pricing import _is_local_host, is_local
+    from devops_cli.config.settings import reset_settings_cache
+
+    empty_cfg = tmp_path / "empty.yaml"
+    empty_cfg.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(empty_cfg))
+    reset_settings_cache()
+
+    empty_results = (
+        is_local("grafana.corp"),
+        is_local("x.test"),
+        is_local("ollama"),
+        is_local("x.onion"),
+        _is_local_host("a..b.example.com"),
+        is_local("8.8.8.8"),
+        is_local("example.com"),
+    )
+
+    domain_cfg = tmp_path / "domain.yaml"
+    domain_cfg.write_text("k8s:\n  domain: example.com\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(domain_cfg))
+    reset_settings_cache()
+
+    domain_results = (
+        is_local("ai.example.com"),
+        is_local("ai.evilexample.com"),
+    )
+
+    assert (empty_results, domain_results) == (
+        (True, True, True, True, True, False, False),
+        (True, False),
+    )

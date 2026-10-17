@@ -67,20 +67,25 @@ _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
 )
 
 
+def _parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse an IPv4 or IPv6 literal, including legacy inet_aton forms, without getaddrinfo."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))
+    except OSError, ValueError:
+        return None
+
+
 def is_loopback_host(host: str) -> bool:
     """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
     clean = str(host).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
     if clean == CONST_LOOPBACK_HOSTNAME:
         return True
-    try:
-        return ipaddress.ip_address(clean).is_loopback
-    except ValueError:
-        pass
-    try:
-        infos = socket.getaddrinfo(clean, 0, flags=socket.AI_NUMERICHOST)
-        return any(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
-    except socket.gaierror, ValueError, OSError:
-        return False
+    addr = _parse_numeric_ip(clean)
+    return addr is not None and addr.is_loopback
 
 
 _is_loopback_host = is_loopback_host
@@ -112,25 +117,17 @@ def _is_cloud_metadata_net(
 
 def _check_numeric_metadata(host: str) -> bool | None:
     """Check if host is an IP literal or numeric representation, returning metadata status or None."""
-    try:
-        return _is_cloud_metadata_addr(ipaddress.ip_address(host))
-    except ValueError:
-        pass
+    addr = _parse_numeric_ip(host)
+    if addr is not None:
+        return _is_cloud_metadata_addr(addr)
     try:
         h_parsed = httpx2.URL(scheme="http", host=host).host
-        try:
-            return _is_cloud_metadata_addr(ipaddress.ip_address(h_parsed))
-        except ValueError:
-            pass
-        infos = socket.getaddrinfo(h_parsed, 0, flags=socket.AI_NUMERICHOST)
-        return any(_is_cloud_metadata_addr(ipaddress.ip_address(info[4][0])) for info in infos)
+        parsed_addr = _parse_numeric_ip(h_parsed)
+        if parsed_addr is not None:
+            return _is_cloud_metadata_addr(parsed_addr)
     except Exception:
         pass
-    try:
-        infos = socket.getaddrinfo(host, 0, flags=socket.AI_NUMERICHOST)
-        return any(_is_cloud_metadata_addr(ipaddress.ip_address(info[4][0])) for info in infos)
-    except socket.gaierror, ValueError, OSError:
-        return None
+    return None
 
 
 def is_cloud_metadata_name(host: str) -> bool:
@@ -254,10 +251,12 @@ def _resolve_host_ips(
 
 def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
+    from devops_cli.core.dns_names import is_public_dns_name
+
     clean = str(host_or_ip).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
     if not clean:
         return True
-    if is_loopback_host(clean) or clean.endswith(".local"):
+    if is_loopback_host(clean):
         return True
     if is_cloud_metadata_host(clean, resolve_dns=False):
         return True
@@ -266,6 +265,8 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
         return is_non_public_ip(addr)
     except ValueError:
         pass
+    if not is_public_dns_name(clean):
+        return True
 
     if not resolve_dns:
         return False
@@ -281,16 +282,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
 
 def _is_numeric_host(host: str) -> bool:
     """Check whether host is a numeric IP representation."""
-    try:
-        ipaddress.ip_address(host)
-        return True
-    except ValueError:
-        pass
-    try:
-        infos = socket.getaddrinfo(host, 0, flags=socket.AI_NUMERICHOST)
-        return bool(infos)
-    except socket.gaierror, ValueError, OSError:
-        return False
+    return _parse_numeric_ip(host) is not None
 
 
 def _validate_dns_name_syntax(
@@ -355,7 +347,9 @@ def _validate_hostname_egress(
     error_cls: type[Exception],
 ) -> None:
     """Resolve and enforce egress safety for a non-IP hostname."""
-    if is_loopback_host(host) or host.endswith(".local"):
+    from devops_cli.core.dns_names import is_public_dns_name
+
+    if is_loopback_host(host) or not is_public_dns_name(host):
         if not allow_private:
             raise error_cls(
                 f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
