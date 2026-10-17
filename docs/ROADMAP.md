@@ -2,72 +2,61 @@
 
 # Roadmap — dan-petty/devops-cli
 
-## Current release: v0.2.35
+## Current release: v0.2.36
 
-- [x] #275 feat(ai): active marginalia & epistemic scratchpad (`devops ai read annotate`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #276 feat(ai): socratic inquiry & knowledge gap formulator (`devops ai research socratic`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #277 feat(ai): cross-domain analogical pattern retriever (`devops ai research analogies`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #278 feat(ai): living mental model synthesizer & causal graph distiller (`devops ai research model`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #438 feat(cli): oci container image packaging, standardized metadata & ghcr package integration — Status: Done · Priority: P1-High · Value: — · Effort: —
-- [x] #410 feat(cli): local-path provisioner volume reclaim failures — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [x] #411 feat(cli): output format adoption across the command surface — Status: Done · Priority: P2-Medium · Value: Medium · Effort: High
-- [x] #416 feat(cli): structured fuzzing of parsers and schema boundaries — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [x] #478 feat(ai): llm gateway tuning render and apply configuration with rollback — Status: Done · Priority: P2-Medium · Value: Medium · Effort: High
-- [x] #788 fix(review): location parsing keeps placeholder, prose-laden and truncated locations — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
-- [x] #791 fix(review): `review pr --post --no-reporting` posts zero findings and metrics lose the persona — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [x] #1123 fix(github): the release-start trim and the cap descope pass over an item that a staying item depends on, so the job never keeps an item whose dependency it moved — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
-- [x] #1126 feat(roadmap): the roadmap job tallies each release's joins, descopes and trims by reason, and reports them in its plan and as gauges — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
-- [x] #1135 feat(telemetry): traces are stored in tempo on a volume, and grafana and devops-cli read them, linked to logs and profiles — Status: Done · Priority: P2-Medium · Value: High · Effort: High
+- [x] #844 feat(ci): fail-to-pass check proves a fix's tests fail on its base (`devops ci fail-to-pass`) — Status: Done · Priority: P1-High · Value: Medium · Effort: High
+- [x] #857 feat(mcp): mcp tools declare ToolAnnotations, and mutating tools require approval in devops-cli's own agent loop — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #861 fix(github): supply-chain claims made true — live Dependabot, zizmor and workflow invocation contracts — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #1143 feat(review): review tools run at the project's declared language and platform versions, and count only after their output on a canary matches the recorded expected output — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1145 feat(review): devops-cli's rule pack turns the recall set's network-exposure entries into tested Semgrep rules, and CI runs the pack's tests when a rule changes — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #1147 feat(review): each finding group gets a model-written explanation and plan grounded in the rule's documentation at the installed tool version, kept apart from findings, with every quote, citation, version and code block checked — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #1602 fix(github): pr monitor judges each check by its latest run, so a cancelled run a newer one replaced does not fail the pr — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #792 fix(telemetry): delta metrics from one process can reach the collector out of order — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #797 fix(github): pr readiness passes when review threads can't be read — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #823 feat(k8s): qdrant metrics with an authenticated scrape, and its dashboard row restored — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [x] #848 test(cli): whole-tree import-cycle and interface-layer invariants — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [x] #849 test(cli): suppression comments may not grow unnoticed — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #854 fix(docs): generated reference docs fail closed and describe the real surface — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [x] #856 fix(ai): `devops ai test-gen` stops reporting presence-only tests as synthesized unit tests — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #872 fix(review): a dry-run review writes no session directory or findings — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #875 feat(ai): one json repair seam that counts repairs per entry point — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [x] #1585 feat(k8s): argo cd's web terminal opens a shell in any pod an application manages — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1588 fix(cli): messages reach the terminal as one line, so a command in one is never split by an inserted newline — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1595 feat(k8s): the kube api is reachable off the home network at k8s.<domain> through the cloudflare tunnel, behind access, with kubectl over cloudflared access tcp — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
+- [x] #1601 fix(tests): isolate KeyringBackend._classes registration across xdist workers — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1604 fix(telemetry): resetting the tracer waits for its exports, so no test's exports run on into the next — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1608 feat(review): zizmor's workflow findings reach code scanning through devops scan report, and reviews run it — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
 
-## Planned release: v0.2.36
+## Planned release: v0.2.37
 
-- [ ] #770 refactor(review): one rulebook for known false positives — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
+- [ ] #698 feat(cli): sandbox enforcement audit declared vs engine vs enforced (`devops sandbox audit`) — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #771 refactor(review): review session store that owns layout, fingerprints and verdicts — Status: New · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #844 feat(ci): fail-to-pass check proves a fix's tests fail on its base (`devops ci fail-to-pass`) — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #857 feat(mcp): mcp tools declare ToolAnnotations, and mutating tools require approval in devops-cli's own agent loop — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #861 fix(github): supply-chain claims made true — live Dependabot, zizmor and workflow invocation contracts — Status: Ready · Priority: P1-High · Value: High · Effort: High
 - [ ] #1103 refactor(docs): no documentation-only pull requests: release artifacts are made as the release merges, and every kept doc changes with its code or is deleted — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1107 feat(ci): hand-rolled URL and address parsing fails `devops ci`, AGENTS.md makes the library the rule, and reviews stop discarding the findings — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1128 refactor(k8s): the monitoring stack runs on k8s-monitoring and chart features, with no duplicate collection, dead defaults or leftovers — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1137 feat(review): evidence-first code review — tools find, version-pinned facts ground, models explain and plan, fixes are re-checked — Status: New · Priority: P1-High · Value: High · Effort: High
-- [ ] #1143 feat(review): review tools run at the project's declared language and platform versions, and count only after their output on a canary matches the recorded expected output — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1144 fix(review): Semgrep runs pinned and offline with metrics off, from a cached registry ruleset plus devops-cli's tested rule pack — Status: New · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1145 feat(review): devops-cli's rule pack turns the recall set's network-exposure entries into tested Semgrep rules, and CI runs the pack's tests when a rule changes — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #1146 feat(review): dependency advisories and the package inventory come from osv-scanner over the lockfiles, offline, with each advisory's own severity — Status: New · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1147 feat(review): each finding group gets a model-written explanation and plan grounded in the rule's documentation at the installed tool version, kept apart from findings, with every quote, citation, version and code block checked — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #1148 feat(review): related findings are linked by shared CWE, rule family, symbol-graph component or package, and one review-level plan orders the work across groups — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #1149 feat(ai): knowledge-base manuals state the tool, language and dependency versions they apply to, and reviews ground explanations in the manuals that match the reviewed project — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #417 feat(ai): synthetic prompt adversaries for injection resistance — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-
-## Planned release: v0.2.37
-
 - [ ] #1151 refactor(review): the persona review stage, the legacy segment engine and review-time RAG are deleted, and devops review builds a model client only for the explanation stages — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1154 feat(agent): `devops agent env` gives an agent session its own expiring gateway key, run-index access and a read-only kube identity, written to its settings file or a child process and never printed, with `--revoke` and an audit of every grant — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1174 fix(security): reference_extractor classifies addresses with ipaddress, and the sandbox local whitelist stops mapping host.docker.internal to pod loopback — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
 
 ## Planned release: v0.2.38
 
-No items.
-
-## Backlog
-
-- [ ] #1535 feat(service): roadmap jobs run as argo workflows, with a mutex per repository lane, cronworkflows for schedules, webhook deliveries submitted as workflows, and a background enhancement lane — Status: Blocked · Priority: P0-Critical · Value: High · Effort: Medium
-- [ ] #698 feat(cli): sandbox enforcement audit declared vs engine vs enforced (`devops sandbox audit`) — Status: New · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #772 feat(review): review tools run through one injectable executor in a network-less sandbox with CPU, memory and time limits — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #983 refactor(github): the github session owns transport, ledger, error classes and link pagination — Status: New · Priority: P1-High · Value: — · Effort: —
-- [ ] #1013 fix(review): the response cache stores and serves only replies the review can use, and a schema echo no longer reads as a clean file — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1021 fix(review): a correct refutation stands when the guard's evidence is a path token, a citation inside the finding's own lines, or generic scanner wording — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #414 feat(cli): generator-side rule pruning measured against verifier overlap — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1146 feat(review): dependency advisories and the package inventory come from osv-scanner over the lockfiles, offline, with each advisory's own severity — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1148 feat(review): related findings are linked by shared CWE, rule family, symbol-graph component or package, and one review-level plan orders the work across groups — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
+- [ ] #1149 feat(ai): knowledge-base manuals state the tool, language and dependency versions they apply to, and reviews ground explanations in the manuals that match the reviewed project — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
+- [ ] #417 feat(ai): synthetic prompt adversaries for injection resistance — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #423 feat(cli): blind exception handling policy — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #425 feat(cli): outward-facing capability & upstream maturity survey — Status: New · Priority: P2-Medium · Value: — · Effort: —
-- [ ] #480 feat(review): review page size against quality and speed — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #482 feat(ai): llm cache effectiveness during reviews response cache and prefix cache — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #539 AST support for YAML, Dockerfiles and Helm templates — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #540 File analysis labels C++ as C and Helm templates as plain text — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #551 Metrics for the rest of the platform — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #589 feat(cli): prompt-injection smuggling detector and canary audit (`devops scan injection`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #590 feat(cli): thinking-stream sanitizer initial state, unopened-tag count and thought cap — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #591 feat(cli): reasoning-token share in the spend ledger and provider-reported stream usage — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+
+## Planned release: v0.2.39
+
 - [ ] #595 feat(cli): measured per-deployment capability probes replacing parameter-count failover floors — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #596 feat(cli): recovery transitions for adaptive knobs coalesced decrease, valkey breaker, failback — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #598 feat(ai): ollama model residency per-pod model budget, keep-alive, ms/token — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
@@ -77,6 +66,19 @@ No items.
 - [ ] #685 feat(github): github tab in devops dashboard with an oldest-first pr queue, pr inspector, failing-log view and api quota (`tab-github`) — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #687 feat(cli): docker containers & multi-tier workload sandbox console (`tab-docker`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #688 feat(security): unified secops, compliance & hashicorp vault command center (`tab-secops`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #796 fix(ai): gateway tune creates a debug container per deployment once its first one exits — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
+
+## Backlog
+
+- [ ] #1535 feat(service): roadmap jobs run as argo workflows, with a mutex per repository lane, cronworkflows for schedules, webhook deliveries submitted as workflows, and a background enhancement lane — Status: Blocked · Priority: P0-Critical · Value: High · Effort: Medium
+- [ ] #770 refactor(review): one rulebook for known false positives — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
+- [ ] #772 feat(review): review tools run through one injectable executor in a network-less sandbox with CPU, memory and time limits — Status: Ready · Priority: P1-High · Value: High · Effort: High
+- [ ] #983 refactor(github): the github session owns transport, ledger, error classes and link pagination — Status: New · Priority: P1-High · Value: — · Effort: —
+- [ ] #1013 fix(review): the response cache stores and serves only replies the review can use, and a schema echo no longer reads as a clean file — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1021 fix(review): a correct refutation stands when the guard's evidence is a path token, a citation inside the finding's own lines, or generic scanner wording — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #414 feat(cli): generator-side rule pruning measured against verifier overlap — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #480 feat(review): review page size against quality and speed — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #482 feat(ai): llm cache effectiveness during reviews response cache and prefix cache — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #689 feat(github): gitops fleet, argocd rollouts & cloud cost monitor (`tab-gitops`) — Status: New · Priority: P2-Medium · Value: Low · Effort: High
 - [ ] #690 feat(ai): ai constellation topology, rag health & review findings studio (`tab-ai`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #691 feat(telemetry): centralized loki logql streamer, prometheus sparklines & trace waterfalls (`tab-telemetry`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
@@ -87,17 +89,7 @@ No items.
 - [ ] #775 refactor(cli): one process runner owns execution, process groups and dry-run — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #779 fix(review): the tenacity and async-pool known false positives never fire — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #790 fix(review): verdicts bind across conflicting titles and absence wording shields nonexistent constructs — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #792 fix(telemetry): delta metrics from one process can reach the collector out of order — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #796 fix(ai): gateway tune creates a debug container per deployment once its first one exits — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
-- [ ] #797 fix(github): pr readiness passes when review threads can't be read — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #823 feat(k8s): qdrant metrics with an authenticated scrape, and its dashboard row restored — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #848 test(cli): whole-tree import-cycle and interface-layer invariants — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #849 test(cli): suppression comments may not grow unnoticed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #851 test(cli): retire the tuple-assert mandate and detect opaque tuple asserts and presence-only tests — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #854 fix(docs): generated reference docs fail closed and describe the real surface — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #856 fix(ai): `devops ai test-gen` stops reporting presence-only tests as synthesized unit tests — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #872 fix(review): a dry-run review writes no session directory or findings — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #875 feat(ai): one json repair seam that counts repairs per entry point — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #876 feat(review): cut persona replies are marked, lose their cut finding and are re-chunked — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #877 feat(review): feedback export counts each review subject once and keeps every human verdict — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #879 docs(agents): task files carry no status, milestone or priority and are written only by the delivering pr — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
@@ -149,6 +141,7 @@ No items.
 - [ ] #1134 feat(k8s): profiles come from k8s-monitoring's profiling feature for every workload, and the profiling dashboards list what is profiled — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1140 fix(review): a branch review leaves the files it deletes out of persona pages and scanners, and a file a scanner cannot read does not mark the scanner failed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1165 fix(config): service clients use only configured urls and never fall back to an unconfigured localhost default — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1609 fix(test): the five-persona transient-503 review test ends reviewed whatever runs before it — Status: New · Priority: P2-Medium · Value: Low · Effort: Medium
 - [ ] #409 feat(telemetry): startup dependency ordering for the telemetry stack — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #477 feat(ai): llm gateway tuning cost from real traffic and no-load capacity estimates — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #479 feat(ai): reasoning budget tuning for the review pool — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
