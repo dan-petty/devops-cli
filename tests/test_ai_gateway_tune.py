@@ -166,6 +166,24 @@ class TestBench:
 
         assert DEFAULT_GATEWAY_TUNE_IMAGE == f"python:{python}-slim"
 
+    def test_gateway_bench_imports_only_standard_library(self) -> None:
+        """Verify gateway_bench.py imports only stdlib modules so it runs in python:3.14-slim (#792)."""
+        import ast
+        import sys
+
+        tree = ast.parse(Path(bench.__file__).read_text(encoding="utf-8"))
+        imported = {
+            alias.name.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            node.module.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+        assert sorted(imported - sys.stdlib_module_names) == []
+
     def test_measure_runs_fixed_length_capacity_levels_then_a_natural_cost_pass(self) -> None:
         """Verify capacity levels send concurrency x rounds fixed-length requests, then cost."""
         sent: list[bool] = []

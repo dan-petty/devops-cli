@@ -34,18 +34,15 @@ def test_telemetry_span_and_metric(monkeypatch: pytest.MonkeyPatch) -> None:
     with client.span("pipeline_stage", {"persona": "devsecops"}) as span_id:
         assert len(span_id) == 16  # 8 bytes hex = 16 hex chars
         client.record_metric("findings_count", 3, unit="1", attributes={"severity": "HIGH"})
+    client.flush()
 
     assert len(sent_payloads) == 2
-    # First was metric
-    assert sent_payloads[0][0] == "/v1/metrics"
+    by_path = dict(sent_payloads)
     assert (
-        sent_payloads[0][1]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["name"]
+        by_path["/v1/metrics"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["name"]
         == "findings_count"
     )
-
-    # Second was trace span
-    assert sent_payloads[1][0] == "/v1/traces"
-    span_data = sent_payloads[1][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    span_data = by_path["/v1/traces"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     assert span_data["name"] == "pipeline_stage"
     assert span_data["status"]["code"] == "STATUS_CODE_OK"
 
@@ -73,6 +70,7 @@ def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with trace_span("helper_span", {"env": "test"}):
         record_metric("helper_metric", 42.0)
+    tracer.flush()
 
     assert len(sent_payloads) == 2
 
@@ -688,3 +686,61 @@ def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on(
     tracer._send_payload("/v1/traces", {})
     reset_tracer()
     assert finished.is_set()
+
+
+def test_sdk_meter_provider_flushes_one_batch_over_http_receiver() -> None:
+    """Twenty counter and histogram recordings flush as one OTLP batch on shutdown, and an empty
+    flush sends no request (#792)."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    received: list[tuple[str, dict[str, Any]]] = []
+
+    class _Receiver(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            received.append((self.path, body))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), _Receiver)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address[0], server.server_address[1]
+        client = OTelTelemetryClient(endpoint=f"http://{host!s}:{port}", enabled=True)
+        for idx in range(10):
+            client.increment_counter("devops_cli_command_total", 1.0, attributes={"status": "ok"})
+            client.record_histogram(
+                "devops_cli_command_duration_seconds",
+                float(idx + 1),
+                unit="s",
+                attributes={"command": "ci"},
+            )
+        client.flush()
+        client.flush()
+        client.shutdown()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert len(received) == 1
+    path, payload = received[0]
+    by_name = {m["name"]: m for m in payload["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]}
+    counter_pt = by_name["devops_cli_command_total"]["sum"]["dataPoints"][0]
+    hist_pt = by_name["devops_cli_command_duration_seconds"]["exponentialHistogram"]["dataPoints"][
+        0
+    ]
+    assert (
+        path,
+        counter_pt["asDouble"],
+        int(counter_pt["startTimeUnixNano"]) < int(counter_pt["timeUnixNano"]),
+        int(hist_pt["count"]),
+        hist_pt["sum"],
+        int(hist_pt["startTimeUnixNano"]) < int(hist_pt["timeUnixNano"]),
+    ) == ("/v1/metrics", 10.0, True, 10, 55.0, True)

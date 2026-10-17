@@ -128,6 +128,7 @@ def test_each_entry_point_counts_repairs_once_and_valid_json_emits_none(
         extract_json_block(valid),
         _parse_json_payload(valid, valid),
     )
+    client.flush()
     counts_after_valid = len(payloads)
 
     repaired_results = (
@@ -135,6 +136,7 @@ def test_each_entry_point_counts_repairs_once_and_valid_json_emits_none(
         extract_json_block(trailing),
         _parse_json_payload(trailing, trailing),
     )
+    client.flush()
 
     points = [
         (

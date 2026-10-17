@@ -206,6 +206,10 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             )
             emit(COMMAND_DURATION, dur, {"command": command_name})
             raise typer.Exit(code) from exc
+        finally:
+            from devops_cli.telemetry.tracer import get_tracer
+
+            get_tracer().flush()
 
 
 for _name, (_module_path, _help) in _COMMAND_SPECS.items():

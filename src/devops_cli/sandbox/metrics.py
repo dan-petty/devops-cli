@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import logging
-import re
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlparse
 
 import httpx2
+from prometheus_client.parser import text_string_to_metric_families
 
-from devops_cli.config.constants import CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import is_loopback_host, validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.http import EgressLevel, new_http_client
 from devops_cli.models.docker import ContainerStatEntry
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
@@ -27,19 +28,6 @@ from devops_cli.security.sanitizer import mask_uri_credentials, redact_text
 logger = logging.getLogger(__name__)
 
 _MAX_ERROR_LEN = 256
-_METRIC_NAME_PATTERN = r"[a-zA-Z_:][a-zA-Z0-9_:]*"
-_METRIC_NAME_REGEX = re.compile(_METRIC_NAME_PATTERN)
-_METRIC_LINE_REGEX = re.compile(
-    rf"^(?P<name>{_METRIC_NAME_PATTERN})(?:\{{(?P<labels>[^}}]*)\}})?\s+(?P<value>[^\s]+)(?:\s+(?P<ts>\d+))?$"
-)
-_LABEL_REGEX = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="([^"\\]*(?:\\.[^"\\]*)*)"')
-_UNESCAPE_MAP = {r"\"": '"', r"\\": "\\", r"\n": "\n"}
-_UNESCAPE_REGEX = re.compile(r'\\["\\n]')
-
-
-def _unescape_prom_label(val: str) -> str:
-    """Unescape standard Prometheus exposition label value escape sequences."""
-    return _UNESCAPE_REGEX.sub(lambda m: _UNESCAPE_MAP.get(m.group(0), m.group(0)), val)
 
 
 def _truncate(text: Any, max_len: int = _MAX_ERROR_LEN) -> str:
@@ -309,78 +297,31 @@ def read_cgroup_v2_metrics(
     return None
 
 
-def parse_prometheus_exposition(text: str) -> list[PrometheusMetric]:
-    """Parse Prometheus text exposition format into structured models."""
-    type_map: dict[str, str] = {}
-    metrics: list[PrometheusMetric] = []
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("# HELP"):
-            continue
-        if line.startswith("# TYPE"):
-            _record_type(line, type_map)
-            continue
-        metric = _parse_metric_line(line, type_map)
-        if metric is not None:
-            metrics.append(metric)
-
-    return metrics
-
-
-def _record_type(line: str, type_map: dict[str, str]) -> None:
-    """Record a `# TYPE <name> <type>` line that names a metric and gives a type the format defines.
-
-    The line is the scraped endpoint's text. Any other line is ignored, so the samples' type is
-    inferred from their name instead of taken from it.
-    """
-    parts = line.split(maxsplit=3)
-    if len(parts) < 4 or not _METRIC_NAME_REGEX.fullmatch(parts[2]):
-        return
-    metric_type = parts[3].lower()
-    if metric_type in CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES:
-        type_map[parts[2]] = metric_type
-
-
-def _parse_metric_line(line: str, type_map: dict[str, str]) -> PrometheusMetric | None:
-    """Parse single metric sample line with labels and value."""
-    match = _METRIC_LINE_REGEX.match(line)
-    if not match:
+def _sample_to_metric(family_type: str, sample: Any) -> PrometheusMetric | None:
+    """Convert one parsed Prometheus sample into a PrometheusMetric model, skipping non-finite values."""
+    val = float(sample.value)
+    if math.isnan(val) or math.isinf(val):
         return None
-
-    name = match.group("name")
-    val_str = match.group("value")
-    labels_str = match.group("labels")
-    ts = match.group("ts")
-
-    try:
-        val = float(val_str)
-    except ValueError:
-        return None
-
-    labels: dict[str, str] = {}
-    if labels_str:
-        for lbl_match in _LABEL_REGEX.finditer(labels_str):
-            labels[lbl_match.group(1)] = _unescape_prom_label(lbl_match.group(2))
-
-    metric_type = type_map.get(name, _infer_metric_type(name))
-
+    ts = str(round(sample.timestamp * 1000)) if sample.timestamp is not None else None
     return PrometheusMetric(
-        name=name,
-        metric_type=metric_type,
-        labels=labels,
+        name=sample.name,
+        metric_type=family_type,
+        labels=dict(sample.labels),
         value=val,
         timestamp=ts,
     )
 
 
-def _infer_metric_type(name: str) -> str:
-    """Infer metric type from naming conventions if not explicitly typed."""
-    if name.endswith("_total") or name.endswith("_count"):
-        return "counter"
-    if name.endswith("_bucket"):
-        return "histogram"
-    return "gauge"
+def parse_prometheus_exposition(text: str) -> list[PrometheusMetric]:
+    """Parse Prometheus text exposition format into structured models."""
+    metrics: list[PrometheusMetric] = []
+    for family in text_string_to_metric_families(text):
+        metric_type = "untyped" if family.type == "unknown" else family.type
+        for sample in family.samples:
+            metric = _sample_to_metric(metric_type, sample)
+            if metric is not None:
+                metrics.append(metric)
+    return metrics
 
 
 class PrometheusScrapeResult(list[PrometheusMetric]):
@@ -430,7 +371,10 @@ def scrape_prometheus_metrics(
         )
 
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(
+            level=EgressLevel.LOOPBACK,
+            timeout=timeout,
+        ) as client:
             resp = client.get(validated_url, headers={"User-Agent": "devops-cli-metrics"})
             if resp.status_code != 200:
                 return PrometheusScrapeResult(

@@ -29,29 +29,101 @@ def test_metrics_registry_gauges() -> None:
 
 
 def test_metrics_registry_histograms() -> None:
+    from prometheus_client.parser import text_string_to_metric_families
+
     registry = InMemoryMetricsRegistry()
     registry.record_histogram("devops_cli_llm_turn_duration_ms", 120.0, {"model": "qwen2.5"})
     registry.record_histogram("devops_cli_llm_turn_duration_ms", 180.0, {"model": "qwen2.5"})
 
-    samples = registry.get_histogram_samples(
-        "devops_cli_llm_turn_duration_ms", {"model": "qwen2.5"}
-    )
-    assert samples == [120.0, 180.0]
+    families = {
+        f.name: f for f in text_string_to_metric_families(registry.export_prometheus_text())
+    }
+    hist = families["devops_cli_llm_turn_duration_ms"]
+    samples = {(s.name, s.labels.get("le")): s.value for s in hist.samples}
+    assert (
+        hasattr(registry, "get_histogram_samples"),
+        hist.type,
+        samples[("devops_cli_llm_turn_duration_ms_count", None)],
+        samples[("devops_cli_llm_turn_duration_ms_sum", None)],
+        samples[("devops_cli_llm_turn_duration_ms_bucket", "+Inf")],
+    ) == (False, "histogram", 2.0, 300.0, 2.0)
 
 
 def test_metrics_export_prometheus_text() -> None:
     registry = InMemoryMetricsRegistry()
     registry.increment_counter("test_counter", 5.0, {"env": "prod"})
     registry.set_gauge("test_gauge", 42.0)
-    registry.record_histogram("test_hist", 10.0, {"tag": "a"})
+    registry.record_histogram("test_hist", 0.25, {"tag": "a"})
 
     output = registry.export_prometheus_text()
-    assert "# TYPE test_counter counter" in output
-    assert 'test_counter{env="prod"} 5.0' in output
-    assert "# TYPE test_gauge gauge" in output
-    assert "test_gauge 42.0" in output
-    assert "test_hist_count" in output
-    assert "test_hist_sum" in output
+    assert (
+        "# TYPE test_counter_total counter" in output,
+        'test_counter_total{env="prod"} 5.0' in output,
+        "# TYPE test_gauge gauge" in output,
+        "test_gauge 42.0" in output,
+        'test_hist_bucket{le="+Inf",tag="a"} 1.0' in output,
+        'test_hist_count{tag="a"} 1.0' in output,
+        'test_hist_sum{tag="a"} 0.25' in output,
+    ) == (True,) * 7
+
+
+def test_metrics_registry_rejects_conflicting_collector_types() -> None:
+    """Registering the same metric family name with two different collector types raises ValueError."""
+    import pytest
+
+    registry = InMemoryMetricsRegistry()
+    registry.increment_counter("devops_cli_shared_metric", 1.0)
+    with pytest.raises(ValueError, match="Duplicated timeseries"):
+        registry.set_gauge("devops_cli_shared_metric", 2.0)
+    with pytest.raises(ValueError, match="Duplicated timeseries"):
+        registry.record_histogram("devops_cli_shared_metric", 0.5)
+
+
+def test_both_metrics_routes_parse_via_prometheus_client(
+    tmp_path: object, monkeypatch: object
+) -> None:
+    """Both `/metrics` routes return `CONTENT_TYPE_LATEST` and parse cleanly with `prometheus_client.parser`."""
+    from pathlib import Path
+
+    import pytest
+    from fastapi.testclient import TestClient
+    from prometheus_client import CONTENT_TYPE_LATEST
+    from prometheus_client.parser import text_string_to_metric_families
+
+    from devops_cli.ai.spend.ledger import SpendLedger
+    from devops_cli.server.app import create_app
+    from devops_cli.server.service import create_service_app
+    from devops_cli.telemetry.metrics import GLOBAL_METRICS
+
+    mp = monkeypatch  # type: ignore[assignment]
+    assert isinstance(mp, pytest.MonkeyPatch)
+    assert isinstance(tmp_path, Path)
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    mp.setattr("devops_cli.ai.spend.ledger.get_spend_ledger", lambda: ledger)
+    GLOBAL_METRICS.record_histogram(
+        "devops_cli_service_request_seconds", 0.05, {"route": "/healthz"}
+    )
+
+    for app in (create_app(), create_service_app()):
+        resp = TestClient(app).get("/metrics")
+        families = list(text_string_to_metric_families(resp.text))
+        histograms = [f for f in families if f.type == "histogram"]
+        assert (resp.status_code, resp.headers["content-type"], len(families) > 0) == (
+            200,
+            CONTENT_TYPE_LATEST,
+            True,
+        )
+        for hist in histograms:
+            names = {s.name for s in hist.samples}
+            inf_buckets = [
+                s
+                for s in hist.samples
+                if s.name == f"{hist.name}_bucket" and s.labels.get("le") == "+Inf"
+            ]
+            assert (
+                {f"{hist.name}_bucket", f"{hist.name}_sum", f"{hist.name}_count"} <= names,
+                len(inf_buckets) > 0,
+            ) == (True, True)
 
 
 def test_w3c_traceparent_helpers() -> None:
