@@ -31,9 +31,9 @@ DASHBOARDS = K8S / "monitoring" / "dashboards"
 CAPTURES = ROOT / "tests" / "fixtures" / "metrics"
 
 # Series Prometheus records about every scrape itself, whatever the target serves. Alloy
-# forwards all of them for the gateway's ServiceMonitor, the DCGM integration, the pods its
-# annotation autodiscovery finds and kube-dns; its other cluster-metrics jobs keep only `up`
-# and `scrape_samples_scraped`.
+# forwards all of them for the gateway and Qdrant ServiceMonitors, the DCGM integration, the
+# pods its annotation autodiscovery finds and kube-dns; its other cluster-metrics jobs keep
+# only `up` and `scrape_samples_scraped`.
 SYNTHETIC_SERIES = frozenset(
     {
         "up",
@@ -77,6 +77,20 @@ def _dcgm_monitored(values: dict[str, Any]) -> bool:
     )
 
 
+def _qdrant_monitored(values: dict[str, Any]) -> bool:
+    """Qdrant's chart ServiceMonitor is on and authenticates with the `qdrant-api-key` Secret,
+    and Alloy reads ServiceMonitors."""
+    monitor = values.get("metrics", {}).get("serviceMonitor", {})
+    auth = monitor.get("authorization", {})
+    monitoring = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    return (
+        monitor.get("enabled") is True
+        and auth.get("type") == "Bearer"
+        and auth.get("credentials") == {"name": "qdrant-api-key", "key": "api-key"}
+        and monitoring["prometheusOperatorObjects"]["enabled"] is True
+    )
+
+
 def _collector_annotated(values: dict[str, Any]) -> bool:
     """The server's kubernetes-pods job keeps the collector's namespace and its pods annotated
     for scraping, on their port."""
@@ -116,13 +130,14 @@ class Exporter:
 EXPORTERS = {
     "litellm": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _gateway_monitored),
     "dcgm-exporter": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _dcgm_monitored),
+    "qdrant": Exporter(K8S / "llm" / "values-qdrant.yaml", _qdrant_monitored),
     "otel-collector": Exporter(K8S / "otel" / "values.yaml", _collector_annotated),
     "prometheus-server": Exporter(
         K8S / "monitoring" / "prometheus-values.yaml", _server_jobs_enabled
     ),
 }
 DASHBOARD_EXPORTERS = {
-    "llm-stack.json": ("litellm", "dcgm-exporter"),
+    "llm-stack.json": ("litellm", "dcgm-exporter", "qdrant"),
     "otel-collector.json": ("otel-collector",),
     "prometheus-server.json": ("prometheus-server",),
 }
@@ -403,6 +418,60 @@ def test_prometheus_values_without_the_self_scrape_fail() -> None:
     del unset["scrapeConfigs"]["prometheus"]["enabled"]
 
     assert (server.scraped(values), server.scraped(unset)) == (True, False)
+
+
+def test_qdrant_values_without_an_authenticated_service_monitor_fail() -> None:
+    """Verify Qdrant's ServiceMonitor must be enabled and authenticate with `qdrant-api-key`."""
+    qdrant = EXPORTERS["qdrant"]
+    values = _yaml(qdrant.values)
+    disabled = copy.deepcopy(values)
+    disabled.setdefault("metrics", {}).setdefault("serviceMonitor", {})["enabled"] = False
+    unauthenticated = copy.deepcopy(values)
+    unauthenticated.setdefault("metrics", {}).setdefault("serviceMonitor", {}).pop(
+        "authorization", None
+    )
+
+    assert (
+        qdrant.scraped(values),
+        qdrant.scraped(disabled),
+        qdrant.scraped(unauthenticated),
+    ) == (
+        True,
+        False,
+        False,
+    )
+
+
+def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None:
+    """Verify `llm-stack.json` restores the Qdrant row with request rate/errors, latency, and
+    collections/vectors panels over captured Qdrant metrics (#823)."""
+    dashboard = _dashboard("llm-stack.json")
+    qdrant_series, _ = _capture("qdrant")
+    panels = _panels(dashboard)
+    row_titles = [p["title"] for p in panels if p.get("type") == "row"]
+    qdrant_panels = [
+        p["title"]
+        for p in panels
+        if any(
+            s.metric in qdrant_series
+            for target in p.get("targets", [])
+            for s in selectors(target["expr"])
+        )
+    ]
+
+    assert (
+        "qdrant" in dashboard.get("tags", []),
+        "Qdrant" in row_titles,
+        qdrant_panels,
+    ) == (
+        True,
+        True,
+        [
+            "Qdrant Request Rate and Errors",
+            "Qdrant Request Latency p95",
+            "Qdrant Collections and Vectors",
+        ],
+    )
 
 
 @pytest.mark.parametrize("exporter", EXPORTERS)

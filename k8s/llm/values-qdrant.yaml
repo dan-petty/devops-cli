@@ -67,3 +67,14 @@ podSecurityContext:
 
 # fsGroup: 1000 manages volume permissions; disable root chown initContainer
 updateVolumeFsOwnership: false
+
+# Prometheus ServiceMonitor (#823): Alloy scrapes /metrics on port http (6333) with the
+# Bearer token from Secret qdrant-api-key, which Qdrant requires on every HTTP endpoint.
+metrics:
+  serviceMonitor:
+    enabled: true
+    authorization:
+      type: Bearer
+      credentials:
+        name: qdrant-api-key
+        key: api-key
