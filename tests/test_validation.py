@@ -305,7 +305,7 @@ def test_is_loopback_or_private_host() -> None:
     import socket
 
     with patch("socket.getaddrinfo", side_effect=socket.gaierror):
-        assert is_loopback_or_private_host("unresolvable.invalid") is False
+        assert is_loopback_or_private_host("unresolvable.invalid") is True
 
 
 def test_validate_url_egress() -> None:
@@ -721,3 +721,194 @@ def test_conftest_dns_guard_ai_numerichost() -> None:
     # External domain without AI_NUMERICHOST raises gaierror from guard
     with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
         socket.getaddrinfo("nonexistent.unmocked.domain", 80)
+
+
+_PUBLIC_DNS_NAME_TABLE: tuple[tuple[str, bool], ...] = (
+    ("grafana.corp", False),
+    ("grafana.home.arpa", False),
+    ("grafana.test", False),
+    ("ollama.home", False),
+    ("co.uk", False),
+    ("1.2.0.192.in-addr.arpa", False),
+    ("resolver.arpa", False),
+    ("x.onion", False),
+    ("localhost", False),
+    ("192.0.2.1", False),
+    ("a..b.example.com", False),
+    ("example.com", True),
+    ("EXAMPLE.COM.", True),
+)
+
+
+@pytest.mark.parametrize(("host", "expected"), _PUBLIC_DNS_NAME_TABLE)
+def test_is_public_dns_name_table(host: str, expected: bool) -> None:
+    """Verify is_public_dns_name classifies PSL suffixes, special-use roots, IPs, and malformed names (#887)."""
+    from devops_cli.core.dns_names import is_public_dns_name
+
+    assert is_public_dns_name(host) is expected
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("grafana.corp", True),
+        ("x.alt", True),
+        ("unresolvable.invalid", True),
+        ("a..b.example.com", True),
+        ("8.8.8.8", False),
+    ],
+)
+def test_is_loopback_or_private_host_no_dns_table(host: str, expected: bool) -> None:
+    """Verify is_loopback_or_private_host(h, resolve_dns=False) uses PSL and IP checks (#887)."""
+    from devops_cli.core.validation import is_loopback_or_private_host
+
+    assert is_loopback_or_private_host(host, resolve_dns=False) is expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://grafana.corp/", "http://a..b.example.com/"],
+)
+def test_validate_url_egress_refuses_non_public_and_malformed_without_dns(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Public-only validate_url_egress refuses non-public and malformed hosts without calling DNS (#887)."""
+    import socket
+
+    def fail_dns(*args: object, **kwargs: object) -> None:
+        raise AssertionError("socket.getaddrinfo must not be called")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail_dns)
+    with pytest.raises(SSRFBlockedError):
+        validate_url_egress(url, allow_private=False)
+
+
+_ONE_ANSWER_HOSTS: tuple[str, ...] = (
+    "grafana.corp",
+    "grafana.home.arpa",
+    "grafana.test",
+    "ollama.home",
+    "co.uk",
+    "1.2.0.192.in-addr.arpa",
+    "resolver.arpa",
+    "x.onion",
+    "localhost",
+    "x.alt",
+    "unresolvable.invalid",
+    "a..b.example.com",
+    "example.com",
+    "EXAMPLE.COM.",
+)
+
+
+@pytest.mark.parametrize("host", _ONE_ANSWER_HOSTS)
+def test_one_answer_everywhere_local_vs_public(
+    host: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """is_public_dns_name, pricing._is_local_host, and is_loopback_or_private_host agree on every host (#887)."""
+    from devops_cli.ai.spend.pricing import _is_local_host
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.core.dns_names import is_public_dns_name
+    from devops_cli.core.validation import is_loopback_or_private_host
+
+    empty_cfg = tmp_path / "config.yaml"
+    empty_cfg.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(empty_cfg))
+    reset_settings_cache()
+
+    not_public = not is_public_dns_name(host)
+    assert (_is_local_host(host), is_loopback_or_private_host(host, resolve_dns=False)) == (
+        not_public,
+        not_public,
+    )
+
+
+def test_shared_tld_extractor_no_writes_no_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Building the shared extractor and classifying a name writes nothing to HOME and opens no socket (#887)."""
+    import socket
+
+    from devops_cli.core.dns_names import get_tld_extractor, is_public_dns_name
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    get_tld_extractor.cache_clear()
+
+    def fail_socket(*args: object, **kwargs: object) -> None:
+        raise AssertionError("No socket may be opened")
+
+    monkeypatch.setattr(socket, "create_connection", fail_socket)
+    extractor = get_tld_extractor()
+    extracted = extractor("example.com")
+    assert (
+        extracted.top_domain_under_public_suffix,
+        is_public_dns_name("example.com"),
+        is_public_dns_name("grafana.corp"),
+        list(home_dir.iterdir()),
+    ) == ("example.com", True, False, [])
+
+
+@pytest.mark.parametrize("bad_domain", ["", ".", "@", ".example.com"])
+def test_capability_domain_lists_refuse_root_and_leading_dot(bad_domain: str) -> None:
+    """Domain allow/block lists on capabilities and tools refuse root and leading-dot entries (#887)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from devops_cli.ai.agents.capabilities import WebFetch, WebFetchTool, WebSearchTool
+    from devops_cli.ai.harness.agents import PlaywrightBrowser, Researcher
+
+    with pytest.raises(PydanticValidationError, match="allowed_domains"):
+        WebFetch(allowed_domains=[bad_domain])
+    with pytest.raises(PydanticValidationError, match="allowed_domains"):
+        WebFetchTool(allowed_domains=[bad_domain])
+    with pytest.raises(PydanticValidationError, match="allowed_domains"):
+        WebSearchTool(allowed_domains=[bad_domain])
+    with pytest.raises(PydanticValidationError, match="allowed_domains"):
+        Researcher(allowed_domains=[bad_domain])
+    with pytest.raises(PydanticValidationError, match="allowed_domains"):
+        PlaywrightBrowser(allowed_domains=[bad_domain])
+
+
+def test_capability_blocked_domains_and_settings_domain_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """blocked_domains and k8s.domain / cloudflare.domain refuse invalid names while blank loads as None (#887)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from devops_cli.ai.agents.capabilities import WebFetch, WebFetchTool, WebSearchTool
+    from devops_cli.config.settings import load_settings, reset_settings_cache
+
+    with pytest.raises(PydanticValidationError, match="blocked_domains"):
+        WebFetch(blocked_domains=[".example.com"])
+    with pytest.raises(PydanticValidationError, match="blocked_domains"):
+        WebFetchTool(blocked_domains=[".example.com"])
+    with pytest.raises(PydanticValidationError, match="blocked_domains"):
+        WebSearchTool(blocked_domains=[".example.com"])
+
+    cfg_path = tmp_path / "config.yaml"
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_path))
+
+    cfg_path.write_text("k8s:\n  domain: '.'\n", encoding="utf-8")
+    reset_settings_cache()
+    with pytest.raises(PydanticValidationError, match=r"k8s\.domain"):
+        load_settings()
+
+    cfg_path.write_text("cloudflare:\n  domain: '.example.com'\n", encoding="utf-8")
+    reset_settings_cache()
+    with pytest.raises(PydanticValidationError, match=r"cloudflare\.domain"):
+        load_settings()
+
+    cfg_path.write_text("k8s:\n  domain: ''\ncloudflare:\n  domain: '  '\n", encoding="utf-8")
+    reset_settings_cache()
+    loaded_blank = load_settings()
+
+    cfg_path.write_text("k8s:\n  domain: '  '\n", encoding="utf-8")
+    reset_settings_cache()
+    loaded_spaces = load_settings()
+
+    assert (
+        loaded_blank.k8s.domain,
+        loaded_blank.cloudflare.domain,
+        loaded_spaces.k8s.domain,
+    ) == (None, None, None)

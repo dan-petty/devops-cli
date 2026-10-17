@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_THREAD_EXECUTOR_MAX_WORKERS,
     DEFAULT_THREAD_EXECUTOR_PREFIX,
 )
+from devops_cli.core.dns_names import ConfiguredDomain
 
 
 @dataclass
@@ -191,16 +192,16 @@ class WebSearchTool(BaseModel):
 
     search_context_size: str = "medium"
     user_location: WebSearchUserLocation | None = None
-    blocked_domains: list[str] = Field(default_factory=list)
-    allowed_domains: list[str] | None = None
+    blocked_domains: list[ConfiguredDomain] = Field(default_factory=list)
+    allowed_domains: list[ConfiguredDomain] | None = None
     max_uses: int | None = None
 
 
 class WebFetchTool(BaseModel):
     """Configuration for provider-native Web Fetch tool capability."""
 
-    allowed_domains: list[str] | None = None
-    blocked_domains: list[str] = Field(default_factory=list)
+    allowed_domains: list[ConfiguredDomain] | None = None
+    blocked_domains: list[ConfiguredDomain] = Field(default_factory=list)
     max_uses: int | None = None
     enable_citations: bool | None = None
     max_content_tokens: int | None = None
@@ -386,8 +387,8 @@ class WebFetch(BaseCapability):
     """Provider-adaptive Web Fetch capability supporting native provider fetch and local fallback."""
 
     id: str | None = "web_fetch"
-    allowed_domains: list[str] | None = None
-    blocked_domains: list[str] = Field(default_factory=list)
+    allowed_domains: list[ConfiguredDomain] | None = None
+    blocked_domains: list[ConfiguredDomain] = Field(default_factory=list)
     local: Any = False
     native: bool | WebFetchTool = True
 

@@ -265,6 +265,27 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
         )
 
 
+def test_sandbox_local_whitelist_accepts_private_suffix_and_rejects_public_dns_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """local_whitelist accepts node1.example.internal at build time and refuses a public DNS answer on policy generation (#887)."""
+    import socket
+
+    cfg = SandboxNetworkConfig(
+        mode="local_whitelist",
+        local_whitelist=["node1.example.internal"],
+    )
+    assert cfg.local_whitelist == ["node1.example.internal"]
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))],
+    )
+    with pytest.raises(ValueError, match=r"non-private address"):
+        cfg.to_k8s_network_policy()
+
+
 def test_sandbox_deploy_config_integration(tmp_path: Path) -> None:
     """Verify SandboxDeployConfig seamlessly integrates SandboxNetworkConfig."""
     # Default is isolated

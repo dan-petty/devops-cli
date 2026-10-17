@@ -14,7 +14,6 @@ from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
-    CONST_LOCAL_DOMAIN_SUFFIXES,
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
 )
@@ -23,7 +22,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_review_data_path
-from devops_cli.core.validation import is_loopback_host
 
 logger = logging.getLogger(__name__)
 
@@ -151,13 +149,22 @@ def _is_local_provider(provider: str | None) -> bool:
 
 def _is_configured_cluster_host(host: str) -> bool:
     """Check if host matches configured Kubernetes or Cloudflare cluster domain."""
+    import dns.exception
+
+    from devops_cli.core.dns_names import is_at_or_under
+
     try:
         settings = load_settings()
     except Exception:
         return False
     for domain in (settings.k8s.domain, settings.cloudflare.domain):
-        if domain and (host == domain or host.endswith(f".{domain}")):
-            return True
+        if not domain:
+            continue
+        try:
+            if is_at_or_under(host, domain):
+                return True
+        except dns.exception.DNSException:
+            continue
     return False
 
 
@@ -185,16 +192,15 @@ def _is_configured_ai_server_host(host: str) -> bool:
 
 
 def _is_local_host(host: str) -> bool:
-    if is_loopback_host(host):
-        return True
-    if any(host.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES):
-        return True
+    from devops_cli.core.dns_names import is_public_dns_name
+
     try:
-        ip = ipaddress.ip_address(host)
+        ip = ipaddress.ip_address(host.strip("[]"))
         if ip.is_loopback or ip.is_private:
             return True
     except ValueError:
-        pass
+        if not is_public_dns_name(host):
+            return True
     return _is_configured_cluster_host(host) or _is_configured_ai_server_host(host)
 
 

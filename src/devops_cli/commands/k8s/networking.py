@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_PROXY,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_INGRESS_SERVICE_PATTERNS,
-    CONST_LOCAL_DOMAIN_SUFFIXES,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
@@ -261,29 +260,17 @@ def _resolve_loopback_fallback(scheme: str, port: int) -> str:
     return localhost_url
 
 
-def _is_fqdn_url(url: str | None) -> bool:
-    """Check whether a URL points to a non-loopback, non-IP fully-qualified domain name."""
-    if not url:
+def _is_host_name(host: str) -> bool:
+    """Return True when host is a non-loopback domain name rather than an IP literal."""
+    import ipaddress
+
+    if not host or is_loopback_host(host):
         return False
     try:
-        import ipaddress
-        from urllib.parse import urlparse
-
-        host = urlparse(url).hostname
-        if not host or "." not in host:
-            return False
-        host_lower = host.lower()
-        if is_loopback_host(host_lower) or any(
-            host_lower.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES
-        ):
-            return False
-        try:
-            ipaddress.ip_address(host)
-            return False
-        except ValueError:
-            return True
-    except Exception:
+        ipaddress.ip_address(host)
         return False
+    except ValueError:
+        return True
 
 
 def _should_update_url(
@@ -300,7 +287,7 @@ def _should_update_url(
         return True
     existing_host = urlparse(existing_url).hostname or ""
     new_host = urlparse(new_url).hostname or ""
-    if _is_fqdn_url(existing_url) and existing_host.lower() != new_host.lower():
+    if _is_host_name(existing_host) and existing_host.lower() != new_host.lower():
         return False
     return not (not is_loopback_host(existing_host) and is_loopback_host(new_host))
 
@@ -704,13 +691,20 @@ def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[
 
 def _select_best_ingress_host(hosts: list[str], preferred_domain: str | None = None) -> str | None:
     """Select the best Ingress hostname matching preferred domain or the first available."""
+    import dns.exception
+
+    from devops_cli.core.dns_names import is_at_or_under
+
     if not hosts:
         return None
-    if preferred_domain:
-        norm = preferred_domain.strip().lower().lstrip(".")
+    if preferred_domain and preferred_domain.strip():
+        domain = preferred_domain.strip()
         for h in hosts:
-            if h.lower().endswith(norm):
-                return h
+            try:
+                if is_at_or_under(h, domain):
+                    return h
+            except dns.exception.DNSException:
+                continue
     return hosts[0]
 
 

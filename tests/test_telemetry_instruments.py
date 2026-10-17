@@ -398,7 +398,7 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
         track_request_spend(
             provider="gateway",
             model="gpt-4o",
-            server="gateway.example:4000",
+            server="example.com:4000",
             served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
             prompt_tokens=1000,
             completion_tokens=200,
