@@ -80,11 +80,15 @@ def _deduce_parameter_type(param: Any) -> Any:
 
 
 def _normalize_default(default_val: Any) -> Any:
-    """Convert default values into primitive JSON-serializable types."""
+    """Convert default values into primitive JSON-serializable types.
+
+    Absolute paths or paths within user home are sanitized to empty strings to avoid
+    environment-dependent schema leakage and maintain deterministic documentation.
+    """
     if default_val is None:
         return None
     if isinstance(default_val, (Path, PurePath)):
-        return str(default_val)
+        return "" if default_val.is_absolute() else str(default_val)
     if isinstance(default_val, Enum):
         return default_val.value
     return default_val

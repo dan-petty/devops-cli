@@ -1213,8 +1213,8 @@ Create or update a kubernetes.io/tls secret from certificate and private key fil
 |---|---|---|---|---|
 | `secret_name` | `string` | Yes | - | Name of the Kubernetes TLS secret to create or update. |
 | `namespace` | `string` | No | `default` | Kubernetes namespace. |
-| `cert_path` | `string` | No | `/home/vscode/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
-| `key_path` | `string` | No | `/home/vscode/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
+| `cert_path` | `string` | No | `` | Path to TLS certificate file (.crt or .pem). |
+| `key_path` | `string` | No | `` | Path to TLS private key file (.key or .pem). |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -1286,7 +1286,7 @@ Generate Homelab certificates and apply TLS secrets across Kubernetes cluster na
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `context` | `string` | No | - | Kubernetes cluster context name. |
-| `tls_dir` | `string` | No | `/home/vscode/.config/devops-cli/tls` | Directory with generated TLS certificates. |
+| `tls_dir` | `string` | No | `` | Directory with generated TLS certificates. |
 | `secret_name` | `string` | No | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `stack` | `string` | No | `all` | Stack to operate on: infra | llm | all. |
 | `overwrite` | `boolean` | No | `False` | Overwrite existing files or resources if they exist. |
@@ -2372,7 +2372,7 @@ Generate a self-signed Root Certificate Authority (CA) key pair.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `output_dir` | `string` | No | `/home/vscode/.config/devops-cli/tls` | Directory to save certificate and key files. |
+| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
 | `common_name` | `string` | No | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.example.internal). |
 | `organization` | `string` | No | `Homelab DevOps` | Organization name. |
 | `country` | `string` | No | `US` | 2-letter country code. |
@@ -2395,7 +2395,7 @@ Generate an X.509 TLS certificate signed by local CA or self-signed.
 | `san` | `array[string]` | No | - | Subject Alternative Names (DNS names or IP addresses). |
 | `ca_cert` | `string` | No | - | Path to signing CA certificate (ca.crt). |
 | `ca_key` | `string` | No | - | Path to signing CA private key (ca.key). |
-| `output_dir` | `string` | No | `/home/vscode/.config/devops-cli/tls` | Directory to save certificate and key files. |
+| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
 | `validity_days` | `integer` | No | `365` | Validity period in days. |
 | `key_size` | `integer` | No | `2048` | RSA key size in bits (2048 or 4096). |
 | `organization` | `string` | No | `Homelab DevOps` | Organization name. |
