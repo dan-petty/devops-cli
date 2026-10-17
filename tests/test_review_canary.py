@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
 from devops_cli.review.canary import (
     CanaryCacheKey,
     build_canary_command,
-    clear_canary_cache,
     evaluate_canary_gate,
     get_canary_cache,
     materialize_canary_fixtures,
@@ -36,14 +35,6 @@ from devops_cli.security.ruff import RuffScanner, run_ruff_scan
 _RECORDED_FIXTURE_PATH = (
     Path(__file__).resolve().parent / "fixtures" / "review_canary" / "recorded_outputs.json"
 )
-
-
-@pytest.fixture(autouse=True)
-def _reset_canary_cache() -> Any:
-    """Ensure every test starts and ends with a clean canary cache."""
-    clear_canary_cache()
-    yield
-    clear_canary_cache()
 
 
 @pytest.fixture
@@ -308,6 +299,7 @@ def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_sta
     with (
         patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=semgrep_finding),
         patch("devops_cli.security.bandit.run_bandit_scan", return_value=bandit_finding),
+        patch("devops_cli.ai.review.pipeline._scan_secrets", return_value=[]),
     ):
         by_file = orchestrator._run_static_scanners(["src/main.py"])
 
@@ -359,6 +351,7 @@ def test_review_start_runs_canaries_automatically_via_subprocess_when_unmocked(
         ) as mock_canary_proc,
         patch("devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("ran", [])),
         patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=ScanOutcome("ran", [])),
+        patch("devops_cli.ai.review.pipeline._scan_secrets", return_value=[]),
     ):
         orchestrator._run_static_scanners(["src/main.py"])
         orchestrator._run_static_scanners(["src/main.py"])

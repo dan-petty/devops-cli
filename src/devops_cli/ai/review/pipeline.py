@@ -2107,24 +2107,6 @@ def _classify_scanner_files(
     )
 
 
-_SCANNER_MOCK_TARGETS: dict[str, tuple[str, str]] = {
-    "bandit": ("devops_cli.security.bandit", "run_bandit_scan"),
-    "kube-linter": ("devops_cli.security.kubelinter", "run_kubelinter_scan"),
-    "pluto": ("devops_cli.security.pluto", "run_pluto_scan"),
-    "semgrep": ("devops_cli.security.semgrep", "run_semgrep_scan"),
-    "ruff": ("devops_cli.security.ruff", "run_ruff_scan"),
-    "mypy": ("devops_cli.security.mypy", "run_mypy_scan"),
-}
-
-
-def _is_tool_scanner_mocked(tool: str) -> bool:
-    """Whether the scanner callable for `tool` is currently replaced by a mock."""
-    from devops_cli.security.base import _is_mocked
-
-    target = _SCANNER_MOCK_TARGETS.get(tool.lower())
-    return bool(target and _is_mocked(target[0], target[1]) is not None)
-
-
 def _tool_language_version(tool: str, tree: Path, kubernetes_version: str | None) -> str:
     """Resolve declared language or platform version for `tool` in `tree`."""
     from devops_cli.review.canary import (
@@ -2481,21 +2463,18 @@ class ReviewPipelineOrchestrator:
         """Run or read cached canary results for active review tools (#1143)."""
         from devops_cli.dry_run.state import is_dry_run
         from devops_cli.review.canary import get_canary_cache, run_tool_canary
-        from devops_cli.security.base import _is_mocked
 
         tree = reviewed_tree(self.target_dir)
-        base_mocked = _is_mocked("devops_cli.security.base", "run_subprocess") is not None
-        canary_mocked = (
-            _is_mocked("devops_cli.review.canary", "run_tool_canary") is not None
-            or _is_mocked("devops_cli.review.canary", "run_subprocess") is not None
-        )
         cached_by_tool = {k.tool: v.passed for k, v in get_canary_cache().items()}
         for tool in tools:
             norm = tool.lower()
             if norm in self.canary_results:
                 continue
-            if not canary_mocked and (is_dry_run() or base_mocked or _is_tool_scanner_mocked(norm)):
-                self.canary_results[norm] = cached_by_tool.get(norm, True)
+            if norm in cached_by_tool:
+                self.canary_results[norm] = cached_by_tool[norm]
+                continue
+            if is_dry_run():
+                self.canary_results[norm] = True
                 continue
             lang_ver = _tool_language_version(norm, tree, self.kubernetes_version)
             res = run_tool_canary(norm, language_version=lang_ver)
@@ -2883,7 +2862,7 @@ class ReviewPipelineOrchestrator:
         for tool_key, analyzer_name in CONST_CANARY_TOOL_TO_ANALYZER.items():
             if self.canary_results.get(tool_key) is False and self.static_analyzers.get(
                 analyzer_name
-            ) not in (None, ANALYZER_NO_FILES, ANALYZER_NOT_INSTALLED):
+            ) in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS):
                 self.static_analyzers[analyzer_name] = ANALYZER_FAILED
                 self.static_analyzer_reasons[analyzer_name] = "canary failed"
         if profiler := active_profiler():
