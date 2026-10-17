@@ -11,18 +11,27 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_ZIZMOR, build_zizmor_cmd
-from devops_cli.config.constants import CONST_ZIZMOR_BLOCKING_RULES, CONST_ZIZMOR_SEVERITIES
+from devops_cli.config.constants import (
+    CONST_GITHUB_ACTION_FILE_STEM,
+    CONST_GITHUB_ACTIONS_ROOT,
+    CONST_GITHUB_WORKFLOWS_DIRNAME,
+    CONST_REVIEW_SCAN_ZIZMOR_CONFIG,
+    CONST_YAML_SUFFIXES,
+    CONST_ZIZMOR_BLOCKING_RULES,
+    CONST_ZIZMOR_SEVERITIES,
+)
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import MESSAGES
+from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile
 
 
 class ZizmorFinding(BaseModel):
@@ -53,7 +62,7 @@ class ZizmorFinding(BaseModel):
         return Finding(
             severity=CONST_ZIZMOR_SEVERITIES.get(self.severity, "INFO"),
             location=self.location,
-            title=f"[ZIZMOR:{self.rule}] {self.description}",
+            title=f"[{self.rule}] {self.description}",
             description=f"zizmor {self.rule} ({self.confidence} confidence) at {self.location}",
             fix=self.url or "-",
             confidence_score=None,
@@ -115,4 +124,52 @@ def run_zizmor(target: Path) -> list[ZizmorFinding]:
     return parse_zizmor_json(data if isinstance(data, list) else [])
 
 
-__all__ = ["ZizmorFinding", "parse_zizmor_json", "run_zizmor"]
+def _is_actions_file(path: Path) -> bool:
+    """Whether `path` is a workflow (`.github/workflows/*.yml`) or a composite action file."""
+    if path.suffix not in CONST_YAML_SUFFIXES:
+        return False
+    in_workflows = path.parent.name == CONST_GITHUB_WORKFLOWS_DIRNAME
+    return (in_workflows and path.parent.parent.name == CONST_GITHUB_ACTIONS_ROOT) or (
+        path.stem == CONST_GITHUB_ACTION_FILE_STEM
+    )
+
+
+def _actions_inputs(target_path: Any) -> list[Path]:
+    """What zizmor audits in a scan target: a tree's `.github` directory when it has workflows,
+    or the workflow and action files of a list of files."""
+    if isinstance(target_path, list):
+        return [Path(path) for path in target_path if _is_actions_file(Path(path))]
+    root = Path(target_path)
+    github = root if root.name == CONST_GITHUB_ACTIONS_ROOT else root / CONST_GITHUB_ACTIONS_ROOT
+    return [github] if (github / CONST_GITHUB_WORKFLOWS_DIRNAME).is_dir() else []
+
+
+class ZizmorScanner(BaseSecurityScanner):
+    """zizmor as a registered scanner, so `devops scan report`, its SARIF and reviews carry its
+    findings. They do not gate those: `devops scan workflows` is the gate, on the audits in
+    `CONST_ZIZMOR_BLOCKING_RULES` (#861)."""
+
+    name: str = "zizmor"
+    binary_name: str = BIN_ZIZMOR
+    gating: ClassVar[bool] = False
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--config", "zizmor.yml", CONST_REVIEW_SCAN_ZIZMOR_CONFIG),
+    )
+
+    def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
+        """Applicable where the target holds GitHub Actions workflows or action files."""
+        if _actions_inputs(target_path):
+            return True, ""
+        return False, MESSAGES.scan.zizmor_not_applicable
+
+    def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
+        """The offline zizmor audit of the target's workflows and actions."""
+        return build_zizmor_cmd(*_actions_inputs(target_path))
+
+    def parse_output(self, data: Any, target_path: Any) -> list[Finding]:
+        """zizmor's JSON findings, at their primary locations, as scan findings."""
+        found = parse_zizmor_json(data if isinstance(data, list) else [])
+        return [finding.as_finding() for finding in found]
+
+
+__all__ = ["ZizmorFinding", "ZizmorScanner", "parse_zizmor_json", "run_zizmor"]

@@ -132,3 +132,49 @@ def test_a_dry_run_names_the_audit_and_runs_nothing() -> None:
     with patch("devops_cli.security.zizmor.run_subprocess") as ran:
         result = runner.invoke(scan_app, ["workflows", "--dry-run"])
     assert (result.exit_code, ran.called) == (0, False)
+
+
+def _repo_with_workflow(root: Path) -> Path:
+    workflows = root / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("on: push\njobs: {}\n", encoding="utf-8")
+    return root
+
+
+def test_zizmor_is_a_registered_scanner_that_publishes_without_gating(tmp_path: Path) -> None:
+    """`devops scan report`, its SARIF and reviews run every registered scanner; zizmor's
+    findings are published there, and `devops scan workflows` stays the gate (#861)."""
+    from devops_cli.security.registry import global_scanner_registry
+
+    scanner = global_scanner_registry.get("zizmor")
+    repo = _repo_with_workflow(tmp_path / "repo")
+    (tmp_path / "bare").mkdir()
+    assert scanner is not None
+    assert (
+        scanner.gating,
+        scanner.is_applicable(repo)[0],
+        scanner.is_applicable(tmp_path / "bare")[0],
+        scanner.build_command(repo)[-1],
+        [(f.flag, f.text) for f in scanner.isolation_files],
+    ) == (False, True, False, str(repo / ".github"), [("--config", "rules: {}\n")])
+
+
+def test_scan_report_publishes_zizmor_findings_in_its_sarif_by_rule_and_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_with_workflow(tmp_path / "repo")
+    monkeypatch.chdir(repo)
+    sarif = tmp_path / "scan.sarif"
+    found = [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
+    with patch("devops_cli.security.zizmor.run_subprocess", return_value=_ran(found)):
+        result = runner.invoke(scan_app, ["report", "--scanner", "zizmor", "--sarif", str(sarif)])
+    document = json.loads(sarif.read_text(encoding="utf-8"))
+    published = sorted(
+        (r["ruleId"], r["locations"][0]["physicalLocation"]["region"]["startLine"])
+        for run in document["runs"]
+        for r in run["results"]
+    )
+    assert (result.exit_code, published) == (
+        0,
+        [("artipacked", 41), ("template-injection", 67)],
+    )
