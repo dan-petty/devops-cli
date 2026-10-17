@@ -666,3 +666,25 @@ def test_response_span_attributes_enriched() -> None:
             "server.port" in handle._attributes,
             "gen_ai.server.served_by" in handle._attributes,
         ) == ("gpt-4o-2024-08-06", "ollama-48gib", 30.0, "example.com", False, False)
+
+
+def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every test resets the tracer, and an export still in flight from one test ran on into the
+    next, whose socket probe then saw connections it never made."""
+    import threading
+    import time
+
+    tracer = get_tracer()
+    finished = threading.Event()
+
+    def slow_send(path: str, payload: dict[str, Any]) -> None:
+        time.sleep(0.2)
+        finished.set()
+
+    monkeypatch.setattr(tracer, "enabled", True)
+    monkeypatch.setattr(tracer, "_send_payload_sync", slow_send)
+    tracer._send_payload("/v1/traces", {})
+    reset_tracer()
+    assert finished.is_set()

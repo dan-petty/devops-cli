@@ -1337,9 +1337,15 @@ def get_tracer() -> OTelTelemetryClient:
 
 
 def reset_tracer() -> None:
-    """Reset the global tracer instance (used for testing)."""
+    """Reset the global tracer instance (used for testing).
+
+    The dropped tracer is shut down first, which waits for its exports in flight: one left
+    running carried a test's exports into the next test.
+    """
     global _GLOBAL_TRACER
-    _GLOBAL_TRACER = None
+    dropped, _GLOBAL_TRACER = _GLOBAL_TRACER, None
+    if dropped is not None:
+        dropped.shutdown()
     if hasattr(_detect_vcs_metadata, "cache_clear"):
         _detect_vcs_metadata.cache_clear()
     if hasattr(_detect_k8s_context, "cache_clear"):
