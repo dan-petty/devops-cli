@@ -13,6 +13,7 @@ server:
 
   extraArgs:
     web.enable-remote-write-receiver: ""
+    enable-feature: native-histograms
 
   resources:
     requests:

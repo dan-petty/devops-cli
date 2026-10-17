@@ -7,10 +7,16 @@ with distributed OpenTelemetry traces (`@trace_span`) and OTLP metrics.
 
 ## Prometheus Metric Instruments
 
-Each command runs as its own short-lived process, so counters and histograms are sent
-as OTLP deltas. The collector's `deltatocumulative` processor keeps each series' running
-total per host (`instance`) before Prometheus stores it. `devops telemetry connect`
-points devops-cli at the cluster's collector.
+Each command runs as its own short-lived process. An OpenTelemetry SDK `MeterProvider`
+with `DELTA` aggregation temporality and `ExponentialBucketHistogramAggregation`
+aggregates every counter, histogram, and gauge recording in memory over the command's
+run and flushes one OTLP `/v1/metrics` batch when the command finishes (`shutdown()`).
+The collector's `deltatocumulative` processor keeps each series' running total per host
+(`instance`) before Prometheus stores it (`--enable-feature=native-histograms` enabled
+in `k8s/monitoring/prometheus-values.yaml`). Cross-process stream identity
+(`service.instance.id` shared per host) and `deltatocumulative`'s `max_stale: 1h` idle
+eviction window in `k8s/otel/values.yaml` are tracked separately under #1132.
+`devops telemetry connect` points devops-cli at the cluster's collector.
 
 | Metric Name | Type | Unit | Description |
 |---|---|---|---|

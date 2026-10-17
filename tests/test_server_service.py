@@ -1330,3 +1330,22 @@ def test_a_budget_refusal_in_the_model_lane_holds_the_release_lane_too() -> None
         {REPO_A: [1, 1], REPO_B: []},
         {REPO_A: [1, 1], REPO_B: []},
     )
+
+
+def test_service_app_quiets_httpx_loggers() -> None:
+    """`create_service_app` and `service_log_config` keep `httpx`, `httpx2`, and `httpcore` at
+    `WARNING` so every GitHub and Gateway request is not logged at `INFO` (#792)."""
+    from devops_cli.server.json_logs import service_log_config
+
+    for name in ("httpx", "httpx2", "httpcore"):
+        logging.getLogger(name).setLevel(logging.INFO)
+    create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    log_cfg = service_log_config("INFO")["loggers"]
+    assert (
+        logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING,
+        logging.getLogger("httpx2").getEffectiveLevel() >= logging.WARNING,
+        logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING,
+        log_cfg["httpx"]["level"],
+        log_cfg["httpx2"]["level"],
+        log_cfg["httpcore"]["level"],
+    ) == (True, True, True, logging.WARNING, logging.WARNING, logging.WARNING)

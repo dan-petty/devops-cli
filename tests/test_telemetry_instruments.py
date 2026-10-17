@@ -29,6 +29,7 @@ from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
     PROJECT_ITEMS_TOTAL,
+    REVIEW_DURATION,
     UPSTREAM_SERVICE_STATUS,
     InstrumentKind,
     backend_name,
@@ -40,12 +41,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 SENT_SERIES = {series for instrument in INSTRUMENTS for series in instrument.series}
-# A quantile past a histogram's top bucket comes out as that bucket's bound.
-QUANTILE_CAPS = {
-    f"{instrument.name}_bucket": f"{instrument.bounds[-1]:g} {instrument.unit}"
-    for instrument in INSTRUMENTS
-    if instrument.kind is InstrumentKind.HISTOGRAM
-}
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
 QUANTILE_OF = re.compile(
@@ -255,9 +250,9 @@ def _skew(queries: str) -> str:
 def _missing_limits(panel: dict[str, Any]) -> list[str]:
     """The limits a panel's description should state and does not."""
     queries = _panel_queries(panel)
-    required = [cap for bucket, cap in QUANTILE_CAPS.items() if bucket in queries]
-    if "increase(" in queries:
-        required += ["approximate", "two samples", "#792", _skew(queries)]
+    required = (
+        ["approximate", "two samples", "#792", _skew(queries)] if "increase(" in queries else []
+    )
     if "devops_cli_findings_total" in queries:
         required.append("#791")
     description = panel.get("description", "").lower()
@@ -269,14 +264,34 @@ def test_every_panel_counting_with_increase_states_its_limits(dashboard: Path) -
     """Verify each panel built on `increase()` says how far its values can be off.
 
     `increase()` needs two samples of a series inside its window and deltas can arrive out of
-    order (#792), so a count comes out low and a share or quantile high or low; finding panels
-    miss `--no-reporting` runs (#791); and a quantile past the top bucket comes out as that
-    bucket's bound.
+    order (#792), so a count comes out low and a share or quantile high or low; and finding panels
+    miss `--no-reporting` runs (#791). Exponential histograms have no fixed top-bucket cap.
     """
     panels = _panels(dashboard)
-    assert {panel["title"]: _missing_limits(panel) for panel in panels} == {
-        panel["title"]: [] for panel in panels
-    }
+    capped = [
+        panel["title"]
+        for panel in panels
+        if "past the top bucket" in panel.get("description", "").lower()
+    ]
+    assert ({panel["title"]: _missing_limits(panel) for panel in panels}, capped) == (
+        {panel["title"]: [] for panel in panels},
+        [],
+    )
+
+
+def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> None:
+    """Verify every duration panel in devops-cli.json includes sum/count mean and sample count targets."""
+    duration_panels = [
+        panel
+        for panel in _panels(DASHBOARDS / "devops-cli.json")
+        if "histogram_quantile(" in _panel_queries(panel)
+    ]
+    missing = [
+        panel["title"]
+        for panel in duration_panels
+        if "_sum" not in _panel_queries(panel) or "_count" not in _panel_queries(panel)
+    ]
+    assert (len(duration_panels), missing) == (5, [])
 
 
 class Captured:
@@ -292,6 +307,7 @@ class Captured:
 
     @property
     def metrics(self) -> list[dict[str, Any]]:
+        tracer_module.get_tracer().flush()
         return [
             metric
             for payload in self.payloads
@@ -306,7 +322,12 @@ class Captured:
         for metric in self.metrics:
             if metric["name"] != name:
                 continue
-            data = metric.get("sum") or metric.get("histogram") or metric["gauge"]
+            data = (
+                metric.get("sum")
+                or metric.get("exponentialHistogram")
+                or metric.get("histogram")
+                or metric["gauge"]
+            )
             for point in data["dataPoints"]:
                 attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
                 found.append((attrs, point.get("asDouble", point.get("sum"))))
@@ -344,17 +365,27 @@ def test_counters_are_monotonic_deltas_from_the_host_not_the_process(captured: C
 
 
 def test_a_histogram_observation_lands_in_its_bucket(captured: Captured) -> None:
-    """Verify a histogram point counts one observation in the first bucket that holds it."""
-    client = tracer_module.get_tracer()
-    client.record_histogram("h", 7.0, bounds=(1.0, 5.0, 10.0))
-    client.record_histogram("h", 50.0, bounds=(1.0, 5.0, 10.0))
+    """Verify an exponential histogram buckets a 992 s review within 10% relative width (#792)."""
+    emit(REVIEW_DURATION, 992.0, {"target_type": "pr"})
 
-    points = [m["histogram"]["dataPoints"][0] for m in captured.metrics]
+    (metric,) = captured.metrics
+    exp_hist = metric["exponentialHistogram"]
+    point = exp_hist["dataPoints"][0]
+    scale = int(point["scale"])
+    offset = int(point["positive"]["offset"])
+    counts = [int(c) for c in point["positive"]["bucketCounts"]]
+    nonzero_idx = next(i for i, c in enumerate(counts) if c > 0)
+    base = 2.0 ** (2.0**-scale)
+    low = base ** (offset + nonzero_idx)
+    high = base ** (offset + nonzero_idx + 1)
 
-    assert [(p["bucketCounts"], p["count"], p["sum"]) for p in points] == [
-        (["0", "0", "1", "0"], "1", 7.0),
-        (["0", "0", "0", "1"], "1", 50.0),
-    ]
+    assert (
+        exp_hist["aggregationTemporality"],
+        int(point["count"]),
+        point["sum"],
+        low < 992.0 <= high,
+        (high - low) / 992.0 < 0.10,
+    ) == (1, 1, 992.0, True, True)
 
 
 def test_ai_calls_count_requests_tokens_and_spend_by_backend(
@@ -381,11 +412,11 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
 
     assert (
         [(a["backend"], a["cached"], v) for a, v in requests],
-        sorted({(a["type"], v) for a, v in tokens}),
+        sorted((a["type"], v) for a, v in tokens),
         (len(spend), spend[0][1] > 0, spend[0][0]["backend"]),
     ) == (
         [("ollama-16gib", "false", 1.0), ("ollama-16gib", "true", 1.0)],
-        [("completion", 200.0), ("prompt", 1000.0)],
+        [("completion", 400.0), ("prompt", 2000.0)],
         (1, True, "ollama-16gib"),
     )
 
@@ -539,6 +570,8 @@ def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, na
 def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
     """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
     emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+    tracer_module.get_tracer().flush()
+    emit(PROJECT_ITEMS_TOTAL, 115.0, attributes={"milestone": "v0.4.0", "state": "closed"})
     emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "v0.4.0", "state": "closed"})
 
     points = captured.points("devops_cli_project_items_total")

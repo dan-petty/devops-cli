@@ -69,6 +69,7 @@ dependencies = [
     "markdownify==1.2.3",
     "beautifulsoup4==4.15.0",
     "statsmodels==0.15.0",
+    "prometheus-client==0.26.0",
 ]
 
 [project.scripts]

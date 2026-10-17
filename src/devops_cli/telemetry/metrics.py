@@ -1,12 +1,13 @@
-"""In-Memory Metrics Registry and Prometheus Text Formatter."""
+"""In-Memory Metrics Registry backed by prometheus_client."""
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
-from collections import defaultdict, deque
 from typing import Any
 
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import DEFAULT_OTEL_COUNTER_AMOUNT
@@ -21,42 +22,67 @@ class MetricSample(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
 
-_MAX_HISTOGRAM_SAMPLES = 10_000
-_MAX_METRIC_NAMES: int = 1000
-_MAX_LABEL_COMBINATIONS_PER_METRIC: int = 5000
+def _read_sample_value(
+    collector: Counter | Gauge | Histogram,
+    labels: dict[str, str] | None,
+    *,
+    suffix: str = "",
+) -> float:
+    """Read a sample value matching `labels` from a prometheus_client collector."""
+    target_labels = {str(k): str(v) for k, v in (labels or {}).items()}
+    for family in collector.collect():
+        expected_name = f"{family.name}{suffix}"
+        for sample in family.samples:
+            if sample.name == expected_name and sample.labels == target_labels:
+                return float(sample.value)
+    return 0.0
 
 
-def _format_prometheus_labels(labels_items: Any) -> str:
-    """Format label pairs into Prometheus {k="v",...} string with value escaping."""
-    if not labels_items:
-        return ""
-    items_iter = labels_items.items() if hasattr(labels_items, "items") else labels_items
-    items: list[str] = []
-    for k, v in items_iter:
-        v_escaped = str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        items.append(f'{k}="{v_escaped}"')
-    return "{" + ",".join(items) + "}" if items else ""
+def _sum_counter_samples(collector: Counter) -> float:
+    return sum(
+        float(s.value)
+        for fam in collector.collect()
+        for s in fam.samples
+        if s.name == f"{fam.name}_total"
+    )
+
+
+def _first_gauge_sample(collector: Gauge) -> float | None:
+    for fam in collector.collect():
+        for s in fam.samples:
+            if s.name == fam.name:
+                return float(s.value)
+    return None
 
 
 class InMemoryMetricsRegistry:
-    """Thread-safe in-memory metric registry tracking counters, histograms, and gauges."""
+    """Thread-safe in-memory metric registry backed by prometheus_client.CollectorRegistry."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._counters: dict[str, dict[tuple[tuple[str, str], ...], float]] = defaultdict(
-            lambda: defaultdict(float)
-        )
-        self._gauges: dict[str, dict[tuple[tuple[str, str], ...], float]] = defaultdict(
-            lambda: defaultdict(float)
-        )
-        self._histograms: dict[str, dict[tuple[tuple[str, str], ...], deque[float]]] = defaultdict(
-            lambda: defaultdict(lambda: deque(maxlen=_MAX_HISTOGRAM_SAMPLES))
-        )
+        self._registry = CollectorRegistry(auto_describe=True)
+        self._collectors: dict[str, Counter | Gauge | Histogram] = {}
+        self._label_names: dict[str, tuple[str, ...]] = {}
 
-    def _freeze_labels(self, labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
-        if not labels:
-            return ()
-        return tuple(sorted(labels.items()))
+    @property
+    def registry(self) -> CollectorRegistry:
+        """Return the underlying prometheus_client CollectorRegistry."""
+        return self._registry
+
+    def _get_or_create_collector(
+        self,
+        name: str,
+        cls: type[Counter | Gauge | Histogram],
+        labels: dict[str, str] | None,
+    ) -> tuple[Any, tuple[str, ...]]:
+        label_keys = tuple(sorted((labels or {}).keys()))
+        existing = self._collectors.get(name)
+        if existing is None or not isinstance(existing, cls):
+            collector = cls(name, f"{name} metric", labelnames=label_keys, registry=self._registry)
+            self._collectors[name] = collector
+            self._label_names[name] = label_keys
+            return collector, label_keys
+        return existing, self._label_names[name]
 
     def increment_counter(
         self,
@@ -65,14 +91,13 @@ class InMemoryMetricsRegistry:
         labels: dict[str, str] | None = None,
     ) -> None:
         """Increment a counter by the specified value (default 1.0)."""
-        key = self._freeze_labels(labels)
         with self._lock:
-            if len(self._counters) >= _MAX_METRIC_NAMES and name not in self._counters:
-                return
-            metric_store = self._counters[name]
-            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
-                return
-            metric_store[key] += value
+            collector, label_keys = self._get_or_create_collector(name, Counter, labels)
+            if label_keys:
+                label_vals = [str((labels or {})[k]) for k in label_keys]
+                collector.labels(*label_vals).inc(value)
+            else:
+                collector.inc(value)
 
     def set_gauge(
         self,
@@ -81,14 +106,13 @@ class InMemoryMetricsRegistry:
         labels: dict[str, str] | None = None,
     ) -> None:
         """Set a gauge value for a metric."""
-        key = self._freeze_labels(labels)
         with self._lock:
-            if len(self._gauges) >= _MAX_METRIC_NAMES and name not in self._gauges:
-                return
-            metric_store = self._gauges[name]
-            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
-                return
-            metric_store[key] = value
+            collector, label_keys = self._get_or_create_collector(name, Gauge, labels)
+            if label_keys:
+                label_vals = [str((labels or {})[k]) for k in label_keys]
+                collector.labels(*label_vals).set(value)
+            else:
+                collector.set(value)
 
     def record_histogram(
         self,
@@ -96,15 +120,14 @@ class InMemoryMetricsRegistry:
         value: float,
         labels: dict[str, str] | None = None,
     ) -> None:
-        """Record an observation in a histogram with bounded sample retention."""
-        key = self._freeze_labels(labels)
+        """Record an observation in a Prometheus histogram."""
         with self._lock:
-            if len(self._histograms) >= _MAX_METRIC_NAMES and name not in self._histograms:
-                return
-            metric_store = self._histograms[name]
-            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
-                return
-            metric_store[key].append(value)
+            collector, label_keys = self._get_or_create_collector(name, Histogram, labels)
+            if label_keys:
+                label_vals = [str((labels or {})[k]) for k in label_keys]
+                collector.labels(*label_vals).observe(value)
+            else:
+                collector.observe(value)
 
     def get_counter(
         self,
@@ -112,9 +135,11 @@ class InMemoryMetricsRegistry:
         labels: dict[str, str] | None = None,
     ) -> float:
         """Retrieve counter value."""
-        key = self._freeze_labels(labels)
         with self._lock:
-            return self._counters.get(name, {}).get(key, 0.0)
+            collector = self._collectors.get(name)
+            if not isinstance(collector, Counter):
+                return 0.0
+            return _read_sample_value(collector, labels, suffix="_total")
 
     get_counter_value = get_counter
 
@@ -124,35 +149,31 @@ class InMemoryMetricsRegistry:
         labels: dict[str, str] | None = None,
     ) -> float:
         """Retrieve gauge value."""
-        key = self._freeze_labels(labels)
         with self._lock:
-            return self._gauges.get(name, {}).get(key, 0.0)
+            collector = self._collectors.get(name)
+            if not isinstance(collector, Gauge):
+                return 0.0
+            return _read_sample_value(collector, labels)
 
     get_gauge_value = get_gauge
 
-    def get_histogram_samples(
-        self,
-        name: str,
-        labels: dict[str, str] | None = None,
-    ) -> list[float]:
-        """Retrieve recorded histogram observations."""
-        key = self._freeze_labels(labels)
-        with self._lock:
-            return list(self._histograms.get(name, {}).get(key, []))
-
     def clear_metric(self, name: str) -> None:
-        """Clear all stored values for a metric across counters, gauges, and histograms."""
+        """Unregister and clear all stored values for a metric."""
         with self._lock:
-            self._counters.pop(name, None)
-            self._gauges.pop(name, None)
-            self._histograms.pop(name, None)
+            collector = self._collectors.pop(name, None)
+            self._label_names.pop(name, None)
+            if collector is not None:
+                with contextlib.suppress(KeyError, ValueError):
+                    self._registry.unregister(collector)
 
     def reset(self) -> None:
         """Reset all in-memory metric collections."""
         with self._lock:
-            self._counters.clear()
-            self._gauges.clear()
-            self._histograms.clear()
+            for collector in list(self._collectors.values()):
+                with contextlib.suppress(KeyError, ValueError):
+                    self._registry.unregister(collector)
+            self._collectors.clear()
+            self._label_names.clear()
 
     record_counter = increment_counter
     record_gauge = set_gauge
@@ -160,9 +181,16 @@ class InMemoryMetricsRegistry:
     def get_metrics_snapshot(self) -> dict[str, Any]:
         """Retrieve aggregated snapshot of recorded metrics (counters, gauges, histogram counts)."""
         with self._lock:
-            counters = {name: sum(cd.values()) for name, cd in self._counters.items()}
-            gauges = {name: next(iter(gd.values())) for name, gd in self._gauges.items() if gd}
-            hist_count = len(self._histograms)
+            items = list(self._collectors.items())
+        counters = {
+            name: _sum_counter_samples(col) for name, col in items if isinstance(col, Counter)
+        }
+        gauges = {
+            name: val
+            for name, col in items
+            if isinstance(col, Gauge) and (val := _first_gauge_sample(col)) is not None
+        }
+        hist_count = sum(1 for _, col in items if isinstance(col, Histogram))
         return {
             "counters": counters,
             "gauges": gauges,
@@ -173,28 +201,8 @@ class InMemoryMetricsRegistry:
 
     def export_prometheus_text(self) -> str:
         """Export all recorded metrics in Prometheus text exposition format."""
-        lines: list[str] = []
         with self._lock:
-            for name, counter_dict in self._counters.items():
-                lines.append(f"# TYPE {name} counter")
-                for key, val in counter_dict.items():
-                    lines.append(f"{name}{_format_prometheus_labels(key)} {val}")
-
-            for name, gauge_dict in self._gauges.items():
-                lines.append(f"# TYPE {name} gauge")
-                for key, val in gauge_dict.items():
-                    lines.append(f"{name}{_format_prometheus_labels(key)} {val}")
-
-            for name, hist_dict in self._histograms.items():
-                lines.append(f"# TYPE {name} histogram")
-                for key, observations in hist_dict.items():
-                    count = len(observations)
-                    total = sum(observations)
-                    label_str = _format_prometheus_labels(dict(key))
-                    lines.append(f"{name}_count{label_str} {count}")
-                    lines.append(f"{name}_sum{label_str} {total}")
-
-        return "\n".join(lines) + "\n" if lines else ""
+            return generate_latest(self._registry).decode("utf-8")
 
 
 # Global singleton registry

@@ -69,14 +69,17 @@ def service_log_config(log_level: str = "INFO") -> dict[str, Any]:
     starts. Loggers that exist by then stay enabled.
     """
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    loggers: dict[str, Any] = {
+        name: {"handlers": ["json"], "level": numeric_level, "propagate": False}
+        for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "devops_cli")
+    }
+    for name in ("httpx", "httpx2", "httpcore"):
+        loggers[name] = {"handlers": ["json"], "level": logging.WARNING, "propagate": False}
     return {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {"json": {"()": JsonLogFormatter}},
         "handlers": {"json": {"class": JsonLogStreamHandler, "formatter": "json"}},
         "root": {"handlers": ["json"], "level": numeric_level},
-        "loggers": {
-            name: {"handlers": ["json"], "level": numeric_level, "propagate": False}
-            for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "devops_cli")
-        },
+        "loggers": loggers,
     }

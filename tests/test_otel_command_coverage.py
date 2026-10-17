@@ -45,6 +45,7 @@ def test_otel_typer_subcommand_span_and_metrics(
     result = runner.invoke(app, ["--target", "prod-cluster"])
     assert result.exit_code == 0
     assert "Deploying to prod-cluster" in result.output
+    get_tracer().flush()
 
     # Verify emitted spans and metrics
     trace_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
@@ -143,6 +144,7 @@ def test_subprocess_span_and_metrics(
 
     proc = run_subprocess(["kubectl", "get", "pods", "-n", "kube-system"])
     assert proc.returncode == 0
+    get_tracer().flush()
 
     trace_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
     metric_payloads = [p for path, p in clean_tracer if path == "/v1/metrics"]

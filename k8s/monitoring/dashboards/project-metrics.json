@@ -98,7 +98,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Release cadence percentiles (p50 and p95) in days. A quantile past the top bucket comes out as that bucket's bound, 90 d.",
+      "description": "Release cadence percentiles (p50 and p95) in days.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
