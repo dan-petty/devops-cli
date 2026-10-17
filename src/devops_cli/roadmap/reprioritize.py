@@ -196,7 +196,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STALL_CHECK_HOURS
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.store import (
@@ -1055,6 +1055,12 @@ def _rank(options: Sequence[str], value: str | None) -> int:
     return options.index(value) if value in options else len(options)
 
 
+def _delivered_issues(body: str, repo: str) -> set[int]:
+    """The issues a pull request body closes or delivers part of, each once."""
+    closed = {linked.number for linked in extract_linked_issues(body, repo)}
+    return closed | set(extract_part_references(body, repo))
+
+
 @dataclass
 class _Run:
     """What one run reads once, and the reads it makes only when a rule needs them.
@@ -1132,12 +1138,18 @@ class _Run:
         return self.store.status_changed_at(number)
 
     def linked_pull_requests(self, number: int) -> list[PullRequest]:
-        """The open or merged pull requests whose bodies close issue `number`, read once per run."""
+        """The open or merged pull requests whose bodies close issue `number` or deliver part of
+        it, read once per run.
+
+        An item delivered in several pull requests stays In Progress across its parts, so their
+        updates are its activity for the stall window, and a merged part protects it from a trim
+        as the closing pull request does.
+        """
         if self._linked is None:
             self._linked = {}
             for pull_request in self.store.open_pull_requests():
-                for linked in extract_linked_issues(pull_request.body, self.repo):
-                    self._linked.setdefault(linked.number, []).append(pull_request)
+                for issue in _delivered_issues(pull_request.body, self.repo):
+                    self._linked.setdefault(issue, []).append(pull_request)
         return self._linked.get(number, [])
 
     def dependencies(self, number: int) -> list[Dependency]:

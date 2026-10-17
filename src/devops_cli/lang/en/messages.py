@@ -626,12 +626,25 @@ class PRMessages:
     )
     update_table_title: str = "Pull Request Branch Update Summary"
     grounding_closes_no_issue: str = (
-        "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "
-        "it delivers with a closing keyword: Closes #<issue>."
+        "PR #{number} is not grounded: its body closes no issue in {repo}, nor delivers part of "
+        "one. Name the one issue it delivers with a closing keyword, Closes #<issue>, or, for "
+        "one of several PRs that deliver an item, Part of #<issue>."
     )
     grounding_closes_several_issues: str = (
         "PR #{number} is not grounded: its body closes {count} issues ({issues}), and a PR "
         "delivers exactly one."
+    )
+    grounding_closes_and_parts: str = (
+        "PR #{number} is not grounded: its body closes {issues} and delivers part of {parts}, "
+        "and a PR either closes the one issue it delivers or delivers part of one."
+    )
+    grounding_several_parts: str = (
+        "PR #{number} is not grounded: its body delivers part of {count} issues ({parts}), and "
+        "a PR delivers part of exactly one."
+    )
+    grounding_part_of_closed_item: str = (
+        "PR #{number} is not grounded: it delivers part of #{issue}, which is not open. Each "
+        "part lands while its item is open, and the PR that closes the item is its last."
     )
     grounding_task_file_missing: str = (
         "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
@@ -648,18 +661,24 @@ class PRMessages:
     )
     # Not after the cut, when a critical fix's entry goes in the version's CHANGELOG.md section.
     grounding_release_files_fragment: str = " Add its changelog entry as {fragment} instead."
+    # A part PR adds no fragment: the PR that closes the item adds it, so parts never conflict.
+    grounding_release_files_part_fragment: str = (
+        " The PR that closes #{issue} adds its changelog entry as {fragment}."
+    )
     grounding_changelog_unread: str = (
         "PR #{number} changes CHANGELOG.md, but {base}'s CHANGELOG.md could not be read to see "
         "whether the cut wrote its section ({error})."
     )
     grounding_item_not_in_release: str = (
-        "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
+        "PR #{number} {delivers}, which is {placement}, not in {release}: a PR into "
         "{base} delivers an item of {release}, whose scope was fixed when it started."
     )
+    grounding_item_closes: str = "closes #{issue}"
+    grounding_item_part: str = "delivers part of #{issue}"
     grounding_item_in_release: str = "in {release}"
     grounding_item_in_backlog: str = "in the backlog"
     grounding_item_unread: str = (
-        "PR #{number} is not grounded: the Release of #{issue} could not be read ({error})."
+        "PR #{number} is not grounded: #{issue} could not be read ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
     hardening_report_title: str = "Defect Pull Request Hardening Audit"

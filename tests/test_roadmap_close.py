@@ -159,20 +159,44 @@ def test_a_pull_request_without_a_task_file_says_so(roadmap: InMemoryRoadmapStor
     "body",
     [
         "Part 1 of #{n}",
+        "Part of #{n}",
+        f"Part of {REPO}#{{n}}",
         "```\nCloses #{n}\n```",
         "> Closes #{n}",
         "Use `Closes #{n}` to close it.",
         "Closes other/repo#{n}",
         "Closes #{pr}",
     ],
-    ids=["part-of", "code-block", "quote", "inline-code", "other-repo", "pull-request"],
+    ids=[
+        "numbered-part",
+        "part-of",
+        "part-of-this-repo",
+        "code-block",
+        "quote",
+        "inline-code",
+        "other-repo",
+        "pull-request",
+    ],
 )
 def test_these_bodies_close_nothing(roadmap: InMemoryRoadmapStore, body: str) -> None:
+    """None of these declares a closing link, and a part reference leaves its item open."""
     number = _issue(roadmap, "the thing")
     other = roadmap.open_pull_request("open work", base=BRANCH, head="feat/other")
     _deliver(roadmap, number, body=body.format(n=number, pr=other))
     plan, _ = _run(roadmap)
     assert (plan.closings, roadmap.job_writes()) == ((), [])
+
+
+def test_an_item_delivered_in_parts_is_closed_by_its_last_pull_request(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    """The earlier pull requests say `Part of #N`; the one that closes #N closes it, once."""
+    number = _issue(roadmap, "the thing")
+    _deliver(roadmap, number, body=f"Part of #{number}\n\nAdds the reader.")
+    _deliver(roadmap, number, body=f"Part of #{number}\n\nAdds the writer.")
+    last = _deliver(roadmap, number)
+    plan, _ = _run(roadmap)
+    assert [(c.number, c.pull_request) for c in plan.closings] == [(number, last.number)]
 
 
 def test_five_merged_pull_requests_close_five_issues_including_the_oldest(

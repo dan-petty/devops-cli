@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import ChangedFile, app
-from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.github.rate_limiter import get_github_rate_limiter, reset_github_rate_limiter
 
 
@@ -1823,9 +1823,15 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
     return {"filename": filename, "status": status}
 
 
-def _issue(milestone: str | None = "v0.2.25") -> MagicMock:
-    """The `issues/{n}` reply for the issue a PR closes, in `milestone` or the backlog."""
-    return _gh_reply({"number": 704, "milestone": {"title": milestone} if milestone else None})
+def _issue(milestone: str | None = "v0.2.25", state: str = "open") -> MagicMock:
+    """The `issues/{n}` reply for the issue a PR is grounded on, in `milestone` or the backlog."""
+    return _gh_reply(
+        {
+            "number": 704,
+            "state": state,
+            "milestone": {"title": milestone} if milestone else None,
+        }
+    )
 
 
 _REPO = {"full_name": "dan-petty/devops-cli", "default_branch": "main"}
@@ -1954,6 +1960,15 @@ def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
         ("Adds the readiness blocker.", [_TASK_704], "closes no issue in dan-petty/devops-cli"),
         ("Closes #1\nCloses #2", [_TASK_704], "closes 2 issues (#1, #2)"),
         ("Part 1 of #704", [_TASK_704], "closes no issue"),
+        ("Part of #704\nCloses #705", [_TASK_704], "closes #705 and delivers part of #704"),
+        ("Part of #704\nPart of #705", [_TASK_704], "delivers part of 2 issues (#704, #705)"),
+        ("Part of #704\nCloses #704", [_TASK_704], "closes #704 and delivers part of #704"),
+        ("Part of other/repo#704", [_TASK_704], "closes no issue"),
+        (
+            "Part of #704",
+            [_file("docs/agent/tasks/task-705-x.md")],
+            "renames no docs/agent/tasks/task-704-*.md for #704",
+        ),
         ("Closes other/repo#704", [_TASK_704], "closes no issue"),
         (
             "Closes #704",
@@ -1970,7 +1985,12 @@ def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
     ids=[
         "no-closing-reference",
         "two-issues",
-        "part-of-an-item",
+        "numbered-part-line",
+        "part-and-close",
+        "two-parts",
+        "part-and-close-of-one-issue",
+        "part-of-another-repository",
+        "part-without-its-task-file",
         "other-repository",
         "another-issues-task-file",
         "task-file-removed",
@@ -2375,10 +2395,11 @@ def test_a_pr_into_a_release_branch_is_blocked_unless_it_closes_an_item_of_that_
 
 
 def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_it() -> None:
-    """#704 dropped `Part N of #M`: a PR closes exactly one issue, and that issue is judged.
+    """#704 dropped `Part N of #M`; only `Part of #N` names the item a PR delivers part of.
 
-    A body that only names a backlog item with `Part 1 of #704` closes nothing, so it gets
-    #704's one blocker, and no issue is read for the release check.
+    A body that only names a backlog item with `Part 1 of #704` neither closes an issue nor
+    delivers part of one, so it gets #704's one blocker, and no issue is read for the release
+    check.
     """
     gh = _grounding_gh([_TASK_704], issue=_issue(None))
     blockers = _blockers(_ready_pr(body="Part 1 of #704", base=_INTO_V0226), gh=gh)
@@ -2389,11 +2410,11 @@ def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_
     ) == ([True], False)
 
 
-def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it() -> None:
+@pytest.mark.parametrize("body", ["Closes #704", "Part of #704"], ids=["closes", "part-of"])
+def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it(body: str) -> None:
     gh = _grounding_gh([_TASK_704], issue=_SERVER_ERROR)
-    assert _blockers(_ready_pr(base=_INTO_V0226), gh=gh) == [
-        "PR #335 is not grounded: the Release of #704 could not be read (gh: Server Error "
-        "(HTTP 500))."
+    assert _blockers(_ready_pr(body=body, base=_INTO_V0226), gh=gh) == [
+        "PR #335 is not grounded: #704 could not be read (gh: Server Error (HTTP 500))."
     ]
 
 
@@ -2417,6 +2438,100 @@ def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict) -> No
 
 
 # =============================================================================
+# Grounding: a PR that delivers part of an item says `Part of #N`
+# =============================================================================
+
+
+def test_a_part_pr_is_grounded_on_the_item_it_delivers_part_of() -> None:
+    """An item planned as several PRs lands each one before the last with `Part of #N`.
+
+    Its body closes no issue, so readiness blocked every PR but the last. Now the open item of
+    the base's release it names is judged as a closed issue is: it changes that item's task
+    file, which may still read In Progress, and the item stays open for the last PR to close.
+    """
+    gh = _grounding_gh([_TASK_704, _file("src/x.py")], issue=_issue("v0.2.26"))
+    blockers = _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh)
+    assert blockers == []
+
+
+@pytest.mark.parametrize(
+    ("issue", "blocker"),
+    [
+        (
+            _issue("v0.2.26", state="closed"),
+            "PR #335 is not grounded: it delivers part of #704, which is not open. Each part "
+            "lands while its item is open, and the PR that closes the item is its last.",
+        ),
+        (
+            _issue("v0.2.27"),
+            "PR #335 delivers part of #704, which is in v0.2.27, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+        (
+            _issue(None),
+            "PR #335 delivers part of #704, which is in the backlog, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+    ],
+    ids=["closed-item", "another-release", "the-backlog"],
+)
+def test_a_part_pr_is_blocked_by_an_item_that_is_closed_or_of_another_release(
+    issue: MagicMock, blocker: str
+) -> None:
+    """A part lands only while its item is open and in the base's release."""
+    gh = _grounding_gh([_TASK_704], issue=issue)
+    assert _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh) == [blocker]
+
+
+def test_the_blockers_for_a_body_naming_no_one_issue_read_in_full() -> None:
+    """A body that mixes the two, names two parts or names none gets one blocker saying which."""
+    bodies = ("Part of #704\nFixes #705", "Part of #705\nPart of #704", "Adds the reader.")
+    found = [_blockers(_ready_pr(body=body), gh=_grounding_gh([_TASK_704])) for body in bodies]
+    assert found == [
+        [
+            "PR #335 is not grounded: its body closes #705 and delivers part of #704, and a PR "
+            "either closes the one issue it delivers or delivers part of one."
+        ],
+        [
+            "PR #335 is not grounded: its body delivers part of 2 issues (#704, #705), and a PR "
+            "delivers part of exactly one."
+        ],
+        [
+            "PR #335 is not grounded: its body closes no issue in dan-petty/devops-cli, nor "
+            "delivers part of one. Name the one issue it delivers with a closing keyword, "
+            "Closes #<issue>, or, for one of several PRs that deliver an item, Part of #<issue>."
+        ],
+    ]
+
+
+def test_a_part_prs_release_file_blocker_leaves_the_fragment_to_the_closing_pr() -> None:
+    """Only the PR that closes an item adds its fragment, so parts open at once never conflict
+    on it, and an item moved out of the release part-way publishes no entry under it."""
+    gh = _grounding_gh([_TASK_704, _file("CHANGELOG.md")])
+    assert _blockers(_ready_pr(body="Part of #704"), gh=gh) == [
+        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
+        "open PRs never conflict on them. The PR that closes #704 adds its changelog entry as "
+        "changelog.d/704.md."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("state", "blocked"), [("open", False), ("closed", True)], ids=["open", "closed"]
+)
+def test_a_part_pr_into_the_default_branch_reads_its_item_only_for_its_state(
+    state: str, blocked: bool
+) -> None:
+    """Into `main` no release's item is judged, but a part of a closed item is still refused."""
+    gh = _grounding_gh([_TASK_704], issue=_issue("v0.2.27", state=state))
+    blockers = _blockers(_ready_pr(body="Part of #704", base=_MAIN_BASE), gh=gh)
+    endpoints = [call.args[0][-1] for call in gh.call_args_list]
+    assert (
+        ["which is not open" in blocker for blocker in blockers],
+        endpoints.count("repos/dan-petty/devops-cli/issues/704"),
+    ) == ([True] if blocked else [], 1)
+
+
+# =============================================================================
 # The pull request template asks only for what no check decides
 # =============================================================================
 
@@ -2434,9 +2549,11 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
     assert (
         [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
         "Closes #" in text,
+        "Part of #" in text,
         "docs/agent/tasks/task-" in text,
         "changelog.d/<issue>.md" in text,
         extract_linked_issues(text, "dan-petty/devops-cli"),
+        extract_part_references(text, "dan-petty/devops-cli"),
         re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
     ) == (
         [
@@ -2450,6 +2567,8 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
         True,
         True,
         True,
+        True,
+        [],
         [],
         None,
     )

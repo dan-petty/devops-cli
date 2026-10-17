@@ -4,7 +4,10 @@ Every pull request into a release branch added its entries at the top of `## [Un
 `CHANGELOG.md`, so any two open pull requests edited the same lines. Each merge made every other
 one conflict, and each then had to be rebased and run CI again. A fragment is
 `changelog.d/<issue>.md`, a new file whose name no other pull request uses, holding house-style
-entries under Keep a Changelog's `###` categories.
+entries under Keep a Changelog's `###` categories. An item delivered as several pull requests gets
+its fragment from the one that closes it: a `Part of #<issue>` pull request adds none, so parts
+open at once never conflict on the name, and an item moved out of the release part-way has no
+entry here to publish.
 
 The cut reads every fragment, checks them all before anything is written, and merges their
 entries into the version's section: categories in Keep a Changelog order, fragments in issue
