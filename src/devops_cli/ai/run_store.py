@@ -44,6 +44,7 @@ _SCORE_DROP_METRICS = {
     "precision_strict": "max_precision_drop",
     "stability_jaccard": "max_stability_drop",
     "stability_kappa": "max_stability_drop",
+    "reference_coverage": "max_reference_coverage_drop",
 }
 
 
@@ -738,6 +739,7 @@ class RegressionTolerances(BaseModel):
     # calls a review makes are its cost, since the self-hosted models record no price.
     max_precision_drop: float = 0.0
     max_stability_drop: float = 0.0
+    max_reference_coverage_drop: float = 0.0
     max_calls_increase: float = 0.20
 
 

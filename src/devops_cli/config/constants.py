@@ -4039,3 +4039,23 @@ CONST_CANARY_DOCKERFILE_SOURCE: Final[str] = """FROM alpine:3.20
 USER root
 RUN echo "canary"
 """
+
+# ── Review Finding Group Model Analysis Constants (#1147) ────────────────────
+CONST_REVIEW_ANALYSIS_FILENAME: Final[str] = "analysis.json"
+CONST_ANALYSIS_PROMPT_FILENAME: Final[str] = "review_group_analysis.md"
+CONST_ANALYSIS_GROUP_KINDS: Final[frozenset[str]] = frozenset({"region", "kubernetes", "advisory"})
+CONST_ANALYSIS_RELATIONS: Final[frozenset[str]] = frozenset(
+    {"caller", "callee", "same-symbol", "same-rule"}
+)
+CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
+CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "trivy"})
+CONST_ANALYSIS_DROP_REASON_BUDGET: Final[str] = "budget"
+CONST_ANALYSIS_DROP_REASON_UNAVAILABLE: Final[str] = "unavailable"
+CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
+    "unknown-finding-id",
+    "invalid-related-target",
+    "unmatched-code-quote",
+    "unmatched-doc-quote",
+    "unverified-version-or-package",
+    "invalid-python-code-block",
+)

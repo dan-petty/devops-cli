@@ -1820,6 +1820,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--max-precision-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%). |
 | `--max-stability-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%). |
+| `--max-reference-coverage-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's reference coverage (e.g. 0.05 for 5%). |
 | `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
