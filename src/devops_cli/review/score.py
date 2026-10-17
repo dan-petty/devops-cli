@@ -43,6 +43,7 @@ from devops_cli.ai.review_schema import _parse_location
 from devops_cli.ai.run_store import digest
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
+    CONST_REVIEW_ANALYSIS_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_REVIEW_LABEL_FALSE,
     CONST_REVIEW_LABEL_VALID_STRICT,
@@ -205,6 +206,7 @@ class SessionScore(BaseModel):
     by_producer: dict[str, ProducerScore]
     recall_set: Ratio
     known_defects: Ratio
+    reference_coverage: Ratio | None = None
     llm_calls: int | None = None
     prompt_tokens: int | None = None
     wall_seconds: float | None = None
@@ -264,6 +266,9 @@ class ScoreReport(BaseModel):
             "stability_jaccard": _stability(self.groups, lambda g: g.jaccard),
             "stability_kappa": _stability(self.groups, lambda g: g.kappa),
         }
+        ref_covs = [s.reference_coverage for s in sessions if s.reference_coverage is not None]
+        if ref_covs:
+            gated["reference_coverage"] = _figure(_pooled(ref_covs))
         medians = {
             "median_llm_calls": _median(s.llm_calls for s in sessions),
             "median_prompt_tokens": _median(s.prompt_tokens for s in sessions),
@@ -385,11 +390,31 @@ class _Session:
     # Each place findings.sarif names -> every result there.
     sarif: dict[tuple[str, int | str | None], list[NormalizedFinding]]
     profile: ReviewProfile | None
+    reference_coverage: Ratio | None = None
 
 
 # =============================================================================
 # Reading
 # =============================================================================
+
+
+class _AnalysisRecord(BaseModel):
+    reference_coverage: dict[str, Any] = Field(default_factory=dict)
+
+
+def _read_reference_coverage(session_dir: Path) -> Ratio | None:
+    """Read reference_coverage from analysis.json when present (#1147)."""
+    analysis_path = session_dir / CONST_REVIEW_ANALYSIS_FILENAME
+    if not analysis_path.is_file():
+        return None
+    try:
+        parsed = _AnalysisRecord.model_validate_json(analysis_path.read_bytes())
+        cov = parsed.reference_coverage
+        num = int(cov.get("numerator", 0))
+        den = int(cov.get("denominator", 0))
+        return Ratio(numerator=num, denominator=den)
+    except OSError, PydanticValidationError, TypeError, ValueError:
+        return None
 
 
 def _read_session(session_dir: Path) -> _Session:
@@ -422,6 +447,7 @@ def _read_session(session_dir: Path) -> _Session:
         origins=origins,
         sarif=sarif,
         profile=ReviewProfile.load(session_dir),
+        reference_coverage=_read_reference_coverage(session_dir),
     )
 
 
@@ -675,6 +701,7 @@ def _session_score(
         by_producer=_by_producer(rows),
         recall_set=Ratio(numerator=sum(hits), denominator=len(hits)),
         known_defects=_known_defects(rows, labelled.known_defects if labelled else ()),
+        reference_coverage=session.reference_coverage,
         llm_calls=profile.llm_calls if profile else None,
         prompt_tokens=profile.prompt_tokens if profile else None,
         wall_seconds=profile.total_wall_seconds if profile else None,

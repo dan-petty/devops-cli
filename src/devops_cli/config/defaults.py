@@ -999,3 +999,9 @@ DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
 DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH: Final[Path] = Path("k8s/llm/gateway/configmap.yaml")
 DEFAULT_LLM_PROFILES_PATH: Final[Path] = Path("k8s/llm/profiles/ollama-profiles.yaml")
 DEFAULT_LLM_SERVICES_PATH: Final[Path] = Path("k8s/llm/profiles/services.yaml")
+
+# ── Review Finding Group Model Analysis Defaults (#1147) ────────────────────
+DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10
+DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS: Final[int] = 16000
+DEFAULT_ANALYSIS_SAMPLING_SEED: Final[int] = 42
+DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"

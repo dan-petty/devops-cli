@@ -644,6 +644,13 @@ def check_cmd(
             help="Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%).",
         ),
     ] = 0.0,
+    max_reference_coverage_drop: Annotated[
+        float,
+        typer.Option(
+            "--max-reference-coverage-drop",
+            help="Maximum allowable relative drop in a review score's reference coverage (e.g. 0.05 for 5%).",
+        ),
+    ] = 0.0,
     max_calls_increase: Annotated[
         float,
         typer.Option(
@@ -677,6 +684,7 @@ def check_cmd(
         max_tokens_increase=max_tokens_increase,
         max_precision_drop=max_precision_drop,
         max_stability_drop=max_stability_drop,
+        max_reference_coverage_drop=max_reference_coverage_drop,
         max_calls_increase=max_calls_increase,
     )
     comparison = compare_runs(base_record, record)

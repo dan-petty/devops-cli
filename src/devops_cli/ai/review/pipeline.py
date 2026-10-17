@@ -4172,6 +4172,10 @@ class ReviewPipelineOrchestrator:
         if dist_lines:
             lines.extend(dist_lines)
 
+        from devops_cli.review.analysis import render_model_analysis_markdown
+
+        lines.extend(render_model_analysis_markdown(getattr(self, "analysis_report", None)))
+
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
             lines.append("| File Path | Stage / Error Reason |")
@@ -4183,6 +4187,35 @@ class ReviewPipelineOrchestrator:
             lines.append("")
 
         return "\n".join(lines)
+
+    def _run_group_analysis_stage(
+        self, stage_flags: ReviewStageFlags | None, *, has_personas: bool = True
+    ) -> Any:
+        """Execute bounded per-group model analysis on admitted scanner findings (#1147)."""
+        from devops_cli.dry_run.state import is_dry_run
+        from devops_cli.review.analysis import run_group_analysis
+
+        if not has_personas or (stage_flags is not None and not stage_flags.group_analysis):
+            return None
+        admitted = getattr(self, "admitted_scanner_findings", None)
+        if not admitted or is_dry_run():
+            return None
+        file_contents: dict[str, str] = {}
+        for af in admitted:
+            fpath = getattr(af, "path", "")
+            if fpath and fpath not in file_contents:
+                resolved = self._resolve_file_path(fpath)
+                if resolved.is_file():
+                    file_contents[fpath] = resolved.read_text(encoding="utf-8", errors="replace")
+        report = run_group_analysis(
+            admitted,
+            llm_client=self.llm_client,
+            file_contents=file_contents,
+            session_dir=self.session_dir,
+            concurrency=self.concurrency,
+        )
+        self.analysis_report = report
+        return report
 
     def _build_static_analyzers_section(self) -> list[str]:
         """Which static analyzers ran, so a scan with no findings is not read as clean."""
@@ -4818,6 +4851,7 @@ class ReviewPipelineOrchestrator:
         reportable_findings = [
             f for f in all_findings if f.reportable and not f.is_empty and f.location.strip()
         ]
+        self._run_group_analysis_stage(stage_flags, has_personas=bool(resolved_personas))
 
         report_md = self._build_consolidated_markdown_report(
             session_id=self.session_id,
