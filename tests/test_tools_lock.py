@@ -26,6 +26,7 @@ _REQUIRED_TOOLS = {
     "helm",
     "argo",
     "argocd",
+    "cloudflared",
     "kubectl-argo-rollouts",
     "trivy",
     "kube-linter",
@@ -50,7 +51,7 @@ def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
     """Each platform build is fetched over https and checked against a 32-byte SHA-256, and a
     tar.gz build names the archive member that is the tool."""
     builds = [
-        (name, tool.format, artifact)
+        (name, tool.format_of(artifact), artifact)
         for name, tool in load_tools_lock().binary.items()
         for artifact in tool.platforms.values()
     ]

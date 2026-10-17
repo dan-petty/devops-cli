@@ -632,6 +632,19 @@ devops workspace clean [OPTIONS]
 
 Install and manage DevOps tool binaries.
 
+```bash
+devops install-tools [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tool`, `-t` | `string` | - | Install a specific tool. |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
+| `--only-missing` | `boolean` | - | Only install tools that are not linked at their locked version. |
+| `--check` | `boolean` | - | Install nothing: report each tool not linked at its locked version, and exit 1 if any. |
+
 ### `devops install-tools status`
 
 **Show each tool's locked version and where its command is installed, without a request.**
@@ -2532,6 +2545,22 @@ devops config audit-keys [OPTIONS]
 
 Run tests, linting, formatting, and type-checks.
 
+```bash
+devops ci [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
+| `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
+| `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
+| `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
+| `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ci test`
 
 **Run the test suite, or only the tests covering the given source files.**
@@ -2810,6 +2839,25 @@ devops ci mutate [OPTIONS] <paths>
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci fail-to-pass`
+
+**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched.**
+
+```bash
+devops ci fail-to-pass [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree. |
+| `--title` | `string` | - | Pull request title used to classify defect PRs (defaults to PR_TITLE). |
+| `--labels` | `string` | - | Comma-separated or JSON list of PR labels (defaults to PR_LABELS). |
+| `--body` | `string` | - | Pull request body checked for a 'Fail-to-pass: not applicable: \<reason\>' line (defaults to PR_BODY). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops uv
@@ -2877,6 +2925,17 @@ devops uv run
 
 Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 
+```bash
+devops scan [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops scan trivy`
 
 **Run Aqua Trivy vulnerability, secret, and misconfiguration scan.**
@@ -2914,6 +2973,29 @@ devops scan secrets [OPTIONS] <target>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<target>` | `path` | No | Target directory or file to scan for secrets. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops scan workflows`
+
+**Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
+and excessive permissions fail it, and every other finding is shown.**
+
+```bash
+devops scan workflows [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Directory of GitHub Actions workflows and actions to audit with zizmor. |
 
 **Options:**
 
@@ -3119,6 +3201,16 @@ devops scan sarif [OPTIONS] <document>
 ## devops ai
 
 Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
+
+```bash
+devops ai [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics. |
 
 ### `devops ai config`
 
@@ -3458,7 +3550,7 @@ devops ai prompt-eval [OPTIONS]
 
 ### `devops ai test-gen`
 
-**Synthesize isolated pytest unit test suites for functions or source files.**
+**Generate failing pytest unit test scaffolds for functions or source files.**
 
 ```bash
 devops ai test-gen [OPTIONS] <target_file>
@@ -3468,13 +3560,13 @@ devops ai test-gen [OPTIONS] <target_file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for. |
+| `<target_file>` | `path` | Yes | Target source file to generate unit test scaffolds for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--function`, `-f` | `string` | - | Specific function to generate a test scaffold for. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -4042,6 +4134,29 @@ devops ai review templates check [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai review rules`
+
+```bash
+devops ai review rules COMMAND [ARGS]...
+```
+
+##### `devops ai review rules test`
+
+**Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145).**
+
+```bash
+devops ai review rules test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
+| `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai analyze`
 
@@ -4839,6 +4954,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--max-precision-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%). |
 | `--max-stability-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%). |
+| `--max-reference-coverage-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's reference coverage (e.g. 0.05 for 5%). |
 | `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -5289,6 +5405,16 @@ devops ai research analogies [OPTIONS]
 ## devops review
 
 AI-powered multi-persona code review and security audits.
+
+```bash
+devops review [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops review path`
 
@@ -5754,6 +5880,29 @@ devops review templates check [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review rules`
+
+```bash
+devops review rules COMMAND [ARGS]...
+```
+
+#### `devops review rules test`
+
+**Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145).**
+
+```bash
+devops review rules test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
+| `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

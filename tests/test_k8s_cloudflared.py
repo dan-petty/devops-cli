@@ -58,12 +58,15 @@ def test_cloudflared_traefik_egress_rule_has_no_port_restriction() -> None:
     to enforce (as "allow") egress rules that combine a peer selector (`to:`) with a
     `ports:` restriction in the same rule, causing traffic matching such a rule to be
     refused as if no rule existed. Re-adding a `ports:` restriction to this specific
-    rule would reintroduce the "connection refused" bug reaching Traefik.
+    rule would reintroduce the "connection refused" bug reaching Traefik. The API server rule
+    pairs an ipBlock peer with `ports:`, which kube-router enforces, as Argo CD's has since #1371.
     """
     policy = yaml.safe_load((CLOUDFLARED_DIR / "networkpolicy.yaml").read_text(encoding="utf-8"))
     egress_rules = policy["spec"]["egress"]
-    traefik_rules = [rule for rule in egress_rules if "to" in rule]
-    assert len(traefik_rules) == 1, "Expected exactly one egress rule with a `to:` peer selector"
+    traefik_rules = [
+        rule for rule in egress_rules if any("podSelector" in peer for peer in rule.get("to", []))
+    ]
+    assert len(traefik_rules) == 1, "Expected exactly one egress rule with a pod selector peer"
 
     traefik_rule = traefik_rules[0]
     assert "ports" not in traefik_rule

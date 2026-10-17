@@ -29,6 +29,9 @@ class _LockEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+ArchiveFormat = Literal["binary", "gzip", "tar.gz"]
+
+
 class Artifact(_LockEntry):
     """One platform's build of a binary tool: where it is fetched from and its SHA-256."""
 
@@ -36,6 +39,8 @@ class Artifact(_LockEntry):
     sha256: str
     # The archive member that is the tool, for a tar.gz build.
     member: str | None = None
+    # A build packed unlike the tool's others, such as cloudflared's macOS tar.gz.
+    format: ArchiveFormat | None = None
 
 
 class BinaryTool(_LockEntry):
@@ -45,9 +50,13 @@ class BinaryTool(_LockEntry):
     description: str
     source: str
     bin: str
-    format: Literal["binary", "gzip", "tar.gz"]
+    format: ArchiveFormat
     # Builds by `<os>-<arch>`, such as `linux-amd64`.
     platforms: dict[str, Artifact]
+
+    def format_of(self, artifact: Artifact) -> ArchiveFormat:
+        """How `artifact` is packed: its own format, else the tool's."""
+        return artifact.format or self.format
 
     @property
     def commands(self) -> tuple[str, ...]:

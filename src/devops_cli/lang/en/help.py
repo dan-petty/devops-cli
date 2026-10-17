@@ -177,9 +177,9 @@ class AICommandHelp:
         "data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else "
         "under ~/.local/share/devops-cli (default: the configured feedback dataset)."
     )
-    test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
-    test_function: str = "Specific function to synthesize tests for."
-    target_file: str = "Target source file to synthesize unit tests for."
+    test_gen: str = "Generate failing unit test scaffolds for functions and modules."
+    test_function: str = "Specific function to generate a test scaffold for."
+    target_file: str = "Target source file to generate unit test scaffolds for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
     chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
     quiesce: str = "Set the constellation quiesce flag with a reason; it stops nothing."
@@ -679,6 +679,19 @@ class CICommandHelp:
     mutate_changed: str = (
         "Mutate the functions the working tree changed since its merge base with --base, "
         "untracked files included unless git ignores them."
+    )
+    fail_to_pass: str = (
+        "Replay added or modified tests against the merge-base tree to prove a defect fix's "
+        "tests fail unpatched."
+    )
+    fail_to_pass_head: str = "Head git revision supplying the overlaid tests/ tree."
+    fail_to_pass_title: str = (
+        "Pull request title used to classify defect PRs (defaults to PR_TITLE)."
+    )
+    fail_to_pass_labels: str = "Comma-separated or JSON list of PR labels (defaults to PR_LABELS)."
+    fail_to_pass_body: str = (
+        "Pull request body checked for a 'Fail-to-pass: not applicable: <reason>' line "
+        "(defaults to PR_BODY)."
     )
 
 
@@ -1287,6 +1300,14 @@ class ReviewCommandHelp:
         "Specific defect template(s) to check (default: all registered templates)."
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
+    rules: str = "Verify and lock devops-cli's Semgrep review rule pack."
+    rules_test: str = (
+        "Run `semgrep --test` on the review rule pack and write or check `rules.lock`."
+    )
+    rules_dir: str = (
+        "Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`."
+    )
+    rules_check: str = "Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
@@ -1364,6 +1385,9 @@ class ScanCommandHelp:
     dive: str = "Run Dive container image layer analysis."
     target: str = "Target directory, file, or repository to scan."
     target_secrets: str = "Target directory or file to scan for secrets."
+    target_workflows: str = (
+        "Directory of GitHub Actions workflows and actions to audit with zizmor."
+    )
     target_semgrep: str = "Target directory or file to scan with Semgrep AST rules."
     target_checkov: str = "Target directory or file to scan with Checkov IaC rules."
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."

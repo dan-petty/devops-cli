@@ -229,6 +229,25 @@ def _extract_page_check_runs(page: Any) -> list[dict[str, Any]]:
     raise ValueError("GitHub check-runs API returned page without check_runs")
 
 
+def _without_replaced_cancellations(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop each cancelled run that a later-started run of the same check replaced (#1599).
+
+    A workflow that cancels its in-progress run when a newer event starts it leaves the old run
+    beside the new one, in another check suite, which the API's `filter=latest` does not
+    collapse. Only cancellations are dropped: a failure stands whatever ran after it.
+    """
+    newest: dict[str, str] = {}
+    for run in runs:
+        name, started = str(run.get("name") or ""), str(run.get("started_at") or "")
+        newest[name] = max(newest.get(name, ""), started)
+    return [
+        run
+        for run in runs
+        if BUCKET_CLASSIFIER_MAP.get(_normalize_token(run.get("conclusion"))) != CheckBucket.CANCEL
+        or str(run.get("started_at") or "") >= newest[str(run.get("name") or "")]
+    ]
+
+
 def _parse_rest_check_runs_payload(raw_json: str) -> list[PRCheckItem]:
     """Parse check-runs response from REST API into PRCheckItem objects."""
     try:
@@ -243,7 +262,7 @@ def _parse_rest_check_runs_payload(raw_json: str) -> list[PRCheckItem]:
     else:
         raise ValueError("GitHub check-runs API returned unexpected payload structure")
 
-    return [_check_run_dict_to_item(cr) for cr in raw_runs]
+    return [_check_run_dict_to_item(cr) for cr in _without_replaced_cancellations(raw_runs)]
 
 
 def _parse_single_status_item(s: Any) -> PRCheckItem | None:

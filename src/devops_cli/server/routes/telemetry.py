@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from typing import Any
 
-from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Response
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
+from prometheus_client.core import GaugeMetricFamily
 from pydantic import BaseModel, Field
 
 from devops_cli import __version__
@@ -52,35 +55,45 @@ async def get_telemetry() -> TelemetryStatusResponse:
     )
 
 
+class _ServerTelemetryCollector:
+    """Collector combining server metadata, in-memory metrics, and AI spend metrics."""
+
+    def collect(self) -> Iterator[Any]:
+        from devops_cli.ai.spend.prometheus import AISpendCollector
+        from devops_cli.telemetry.metrics import GLOBAL_METRICS
+
+        uptime = time.time() - _SERVICE_START_TIME
+        info_family = GaugeMetricFamily(
+            "devops_cli_info",
+            "DevOps CLI version and runtime metadata",
+            labels=["service", "version"],
+        )
+        info_family.add_metric(["devops-cli", __version__], 1)
+        yield info_family
+        yield GaugeMetricFamily(
+            "devops_cli_uptime_seconds",
+            "Process uptime in seconds",
+            value=round(uptime, 2),
+        )
+        yield GaugeMetricFamily(
+            "devops_cli_telemetry_enabled",
+            "Whether OpenTelemetry is enabled (1=yes, 0=no)",
+            value=1 if get_tracer().enabled else 0,
+        )
+        yield from GLOBAL_METRICS.registry.collect()
+        yield from AISpendCollector().collect()
+
+
 @router.get(
     "/metrics",
-    response_class=PlainTextResponse,
+    response_class=Response,
     summary="Prometheus metrics scrape endpoint",
 )
-async def get_metrics() -> str:
+async def get_metrics() -> Response:
     """Expose Prometheus formatted metric series for scraping."""
-    from devops_cli.ai.spend import export_ai_spend_prometheus
-    from devops_cli.telemetry.metrics import GLOBAL_METRICS
-
-    uptime = time.time() - _SERVICE_START_TIME
-    sections = [
-        "# HELP devops_cli_info DevOps CLI version and runtime metadata\n"
-        "# TYPE devops_cli_info gauge\n"
-        f'devops_cli_info{{version="{__version__}",service="devops-cli"}} 1\n\n'
-        "# HELP devops_cli_uptime_seconds Process uptime in seconds\n"
-        "# TYPE devops_cli_uptime_seconds gauge\n"
-        f"devops_cli_uptime_seconds {uptime:.2f}\n\n"
-        "# HELP devops_cli_telemetry_enabled Whether OpenTelemetry is enabled (1=yes, 0=no)\n"
-        "# TYPE devops_cli_telemetry_enabled gauge\n"
-        f"devops_cli_telemetry_enabled {1 if get_tracer().enabled else 0}\n"
-    ]
-
-    in_memory = GLOBAL_METRICS.export_prometheus_text()
-    if in_memory:
-        sections.append(in_memory)
-
-    ai_spend = export_ai_spend_prometheus()
-    if ai_spend:
-        sections.append(ai_spend)
-
-    return "\n\n".join(s.strip() for s in sections if s.strip()) + "\n"
+    registry = CollectorRegistry(auto_describe=True)
+    registry.register(_ServerTelemetryCollector())
+    return Response(
+        content=generate_latest(registry),
+        media_type=CONTENT_TYPE_LATEST,
+    )

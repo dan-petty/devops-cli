@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MIT
+rules:
+  - id: k8s-networkpolicy-ingress-any
+    message: >-
+      NetworkPolicy ingress rule allows traffic from 0.0.0.0/0, exposing the selected
+      workloads to unrestricted external or cluster sources.
+    severity: ERROR
+    languages:
+      - yaml
+    metadata:
+      cwe:
+        - "CWE-284: Improper Access Control"
+      category: security
+      license: MIT
+      references:
+        - "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+    patterns:
+      - pattern-inside: |
+          kind: NetworkPolicy
+          ...
+          spec:
+            ...
+            ingress:
+              ...
+      - pattern-inside: |
+          from:
+            ...
+      - pattern: |
+          cidr: 0.0.0.0/0

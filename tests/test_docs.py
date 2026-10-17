@@ -605,7 +605,7 @@ def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:
 
 
 def test_parse_mcp_input_schema_parameters_with_anyof_array() -> None:
-    """Verify that optional array parameters using anyOf resolve to 'array' rather than falling back."""
+    """Verify that MCP schema parameter parsing preserves array item types and enum values (#854)."""
     from devops_cli.docs.generator import _parse_mcp_input_schema_parameters
 
     schema = {
@@ -620,13 +620,200 @@ def test_parse_mcp_input_schema_parameters_with_anyof_array() -> None:
                 "default": None,
                 "description": "Optional secret keys",
             },
+            "mode": {
+                "type": "string",
+                "enum": ["dry-run", "plan", "write"],
+                "default": "plan",
+                "description": "Execution mode",
+            },
         },
         "required": ["path"],
     }
     params = _parse_mcp_input_schema_parameters(schema)
-    assert len(params) == 2
     by_name = {p["name"]: p for p in params}
-    assert by_name["path"]["type"] == "string"
-    assert by_name["path"]["required"] is True
-    assert by_name["keys"]["type"] == "array"
-    assert by_name["keys"]["required"] is False
+    assert (
+        len(params),
+        by_name["path"]["type"],
+        by_name["path"]["required"],
+        by_name["keys"]["type"],
+        by_name["keys"]["required"],
+        by_name["mode"]["type"],
+    ) == (3, "string", True, "array[string]", False, "string (dry-run, plan, write)")
+
+
+def test_generate_all_docs_raises_on_group_import_failure(
+    generator: DocGenerator, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced import failure makes generate_all_docs raise and names the module (#854)."""
+    import devops_cli.docs.generator as gen_mod
+
+    def _failing_loader(module_path: str) -> object:
+        raise ImportError(f"No module named 'missing_optional_dep' while loading {module_path}")
+
+    monkeypatch.setattr(gen_mod, "module_click_command", _failing_loader)
+    with pytest.raises(RuntimeError) as exc_info:
+        generator.generate_all_docs(tmp_path)
+    msg = str(exc_info.value)
+    assert (
+        "devops_cli.commands." in msg,
+        "missing optional dependency now fails the docs stage, by design" in msg,
+    ) == (True, True)
+
+
+def test_introspect_mcp_tools_raises_on_listing_failure(
+    generator: DocGenerator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced MCP listing failure makes MCP doc generation raise (#854)."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _failing_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "devops_cli.ai.mcp.server":
+            raise ImportError("FastMCP dependency missing")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _failing_import)
+    with pytest.raises(RuntimeError) as exc_info:
+        generator.introspect_mcp_tools()
+    assert "missing optional dependency now fails the docs stage, by design" in str(exc_info.value)
+
+
+def test_group_callback_options_rendered_for_ci_and_review(generator: DocGenerator) -> None:
+    """Group-callback options on devops ci (--check, --only, --skip) and devops review (--explain)
+    are rendered in command group pages (#854)."""
+    pages = Path(__file__).resolve().parents[1] / "docs" / "commands"
+    ci_md = (pages / "ci.md").read_text(encoding="utf-8")
+    review_md = (pages / "review.md").read_text(encoding="utf-8")
+    ci_header_section = ci_md.split("## Commands", 1)[0]
+    review_header_section = review_md.split("## Commands", 1)[0]
+    assert (
+        "| `--check` |" in ci_header_section,
+        "| `--only` |" in ci_header_section,
+        "| `--skip` |" in ci_header_section,
+        "| `--explain`, `-e` |" in review_header_section,
+    ) == (True, True, True, True)
+
+
+def test_configuration_and_error_catalog_docs_describe_real_surface(
+    generator: DocGenerator,
+) -> None:
+    """CONFIGURATION.md lists all project config candidates and Settings fields; ERRORS.md lists
+    all DevOpsCLIError subclasses with their real error_code and exit_code (#854)."""
+    from devops_cli.config.constants import (
+        CONST_EXIT_CANCELLED,
+        CONST_EXIT_USAGE,
+        CONST_PROJECT_CONFIG_CANDIDATES,
+    )
+    from devops_cli.config.settings import Settings
+
+    config_md = generator.generate_configuration_docs()
+    errors_md = generator.generate_error_catalog_docs()
+
+    assert (
+        CONST_EXIT_USAGE,
+        CONST_EXIT_CANCELLED,
+        all(f"`{candidate}`" in config_md for candidate in CONST_PROJECT_CONFIG_CANDIDATES),
+        "Kubernetes context, ingress domain, and service addressing settings." in config_md,
+        "OpenTelemetry export and Logfire settings." in config_md,
+        all(
+            f"(`{field}`)" in config_md or f"| `{field}` |" in config_md
+            for field in Settings.model_fields
+        ),
+        "| `MemoryOperationConflictError` | `HARNESS_EXECUTION_ERROR` | `1` |" in errors_md,
+        "| `ChecksumMismatchError` | `CHECKSUM_MISMATCH` | `1` |" in errors_md,
+        "| `SecretExposureError` | `SECRET_EXPOSURE_DETECTED` | `4` |" in errors_md,
+        "| `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` |" in errors_md,
+        "Only `devops cloudflare`, `devops valkey` and `devops sandbox` exit with it today"
+        in errors_md,
+    ) == (2, 130, True, True, True, True, True, True, True, True, True)
+
+
+def _unwrap_settings_model(annotation: object) -> type | None:
+    import types
+    from typing import get_args, get_origin
+
+    from pydantic import BaseModel
+
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    origin = get_origin(annotation)
+    if origin is types.UnionType or str(origin).endswith("Union"):
+        for arg in get_args(annotation):
+            resolved = _unwrap_settings_model(arg)
+            if resolved is not None:
+                return resolved
+    return None
+
+
+def _field_names_and_aliases(field_name: str, info: object) -> list[str]:
+    from pydantic import AliasChoices
+
+    keys = [field_name]
+    alias = getattr(info, "alias", None)
+    if isinstance(alias, str):
+        keys.append(alias)
+    val_alias = getattr(info, "validation_alias", None)
+    if isinstance(val_alias, str):
+        keys.append(val_alias)
+    elif isinstance(val_alias, AliasChoices):
+        keys.extend(c for c in val_alias.choices if isinstance(c, str))
+    return keys
+
+
+def _model_field_lookup(model_cls: type) -> dict[str, object]:
+    return {
+        key: info
+        for field_name, info in model_cls.model_fields.items()
+        for key in _field_names_and_aliases(field_name, info)
+    }
+
+
+def _collect_unknown_settings_key_paths(
+    payload: dict[str, object], model_cls: type, prefix: str = ""
+) -> list[str]:
+    lookup = _model_field_lookup(model_cls)
+    unknown: list[str] = []
+    for key, val in payload.items():
+        path = f"{prefix}.{key}" if prefix else key
+        info = lookup.get(key)
+        if info is None:
+            unknown.append(path)
+            continue
+        sub_model = _unwrap_settings_model(getattr(info, "annotation", None))
+        if isinstance(val, dict) and sub_model is not None:
+            unknown.extend(_collect_unknown_settings_key_paths(val, sub_model, path))
+    return unknown
+
+
+def test_config_example_yaml_maps_to_settings_fields_and_validates() -> None:
+    """Every key path in config.example.yaml maps to a Settings field and validates; an unknown
+    key in a copy fails the check and names the key path (#854)."""
+    import copy
+
+    import yaml
+
+    from devops_cli.config.settings import Settings
+
+    example_path = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    raw = yaml.safe_load(example_path.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
+
+    unknown = _collect_unknown_settings_key_paths(raw, Settings)
+    validated = Settings.model_validate(raw)
+
+    mutated = copy.deepcopy(raw)
+    mutated["ai"]["nonexistent_setting_key"] = True
+    unknown_mutated = _collect_unknown_settings_key_paths(mutated, Settings)
+
+    assert (
+        unknown,
+        isinstance(validated, Settings),
+        unknown_mutated,
+    ) == ([], True, ["ai.nonexistent_setting_key"])

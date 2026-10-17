@@ -593,12 +593,12 @@ def close_requests(
     the writes `--confirm` makes before that last read: the closes, then the cut (#743). It
     reads the merged pull requests of each closed Release that holds an open issue before the
     current release's (#1362)."""
-    from devops_cli.commands.release import (
+    from devops_cli.config.defaults import DEFAULT_RELEASE_LABEL
+    from devops_cli.release.cut import (
         _build_release_pr_command,
         milestone_issues_args,
         milestone_pull_requests_args,
     )
-    from devops_cli.config.defaults import DEFAULT_RELEASE_LABEL
 
     store = StoreRequests(repo, CONST_ROADMAP_RENDER_BOARD_FILTER)
     texts = MESSAGES.roadmap

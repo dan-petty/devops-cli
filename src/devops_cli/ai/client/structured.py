@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-import json_repair
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from devops_cli.ai.client.models import (
@@ -19,6 +18,7 @@ from devops_cli.ai.client.models import (
     genai_provider_name,
 )
 from devops_cli.ai.client.network import ReplySchema, constrain_reply
+from devops_cli.ai.response_repair import repair_json
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
     extract_schema_reflection,
@@ -26,8 +26,8 @@ from devops_cli.ai.schema_reflection import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
+    CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED,
     CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_METRIC_AI_STRUCTURED_REPAIR_SUCCESS,
     CONST_METRIC_AI_STRUCTURED_RETRY_COUNT,
     CONST_METRIC_AI_STRUCTURED_SUCCESS,
     CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE,
@@ -70,29 +70,17 @@ def _extract_candidate_json(raw_text: str) -> str:
 
 
 def _parse_json_payload(candidate: str, cleaned: str) -> tuple[Any, bool, str | None]:
-    """Parse candidate string to JSON object or array, repairing malformed syntax if needed."""
-    try:
-        return json.loads(candidate), False, None
-    except Exception:
-        pass
-
-    try:
-        repaired = json_repair.loads(candidate)
-        if repaired != "" and repaired is not None and isinstance(repaired, (dict, list)):
-            return repaired, True, None
-        repaired_full = json_repair.loads(cleaned)
-        if (
-            repaired_full != ""
-            and repaired_full is not None
-            and isinstance(repaired_full, (dict, list))
-        ):
-            return repaired_full, True, None
-        return None, False, "Model response does not contain a valid JSON object or array."
-    except Exception as exc:
-        err = str(exc)
-        if len(err) > CONST_MAX_ERROR_DETAIL_LENGTH:
-            err = err[: CONST_MAX_ERROR_DETAIL_LENGTH - 3] + "..."
-        return None, False, f"JSON repair failed: {err}"
+    """Parse candidate string to JSON object or array, repairing malformed syntax if needed (#875)."""
+    repaired, was_repaired = repair_json(candidate, source=CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED)
+    if isinstance(repaired, dict | list):
+        return repaired, was_repaired, None
+    if cleaned != candidate:
+        repaired_full, was_repaired_full = repair_json(
+            cleaned, source=CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED
+        )
+        if isinstance(repaired_full, dict | list):
+            return repaired_full, was_repaired_full, None
+    return None, False, "Model response does not contain a valid JSON object or array."
 
 
 def _validate_schema_payload[T: BaseModel](
@@ -230,6 +218,13 @@ class StructuredOutputMixin:
         from the response cache nor written to it, and comes back on `ReplyRejectedError` for
         the reflection.
         """
+        evaluated: dict[str, tuple[T | None, bool, SchemaFailure | None]] = {}
+
+        def _validate(text: str) -> bool:
+            outcome = _repair_and_validate_payload(text, schema)
+            evaluated[text] = outcome
+            return outcome[0] is not None
+
         try:
             res = self.chat_messages(
                 system,
@@ -238,12 +233,15 @@ class StructuredOutputMixin:
                 use_cache=use_cache,
                 context_tag=context_tag,
                 max_retries=0,
-                validator=lambda text: _repair_and_validate_payload(text, schema)[0] is not None,
+                validator=_validate,
             )
         except ReplyRejectedError as rejected:
             res = LLMResponse(rejected.reply)
         raw_text = res.text if hasattr(res, "text") else str(res)
-        model_inst, was_repaired, failure = _repair_and_validate_payload(raw_text, schema)
+        outcome = evaluated.get(raw_text)
+        if outcome is None:
+            outcome = _repair_and_validate_payload(raw_text, schema)
+        model_inst, was_repaired, failure = outcome
         return model_inst, was_repaired, failure, raw_text
 
     def _handle_structured_retry(
@@ -325,12 +323,6 @@ class StructuredOutputMixin:
                         1.0,
                         attributes={"model": model_name},
                     )
-                    if was_repaired:
-                        record_metric(
-                            CONST_METRIC_AI_STRUCTURED_REPAIR_SUCCESS,
-                            1.0,
-                            attributes={"model": model_name},
-                        )
                     span_h.set_attribute("structured.attempts", attempt)
                     span_h.set_attribute("structured.was_repaired", was_repaired)
                     return model_inst

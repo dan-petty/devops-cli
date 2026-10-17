@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.35"
+version = "0.2.36"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -69,6 +69,7 @@ dependencies = [
     "markdownify==1.2.3",
     "beautifulsoup4==4.15.0",
     "statsmodels==0.15.0",
+    "prometheus-client==0.26.0",
 ]
 
 [project.scripts]
@@ -88,6 +89,7 @@ dev = [
     "pytest-randomly==5.0.0",
     "bandit==1.9.4",
     "actionlint-py==1.7.12.25",
+    "zizmor==1.30.1",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
     "h11==0.16.0",

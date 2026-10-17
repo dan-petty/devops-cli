@@ -230,7 +230,20 @@ class RuffScanner(BaseSecurityScanner):
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Ruff producing SARIF."""
+        from devops_cli.review.canary import (
+            parse_requires_python_target_version,
+            resolve_ruff_target_version,
+        )
+
         cmd = [self.binary_name, "check", "--output-format=sarif"]
+        raw_target_ver = kwargs.get("target_version")
+        target_ver = (
+            parse_requires_python_target_version(raw_target_ver)
+            if isinstance(raw_target_ver, str)
+            else resolve_ruff_target_version(kwargs.get("tree"))
+        )
+        if target_ver:
+            cmd.append(f"--target-version={target_ver}")
         if advisory_rules:
             cmd.append(f"--extend-select={','.join(advisory_rules)}")
 
@@ -270,6 +283,18 @@ class RuffScanner(BaseSecurityScanner):
         ]
 
 
+def _infer_ruff_tree(target: Path | list[Path], tree: Path | None) -> Path | None:
+    """Resolve candidate project root directory for reading `pyproject.toml`."""
+    if tree is not None:
+        return tree
+    if isinstance(target, Path):
+        return target if target.is_dir() else target.parent
+    if target:
+        first = target[0]
+        return first if first.is_dir() else first.parent
+    return None
+
+
 def run_ruff_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     *,
@@ -277,10 +302,36 @@ def run_ruff_scan(
     diff_hunks: dict[str, list[tuple[int, int]]] | None = None,
     is_branch_or_pr: bool = False,
     isolated: bool = False,
+    tree: Path | None = None,
+    target_version: str | None = None,
+    require_version: bool = False,
 ) -> ScanOutcome:
     """Execute Ruff scan producing SARIF findings with advisory rule filtering."""
+    from devops_cli.review.canary import (
+        parse_requires_python_target_version,
+        resolve_ruff_target_version,
+    )
+
+    eff_tree = _infer_ruff_tree(target, tree)
+    resolved_ver = (
+        parse_requires_python_target_version(target_version)
+        if target_version is not None
+        else resolve_ruff_target_version(eff_tree)
+    )
+    if resolved_ver is None and (require_version or tree is not None or isolated):
+        return ScanOutcome(
+            status="coverage_gap",
+            findings=[],
+            reason="missing requires-python in pyproject.toml",
+        )
     scanner = RuffScanner()
-    outcome = scanner.scan(target, isolated=isolated, advisory_rules=advisory_rules)
+    outcome = scanner.scan(
+        target,
+        isolated=isolated,
+        advisory_rules=advisory_rules,
+        tree=eff_tree,
+        target_version=resolved_ver,
+    )
     if outcome.findings:
         filtered = filter_or_group_advisories(
             outcome.findings,

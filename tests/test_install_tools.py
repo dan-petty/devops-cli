@@ -63,6 +63,7 @@ def _binary_entry(
     name: str = "mytool",
     archive_format: str = "binary",
     member: str | None = None,
+    build_format: str | None = None,
 ) -> BinaryTool:
     """A lock entry for `name` 1.2.3 whose build for this platform is `artifact`, served at
     `https://example.com/releases/<name>`."""
@@ -78,6 +79,7 @@ def _binary_entry(
                     "url": f"https://example.com/releases/{name}",
                     "sha256": hashlib.sha256(artifact).hexdigest(),
                     "member": member,
+                    **({"format": build_format} if build_format else {}),
                 }
             },
         }
@@ -191,6 +193,23 @@ def test_each_archive_format_unpacks_to_the_tool(
     install_binary(
         "mytool",
         _binary_entry(artifact, archive_format=archive_format, member=member),
+        tmp_path / "bin",
+    )
+
+    assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
+
+
+def test_a_build_packed_unlike_the_tools_others_unpacks_by_its_own_format(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """cloudflared publishes bare Linux binaries and macOS tar.gz archives: a build's own format
+    wins over the tool's."""
+    artifact = _tar_gz({"cloudflared": EXECUTABLE})
+    stub_web.content(ASSET_URL, artifact)
+
+    install_binary(
+        "mytool",
+        _binary_entry(artifact, member="cloudflared", build_format="tar.gz"),
         tmp_path / "bin",
     )
 

@@ -2560,3 +2560,62 @@ def export_feedback(
         print_success(
             MESSAGES.review.exported_findings.format(count=count, status=status, path=out_path)
         )
+
+
+# =============================================================================
+# Commands: devops review rules test
+# =============================================================================
+
+rules_app = new_typer(help=HELP.review.rules, no_args_is_help=True)
+app.add_typer(rules_app, name="rules")
+
+
+@rules_app.command("test")
+def rules_test(
+    rules_dir: Annotated[
+        Path | None,
+        typer.Option("--rules-dir", help=HELP.review.rules_dir),
+    ] = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help=HELP.review.rules_check),
+    ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145)."""
+    from devops_cli.review.rules_pack import RULE_PACK_DIR, RULES_LOCK_FILENAME, run_rule_pack_tests
+
+    if dry_run:
+        set_dry_run(True)
+    target_rules_dir = rules_dir or RULE_PACK_DIR
+    lock_path = target_rules_dir / RULES_LOCK_FILENAME
+    if is_dry_run():
+        print_info(
+            MESSAGES.review.rules_test_dry_run.format(path=target_rules_dir, lock=lock_path),
+            prefix=False,
+        )
+    try:
+        lock = run_rule_pack_tests(target_rules_dir, check_only=check)
+    except ValidationError as exc:
+        print_error(exc.message)
+        raise typer.Exit(1) from exc
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(lock.model_dump(mode="json"), resolved)
+        return
+    versions = sorted({entry.semgrep_version for entry in lock.rules.values()})
+    template = MESSAGES.review.rules_test_checked if check else MESSAGES.review.rules_test_passed
+    print_success(
+        template.format(
+            count=len(lock.rules),
+            version=versions[0] if versions else "unknown",
+            path=lock_path,
+        )
+    )

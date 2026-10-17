@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
     CONST_CLOUDFLARE_RECORD_COMMENT,
+    CONST_CLOUDFLARE_WILDCARD_PREFIX,
     CONST_URL_CLOUDFLARE_API_BASE,
 )
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
@@ -133,11 +134,29 @@ def _merge_existing_and_target_rules(
     return merged
 
 
+def _wildcard_matches(pattern: str | None, hostname: str | None) -> bool:
+    """Whether cloudflared matches `hostname` to the rule hostname `pattern`: a leading `*.`
+    matches any name ending in the rest (`matchHost` in cloudflared's ingress/rule.go)."""
+    if not pattern or not hostname or not pattern.startswith(CONST_CLOUDFLARE_WILDCARD_PREFIX):
+        return False
+    return hostname.lower().endswith(pattern[1:].lower())
+
+
+def _insertion_index(rules: list[CloudflareTunnelIngressRule], hostname: str | None) -> int:
+    """Where a new rule for `hostname` goes: before the first rule whose wildcard would match it,
+    since cloudflared takes the first match, else after every rule (#1595)."""
+    return next(
+        (i for i, rule in enumerate(rules) if _wildcard_matches(rule.hostname, hostname)),
+        len(rules),
+    )
+
+
 def _merge_tunnel_ingress_rules(
     current_rules: list[CloudflareTunnelIngressRule],
     target_rules: list[CloudflareTunnelIngressRule],
 ) -> list[CloudflareTunnelIngressRule]:
-    """Merge target ingress rules into current rules, preserving other routes and catch-all."""
+    """Merge target ingress rules into current rules, preserving other routes and catch-all. A
+    new hostname goes before any wildcard rule that would otherwise take its traffic."""
     target_by_key = {key: r for r in target_rules if (key := _rule_routing_key(r)) is not None}
     seen_keys: set[tuple[str | None, str | None]] = set()
     merged = _merge_existing_and_target_rules(current_rules, target_by_key, seen_keys)
@@ -145,7 +164,7 @@ def _merge_tunnel_ingress_rules(
     for r in target_rules:
         key = _rule_routing_key(r)
         if key is not None and key not in seen_keys:
-            merged.append(r)
+            merged.insert(_insertion_index(merged, r.hostname), r)
             seen_keys.add(key)
 
     existing_catchall = next((r for r in current_rules if not r.hostname and not r.path), None)

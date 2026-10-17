@@ -51,8 +51,8 @@ def test_export_ai_spend_prometheus_empty_ledger(tmp_path: Path) -> None:
 
     text = export_ai_spend_prometheus(ledger)
     assert (
-        "devops_cli_ai_active_servers 0" in text,
-        "devops_cli_ai_active_models 0" in text,
+        "devops_cli_ai_active_servers 0.0" in text,
+        "devops_cli_ai_active_models 0.0" in text,
     ) == (
         True,
         True,
@@ -64,11 +64,11 @@ def test_export_ai_spend_prometheus_with_records(seeded_ledger: SpendLedger) -> 
     text = export_ai_spend_prometheus(seeded_ledger)
 
     assert (
-        "devops_cli_ai_active_servers 2" in text,
-        "devops_cli_ai_active_models 2" in text,
+        "devops_cli_ai_active_servers 2.0" in text,
+        "devops_cli_ai_active_models 2.0" in text,
         'devops_cli_ai_spend_usd_total{model="llama3:8b",provider="ollama"}' in text,
-        'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1' in text,
-        'devops_cli_ai_tokens_total{model="gpt-4o",provider="openai",type="total"} 3000' in text,
+        'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1.0' in text,
+        'devops_cli_ai_tokens_total{model="gpt-4o",provider="openai",type="total"} 3000.0' in text,
         'devops_cli_ai_server_spend_usd{provider="openai",server="example.com"}' in text,
         "devops_cli_ai_local_cost_equivalent_usd" in text,
         "devops_cli_ai_counterfactual_spend_usd" in text,
@@ -104,8 +104,8 @@ def test_the_exported_request_counter_counts_only_requests_sent_to_a_model(
     lines = export_ai_spend_prometheus(seeded_ledger).splitlines()
 
     assert (
-        'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1' in lines,
-        "devops_cli_ai_active_servers 2" in lines,
+        'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1.0' in lines,
+        "devops_cli_ai_active_servers 2.0" in lines,
     ) == (True, True)
 
 
@@ -121,8 +121,8 @@ def test_ai_cost_cli_prometheus_format(
     assert (
         res_report.exit_code,
         res_cmd.exit_code,
-        "devops_cli_ai_active_servers 2" in res_report.stdout,
-        "devops_cli_ai_active_servers 2" in res_cmd.stdout,
+        "devops_cli_ai_active_servers 2.0" in res_report.stdout,
+        "devops_cli_ai_active_servers 2.0" in res_cmd.stdout,
     ) == (
         0,
         0,

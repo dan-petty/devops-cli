@@ -280,12 +280,15 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |
+|  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
 |  | `devops uv run` | Run an arbitrary command using `uv run`. |
 | **scan** | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 |  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
+|  | `devops scan workflows [OPTIONS] <target>` | Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
+and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
 |  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
@@ -311,7 +314,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
 |  | `devops ai prompt-eval [OPTIONS]` | Count the review verdicts the feedback dataset records for one persona's findings. |
-|  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
+|  | `devops ai test-gen [OPTIONS] <target_file>` | Generate failing pytest unit test scaffolds for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
 |  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
@@ -342,6 +345,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
+|  | `devops review rules COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |

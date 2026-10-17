@@ -450,6 +450,8 @@ DEFAULT_RERANKER_DECLARATION_BONUS: float = 0.2
 DEFAULT_RERANKER_SYMBOL_BONUS: float = 0.1
 DEFAULT_FILE_FORMAT_AUTO: Literal["text", "bytes", "json", "yaml", "yml", "auto"] = "auto"
 DEFAULT_CURRENT_PATH: Path = Path(".")
+# The directory `devops scan workflows` audits: GitHub Actions workflows and composite actions.
+DEFAULT_WORKFLOWS_SCAN_PATH: Path = Path(".github")
 
 # ── Kubernetes, Port Forward & Homelab Defaults ───────────────────────────────
 DEFAULT_K8S_DIR: Path = Path("k8s")
@@ -696,7 +698,35 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 65
+DEFAULT_C901_SUPPRESSION_CEILING: int = 51
+# The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
+DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
+# Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
+# pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
+# ceiling of 0.
+DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
+    "src type: ignore": 91,
+    "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
+    "src noqa: E402": 2,
+    "src noqa: F401": 22,
+    "src noqa: SIM115": 1,
+    "src noqa: UP036": 1,
+    "src nosec": 14,
+    "src pragma: no cover": 1,
+    "src pragma: no mutate": 0,
+    "src file-level directive": 0,
+    "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
+    "tests type: ignore": 228,
+    "tests noqa: F401": 4,
+    "tests noqa: N803": 1,
+    "tests nosec": 17,
+    "tests pragma: no cover": 0,
+    "tests pragma: no mutate": 0,
+    "tests file-level directive": 0,
+    "per-file-ignores": 0,
+    "[[tool.mypy.overrides]]": 2,
+    "coverage omit": 0,
+}
 DEFAULT_MAX_NESTING_DEPTH: int = 5
 DEFAULT_QUANTIZATION_BITS: int = 16
 
@@ -969,3 +999,9 @@ DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
 DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH: Final[Path] = Path("k8s/llm/gateway/configmap.yaml")
 DEFAULT_LLM_PROFILES_PATH: Final[Path] = Path("k8s/llm/profiles/ollama-profiles.yaml")
 DEFAULT_LLM_SERVICES_PATH: Final[Path] = Path("k8s/llm/profiles/services.yaml")
+
+# ── Review Finding Group Model Analysis Defaults (#1147) ────────────────────
+DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10
+DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS: Final[int] = 16000
+DEFAULT_ANALYSIS_SAMPLING_SEED: Final[int] = 42
+DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"

@@ -115,6 +115,13 @@ class ReviewMessages:
         "[bold yellow]Network & Egress References Audit[/bold yellow]"
     )
     summary: str = "[bold]Summary[/bold]"
+    rules_test_passed: str = (
+        "Tested {count} rule(s) with Semgrep {version}; wrote [bold]{path}[/bold]."
+    )
+    rules_test_checked: str = (
+        "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
+    )
+    rules_test_dry_run: str = r"[yellow]\[dry-run][/yellow] Would run `semgrep --test --metrics off {path}` and write {lock}."
 
 
 @dataclass(frozen=True)
@@ -724,6 +731,17 @@ class ScanMessages:
     trivy_passed: str = "✓ No vulnerabilities, secrets, or flaws found by Trivy."
     gitleaks_executing: str = "Executing Gitleaks secret scan on '{target}'..."
     gitleaks_passed: str = "✓ No secrets or credential leaks detected."
+    zizmor_executing: str = "Auditing GitHub Actions workflows in '{target}' with zizmor..."
+    zizmor_passed: str = "✓ zizmor found nothing in the workflows."
+    zizmor_title: str = "zizmor Workflow Audit: {target}"
+    zizmor_blocking: str = (
+        "{count} finding(s) from {rules} block the gate; each row links zizmor's remedy."
+    )
+    zizmor_reported: str = (
+        "{count} finding(s) from other zizmor audits are reported and do not block."
+    )
+    zizmor_failed: str = "zizmor could not run (exit {code}): {detail}"
+    zizmor_not_applicable: str = "No GitHub Actions workflows or action files in the target"
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
@@ -889,6 +907,11 @@ class CIMessages:
     deps: str = "deptry"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
+    zizmor: str = "zizmor (github workflow security)"
+    audit_vulnerable: str = "Dependency audit found vulnerabilities (uv audit exited {code})."
+    audit_not_run: str = (
+        "Dependency audit could not run (uv audit exited {code}); uv's error is above."
+    )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
     ci_summary_title: str = "CI Summary"
@@ -950,6 +973,19 @@ class CIMessages:
     )
     mutate_survivor: str = "{path}:{line} {qualname}"
     mutate_counts: str = "Mutants of the selected functions: {counts}."
+    fail_to_pass_not_applicable: str = "Fail-to-pass: not applicable: {reason}"
+    fail_to_pass_test_line: str = "  {status} on base: {test_id}{detail}"
+    fail_to_pass_summary: str = (
+        "{failed} failed on base ({failed} failed and {passed} passed in {files}; "
+        "{errored} errored)."
+    )
+    fail_to_pass_no_tests: str = (
+        "Defect PR modifies no tests/**/test_*.py files and declares no "
+        "'Fail-to-pass: not applicable: <reason>' line."
+    )
+    fail_to_pass_none_failed: str = (
+        "Defect PR requires at least one changed test to fail in the call phase on base ({tests})."
+    )
 
 
 @dataclass(frozen=True)
@@ -1911,6 +1947,15 @@ class RoadmapMessages:
         "#{number}'s card holds a Priority, so it was already placed: the add restored the "
         "card if a person had archived it, and intake wrote nothing else to it."
     )
+    intake_skipped: str = (
+        "Intake skipped {name}: its writes failed, and the next run tries it again: {error}"
+    )
+    intake_failed: str = (
+        "the writes failed for {count} candidate(s), and intake skipped them after writing the "
+        "others; the next run tries them again: {items}"
+    )
+    intake_failed_item: str = "{name} ({error})"
+    intake_failed_new: str = '"{title}"'
     triage_no_board: str = (
         "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
     )

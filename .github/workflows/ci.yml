@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -73,6 +75,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up uv toolchain
@@ -119,6 +122,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       # IMAGE_CONTENT_PATHS mirrors everything that determines the published image: the
@@ -167,7 +171,7 @@ jobs:
         if: steps.image_changes.outputs.changed == 'true'
         id: image_repo
         run: |
-          echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
 
       - name: Check PR Open Status Prior to Publishing Image
         if: steps.image_changes.outputs.changed == 'true'
@@ -212,6 +216,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Image Content Changes
@@ -259,6 +264,9 @@ jobs:
           load: true
           push: false
           tags: devops-cli-service:local
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -303,6 +311,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -327,6 +337,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect Changed Test Files
@@ -357,3 +368,51 @@ jobs:
         run: |
           readarray -t CHANGED_TESTS < "$RUNNER_TEMP/changed-tests.txt"
           uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
+
+  # Runs `semgrep --test` with the pinned Semgrep when any file under src/devops_cli/review/rules/**
+  # changes, kept outside the local pre-push gate (#1145).
+  rule-pack:
+    name: Rule Pack Tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect Changed Rule Pack Files
+        id: changed_rules
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- ':(glob)src/devops_cli/review/rules/**')
+          if [ -n "$CHANGED" ]; then
+            echo "$CHANGED"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No rule pack file changed; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv toolchain
+        if: steps.changed_rules.outputs.changed == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: rule-pack
+
+      - name: Run Semgrep Rule Pack Tests
+        if: steps.changed_rules.outputs.changed == 'true'
+        env:
+          SEMGREP_ENABLE_VERSION_CHECK: "0"
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run devops install-tools --tool semgrep --only-missing
+          semgrep --test --metrics off src/devops_cli/review/rules
+          uv run devops review rules test --check

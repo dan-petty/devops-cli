@@ -8,6 +8,7 @@ from typing import Any
 
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_ROADMAP_CARD_CHANGED,
+    CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED,
     CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
 )
@@ -81,5 +82,28 @@ class RoadmapRefineError(DevOpsCLIError):
         super().__init__(
             message,
             error_code=CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
+            details={"failed_items": list(self.failed_items), **(details or {})},
+        )
+
+
+class RoadmapIntakeError(DevOpsCLIError):
+    """Raised after an intake round in which the writes failed for one or more candidates.
+
+    Intake skipped each such candidate and wrote the others first (#1443). The message names
+    each skipped candidate, by issue number or, for one never filed, by title, with its error's
+    class; `failed_items` holds the numbers.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_items: Sequence[int] = (),
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.failed_items = tuple(failed_items)
+        super().__init__(
+            message,
+            error_code=CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED,
             details={"failed_items": list(self.failed_items), **(details or {})},
         )

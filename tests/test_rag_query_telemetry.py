@@ -442,8 +442,23 @@ def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
     QdrantClient("http://127.0.0.1:6333", api_key="test-key", timeout=configured)._get_client()
 
     longest_ms = 1000 * max(read_timeouts + native_timeouts)
+    payloads: list[dict[str, Any]] = []
+    otel = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    monkeypatch.setattr(otel, "_send_payload", lambda _path, payload: payloads.append(payload))
+    otel.record_histogram(
+        RAG_QUERY_DURATION.name, longest_ms, unit="ms", attributes={"stage": "total"}
+    )
+    otel.flush()
+    point = payloads[0]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0][
+        "exponentialHistogram"
+    ]["dataPoints"][0]
+    base = 2.0 ** (2.0 ** -int(point["scale"]))
+    offset = int(point["positive"]["offset"])
+    idx = next(i for i, c in enumerate(point["positive"]["bucketCounts"]) if int(c) > 0)
+    low, high = base ** (offset + idx), base ** (offset + idx + 1)
+
     assert (
         len(read_timeouts + native_timeouts),
-        min(longest_ms, RAG_QUERY_DURATION.bounds[-1]),
-        RAG_QUERY_DURATION.bounds[:7],
-    ) == (2, longest_ms, (10, 25, 50, 100, 250, 500, 1000))
+        low < longest_ms <= high,
+        (high - low) / longest_ms < 0.10,
+    ) == (2, True, True)

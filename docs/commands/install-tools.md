@@ -2,6 +2,19 @@
 
 Install and manage DevOps tool binaries.
 
+```bash
+devops install-tools [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tool`, `-t` | `string` | - | Install a specific tool. |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
+| `--only-missing` | `boolean` | - | Only install tools that are not linked at their locked version. |
+| `--check` | `boolean` | - | Install nothing: report each tool not linked at its locked version, and exit 1 if any. |
+
 ## Commands
 
 ## `devops install-tools status`

@@ -2033,18 +2033,18 @@ def test_gen_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Synthesize isolated pytest unit test suites for functions or source files."""
+    """Generate failing pytest unit test scaffolds for functions or source files."""
     from devops_cli.ai.test_gen import synthesize_unit_tests
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
 
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai test-gen",
-            action="synthesize_unit_tests",
+            action="scaffold_unit_tests",
             details={
                 "target_file": str(target_file),
                 "function": function_name,
-                "status": "SYNTHESIZED_DRY_RUN",
+                "status": "SCAFFOLD_DRY_RUN",
             },
         )
         return
@@ -2055,7 +2055,7 @@ def test_gen_cmd(
         emit_serialized(res.to_dict(), resolved)
         return
 
-    print_success(f"✓ Synthesized {res.test_count} unit test(s) for {res.target_file}:")
+    print_success(f"✓ Generated {res.test_count} unit test scaffold(s) for {res.target_file}:")
     write_stdout(f"```python\n{res.test_code}\n```\n")
 
 

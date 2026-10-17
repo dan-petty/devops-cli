@@ -24,6 +24,117 @@ CONST_KEYRING_SERVICE = CONST_APP_NAME
 # secret (`require_persistent_keyring`).
 CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
+CONST_PROJECT_CONFIG_CANDIDATES: Final[tuple[str, ...]] = (
+    CONST_PROJECT_CONFIG_FILENAME,
+    f".devcontainer/{CONST_PROJECT_CONFIG_FILENAME}",
+    f".devops/{CONST_PROJECT_CONFIG_FILENAME}",
+    ".devops.yaml",
+    ".devcontainer/.devops.yaml",
+)
+CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
+    "github": (
+        "GitHub Configuration (`github`)",
+        "GitHub authentication, default owner, and repository settings.",
+    ),
+    "ssh": (
+        "SSH Configuration (`ssh`)",
+        "SSH key generation, rotation, signing, and GitHub registration settings.",
+    ),
+    "repos": (
+        "Repositories Configuration (`repos`)",
+        "Multi-repository workspace discovery, cloning, and sync settings.",
+    ),
+    "workspace": (
+        "Workspace Configuration (`workspace`)",
+        "Multi-root VS Code workspace file management and data tier settings.",
+    ),
+    "grafana": (
+        "Grafana Configuration (`grafana`)",
+        "Grafana endpoint, authentication, and service addressing settings.",
+    ),
+    "prometheus": (
+        "Prometheus Configuration (`prometheus`)",
+        "Prometheus query endpoint, authentication, and service addressing settings.",
+    ),
+    "argocd": (
+        "Argo CD Configuration (`argocd`)",
+        "Argo CD server endpoint, authentication, TLS, and service addressing settings.",
+    ),
+    "qdrant": (
+        "Qdrant Vector Store (`qdrant`)",
+        "The vector store that RAG searches query and indexing writes to.",
+    ),
+    "valkey": (
+        "Valkey Configuration (`valkey`)",
+        "Valkey caching endpoint, authentication, TLS, and service addressing settings.",
+    ),
+    "runs": (
+        "Shared Run Index (`runs`)",
+        "PostgreSQL connection settings for the shared AI run index.",
+    ),
+    "tempo": (
+        "Tempo Configuration (`tempo`)",
+        "Grafana Tempo distributed tracing query endpoint and service addressing settings.",
+    ),
+    "pyroscope": (
+        "Pyroscope Configuration (`pyroscope`)",
+        "Grafana Pyroscope continuous profiling endpoint and service addressing settings.",
+    ),
+    "telemetry": (
+        "Telemetry & Metrics (`telemetry`)",
+        "OpenTelemetry export and Logfire settings.",
+    ),
+    "k8s": (
+        "Kubernetes Configuration (`k8s`)",
+        "Kubernetes context, ingress domain, and service addressing settings.",
+    ),
+    "cloudflare": (
+        "Cloudflare Configuration (`cloudflare`)",
+        "Cloudflare API token and zone settings.",
+    ),
+    "sandbox": (
+        "Sandbox Configuration (`sandbox`)",
+        "Isolated container sandbox runtime, resource limits, and network policy settings.",
+    ),
+    "ai": (
+        "AI & LLM Configuration (`ai`)",
+        "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
+    ),
+    "open_webui": (
+        "Open WebUI Configuration (`open_webui`)",
+        "Open WebUI endpoint, authentication, and service addressing settings.",
+    ),
+    "data": (
+        "Data Storage Tier (`data`)",
+        "Local artifact caches, review findings, session histories, and log paths.",
+    ),
+    "service": (
+        "Service Configuration (`service`)",
+        "In-cluster webhook receiver and background job runner settings.",
+    ),
+    "tavily": (
+        "Tavily Search Configuration (`tavily`)",
+        "Tavily web search API authentication settings.",
+    ),
+}
+CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
+    "devops_cli.ai.agents.spend",
+    "devops_cli.ai.agents.testing",
+    "devops_cli.ai.client.models",
+    "devops_cli.ai.gateway_tune",
+    "devops_cli.ai.harness.memory",
+    "devops_cli.ai.pool_load",
+    "devops_cli.ai.rag.embeddings",
+    "devops_cli.ai.rag.qdrant",
+    "devops_cli.ai.run_store",
+    "devops_cli.core.templating",
+    "devops_cli.http.client",
+    "devops_cli.k8s.node_port",
+    "devops_cli.k8s.service_proxy",
+    "devops_cli.review.state",
+    "devops_cli.telemetry.context",
+    "devops_cli.telemetry.memory_profiler",
+)
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
 # long. The kernel stamps files from a coarse clock, so a file rewritten moments after
@@ -124,6 +235,15 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 )
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
+)
+CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR: Final[frozenset[str]] = frozenset(
+    {
+        "argo_rollout_analyze",
+        "docker_sign",
+        "gh_project_reconcile",
+        "rag_drift",
+        "roadmap_render",
+    }
 )
 # The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
 # resolves every list literal under src/devops_cli that starts with one (#868). Such a list
@@ -266,6 +386,7 @@ CONST_BANDIT_INI_NAME: Final[str] = ".bandit"
 # scanner's per-file or per-batch runs, report the worst status any of them had.
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "failed",
+    "coverage_gap",
     "unavailable",
     "not installed",
     "dry-run",
@@ -479,6 +600,8 @@ CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
 CONST_CLOUDFLARE_CATCHALL_SERVICE = "http_status:404"
 CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS: tuple[str, ...] = ("*", "@")
+# The only wildcard a tunnel ingress hostname takes: a leading `*.` (cloudflared ingress/rule.go).
+CONST_CLOUDFLARE_WILDCARD_PREFIX = "*."
 CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
 CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
 CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
@@ -1033,6 +1156,7 @@ CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
 CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
 CONST_ERROR_CODE_ROADMAP_CARD_CHANGED = "ROADMAP_CARD_CHANGED"
 CONST_ERROR_CODE_ROADMAP_REFINE_FAILED = "ROADMAP_REFINE_FAILED"
+CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED = "ROADMAP_INTAKE_FAILED"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
 CONST_ERROR_CODE_LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_DOCS_INGESTION = "DOCS_INGESTION_ERROR"
@@ -1049,16 +1173,42 @@ CONST_MAX_ERROR_DETAIL_LENGTH = 256
 
 # ── AI Client Structured Output Metric Invariants ─────────────────────────────
 CONST_METRIC_AI_STRUCTURED_SUCCESS = "ai.client.structured_success"
-CONST_METRIC_AI_STRUCTURED_REPAIR_SUCCESS = "ai.client.structured_repair_success"
 CONST_METRIC_AI_STRUCTURED_RETRY_COUNT = "ai.client.structured_retry_count"
 CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation_failure"
+CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING: Final[str] = "repair_json_string"
+CONST_JSON_REPAIR_SOURCE_EXTRACT_JSON_BLOCK: Final[str] = "extract_json_block"
+CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED: Final[str] = "chat_structured"
 
 
 CONST_EXIT_SUCCESS: int = 0
 CONST_EXIT_FAILURE: int = 1
+CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
+# uv's exit status for a check that ran and failed; it exits 2 when it could not run.
+CONST_UV_EXIT_FAILURE: int = 1
+# zizmor audits whose findings fail `devops scan workflows` and the `devops ci` gate (#861).
+# Every other audit's findings are shown and do not fail it.
+CONST_ZIZMOR_BLOCKING_RULES: frozenset[str] = frozenset(
+    {"template-injection", "unpinned-uses", "excessive-permissions"}
+)
+# zizmor's severities (its `Severity` enum, `Unknown` aside), as the scan table names them.
+# The GitHub Actions files zizmor audits: `.github/workflows/*.y(a)ml` and `action.y(a)ml`.
+CONST_GITHUB_ACTIONS_ROOT: Final[str] = ".github"
+CONST_GITHUB_WORKFLOWS_DIRNAME: Final[str] = "workflows"
+CONST_GITHUB_ACTION_FILE_STEM: Final[str] = "action"
+CONST_YAML_SUFFIXES: Final[tuple[str, ...]] = (".yaml", ".yml")
+# The configuration an isolated zizmor scan is handed in place of the scanned tree's: no rules
+# changed (#972).
+CONST_REVIEW_SCAN_ZIZMOR_CONFIG: Final[str] = "rules: {}\n"
+CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
+    "High": "HIGH",
+    "Medium": "MEDIUM",
+    "Low": "LOW",
+    "Informational": "INFO",
+}
+CONST_EXIT_CANCELLED: int = 130
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"
@@ -1070,15 +1220,9 @@ CONST_OTEL_SCOPE_NAME = "devops-cli.telemetry"
 CONST_OTEL_SPAN_KIND_INTERNAL = "internal"
 CONST_OTEL_SPAN_KIND_CLIENT = "client"
 CONST_OTEL_METRIC_UNIT_ONE = "1"
-# OTLP AggregationTemporality: a delta covers only its own interval.
-CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
 CONST_OTEL_OTLP_GRPC_PORT = 4317
-# Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
-CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
-    {"counter", "gauge", "histogram", "summary", "untyped"}
-)
 # The GenAI semantic conventions, which have no tagged release, are pinned to a commit and
 # resolved by weaver (the version the conventions repository pins in its versions.env).
 CONST_SEMCONV_GENAI_REPO: Final[str] = "open-telemetry/semantic-conventions-genai"
@@ -1599,6 +1743,25 @@ CONST_MUTMUT_COUNTED_STATUSES: Final[tuple[str, ...]] = (
     "no tests",
 )
 CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests")
+
+# ── Fail-to-Pass Test Replay (`devops ci fail-to-pass`, #844) ────────────────
+CONST_FAIL_TO_PASS_ESCAPE_PATTERN: Final[str] = (
+    r"(?im)^Fail-to-pass:\s*not\s+applicable:\s*(.+?)\s*$"
+)
+# A changed test file that imports a module the fix adds cannot be collected on base; without
+# `--continue-on-collection-errors` pytest then runs none of the other changed files (#861).
+CONST_FAIL_TO_PASS_PYTEST_FLAGS: Final[tuple[str, ...]] = (
+    "-o",
+    "addopts=",
+    "-p",
+    "no:cacheprovider",
+    "--continue-on-collection-errors",
+)
+CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
+    "failure": "failed",
+    "error": "errored",
+    "skipped": "skipped",
+}
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
@@ -3112,6 +3275,73 @@ CONST_C901_SUPPRESSION: Final[re.Pattern[str]] = re.compile(
 CONST_RUFF_C901_SUPPRESSION_COMMENT: Final[re.Pattern[str]] = re.compile(
     r"#[^\S\n]*ruff[^\S\n]*:[^\S\n]*[\w-]+[^\S\n]*\[[^\]\n]*\bC901\b", re.IGNORECASE
 )
+# Suppression comment and configuration kinds tracked against ceilings (#849).
+CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
+CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
+CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
+CONST_SUPPRESSION_KIND_FILE_DIRECTIVE: Final[str] = "file-level directive"
+CONST_SUPPRESSION_KIND_AST_GREP_IGNORE: Final[str] = "ast-grep-ignore"
+CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: Final[str] = "per-file-ignores"
+CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
+CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
+CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
+    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
+    CONST_SUPPRESSION_KIND_NOSEC,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
+    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
+    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
+)
+CONST_PYPROJECT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
+    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
+    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
+)
+CONST_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    *CONST_COMMENT_SUPPRESSION_KINDS,
+    *CONST_PYPROJECT_SUPPRESSION_KINDS,
+)
+# Fast pre-filter over source text before tokenizing, and comment-token patterns (#849).
+CONST_SUPPRESSION_COMMENT_PREFILTER_RE: Final[re.Pattern[str]] = re.compile(
+    r"#[^\n]*(?:type[^\S\n]*:[^\S\n]*ignore\b|noqa\b|nosec\b"
+    r"|pragma[^\S\n]*:[^\S\n]*no[^\S\n]+(?:cover|mutate)\b"
+    r"|(?:ruff|flake8|mypy|pyright|pylint|bandit)[^\S\n]*:|ast-grep-ignore\b)",
+    re.IGNORECASE,
+)
+CONST_TYPE_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*type[^\S\n]*:[^\S\n]*ignore\b", re.IGNORECASE
+)
+CONST_NOQA_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*noqa(?:[^\S\n]*:[^\S\n]*"
+    r"(?P<codes>[A-Z0-9]+(?:(?:[^\S\n]*,[^\S\n]*|[^\S\n]+)[A-Z0-9]+)*)|(?=$|[^\S\n]+#))",
+    re.IGNORECASE,
+)
+CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
+CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_MUTATE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+mutate\b", re.IGNORECASE
+)
+CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*(?:(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b"
+    r"|ruff[^\S\n]*:[^\S\n]*(?:file-ignore|disable|ignore)\b"
+    r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
+    r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
+)
 
 # Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
 # "human", which routed every finding the verifier never reached into the human
@@ -3699,3 +3929,127 @@ CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
         "mechanisms": ("idempotency", "deduplication", "replay_prevention", "token", "unique_key"),
     },
 }
+
+# ── Review Tool Canary Constants (#1143) ─────────────────────────────────────
+CONST_CANARY_TOOLS: Final[tuple[str, ...]] = (
+    "semgrep",
+    "ruff",
+    "bandit",
+    "mypy",
+    "kube-linter",
+    "pluto",
+)
+
+CONST_CANARY_TOOL_TO_ANALYZER: Final[dict[str, str]] = {
+    "semgrep": "Semgrep",
+    "bandit": "Bandit",
+    "kube-linter": "Kube-linter",
+    "pluto": "Pluto",
+}
+
+CONST_CANARY_EXPECTED_RESULTS: Final[dict[str, frozenset[tuple[str, int]]]] = {
+    "semgrep": frozenset({("canary-pep758-tuple", 17)}),
+    "ruff": frozenset({("B006", 21)}),
+    "bandit": frozenset({("B307", 26)}),
+    "mypy": frozenset({("assignment", 29)}),
+    "kube-linter": frozenset({("privileged-container", 15)}),
+    "pluto": frozenset({("extensions/v1beta1", 1)}),
+}
+
+CONST_CANARY_PYTHON_SOURCE: Final[str] = """from __future__ import annotations
+
+type Items[T] = list[T]
+
+
+def make_forward(value: ForwardTarget) -> ForwardTarget:
+    return value
+
+
+class ForwardTarget:
+    pass
+
+
+def handle_pep758() -> str:
+    try:
+        return "ok"
+    except ValueError, TypeError:
+        return "caught"
+
+
+def mutable_default(items: list[int] = []) -> list[int]:
+    return items
+
+
+def run_eval(expr: str) -> object:
+    return eval(expr)
+
+
+bad_typed: int = "not-an-int"
+"""
+
+CONST_CANARY_SEMGREP_PROBES_YAML: Final[str] = """rules:
+  - id: canary-pep758-tuple
+    languages: [python]
+    severity: ERROR
+    message: PEP 758 unparenthesized exception tuple parsed as tuple
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except ($X, $Y):
+              ...
+      - focus-metavariable: $X
+  - id: canary-pep758-as-binding
+    languages: [python]
+    severity: ERROR
+    message: PEP 758 misparsed as exception binding
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except $X as $Y:
+              ...
+      - focus-metavariable: $X
+"""
+
+CONST_CANARY_MANIFEST_YAML: Final[str] = """apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: canary-ingress
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: canary-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27
+      securityContext:
+        privileged: true
+"""
+
+CONST_CANARY_DOCKERFILE_SOURCE: Final[str] = """FROM alpine:3.20
+USER root
+RUN echo "canary"
+"""
+
+# ── Review Finding Group Model Analysis Constants (#1147) ────────────────────
+CONST_REVIEW_ANALYSIS_FILENAME: Final[str] = "analysis.json"
+CONST_ANALYSIS_PROMPT_FILENAME: Final[str] = "review_group_analysis.md"
+CONST_ANALYSIS_GROUP_KINDS: Final[frozenset[str]] = frozenset({"region", "kubernetes", "advisory"})
+CONST_ANALYSIS_RELATIONS: Final[frozenset[str]] = frozenset(
+    {"caller", "callee", "same-symbol", "same-rule"}
+)
+CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
+CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "trivy"})
+CONST_ANALYSIS_DROP_REASON_BUDGET: Final[str] = "budget"
+CONST_ANALYSIS_DROP_REASON_UNAVAILABLE: Final[str] = "unavailable"
+CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
+    "unknown-finding-id",
+    "invalid-related-target",
+    "unmatched-code-quote",
+    "unmatched-doc-quote",
+    "unverified-version-or-package",
+    "invalid-python-code-block",
+)

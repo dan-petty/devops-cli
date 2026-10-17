@@ -29,8 +29,6 @@ class Instrument:
     kind: InstrumentKind
     unit: str
     description: str
-    # Histogram bucket upper bounds.
-    bounds: tuple[float, ...] = ()
 
     @property
     def series(self) -> tuple[str, ...]:
@@ -40,30 +38,6 @@ class Instrument:
         return (self.name,)
 
 
-_SECONDS = (0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
-_REVIEW_SECONDS = (30, 60, 120, 300, 600, 900, 1800, 3600, 7200)
-# Up to 600 s, the top of the 300 to 600 s range set for `qdrant.timeout`, the longest a RAG query
-# waits on: a quantile past the top bucket comes out as its bound, so a top bucket of 5 s drew the
-# slow tail as a flat line (#975).
-_RAG_MILLISECONDS = (
-    10,
-    25,
-    50,
-    100,
-    250,
-    500,
-    1000,
-    2500,
-    5000,
-    10000,
-    15000,
-    30000,
-    60000,
-    120000,
-    300000,
-    600000,
-)
-
 COMMAND_TOTAL = Instrument(
     "devops_cli_command_total", InstrumentKind.COUNTER, "1", "Commands run, by command and status"
 )
@@ -72,14 +46,12 @@ COMMAND_DURATION = Instrument(
     InstrumentKind.HISTOGRAM,
     "s",
     "Command wall time, by command",
-    _SECONDS,
 )
 REVIEW_DURATION = Instrument(
     "devops_cli_review_duration_seconds",
     InstrumentKind.HISTOGRAM,
     "s",
     "Review wall time, by target type",
-    _REVIEW_SECONDS,
 )
 FINDINGS_TOTAL = Instrument(
     "devops_cli_findings_total",
@@ -111,12 +83,17 @@ AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
     "USD",
     "Equivalent hosted cloud spend avoided by local model execution",
 )
+AI_JSON_REPAIRS_TOTAL = Instrument(
+    "devops_cli_ai_json_repairs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "LLM JSON replies repaired after strict parsing failed, by entry point source",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
     "ms",
     "RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query",
-    _RAG_MILLISECONDS,
 )
 QDRANT_RETRIES_TOTAL = Instrument(
     "devops_cli_qdrant_retries_total",
@@ -130,8 +107,6 @@ RAG_POINTS = Instrument(
     "1",
     "Points stored in RAG vector collections, by collection",
 )
-
-_DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
 
 PROJECT_RELEASES_TOTAL = Instrument(
     "devops_cli_project_releases_total",
@@ -168,7 +143,6 @@ PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
     InstrumentKind.HISTOGRAM,
     "d",
     "Days elapsed between consecutive project releases",
-    _DAYS,
 )
 PROJECT_TRAFFIC_VIEWS_TOTAL = Instrument(
     "devops_cli_project_traffic_views_total",
@@ -252,6 +226,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
     AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
+    AI_JSON_REPAIRS_TOTAL,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
@@ -291,7 +266,6 @@ def emit(instrument: Instrument, value: float, attributes: dict[str, Any] | None
         tracer.record_histogram(
             instrument.name,
             value,
-            bounds=instrument.bounds,
             unit=instrument.unit,
             attributes=attributes,
         )
@@ -308,6 +282,7 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_JSON_REPAIRS_TOTAL",
     "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",

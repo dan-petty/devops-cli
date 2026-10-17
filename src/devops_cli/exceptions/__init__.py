@@ -47,6 +47,7 @@ from devops_cli.exceptions.k8s import (
 )
 from devops_cli.exceptions.roadmap import (
     RoadmapCardChangedError,
+    RoadmapIntakeError,
     RoadmapRefineError,
     RoadmapRunError,
 )
@@ -140,6 +141,7 @@ __all__ = [
     "ReleaseRemoteFetchError",
     "ReleaseWorkingTreeDirtyError",
     "RoadmapCardChangedError",
+    "RoadmapIntakeError",
     "RoadmapRefineError",
     "RoadmapRunError",
     "SSRFBlockedError",

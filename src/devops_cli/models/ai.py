@@ -75,14 +75,20 @@ class AnalysisMetadata(BaseModel):
 class MCPToolInfo(BaseModel):
     """Information for a registered FastMCP server tool."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     description: str
+    read_only_hint: bool | None = Field(default=None, alias="readOnlyHint")
 
-    def __getitem__(self, item: str) -> str:
-        return str(getattr(self, item))
+    def __getitem__(self, item: str) -> Any:
+        if item == "readOnlyHint":
+            return self.read_only_hint
+        val = getattr(self, item)
+        return val if isinstance(val, bool) or val is None else str(val)
 
     def __contains__(self, item: str) -> bool:
-        return hasattr(self, item)
+        return item == "readOnlyHint" or hasattr(self, item)
 
 
 class ScratchpadEntry(BaseModel):

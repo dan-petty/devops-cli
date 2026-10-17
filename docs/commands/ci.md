@@ -2,6 +2,22 @@
 
 Run tests, linting, formatting, and type-checks.
 
+```bash
+devops ci [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
+| `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
+| `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
+| `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
+| `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ## Commands
 
 ## `devops ci test`
@@ -312,6 +328,27 @@ devops ci mutate [OPTIONS] <paths>
 |---|---|---|---|
 | `--changed` | `boolean` | - | Mutate the functions the working tree changed since its merge base with --base, untracked files included unless git ignores them. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci fail-to-pass`
+
+**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched.**
+
+```bash
+devops ci fail-to-pass [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree. |
+| `--title` | `string` | - | Pull request title used to classify defect PRs (defaults to PR_TITLE). |
+| `--labels` | `string` | - | Comma-separated or JSON list of PR labels (defaults to PR_LABELS). |
+| `--body` | `string` | - | Pull request body checked for a 'Fail-to-pass: not applicable: \<reason\>' line (defaults to PR_BODY). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

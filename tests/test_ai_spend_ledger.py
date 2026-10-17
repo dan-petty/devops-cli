@@ -763,7 +763,7 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
         res_4o.exit_code,
         'devops_cli_ai_requests_total{model="model-today"' in res_4o.stdout,
         'model="model-old"' not in res_4o.stdout,
-        "devops_cli_ai_hardware_cost_usd 1000.00" in res_4o.stdout,
+        "devops_cli_ai_hardware_cost_usd 1000.0" in res_4o.stdout,
     ) == (0, True, True, True)
 
     match_4o = re.search(r"devops_cli_ai_counterfactual_spend_usd\s+([0-9.]+)", res_4o.stdout)
@@ -808,5 +808,5 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
         res_bare.exit_code,
         'devops_cli_ai_requests_total{model="model-today"' in res_bare.stdout,
         'model="model-old"' not in res_bare.stdout,
-        "devops_cli_ai_hardware_cost_usd 1000.00" in res_bare.stdout,
+        "devops_cli_ai_hardware_cost_usd 1000.0" in res_bare.stdout,
     ) == (0, True, True, True)

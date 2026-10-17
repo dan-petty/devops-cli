@@ -444,7 +444,7 @@ def _plan_current(
 ) -> ClosePlan:
     """`plan` with the current release's closings after the shipped ones, and its cut or what
     holds it, which reads only the current release's items and pull requests."""
-    from devops_cli.commands.release import _format_release_title
+    from devops_cli.release.cut import _format_release_title
 
     version = str(release.version)
     branch = release_cut_branch(version)

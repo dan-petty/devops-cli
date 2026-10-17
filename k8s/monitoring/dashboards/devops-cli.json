@@ -72,7 +72,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Review wall time over the last hour, by target type (branch, pr or path). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 7200 s.",
+      "description": "Review wall time over the last hour, by target type (branch, pr or path). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -119,6 +119,24 @@
           "expr": "histogram_quantile(0.95, sum by (le, target_type) (increase(devops_cli_review_duration_seconds_bucket[1h])))",
           "legendFormat": "p95 {{target_type}}",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_sum[1h])) / sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "legendFormat": "mean {{target_type}}",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "legendFormat": "count {{target_type}}",
+          "refId": "D"
         }
       ]
     },
@@ -127,7 +145,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600000 ms.",
+      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -174,6 +192,24 @@
           "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket{stage=\"total\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_rag_query_duration_ms_sum{stage=\"total\"}[1h])) / sum(increase(devops_cli_rag_query_duration_ms_count{stage=\"total\"}[1h]))",
+          "legendFormat": "mean",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_rag_query_duration_ms_count{stage=\"total\"}[1h]))",
+          "legendFormat": "count",
+          "refId": "D"
         }
       ]
     },
@@ -182,7 +218,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Command wall time over the last hour, by command group. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600 s.",
+      "description": "Command wall time over the last hour, by command group. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -238,6 +274,24 @@
           "expr": "histogram_quantile(0.99, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
           "legendFormat": "p99 {{command}}",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_sum[1h])) / sum by (command) (increase(devops_cli_command_duration_seconds_count[1h]))",
+          "legendFormat": "mean {{command}}",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_count[1h]))",
+          "legendFormat": "count {{command}}",
+          "refId": "E"
         }
       ]
     },
@@ -306,7 +360,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Subcommand wall time over the last hour. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600 s.",
+      "description": "Subcommand wall time over the last hour. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -364,6 +418,24 @@
           "expr": "histogram_quantile(0.99, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket{command=~\"$command\"}[1h])))",
           "legendFormat": "p99 {{command}}",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_sum{command=~\"$command\"}[1h])) / sum by (command) (increase(devops_cli_command_duration_seconds_count{command=~\"$command\"}[1h]))",
+          "legendFormat": "mean {{command}}",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_count{command=~\"$command\"}[1h]))",
+          "legendFormat": "count {{command}}",
+          "refId": "E"
         }
       ]
     },
@@ -372,7 +444,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600000 ms.",
+      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -410,6 +482,24 @@
           "expr": "histogram_quantile(0.95, sum by (le, stage) (increase(devops_cli_rag_query_duration_ms_bucket{stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "p95 {{stage}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (stage) (increase(devops_cli_rag_query_duration_ms_sum{stage=~\"embedding|search|ranking\"}[1h])) / sum by (stage) (increase(devops_cli_rag_query_duration_ms_count{stage=~\"embedding|search|ranking\"}[1h]))",
+          "legendFormat": "mean {{stage}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (stage) (increase(devops_cli_rag_query_duration_ms_count{stage=~\"embedding|search|ranking\"}[1h]))",
+          "legendFormat": "count {{stage}}",
+          "refId": "C"
         }
       ]
     },

@@ -353,6 +353,20 @@ class TestSingleRetryLayerAndStatusRules:
         from devops_cli.http.pool import close_shared_clients
 
         close_shared_clients()
+        # A gateway request that leaves through a real transport instead of the fake fails as the
+        # session's network guard fails it, and is recorded, so a failure names it (#1609).
+        bypassing: list[str] = []
+        real_handle_request = httpx2.HTTPTransport.handle_request
+
+        def refuse_gateway(transport: httpx2.HTTPTransport, request: httpx2.Request) -> Any:
+            if request.url.host == "example.com":
+                bypassing.append(f"{request.method} {request.url.path}")
+                raise httpx2.ConnectError(
+                    "gateway request outside the fake transport", request=request
+                )
+            return real_handle_request(transport, request)
+
+        monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refuse_gateway)
         retry_transport = create_retry_transport(
             max_attempts=5, min_wait=0.01, max_wait=0.02, wrapped=Transient503Transport()
         )
@@ -383,6 +397,8 @@ class TestSingleRetryLayerAndStatusRules:
             assert (
                 calls,
                 payloads[0].ai_scratchpad.get("stage"),
-            ) == (6, "reviewed")
+                payloads[0].ai_scratchpad.get("error"),
+                bypassing,
+            ) == (6, "reviewed", None, [])
         finally:
             close_shared_clients()

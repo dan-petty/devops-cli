@@ -48,6 +48,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: true
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -66,8 +67,10 @@ jobs:
 
       - name: Extract Target Version & Release Title
         id: ver
+        env:
+          DISPATCHED_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="$DISPATCHED_VERSION"
           if [ -z "$VERSION" ]; then
             VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           fi
@@ -90,20 +93,23 @@ jobs:
 
       - name: Extract Release Notes
         id: notes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          if ! uv run devops release notes --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt || [ ! -s release_notes.txt ]; then
+          if ! uv run devops release notes --raw -v "$VERSION" > release_notes.txt || [ ! -s release_notes.txt ]; then
             echo "Release notes extraction failed or empty; falling back to changelog compiler"
-            uv run devops release changelog --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt
+            uv run devops release changelog --raw -v "$VERSION" > release_notes.txt
           fi
           echo "notes_file=release_notes.txt" >> "$GITHUB_OUTPUT"
 
       - name: Create Git Tag (upon PR merge to main)
         if: github.ref == 'refs/heads/main'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          TITLE: ${{ steps.ver.outputs.title }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          TAG="${{ steps.ver.outputs.tag }}"
-          TITLE="${{ steps.ver.outputs.title }}"
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             git tag -a "$TAG" -m "$TITLE"
             git push origin "$TAG"
@@ -129,8 +135,9 @@ jobs:
 
       - name: Close Release Milestone
         run: |
-          uv run devops gh milestones close "${{ steps.ver.outputs.version }}" || echo "Milestone close skipped or already closed"
+          uv run devops gh milestones close "$VERSION" || echo "Milestone close skipped or already closed"
         env:
+          VERSION: ${{ steps.ver.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -154,6 +161,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -256,6 +265,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -313,6 +324,9 @@ jobs:
           load: true
           push: false
           tags: devops-cli-service:local
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -353,6 +367,9 @@ jobs:
           outputs: type=image,name=${{ env.SERVICE_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true
+          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
+          # packages a security update has since fixed.
+          no-cache-filters: service
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -526,9 +526,12 @@ def scanned_tree(hostile_repo: Path) -> Path:
         ".gitleaksignore": "app.py:generic-api-key:1\n",
         ".bandit": "[bandit]\nskips = B310\n",
         ".semgrepignore": "*\n",
+        ".devops/review.toml": 'kubernetes_version = "v1.31.0"\n',
     }
     for name, text in files.items():
-        (hostile_repo / name).write_text(text, encoding="utf-8")
+        dest = hostile_repo / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
     return hostile_repo
 
 

@@ -7,10 +7,16 @@ with distributed OpenTelemetry traces (`@trace_span`) and OTLP metrics.
 
 ## Prometheus Metric Instruments
 
-Each command runs as its own short-lived process, so counters and histograms are sent
-as OTLP deltas. The collector's `deltatocumulative` processor keeps each series' running
-total per host (`instance`) before Prometheus stores it. `devops telemetry connect`
-points devops-cli at the cluster's collector.
+Each command runs as its own short-lived process. An OpenTelemetry SDK `MeterProvider`
+with `DELTA` aggregation temporality and `ExponentialBucketHistogramAggregation`
+aggregates every counter, histogram, and gauge recording in memory over the command's
+run and flushes one OTLP `/v1/metrics` batch when the command finishes (`shutdown()`).
+The collector's `deltatocumulative` processor keeps each series' running total per host
+(`instance`) before Prometheus stores it (`--enable-feature=native-histograms` enabled
+in `k8s/monitoring/prometheus-values.yaml`). Cross-process stream identity
+(`service.instance.id` shared per host) and `deltatocumulative`'s `max_stale: 1h` idle
+eviction window in `k8s/otel/values.yaml` are tracked separately under #1132.
+`devops telemetry connect` points devops-cli at the cluster's collector.
 
 | Metric Name | Type | Unit | Description |
 |---|---|---|---|
@@ -22,6 +28,7 @@ points devops-cli at the cluster's collector.
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM tokens, by type (prompt or completion), provider, model, server and backend. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM spend, by provider, model, server and backend. |
 | `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution. |
+| `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |

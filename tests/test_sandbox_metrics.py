@@ -1144,7 +1144,7 @@ def test_prom_table_prints_scraped_labels_and_types_as_written(terminal: Console
 
     long_labels = {"path": "a" * 30 + "[/b]tail"}
     metrics = [
-        *parse_prometheus_exposition('# TYPE up [/]\nup{job="[/]",x="[bold red]FAKE[/]"} 1'),
+        *parse_prometheus_exposition('# TYPE up gauge\nup{job="[/]",x="[bold red]FAKE[/]"} 1'),
         PrometheusMetric(name="hits[/h]", metric_type="[/x]gauge", labels=long_labels, value=2.0),
     ]
     _render_prom_table("localhost:9100/[x]", metrics)
@@ -1163,29 +1163,25 @@ def test_prom_table_prints_scraped_labels_and_types_as_written(terminal: Console
     ] == [True] * 6
 
 
-def test_prometheus_type_lines_keep_only_a_known_type_for_a_metric_name() -> None:
-    """A `# TYPE` line counts only when it names a metric and gives a type the exposition format
-    defines; any other line is ignored and the sample's type is inferred from its name (#955)."""
-    from devops_cli.sandbox.metrics import _record_type
-
+def test_parse_prometheus_exposition_braces_in_labels_untyped_and_non_finite() -> None:
+    """`text_string_to_metric_families` parses `}` inside quoted label values, maps `unknown`
+    families to `untyped`, skips `NaN`/`Inf` samples, and rejects invalid `# TYPE` tokens."""
     exposition = "\n".join(
         [
-            "# TYPE up [/]",
-            "# TYPE errors_total gauge extra",
-            "# TYPE queue_depth COUNTER",
-            "up 1",
-            "errors_total 3",
-            "queue_depth 7",
+            "# TYPE http_requests_total counter",
+            'http_requests_total{route="/users/{id}",note="a}b"} 12',
+            "bare_untyped_metric 7",
+            "nan_metric NaN",
+            "inf_metric +Inf",
         ]
     )
-    types = {m.name: m.metric_type for m in parse_prometheus_exposition(exposition)}
-    type_map: dict[str, str] = {}
-    _record_type("# TYPE [/x] counter", type_map)
-
-    assert (types, type_map) == (
-        {"up": "gauge", "errors_total": "counter", "queue_depth": "counter"},
-        {},
-    )
+    parsed = parse_prometheus_exposition(exposition)
+    assert [(m.name, m.metric_type, m.labels, m.value) for m in parsed] == [
+        ("http_requests_total", "counter", {"route": "/users/{id}", "note": "a}b"}, 12.0),
+        ("bare_untyped_metric", "untyped", {}, 7.0),
+    ]
+    with pytest.raises(ValueError, match="Invalid metric type"):
+        parse_prometheus_exposition("# TYPE up [/]\nup 1\n")
 
 
 def test_metrics_snapshot_prints_scrape_errors_and_target_as_written(terminal: Console) -> None:

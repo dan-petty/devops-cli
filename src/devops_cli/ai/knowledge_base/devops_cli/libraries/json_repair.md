@@ -47,13 +47,14 @@ In `devops-cli`:
 
 ### Repairing Truncated LLM JSON Payloads
 ```python
-import json_repair
+from devops_cli.ai.response_repair import repair_json
 
 # Malformed payload truncated mid-stream by token limit
 truncated_output = '{"findings": [{"id": "SEC-01", "title": "Missing TLS cert'
 
 # Automatically repair and parse into a valid dictionary
-parsed_data = json_repair.loads(truncated_output)
+parsed_data, was_repaired = repair_json(truncated_output, source="repair_json_string")
+assert was_repaired is True
 assert isinstance(parsed_data, dict)
 assert "findings" in parsed_data
 assert parsed_data["findings"][0]["id"] == "SEC-01"
@@ -61,11 +62,12 @@ assert parsed_data["findings"][0]["id"] == "SEC-01"
 
 ### Defensive Review Parser Pipeline
 ```python
+from devops_cli.ai.response_repair import repair_json_string
 from devops_cli.ai.review_schema import Finding
 
 
 def parse_llm_findings(raw_response: str) -> list[Finding]:
-    parsed = json_repair.loads(raw_response)
+    parsed = repair_json_string(raw_response)
     if isinstance(parsed, list):
         items = parsed
     elif isinstance(parsed, dict):

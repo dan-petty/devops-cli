@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import bisect
 import contextlib
 import contextvars
 import functools
@@ -27,7 +26,6 @@ import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
-    CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
     CONST_OTEL_METRIC_UNIT_ONE,
     CONST_OTEL_SCOPE_NAME,
     CONST_OTEL_SERVICE_NAME,
@@ -106,6 +104,121 @@ def _generate_span_id() -> str:
 def _otlp_attributes(attributes: dict[str, Any] | None) -> list[dict[str, Any]]:
     """OTLP key-value attributes."""
     return [{"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()]
+
+
+def _sdk_metric_attributes(
+    attributes: dict[str, Any] | None,
+) -> dict[str, str | bool | int | float]:
+    """Normalize metric attributes to scalar values accepted by the OTel SDK."""
+    if not attributes:
+        return {}
+    return {
+        str(k): v if isinstance(v, (str, bool, int, float)) else str(v)
+        for k, v in attributes.items()
+        if v is not None
+    }
+
+
+def _encode_sum_metric(metric: Any, data: Any) -> dict[str, Any]:
+    points = [
+        {
+            "startTimeUnixNano": str(dp.start_time_unix_nano),
+            "timeUnixNano": str(dp.time_unix_nano),
+            "asDouble": float(dp.value),
+            "attributes": _otlp_attributes(dict(dp.attributes)),
+        }
+        for dp in data.data_points
+    ]
+    return {
+        "name": metric.name,
+        "unit": metric.unit,
+        "sum": {
+            "dataPoints": points,
+            "aggregationTemporality": int(data.aggregation_temporality),
+            "isMonotonic": bool(data.is_monotonic),
+        },
+    }
+
+
+def _encode_gauge_metric(metric: Any, data: Any) -> dict[str, Any]:
+    points = [
+        {
+            "timeUnixNano": str(dp.time_unix_nano),
+            "asDouble": float(dp.value),
+            "attributes": _otlp_attributes(dict(dp.attributes)),
+        }
+        for dp in data.data_points
+    ]
+    return {"name": metric.name, "unit": metric.unit, "gauge": {"dataPoints": points}}
+
+
+def _encode_exponential_histogram_metric(metric: Any, data: Any) -> dict[str, Any]:
+    points = [
+        {
+            "startTimeUnixNano": str(dp.start_time_unix_nano),
+            "timeUnixNano": str(dp.time_unix_nano),
+            "count": dp.count,
+            "sum": float(dp.sum),
+            "scale": dp.scale,
+            "zeroCount": dp.zero_count,
+            "positive": {
+                "offset": dp.positive.offset,
+                "bucketCounts": list(dp.positive.bucket_counts),
+            },
+            "negative": {
+                "offset": dp.negative.offset,
+                "bucketCounts": list(dp.negative.bucket_counts),
+            },
+            "min": float(dp.min),
+            "max": float(dp.max),
+            "attributes": _otlp_attributes(dict(dp.attributes)),
+        }
+        for dp in data.data_points
+    ]
+    return {
+        "name": metric.name,
+        "unit": metric.unit,
+        "exponentialHistogram": {
+            "dataPoints": points,
+            "aggregationTemporality": int(data.aggregation_temporality),
+        },
+    }
+
+
+def _encode_sdk_metric_entry(metric: Any) -> dict[str, Any]:
+    """Encode an OTel SDK Metric into an OTLP JSON metric entry."""
+    from opentelemetry.sdk.metrics.export import ExponentialHistogram, Gauge, Sum
+
+    data = metric.data
+    if isinstance(data, Sum):
+        return _encode_sum_metric(metric, data)
+    if isinstance(data, Gauge):
+        return _encode_gauge_metric(metric, data)
+    if isinstance(data, ExponentialHistogram):
+        return _encode_exponential_histogram_metric(metric, data)
+    return {"name": metric.name, "unit": metric.unit}
+
+
+def _encode_sdk_metrics_data(metrics_data: Any) -> dict[str, Any]:
+    """Encode an OTel SDK MetricsData batch into an OTLP JSON resourceMetrics payload."""
+    resource_metrics: list[dict[str, Any]] = []
+    for rm in metrics_data.resource_metrics:
+        scope_metrics = [
+            {
+                "scope": {"name": sm.scope.name},
+                "metrics": [_encode_sdk_metric_entry(m) for m in sm.metrics if m.data.data_points],
+            }
+            for sm in rm.scope_metrics
+        ]
+        scope_metrics = [sm for sm in scope_metrics if sm["metrics"]]
+        if scope_metrics:
+            resource_metrics.append(
+                {
+                    "resource": {"attributes": _otlp_attributes(dict(rm.resource.attributes))},
+                    "scopeMetrics": scope_metrics,
+                }
+            )
+    return {"resourceMetrics": resource_metrics}
 
 
 def _to_otlp_any_value(val: Any) -> dict[str, Any]:
@@ -776,17 +889,10 @@ class OTelTelemetryClient:
             self._cached_resource_attributes.append(
                 {"key": "process.command_line", "value": {"stringValue": clean_cmd}}
             )
-        # Metrics identify their source by host, not process: every command is a short-lived
-        # process, and the collector adds up each series' deltas across them. A process id or
-        # version would split one host's counter into many; the instance id names the host.
-        self._metric_resource_attributes: list[dict[str, Any]] = [
-            {"key": "service.name", "value": {"stringValue": self.service_name}},
-            {"key": "service.instance.id", "value": {"stringValue": self.host_name}},
-            {"key": "host.name", "value": {"stringValue": self.host_name}},
-            {"key": "os.type", "value": {"stringValue": self.os_type}},
-            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
-            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
-        ]
+        self._meter_provider: Any = None
+        self._metric_reader: Any = None
+        self._meter: Any = None
+        self._sdk_instruments: dict[tuple[str, str, str], Any] = {}
 
     @staticmethod
     def _detect_version() -> str:
@@ -846,27 +952,69 @@ class OTelTelemetryClient:
             return None, None
         return context.trace_id, context.span_id
 
-    def _build_metrics_payload(self, metric_entry: dict[str, Any]) -> dict[str, Any]:
-        """Build structured OTLP resourceMetrics payload for one metric."""
-        scope_entry = {
-            "scope": {"name": "devops-cli.telemetry"},
-            "metrics": [metric_entry],
-        }
-        return {
-            "resourceMetrics": [
-                {
-                    "resource": {"attributes": self._metric_resource_attributes},
-                    "scopeMetrics": [scope_entry],
-                }
-            ]
-        }
+    def _ensure_meter(self) -> Any:
+        """Lazily initialize the OTel SDK MeterProvider with DELTA temporality and exponential histograms."""
+        with self._client_lock:
+            if self._meter is None:
+                from opentelemetry.sdk.metrics import Counter, Histogram, MeterProvider, _Gauge
+                from opentelemetry.sdk.metrics.export import (
+                    AggregationTemporality,
+                    InMemoryMetricReader,
+                )
+                from opentelemetry.sdk.metrics.view import (
+                    ExponentialBucketHistogramAggregation,
+                    View,
+                )
+                from opentelemetry.sdk.resources import Resource
 
-    def _send_metric(
-        self, name: str, unit: str, kind: str, point: dict[str, Any], **data: Any
-    ) -> None:
-        """Send one data point of a gauge, sum or histogram."""
-        entry = {"name": name, "unit": unit, kind: {"dataPoints": [point], **data}}
-        self._send_payload("/v1/metrics", self._build_metrics_payload(entry))
+                self._metric_reader = InMemoryMetricReader(
+                    preferred_temporality={
+                        Counter: AggregationTemporality.DELTA,
+                        Histogram: AggregationTemporality.DELTA,
+                        _Gauge: AggregationTemporality.DELTA,
+                    }
+                )
+                # Metrics identify their source by host, not process: every command is a
+                # short-lived process, and the collector adds up each series' deltas across them.
+                resource = Resource(
+                    {
+                        "service.name": self.service_name,
+                        "service.instance.id": self.host_name,
+                        "host.name": self.host_name,
+                        "os.type": self.os_type,
+                        "telemetry.sdk.name": "devops-cli-otel",
+                        "telemetry.sdk.language": "python",
+                    }
+                )
+                self._meter_provider = MeterProvider(
+                    resource=resource,
+                    metric_readers=[self._metric_reader],
+                    views=[
+                        View(
+                            instrument_type=Histogram,
+                            aggregation=ExponentialBucketHistogramAggregation(),
+                        )
+                    ],
+                    shutdown_on_exit=False,
+                )
+                self._meter = self._meter_provider.get_meter("devops-cli.telemetry")
+            return self._meter
+
+    def _get_sdk_instrument(self, kind: str, name: str, unit: str) -> Any:
+        """Return or create a cached OTel SDK metric instrument."""
+        meter = self._ensure_meter()
+        key = (kind, name, unit)
+        with self._client_lock:
+            inst = self._sdk_instruments.get(key)
+            if inst is None:
+                creator = {
+                    "counter": meter.create_counter,
+                    "histogram": meter.create_histogram,
+                    "gauge": meter.create_gauge,
+                }[kind]
+                inst = creator(name, unit=unit)
+                self._sdk_instruments[key] = inst
+            return inst
 
     def _build_traces_payload(
         self,
@@ -893,15 +1041,13 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a gauge data point to OTLP collector asynchronously."""
-        if not self.enabled:
+        """Record a gauge data point in the in-process OTel SDK meter."""
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
             return
-        point = {
-            "timeUnixNano": str(time.time_ns()),
-            "asDouble": float(value),
-            "attributes": _otlp_attributes(attributes),
-        }
-        self._send_metric(name, unit, "gauge", point)
+        gauge = self._get_sdk_instrument("gauge", name, unit)
+        gauge.set(float(value), _sdk_metric_attributes(attributes))
 
     def record_gauge(
         self,
@@ -911,14 +1057,8 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a gauge data point to OTLP collector asynchronously."""
+        """Record a gauge data point in the in-process OTel SDK meter."""
         self.record_metric(name, value, unit=unit, attributes=attributes)
-
-    @staticmethod
-    def _delta_interval() -> dict[str, str]:
-        """A delta's interval, ending now. Each is a nanosecond long, so points never overlap."""
-        now = time.time_ns()
-        return {"startTimeUnixNano": str(now - 1), "timeUnixNano": str(now)}
 
     def increment_counter(
         self,
@@ -928,53 +1068,29 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Add to a monotonic counter, sent as a delta the collector adds up across processes."""
-        if not self.enabled:
+        """Add to a monotonic counter in the in-process OTel SDK meter."""
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
             return
-        point = {
-            **self._delta_interval(),
-            "asDouble": float(amount),
-            "attributes": _otlp_attributes(attributes),
-        }
-        self._send_metric(
-            name,
-            unit,
-            "sum",
-            point,
-            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
-            isMonotonic=True,
-        )
+        counter = self._get_sdk_instrument("counter", name, unit)
+        counter.add(float(amount), _sdk_metric_attributes(attributes))
 
     def record_histogram(
         self,
         name: str,
         value: float,
         *,
-        bounds: tuple[float, ...],
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Observe one value of a histogram, sent as a delta the collector adds up."""
-        if not self.enabled:
+        """Observe one value of an exponential histogram in the in-process OTel SDK meter."""
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
             return
-        buckets = [0] * (len(bounds) + 1)
-        buckets[bisect.bisect_left(bounds, value)] = 1
-        point = {
-            **self._delta_interval(),
-            "count": "1",
-            "sum": float(value),
-            # OTLP JSON encodes 64-bit integers as strings.
-            "bucketCounts": [str(b) for b in buckets],
-            "explicitBounds": list(bounds),
-            "attributes": _otlp_attributes(attributes),
-        }
-        self._send_metric(
-            name,
-            unit,
-            "histogram",
-            point,
-            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
-        )
+        histogram = self._get_sdk_instrument("histogram", name, unit)
+        histogram.record(float(value), _sdk_metric_attributes(attributes))
 
     def _populate_exception_span_attributes(
         self,
@@ -1258,8 +1374,28 @@ class OTelTelemetryClient:
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
+    def _flush_sdk_metrics(self) -> None:
+        """Collect buffered SDK metrics and queue one OTLP /v1/metrics export."""
+        if self._metric_reader is None or not self.enabled:
+            return
+        metrics_data = self._metric_reader.get_metrics_data()
+        if metrics_data is not None and metrics_data.resource_metrics:
+            payload = _encode_sdk_metrics_data(metrics_data)
+            if payload["resourceMetrics"]:
+                self._send_payload("/v1/metrics", payload)
+
+    def _shutdown_meter_provider(self) -> None:
+        """Close the OTel SDK MeterProvider and reset cached instruments."""
+        if self._meter_provider is not None:
+            self._meter_provider.shutdown()
+            self._meter_provider = None
+            self._metric_reader = None
+            self._meter = None
+            self._sdk_instruments.clear()
+
     def flush(self, timeout: float = DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS) -> None:
-        """Wait, up to ``timeout`` seconds, for exports already queued to finish."""
+        """Export buffered SDK metrics and wait, up to ``timeout`` seconds, for queued exports to finish."""
+        self._flush_sdk_metrics()
         pending = [f for f in list(self._pending) if not f.done()]
         if pending:
             wait_futures(pending, timeout=timeout)
@@ -1273,6 +1409,7 @@ class OTelTelemetryClient:
         """
         self.flush()
         with self._client_lock:
+            self._shutdown_meter_provider()
             if self._executor is not None:
                 try:
                     self._executor.shutdown(wait=False, cancel_futures=True)
@@ -1337,9 +1474,15 @@ def get_tracer() -> OTelTelemetryClient:
 
 
 def reset_tracer() -> None:
-    """Reset the global tracer instance (used for testing)."""
+    """Reset the global tracer instance (used for testing).
+
+    The dropped tracer is shut down first, which waits for its exports in flight: one left
+    running carried a test's exports into the next test.
+    """
     global _GLOBAL_TRACER
-    _GLOBAL_TRACER = None
+    dropped, _GLOBAL_TRACER = _GLOBAL_TRACER, None
+    if dropped is not None:
+        dropped.shutdown()
     if hasattr(_detect_vcs_metadata, "cache_clear"):
         _detect_vcs_metadata.cache_clear()
     if hasattr(_detect_k8s_context, "cache_clear"):

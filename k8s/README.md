@@ -39,6 +39,7 @@ devops k8s deploy-stack --stack all
 ```bash
 # ArgoCD UI
 minikube service argocd-server -n argocd --url
+# Shell in a pod from the UI: open its Application, select the pod, then the Terminal tab
 
 # ArgoCD initial admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
@@ -149,7 +150,7 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 ## Scrape Ownership
 
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` ServiceMonitor, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` and `qdrant` ServiceMonitors, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
 
 | Component | Owner | Reason |
 | :--- | :--- | :--- |
@@ -160,7 +161,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel` |
 | dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off |
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
-| prometheus-operator-crds | Its own release, installed first | The `llm-gateway` ServiceMonitor and #823's Qdrant monitor need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
+| prometheus-operator-crds | Its own release, installed first | The `llm-gateway` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
 cloudflared, Traefik, Alertmanager and roadmap-service are found by annotation autodiscovery, through the `prometheus.io/*` annotations they already carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
@@ -185,7 +186,7 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 | :--- | :--- | :--- |
 | `sre-service.json`, "SRE Service & Logs" (`devops-sre-service`) | cAdvisor container CPU, memory, network packets/drops, Loki service logs, and Pyroscope flamegraphs | Metrics scraped by Alloy from cAdvisor/Kubelet and Kube State Metrics; logs pushed to Loki via Alloy or OpenTelemetry collector; continuous profiles queried from Pyroscope datasource |
 | `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Alloy's annotation autodiscovery (`annotationAutodiscovery` in `monitoring/k8s-monitoring-values.yaml`), through the pods' `prometheus.io/*` annotations; network policy allows monitoring to scrape both ports |
-| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), and the NVIDIA DCGM exporter on every GPU node | The `llm-gateway` ServiceMonitor and the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), run by Alloy, which remote-writes to the server |
+| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), the NVIDIA DCGM exporter on every GPU node, and Qdrant's `/metrics` on port 6333 | The `llm-gateway` ServiceMonitor, the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), and the `qdrant` ServiceMonitor (`metrics.serviceMonitor` in `llm/values-qdrant.yaml`, authenticating with the `qdrant-api-key` Secret), run by Alloy, which remote-writes to the server |
 | `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, which keeps only namespace `otel`, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, whose annotation autodiscovery skips `otel`, so the collector's export failures stay visible when Alloy is what fails |
 | `prometheus-server.json`, "Prometheus Server" (`devops-prometheus-server`) | The Prometheus server's own `/metrics`, and `up` for every target | The server's `prometheus` job, which scrapes itself (`scrapeConfigs.prometheus` in `monitoring/prometheus-values.yaml`) |
 | `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by the Alloy profiling agent and scraped by the Pyroscope backend |
@@ -196,7 +197,7 @@ devops grafana dashboards sync                            # posts every file in 
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
 
-`tests/test_stack_dashboards.py` checks every query against captures of these exporters in `tests/fixtures/metrics/`: each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels and the collector's span export failures stay empty until the first such event.
+`tests/test_stack_dashboards.py` checks every query against captures of these exporters in `tests/fixtures/metrics/`: each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures stay empty until the first such event.
 
 ## Log and Metric Retention
 
@@ -570,6 +571,29 @@ Expose homelab Kubernetes services securely to the internet without public ports
    devops k8s render k8s/ingress/ingress-routes.yaml
    ```
 
+### 4. The Kubernetes API at `k8s.<domain>`
+
+Off the home network, `kubectl` reaches the API server through the tunnel as a TCP route. An HTTP hostname cannot carry it: Cloudflare ends TLS at its edge, which drops kubectl's client certificate. `cloudflared access tcp` on the workstation carries the connection to the edge after an Access login, and TLS stays end to end between kubectl and the API server.
+
+1. Route the hostname to the API server. `tunnel sync` merges into the tunnel's configuration and places a new hostname ahead of any wildcard rule that would take its traffic (cloudflared uses the first rule that matches). Use a hostname an Access application covers: `devops cloudflare access status` lists them, and `devops cloudflare access sync --domain k8s.<domain> -e <email>` adds one.
+   ```bash
+   devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443 --dry-run
+   devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443
+   ```
+   `k8s/cloudflared/networkpolicy.yaml` lets cloudflared reach the API server on 6443.
+2. On the workstation, install `cloudflared` from `tools.lock` and open the local end of the route. The first connection prints an Access login URL to open.
+   ```bash
+   devops install-tools --tool cloudflared
+   cloudflared access tcp --hostname k8s.<domain> --url 127.0.0.1:16443
+   ```
+3. Add a context that reaches the API server through it, with the credentials and CA of the cluster entry you use at home (`<cluster>` and `<user>` in `kubectl config view`):
+   ```bash
+   kubectl config set-cluster <cluster>-tunnel --server=https://127.0.0.1:16443 --tls-server-name=kubernetes.default.svc
+   kubectl config set clusters.<cluster>-tunnel.certificate-authority-data "$(kubectl config view --raw -o jsonpath='{.clusters[?(@.name=="<cluster>")].cluster.certificate-authority-data}')"
+   kubectl config set-context <cluster>-tunnel --cluster=<cluster>-tunnel --user=<user>
+   kubectl --context <cluster>-tunnel get nodes
+   ```
+
 ## Directory Structure
 
 ```
@@ -625,9 +649,9 @@ k8s/
 │       ├── devops-cli.json   # devops-cli commands, reviews, RAG and spend (grafana-devops-cli-dashboards)
 │       ├── ai-spend.json     # AI spend and LLM usage (grafana-devops-cli-dashboards)
 │       ├── project-metrics.json # Project & engineering velocity, release cadence and CI pass rates (grafana-devops-cli-dashboards)
-│       ├── llm-stack.json    # LiteLLM gateway and GPUs; not provisioned, reaches Grafana through sync
-│       ├── otel-collector.json # The collector's own telemetry; not provisioned, reaches Grafana through sync
-│       └── prometheus-server.json # The Prometheus server; not provisioned, reaches Grafana through sync
+│       ├── llm-stack.json    # LiteLLM gateway, GPUs and Qdrant; provisioned in grafana-stack-dashboards
+│       ├── otel-collector.json # The collector's own telemetry; provisioned in grafana-stack-dashboards
+│       └── prometheus-server.json # The Prometheus server; provisioned in grafana-stack-dashboards
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── networkpolicy.yaml    # Perimeter NetworkPolicy for otel namespace

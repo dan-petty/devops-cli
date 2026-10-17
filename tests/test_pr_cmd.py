@@ -1259,6 +1259,39 @@ class TestPrCommands:
                 "unreplied review discussion thread" in res.output,
             ) == (1, True)
 
+    def test_check_readiness_fails_closed_when_review_threads_cannot_be_read(
+        self, runner: CliRunner
+    ) -> None:
+        """A failed review-thread read blocks readiness and names the error (#797)."""
+        from devops_cli.exceptions.git import GitHubOperationError
+
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+                "head": {"sha": "a" * 40},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                side_effect=GitHubOperationError("GraphQL 502 Bad Gateway"),
+            ),
+            patch("devops_cli.commands.pr._failing_check_runs", return_value=([], [])),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (
+                res.exit_code,
+                "Could not retrieve review threads for PR #187: GraphQL 502 Bad Gateway"
+                in res.output,
+                "satisfies merge readiness" not in res.output,
+            ) == (1, True, True)
+
     def test_check_readiness_fails_on_a_draft_without_any_flag(self, runner: CliRunner) -> None:
         """A draft cannot be merged, so it blocks by default rather than on request.
 

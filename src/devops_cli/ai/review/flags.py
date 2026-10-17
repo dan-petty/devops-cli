@@ -16,6 +16,7 @@ class ReviewStageFlags(BaseModel):
     static_scan: bool = True
     persona_review: bool = True
     reranking: bool = True
+    group_analysis: bool = True
     reporting: bool = True
 
     def any_enabled(self) -> bool:
@@ -25,6 +26,7 @@ class ReviewStageFlags(BaseModel):
             or self.static_scan
             or self.persona_review
             or self.reranking
+            or self.group_analysis
             or self.reporting
         )
 
@@ -49,6 +51,8 @@ def resolve_stage_flags(
     persona_review_only: bool = False,
     no_reranking: bool = False,
     reranking_only: bool = False,
+    no_group_analysis: bool = False,
+    group_analysis_only: bool = False,
     no_reporting: bool = False,
     reporting_only: bool = False,
     **kwargs: Any,
@@ -65,6 +69,7 @@ def resolve_stage_flags(
         "static_scan": static_scan_only,
         "persona_review": persona_review_only,
         "reranking": reranking_only,
+        "group_analysis": group_analysis_only,
         "reporting": reporting_only,
     }
     has_only = any(only_flags.values())
@@ -75,6 +80,7 @@ def resolve_stage_flags(
             static_scan=static_scan_only and not no_static_scan,
             persona_review=persona_review_only and not no_persona_review,
             reranking=reranking_only and not no_reranking,
+            group_analysis=group_analysis_only and not no_group_analysis,
             reporting=reporting_only and not no_reporting,
         )
 
@@ -83,5 +89,6 @@ def resolve_stage_flags(
         static_scan=not no_static_scan,
         persona_review=not no_persona_review,
         reranking=not no_reranking,
+        group_analysis=not no_group_analysis,
         reporting=not no_reporting,
     )

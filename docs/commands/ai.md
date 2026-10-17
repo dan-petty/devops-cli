@@ -2,6 +2,16 @@
 
 Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
 
+```bash
+devops ai [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics. |
+
 ## Commands
 
 ## `devops ai config`
@@ -376,7 +386,7 @@ devops ai prompt-eval [OPTIONS]
 
 ## `devops ai test-gen`
 
-**Synthesize isolated pytest unit test suites for functions or source files.**
+**Generate failing pytest unit test scaffolds for functions or source files.**
 
 ```bash
 devops ai test-gen [OPTIONS] <target_file>
@@ -386,13 +396,13 @@ devops ai test-gen [OPTIONS] <target_file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for. |
+| `<target_file>` | `path` | Yes | Target source file to generate unit test scaffolds for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
+| `--function`, `-f` | `string` | - | Specific function to generate a test scaffold for. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -972,6 +982,29 @@ devops ai review templates check [OPTIONS]
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
 | `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai review rules`
+
+```bash
+devops ai review rules COMMAND [ARGS]...
+```
+
+#### `devops ai review rules test`
+
+**Run `semgrep --test` on the review rule pack and write or check `rules.lock` (#1145).**
+
+```bash
+devops ai review rules test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
+| `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -1787,6 +1820,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--max-precision-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%). |
 | `--max-stability-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%). |
+| `--max-reference-coverage-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's reference coverage (e.g. 0.05 for 5%). |
 | `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 

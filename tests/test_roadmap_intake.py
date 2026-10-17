@@ -29,6 +29,7 @@ from devops_cli.ai.mcp import server as mcp_server
 from devops_cli.commands import roadmap as roadmap_command
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import (
+    CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_ROADMAP_INTAKE_DUPLICATE_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
 )
@@ -36,7 +37,12 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.dry_run.state import in_dry_run_invocation
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
+from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
@@ -58,6 +64,7 @@ from devops_cli.roadmap.intake import (
     dry_run_intake,
     intake_candidate,
     plan_intake,
+    raise_for_failed_placements,
     read_quota,
     render_intake,
 )
@@ -202,8 +209,9 @@ class Roadmap:
         return plan_intake(self.store, repo=REPO, config=self.config, model=model, **options)
 
     def run(self, model: FakeModel, **options: Any) -> list[JobWrite]:
+        """Apply a plan as the CLI and the Service do: every candidate, then the failures."""
         before = len(self.store.job_writes())
-        apply_intake(self.store, self.plan(model, **options))
+        raise_for_failed_placements(apply_intake(self.store, self.plan(model, **options)))
         return self.store.job_writes()[before:]
 
 
@@ -640,7 +648,7 @@ def test_a_run_that_stops_after_the_board_add_is_finished_by_the_next_run(
         raise GitHubOperationError("HTTP 502", operation="roadmap.item.add")
 
     with patch.object(roadmap.store, "add_item", side_effect=add_then_fail):
-        with pytest.raises(GitHubOperationError, match="HTTP 502"):
+        with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError\\)"):
             roadmap.run(FakeModel())
     stopped = roadmap.fields(number)
     model = FakeModel()
@@ -658,6 +666,59 @@ def test_a_run_that_stops_after_the_board_add_is_finished_by_the_next_run(
         ("type/feature",),
         [()],
     )
+
+
+def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
+    roadmap: Roadmap,
+) -> None:
+    """GitHub refusing one issue's board add stops only that issue; the round reports it (#1443)."""
+    first, refused, last = (roadmap.issue(f"feat: candidate {n}") for n in range(3))
+    placed = ("New", "P2-Medium", "Medium", "Low", None)
+    add_item = roadmap.store.add_item
+
+    def refuse_one(number: int) -> object:
+        if number == refused:
+            raise GitHubOperationError("GraphQL: Something went wrong", operation="roadmap.write")
+        return add_item(number)
+
+    with patch.object(roadmap.store, "add_item", side_effect=refuse_one):
+        with pytest.raises(RoadmapIntakeError) as raised:
+            roadmap.run(FakeModel())
+    assert (
+        raised.value.failed_items,
+        f"#{refused} (GitHubOperationError)" in str(raised.value),
+        roadmap.fields(first),
+        roadmap.fields(last),
+        roadmap.store.item(refused),
+    ) == ((refused,), True, placed, placed, None)
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        GitHubRateLimitError("rate limit exceeded", operation="roadmap.write"),
+        GitHubRateLimitError(
+            "GraphQL budget refused",
+            operation="roadmap.write",
+            details={CONST_GRAPHQL_REFUSAL_RESET_KEY: NOW.isoformat()},
+        ),
+    ],
+)
+def test_a_rate_limit_or_budget_refusal_stops_the_round_with_no_further_writes(
+    roadmap: Roadmap, refusal: GitHubRateLimitError
+) -> None:
+    """Every later write would be refused too, so the round stops at the first (#1400)."""
+    first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
+    tried: list[int] = []
+
+    def refuse(number: int) -> None:
+        tried.append(number)
+        raise refusal
+
+    with patch.object(roadmap.store, "add_item", side_effect=refuse):
+        with pytest.raises(GitHubRateLimitError):
+            roadmap.run(FakeModel())
+    assert (tried, roadmap.store.item(second), _labels(roadmap, second)) == ([first], None, ())
 
 
 def test_a_person_put_on_the_board_without_a_priority_gets_only_its_empty_fields(
@@ -969,6 +1030,29 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
         len(fake_model.requests),
         board.store.job_writes() == before,
     ) == (True, True, True, True, True, 1, True)
+
+
+def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """The person running it sees the placements, then which candidate failed and why (#1443)."""
+    placed, refused = board.issue("feat: placed"), board.issue("feat: refused")
+    add_item = board.store.add_item
+
+    def refuse_one(number: int) -> object:
+        if number == refused:
+            raise GitHubOperationError("GraphQL: Something went wrong", operation="roadmap.write")
+        return add_item(number)
+
+    with patch.object(board.store, "add_item", side_effect=refuse_one):
+        output = _intake("--confirm", exit_code=1)
+    assert (
+        "Intake placed 1 item(s) and closed 0 duplicate(s)." in output,
+        "Intake finished with candidates it could not write: the writes failed for 1 "
+        "candidate(s)" in output,
+        f"#{refused} (GitHubOperationError)" in output,
+        board.fields(placed),
+    ) == (True, True, True, ("New", "P2-Medium", "Medium", "Low", None))
 
 
 def test_plain_intake_previews_as_plan_does_and_says_what_it_spends(
@@ -1519,7 +1603,7 @@ def test_a_duplicate_close_that_failed_is_retried_without_a_second_comment(
     model = FakeModel(duplicates={"Keep embeddings cached": "Cache embeddings"})
     failure = GitHubOperationError("HTTP 502", operation="roadmap.issue.close")
     with patch.object(roadmap.store, "_close", side_effect=failure):
-        with pytest.raises(GitHubOperationError, match="HTTP 502"):
+        with pytest.raises(RoadmapIntakeError, match=f"#{copy} \\(GitHubOperationError\\)"):
             roadmap.run(model)
     roadmap.run(model)
     assert (len(roadmap.comments(copy)), roadmap.store.closures(copy)[-1].reason) == (

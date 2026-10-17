@@ -26,6 +26,7 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
     from devops_cli.security.semgrep import SemgrepScanner
     from devops_cli.security.tflint import TflintScanner
     from devops_cli.security.trivy import TrivyScanner
+    from devops_cli.security.zizmor import ZizmorScanner
 
     return [
         BanditScanner(),
@@ -39,6 +40,7 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
         SemgrepScanner(),
         TflintScanner(),
         TrivyScanner(),
+        ZizmorScanner(),
     ]
 
 

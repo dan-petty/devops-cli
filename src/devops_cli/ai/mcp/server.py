@@ -161,7 +161,7 @@ def _validate_mcp_int_bound(
         )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops") -> str:
     """Run an AI code review on local files matching pattern using specified persona."""
     _validate_mcp_arg("target", target)
@@ -184,7 +184,7 @@ def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def review_branch(branch: str = "", base: str = "main", persona: str = "devsecops") -> str:
     """Run an AI code review on git branch diff against base branch."""
     if branch:
@@ -198,7 +198,7 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "devsecops") -> str:
     """Fetch GitHub PR diff and review using specified persona; optionally post comment."""
     _validate_mcp_int_bound("number", number, min_val=1)
@@ -209,7 +209,7 @@ def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "dev
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def review_findings(session_id: str = "", status: str = "") -> str:
     """List a session's findings, filtered by status, each with the number `review verify` takes."""
     if session_id:
@@ -224,7 +224,7 @@ def review_findings(session_id: str = "", status: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def review_stats() -> str:
     """View accuracy metrics and false-positive rates per reviewer persona."""
     return _run_mcp_cmd(
@@ -233,7 +233,7 @@ def review_stats() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def repos_list() -> str:
     """List local workspace repositories and active git branches."""
     return _run_mcp_cmd(
@@ -242,7 +242,7 @@ def repos_list() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def repos_status() -> str:
     """Display uncommitted changes and branch drift across workspace repositories."""
     return _run_mcp_cmd(
@@ -251,7 +251,7 @@ def repos_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def repos_sync() -> str:
     """Fetch and pull tracking branches across workspace repositories."""
     return _run_mcp_cmd(
@@ -260,7 +260,7 @@ def repos_sync() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ssh_status() -> str:
     """Inspect age and rotation status of managed SSH keys in ~/.ssh."""
     return _run_mcp_cmd(
@@ -269,7 +269,7 @@ def ssh_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ssh_audit() -> str:
     """Audit SSH key expiration dates and key file permissions."""
     return _run_mcp_cmd(
@@ -278,7 +278,7 @@ def ssh_audit() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_pods(namespace: str = "default") -> str:
     """List the pods of a Kubernetes namespace, or of every namespace when it is empty."""
     if not namespace:
@@ -293,7 +293,7 @@ def k8s_pods(namespace: str = "default") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_status() -> str:
     """Display pod status across infrastructure namespaces."""
     return _run_mcp_cmd(
@@ -302,7 +302,7 @@ def k8s_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_doctor(namespace: str | None = None, context: str | None = None) -> str:
     """Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
 
@@ -320,7 +320,7 @@ def k8s_doctor(namespace: str | None = None, context: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_bootstrap(auto_start: bool = True) -> str:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
     cmd = ["uv", "run", "devops", "k8s", "bootstrap"]
@@ -329,7 +329,7 @@ def k8s_bootstrap(auto_start: bool = True) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS + 60)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_deploy_stack(stack: str = "infra", context: str | None = None) -> str:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster."""
     _validate_mcp_arg("stack", stack)
@@ -343,7 +343,7 @@ def k8s_deploy_stack(stack: str = "infra", context: str | None = None) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_teardown_stack(stack: str = "infra", context: str | None = None) -> str:
     """Uninstall Kubernetes infrastructure or LLM stack and delete namespaces."""
     _validate_mcp_arg("stack", stack)
@@ -357,7 +357,7 @@ def k8s_teardown_stack(stack: str = "infra", context: str | None = None) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_logs_query(
     query: str,
     limit: int = 100,
@@ -388,7 +388,7 @@ def k8s_logs_query(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_logs_tail(
     query: str,
     lines: int = 50,
@@ -417,7 +417,7 @@ def k8s_logs_tail(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def argo_list() -> str:
     """List ArgoCD applications."""
     return _run_mcp_cmd(
@@ -426,7 +426,7 @@ def argo_list() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def argo_status(app: str = "argocd") -> str:
     """Check ArgoCD application health and sync status."""
     _validate_mcp_arg("app", app)
@@ -436,7 +436,7 @@ def argo_status(app: str = "argocd") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def argo_fleet_sync(
     app_name: str,
     clusters: str = "dev,staging,prod",
@@ -465,7 +465,7 @@ def argo_fleet_sync(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def argo_rollout_analyze(
     rollout_name: str,
     namespace: str = "default",
@@ -496,7 +496,7 @@ def argo_rollout_analyze(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def grafana_dashboards(query: str = "") -> str:
     """List Grafana dashboards, optionally filtered by search query."""
     if query:
@@ -511,7 +511,7 @@ def grafana_dashboards(query: str = "") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def prometheus_query(promql: str = "up") -> str:
     """Execute PromQL instant query against Prometheus endpoint."""
     _validate_mcp_arg("promql", promql)
@@ -521,7 +521,7 @@ def prometheus_query(promql: str = "up") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def docker_stats() -> str:
     """List local Docker images and display container information."""
     return _run_mcp_cmd(
@@ -530,7 +530,7 @@ def docker_stats() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def docker_sign(  # noqa: C901
     image: str,
     key: str | None = None,
@@ -568,7 +568,7 @@ def docker_sign(  # noqa: C901
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS, env=extra_env)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def docker_verify(  # noqa: C901
     image: str,
     key: str | None = None,
@@ -607,7 +607,7 @@ def docker_verify(  # noqa: C901
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
     return _run_mcp_cmd(
@@ -616,7 +616,7 @@ def workspace_list() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def config_show() -> str:
     """Display configuration settings with masked secret tokens."""
     return _run_mcp_cmd(
@@ -625,7 +625,7 @@ def config_show() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def config_output(output_format: str = "json") -> str:
     """Output environment variables available for configuration (text or json)."""
     return _run_mcp_cmd(
@@ -641,7 +641,7 @@ def config_output(output_format: str = "json") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ci_run(
     check: Literal[
         "all",
@@ -669,7 +669,7 @@ def ci_run(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def release_status() -> str:
     """Check devops-cli release status, version consistency, tags, and docs state."""
     return _run_mcp_cmd(
@@ -689,7 +689,7 @@ def _roadmap_cmd(cmd: list[str], repo: str | None, ref: str | None, mode: str) -
     return cmd
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def roadmap_render(
     repo: str | None = None,
     ref: str | None = None,
@@ -707,7 +707,7 @@ def roadmap_render(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def roadmap_migrate(
     repo: str | None = None,
     ref: str | None = None,
@@ -725,7 +725,7 @@ def roadmap_migrate(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def roadmap_close(
     repo: str | None = None,
     ref: str | None = None,
@@ -746,7 +746,7 @@ def roadmap_close(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def roadmap_reprioritize(
     repo: str | None = None,
     ref: str | None = None,
@@ -765,7 +765,7 @@ def roadmap_reprioritize(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def roadmap_run(repo: str | None = None) -> tuple[str, ...]:
     """Report the roadmap jobs that are due: runs nothing and returns the due tuple."""
     from devops_cli.roadmap.run import parse_due_tuple
@@ -779,7 +779,7 @@ def roadmap_run(repo: str | None = None) -> tuple[str, ...]:
     return parse_due_tuple(output)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def roadmap_refine(
     repo: str | None = None,
     ref: str | None = None,
@@ -810,7 +810,7 @@ def roadmap_refine(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def roadmap_intake(
     repo: str | None = None,
     ref: str | None = None,
@@ -862,7 +862,7 @@ def roadmap_intake(
         )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def docs_compact(
     series: str = "v0.2",
     dry_run: bool = True,
@@ -887,7 +887,7 @@ def docs_compact(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def tf_plan(directory: str = ".", var_file: str = "") -> str:
     """Generate and inspect an OpenTofu / Terraform execution plan."""
     _validate_mcp_arg("directory", directory)
@@ -898,8 +898,8 @@ def tf_plan(directory: str = ".", var_file: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
-def tf_apply(directory: str = ".", var_file: str = "", auto_approve: bool = True) -> str:
+@mcp.tool(annotations={"readOnlyHint": False})
+def tf_apply(directory: str = ".", var_file: str = "", auto_approve: bool = False) -> str:
     """Apply OpenTofu / Terraform Infrastructure-as-Code changes."""
     _validate_mcp_arg("directory", directory)
     cmd = ["uv", "run", "devops", "tf", "apply", directory]
@@ -911,7 +911,7 @@ def tf_apply(directory: str = ".", var_file: str = "", auto_approve: bool = True
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def tf_output(directory: str = ".", json_format: bool = True) -> str:
     """Retrieve OpenTofu / Terraform outputs from state."""
     _validate_mcp_arg("directory", directory)
@@ -921,7 +921,7 @@ def tf_output(directory: str = ".", json_format: bool = True) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def tf_cost_estimate(
     directory: str = ".",
     mock: bool = False,
@@ -937,7 +937,7 @@ def tf_cost_estimate(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def rag_search(
     query: str,
     top_k: int = 5,
@@ -970,7 +970,7 @@ def rag_search(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def rag_index(path: str = ".", project: str | None = None, force: bool = False) -> str:
     """Index workspace files into Qdrant vector database for semantic retrieval."""
     _validate_mcp_arg("path", path)
@@ -982,7 +982,7 @@ def rag_index(path: str = ".", project: str | None = None, force: bool = False) 
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def rag_drift(path: str = ".", auto_sync: bool = False) -> str:
     """Detect staleness and drift between the working tree and the Qdrant vector index."""
     _validate_mcp_arg("path", path)
@@ -992,7 +992,7 @@ def rag_drift(path: str = ".", auto_sync: bool = False) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_tempo_info() -> str:
     """Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints."""
     return (
@@ -1003,7 +1003,7 @@ def k8s_tempo_info() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def security_intel_package(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
     """Query the OSV.dev vulnerability database for package CVE intelligence."""
     _validate_mcp_arg("package_name", package_name)
@@ -1016,7 +1016,7 @@ def security_intel_package(package_name: str, version: str = "", ecosystem: str 
     return scan_osv(package_name=package_name, version=version, ecosystem=ecosystem)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def security_intel_network(target: str) -> str:
     """Check IP or domain threat intelligence via Shodan and Cloudflare Radar."""
     _validate_mcp_arg("target", target)
@@ -1025,7 +1025,7 @@ def security_intel_network(target: str) -> str:
     return check_threat_intel(target=target)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
     """Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs."""
     _validate_mcp_arg("directory", directory)
@@ -1036,7 +1036,7 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
     return _native_uv_audit(directory=directory, requirements_file=requirements_file)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
     """Append review verdicts the feedback dataset does not hold yet to the JSONL dataset."""
     cmd = ["uv", "run", "devops", "review", "export-feedback", "--status", status]
@@ -1046,7 +1046,7 @@ def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def tls_generate_ca(
     output_dir: str = "",
     common_name: str = "Homelab Root CA",
@@ -1070,7 +1070,7 @@ def tls_generate_ca(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def tls_generate_cert(
     common_name: str = "localhost",
     sans: str = "localhost,127.0.0.1,*.homelab.local",
@@ -1101,7 +1101,7 @@ def tls_generate_cert(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def tls_inspect_cert(cert_path: str) -> str:
     """Inspect and display metadata, validity, SANs, and expiration of a TLS certificate."""
     _validate_mcp_arg("cert_path", cert_path)
@@ -1111,7 +1111,7 @@ def tls_inspect_cert(cert_path: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_create_tls_secret(
     secret_name: str,
     namespace: str = "default",
@@ -1140,7 +1140,7 @@ def k8s_create_tls_secret(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_enable_tls(
     stack: str = "all",
     secret_name: str = "homelab-tls",
@@ -1166,7 +1166,7 @@ def k8s_enable_tls(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def telemetry_status() -> str:
     """Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings."""
     return _run_mcp_cmd(
@@ -1175,7 +1175,7 @@ def telemetry_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def telemetry_test_span(name: str = "mcp_test_span") -> str:
     """Emit a test OpenTelemetry trace span and metric to verify collector pipeline health."""
     _validate_mcp_arg("name", name)
@@ -1185,7 +1185,7 @@ def telemetry_test_span(name: str = "mcp_test_span") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def telemetry_logfire_status() -> str:
     """Check Logfire structured observability bridge status, token configuration, and recorded metrics."""
     return _run_mcp_cmd(
@@ -1194,7 +1194,7 @@ def telemetry_logfire_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_repomap(target_dir: str = ".") -> str:
     """Generate a compact whole-repository AST symbol map for AI context."""
     _validate_mcp_arg("target_dir", target_dir)
@@ -1204,7 +1204,7 @@ def ai_repomap(target_dir: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_ast_parse(file_path: str, query: str = "") -> str:
     """Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query."""
     _validate_mcp_arg("file_path", file_path)
@@ -1215,7 +1215,7 @@ def ai_ast_parse(file_path: str, query: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_ast_graph(target_dir: str = ".", max_files: int = 50) -> str:
     """Synthesize whole-repository code symbol and reference graph across polyglot languages."""
     _validate_mcp_arg("target_dir", target_dir)
@@ -1236,7 +1236,7 @@ def ai_ast_graph(target_dir: str = ".", max_files: int = 50) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_pack_context(
     file_path: str,
     referenced: str = "",
@@ -1267,7 +1267,7 @@ def ai_pack_context(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_read(
     target_path: str,
     inspect: bool = True,
@@ -1293,7 +1293,7 @@ def ai_read(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     """Generate visual Mermaid architecture or threat modeling diagram."""
     _validate_mcp_arg("diagram_type", diagram_type)
@@ -1304,9 +1304,9 @@ def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_test_gen(target_file: str) -> str:
-    """Synthesize isolated pytest unit test suite for a target Python file."""
+    """Generate failing pytest unit test scaffolds for a target Python file."""
     _validate_mcp_arg("target_file", target_file)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "test-gen", target_file],
@@ -1314,7 +1314,7 @@ def ai_test_gen(target_file: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_prewarm_models(
     model: str = "",
     keep_alive: str = "1h",
@@ -1335,7 +1335,7 @@ def ai_prewarm_models(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def config_audit_keys() -> str:
     """Audit OS Keyring health, token state, and zero-plaintext secret compliance."""
     return _run_mcp_cmd(
@@ -1346,7 +1346,7 @@ def config_audit_keys() -> str:
 
 # An MCP caller is untrusted, so it names a trace and nothing runs: a command to profile ran
 # whatever program the caller named, with the user's full environment (#980).
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def telemetry_profile(trace_id: str) -> str:
     """Show the span waterfall Tempo recorded for a trace ID; the tool runs no command."""
     _validate_mcp_arg("trace_id", trace_id)
@@ -1356,7 +1356,7 @@ def telemetry_profile(trace_id: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def tf_notify_plan(plan_file: str = "tfplan.json") -> str:
     """Format structured OpenTofu/Terraform plan summary for PR comments."""
     _validate_mcp_arg("plan_file", plan_file)
@@ -1492,7 +1492,7 @@ def get_k8s_logs_recent_resource() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def scan_fix(
     target_path: str = ".",
     package: str | None = None,
@@ -1511,7 +1511,7 @@ def scan_fix(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def docker_sandbox(
     command: list[str],
     image: str = "python:3.14-slim",
@@ -1560,7 +1560,7 @@ def docker_sandbox(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def sandbox_deploy(  # noqa: C901
     image: str = "python:3.14-slim",
     name: str | None = None,
@@ -1625,7 +1625,7 @@ def sandbox_deploy(  # noqa: C901
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def sandbox_network_policy(
     network_mode: str = "isolated",
     name: str = "app-sandbox",
@@ -1667,7 +1667,7 @@ def sandbox_network_policy(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def sandbox_status(
     instance_id: str | None = None,
     all_instances: bool = False,
@@ -1684,7 +1684,7 @@ def sandbox_status(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def sandbox_stop(
     instance_id: str | None = None,
     all_instances: bool = False,
@@ -1702,7 +1702,7 @@ def sandbox_stop(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def sandbox_exec(
     instance_id: str,
     command: list[str],
@@ -1720,7 +1720,7 @@ def sandbox_exec(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def vault_status(vault_addr: str | None = None) -> str:
     """Check HashiCorp Vault cluster health and sealing status."""
     cmd = ["uv", "run", "devops", "vault", "status"]
@@ -1729,7 +1729,7 @@ def vault_status(vault_addr: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def vault_get(path: str, key: str | None = None) -> str:
     """Fetch secret from HashiCorp Vault or OS Keyring fallback."""
     cmd = ["uv", "run", "devops", "vault", "get", path]
@@ -1738,7 +1738,7 @@ def vault_get(path: str, key: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_label_list(repo: str | None = None) -> str:
     """List declarative repository labels and descriptions."""
     cmd = ["uv", "run", "devops", "gh", "labels", "list"]
@@ -1748,7 +1748,7 @@ def gh_label_list(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_label_sync(repo: str | None = None, dry_run: bool = True) -> str:
     """Synchronize repository labels against .github/labels.yml schema."""
     cmd = ["uv", "run", "devops", "gh", "labels", "sync"]
@@ -1760,7 +1760,7 @@ def gh_label_sync(repo: str | None = None, dry_run: bool = True) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_milestone_list(repo: str | None = None) -> str:
     """List repository milestones and progress rates."""
     cmd = ["uv", "run", "devops", "gh", "milestones", "list"]
@@ -1770,7 +1770,7 @@ def gh_milestone_list(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_project_status() -> str:
     """Inspect GitHub Projects v2 template configuration, fields, and view definitions."""
     return _run_mcp_cmd(
@@ -1779,7 +1779,7 @@ def gh_project_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_milestone_close(version: str, repo: str | None = None) -> str:
     """Close the release milestone of a version, with or without its v."""
     _validate_mcp_arg("version", version)
@@ -1790,7 +1790,7 @@ def gh_milestone_close(version: str, repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_milestone_edit(
     version: str,
     title: str | None = None,
@@ -1820,7 +1820,7 @@ def gh_milestone_edit(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
     """Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
 
@@ -1838,7 +1838,7 @@ def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_view_spec() -> str:
     """Return JSON specification for GitHub Projects v2 views."""
     return _run_mcp_cmd(
@@ -1847,7 +1847,7 @@ def gh_view_spec() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_views_sync(repo: str = "") -> str:
     """Synchronize standardized GitHub Projects v2 views with the remote repository project."""
     cmd = ["uv", "run", "devops", "gh", "views", "sync"]
@@ -1857,7 +1857,7 @@ def gh_views_sync(repo: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_pages_status(repo: str | None = None) -> str:
     """Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement."""
     cmd = ["uv", "run", "devops", "gh", "pages", "status"]
@@ -1867,7 +1867,7 @@ def gh_pages_status(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_pages_build(repo: str | None = None) -> str:
     """Trigger a new deployment build for GitHub Pages."""
     cmd = ["uv", "run", "devops", "gh", "pages", "build"]
@@ -1877,7 +1877,7 @@ def gh_pages_build(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_pages_verify() -> str:
     """Verify local repository readiness for GitHub Pages publishing."""
     return _run_mcp_cmd(
@@ -1886,7 +1886,7 @@ def gh_pages_verify() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_issue_list(
     repo: str | None = None,
     state: str = "open",
@@ -1909,7 +1909,7 @@ def gh_issue_list(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_issue_create(
     title: str,
     body: str = "",
@@ -1935,7 +1935,7 @@ def gh_issue_create(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_issue_triage(repo: str | None = None) -> str:
     """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     cmd = ["uv", "run", "devops", "gh", "issues", "triage"]
@@ -1945,7 +1945,7 @@ def gh_issue_triage(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_issue_status(repo: str | None = None) -> str:
     """Display aggregated issue counts by priority, type, and milestone."""
     cmd = ["uv", "run", "devops", "gh", "issues", "status"]
@@ -1955,7 +1955,7 @@ def gh_issue_status(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_project_list(owner: str | None = None) -> str:
     """List available GitHub Projects v2 boards for user or organization."""
     cmd = ["uv", "run", "devops", "gh", "project", "list"]
@@ -1965,7 +1965,7 @@ def gh_project_list(owner: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_project_audit(repo: str | None = None) -> str:
     """Audit project board health and alignment against standardized template."""
     cmd = ["uv", "run", "devops", "gh", "project", "audit"]
@@ -1975,7 +1975,7 @@ def gh_project_audit(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_project_reconcile(
     project_number: int | None = None,
     repo: str | None = None,
@@ -2002,7 +2002,7 @@ def gh_project_reconcile(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_views_audit(repo: str | None = None) -> str:
     """Audit remote project views against standardized view template specifications."""
     cmd = ["uv", "run", "devops", "gh", "views", "audit"]
@@ -2012,7 +2012,7 @@ def gh_views_audit(repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_trivy(
     target: str = ".",
     scan_type: str = "fs",
@@ -2039,7 +2039,7 @@ def scan_trivy(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_gitleaks(target: str = ".") -> str:
     """Scan git repository or directory for hardcoded secrets, tokens, and private keys."""
     _validate_mcp_arg("target", target)
@@ -2049,7 +2049,7 @@ def scan_gitleaks(target: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_semgrep(target: str = ".", config: str = "auto") -> str:
     """Perform AST-based static code security analysis and rule enforcement via Semgrep."""
     _validate_mcp_arg("target", target)
@@ -2060,7 +2060,7 @@ def scan_semgrep(target: str = ".", config: str = "auto") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_checkov(target: str = ".") -> str:
     """Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov."""
     _validate_mcp_arg("target", target)
@@ -2070,7 +2070,7 @@ def scan_checkov(target: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_complexity(
     target: str = "src",
     max_complexity: int = 10,
@@ -2095,7 +2095,7 @@ def scan_complexity(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_aibom(target: str = ".") -> str:
     """Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses."""
     _validate_mcp_arg("target", target)
@@ -2105,7 +2105,7 @@ def scan_aibom(target: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def scan_sbom(target: str = ".", format: str = "cyclonedx") -> str:
     """Generate CycloneDX or SPDX Software Bill of Materials for target workspace."""
     _validate_mcp_arg("target", target)
@@ -2116,7 +2116,7 @@ def scan_sbom(target: str = ".", format: str = "cyclonedx") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def k8s_chaos(
     experiment: str = "pod-failure",
     namespace: str = "default",
@@ -2131,7 +2131,7 @@ def k8s_chaos(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_audit() -> str:
     """Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks."""
     return _run_mcp_cmd(
@@ -2140,7 +2140,7 @@ def k8s_audit() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_lint(manifest_path: str = ".") -> str:
     """Lint Kubernetes manifests against security best practices and deprecated APIs."""
     _validate_mcp_arg("manifest_path", manifest_path)
@@ -2150,7 +2150,7 @@ def k8s_lint(manifest_path: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_validate(manifest_path: str = ".") -> str:
     """Validate Kubernetes manifest syntax and schemas against OpenAPI specifications."""
     _validate_mcp_arg("manifest_path", manifest_path)
@@ -2160,7 +2160,7 @@ def k8s_validate(manifest_path: str = ".") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_diff_helm(
     release_name: str,
     chart: str,
@@ -2186,7 +2186,7 @@ def k8s_diff_helm(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def k8s_security_stream(
     namespace: str = "falco",
     severity: str | None = None,
@@ -2233,7 +2233,7 @@ def k8s_security_stream(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def vault_set(path: str, key_values: list[str]) -> str:
     """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
     _validate_mcp_arg("path", path)
@@ -2244,7 +2244,7 @@ def vault_set(path: str, key_values: list[str]) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def vault_sync(path: str, keys: list[str] | None = None) -> str:
     """Synchronize secrets from HashiCorp Vault into the local OS Keyring."""
     _validate_mcp_arg("path", path)
@@ -2284,7 +2284,7 @@ def _validate_mcp_benchmark_target(provider: str, model: str) -> None:
             raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def benchmark_embeddings(
     provider: str = "ollama",
     model: str = "bge-m3",
@@ -2314,7 +2314,7 @@ def benchmark_embeddings(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def branches_list(remote: bool = True) -> str:
     """List git branches across repositories with tracking status and stale detection."""
     cmd = ["uv", "run", "devops", "branches", "list"]
@@ -2323,7 +2323,7 @@ def branches_list(remote: bool = True) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_list(limit: int = 10, state: str = "open") -> str:
     """List GitHub pull requests with review approval state and CI check summaries."""
     _validate_mcp_int_bound("limit", limit, min_val=1)
@@ -2334,7 +2334,7 @@ def pr_list(limit: int = 10, state: str = "open") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_checks(pr_number: PullOrIssueNumber) -> str:
     """Inspect detailed status of GitHub Actions CI checks for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
@@ -2344,7 +2344,7 @@ def pr_checks(pr_number: PullOrIssueNumber) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_threads_list(pr_number: PullOrIssueNumber, unresolved_only: bool = True) -> str:
     """List review discussion threads, file locations, and comments on a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
@@ -2354,7 +2354,7 @@ def pr_threads_list(pr_number: PullOrIssueNumber, unresolved_only: bool = True) 
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_thread_reply(thread_id: str, body: str) -> str:
     """Post an in-thread reply directly to a pull request review discussion thread."""
     _validate_mcp_arg("thread_id", thread_id)
@@ -2365,7 +2365,7 @@ def pr_thread_reply(thread_id: str, body: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
     """Programmatically mark a pull request review discussion thread as resolved."""
     _validate_mcp_arg("thread_id", thread_id)
@@ -2375,7 +2375,7 @@ def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_monitor(
     pr_number: PullOrIssueNumber | None = None,
     timeout: int = 300,
@@ -2405,7 +2405,7 @@ def pr_monitor(
     return _run_mcp_cmd(cmd, timeout=float(timeout + 30))
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_ready(
     pr_number: PullOrIssueNumber,
     monitor: bool = False,
@@ -2428,7 +2428,7 @@ def pr_ready(
     return _run_mcp_cmd(cmd, timeout=timeout)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_check_readiness(
     pr_number: PullOrIssueNumber | None = None,
     allow_blocked_state: bool = False,
@@ -2447,7 +2447,7 @@ def pr_check_readiness(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def pr_diff(pr_number: PullOrIssueNumber, repo: str | None = None) -> str:
     """View the unified git diff for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
@@ -2458,7 +2458,7 @@ def pr_diff(pr_number: PullOrIssueNumber, repo: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_close(
     pr_number: PullOrIssueNumber,
     comment: str | None = None,
@@ -2479,7 +2479,7 @@ def pr_close(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_update_branch(
     pr_number: PullOrIssueNumber,
     repo: str | None = None,
@@ -2500,7 +2500,7 @@ def pr_update_branch(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_rate_limit(format_type: str = "table") -> str:
     """Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
     _validate_mcp_arg("format_type", format_type)
@@ -2510,7 +2510,7 @@ def gh_rate_limit(format_type: str = "table") -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_runs_list(
     limit: int = 10,
     branch: str | None = None,
@@ -2528,7 +2528,7 @@ def gh_runs_list(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def gh_run_view(
     run_id: int,
     log_failed: bool = True,
@@ -2545,7 +2545,7 @@ def gh_run_view(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def pr_edit(
     pr_number: PullOrIssueNumber,
     title: str | None = None,
@@ -2575,7 +2575,7 @@ def pr_edit(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def gh_issue_edit(
     issue_number: PullOrIssueNumber,
     title: str | None = None,
@@ -2608,7 +2608,7 @@ def gh_issue_edit(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def valkey_ping() -> str:
     """Test connection and measure latency to the workstation Valkey server."""
     return _run_mcp_cmd(
@@ -2617,7 +2617,7 @@ def valkey_ping() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def valkey_info(section: str | None = None) -> str:
     """Inspect Valkey server configuration, memory allocation, and operational metrics."""
     cmd = ["uv", "run", "devops", "valkey", "info"]
@@ -2627,7 +2627,7 @@ def valkey_info(section: str | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def valkey_stats() -> str:
     """Display quick diagnostic summary of Valkey server health, memory, and keys."""
     return _run_mcp_cmd(
@@ -2636,7 +2636,7 @@ def valkey_stats() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def valkey_get(key: str) -> str:
     """Retrieve string value stored at Valkey key."""
     _validate_mcp_arg("key", key)
@@ -2646,7 +2646,7 @@ def valkey_get(key: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def valkey_set(key: str, value: str, ex: int | None = None) -> str:
     """Set string value of Valkey key with optional expiration TTL in seconds."""
     _validate_mcp_arg("key", key)
@@ -2657,7 +2657,7 @@ def valkey_set(key: str, value: str, ex: int | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def valkey_flush(all_databases: bool = False) -> str:
     """Flush and purge keys from current or all Valkey databases."""
     cmd = ["uv", "run", "devops", "valkey", "flush"]
@@ -2666,7 +2666,7 @@ def valkey_flush(all_databases: bool = False) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_harness_status() -> str:
     """Inspect the AI agent harness slots as configured: provider, model, skills and tools."""
     return _run_mcp_cmd(
@@ -2675,7 +2675,7 @@ def ai_harness_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_subagent_offload(
     repo: str = ".",
     symbol: str | None = None,
@@ -2695,7 +2695,7 @@ def ai_subagent_offload(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_chaos_model(
     mode: str = "all",
     fallback_model: str = DEFAULT_AI_FALLBACK_MODEL,
@@ -2720,7 +2720,7 @@ def ai_chaos_model(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_quiesce(
     reason: str = MESSAGES.ai.default_quiesce_reason,
     dry_run: bool = False,
@@ -2733,7 +2733,7 @@ def ai_quiesce(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_failover(
     target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: str = DEFAULT_AI_FALLBACK_MODEL,
@@ -2758,7 +2758,7 @@ def ai_failover(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_resume(
     dry_run: bool = False,
 ) -> str:
@@ -2769,7 +2769,7 @@ def ai_resume(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_constellation_status() -> str:
     """Show the constellation flag: state, reason and recorded fallback route."""
     return _run_mcp_cmd(
@@ -2778,7 +2778,7 @@ def ai_constellation_status() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_ingest_library(
     package: str,
     max_depth: int = 1,
@@ -2801,7 +2801,7 @@ def ai_ingest_library(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_query_library(
     query: str,
     package: str = "",
@@ -2831,7 +2831,7 @@ def ai_query_library(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_inspect_symbol(
     symbol: str,
     package: str = "",
@@ -2856,7 +2856,7 @@ def ai_inspect_symbol(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_gateway_status(
     gateway_url: str = "",
     provider: str = "",
@@ -2872,7 +2872,7 @@ def ai_gateway_status(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_gateway_routes(
     gateway_url: str = "",
     provider: str = "",
@@ -2888,7 +2888,7 @@ def ai_gateway_routes(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": False})
 def ai_gateway_failover(
     virtual_model: str,
     simulate: bool = True,
@@ -2913,7 +2913,7 @@ def ai_gateway_failover(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_backend_probe(
     backend: str,
     backend_url: str = "",
@@ -2936,7 +2936,7 @@ def get_ai_gateway_resource() -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def ai_spend_report(
     days: int | None = None,
     group_by: str = "server",
@@ -2977,10 +2977,9 @@ def get_ai_spend_resource() -> str:
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
-    from devops_cli.ai.rag.library_store import library_contracts_dir
-    from devops_cli.commands.ai_ingest import _load_local_contracts
+    from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_contracts
 
-    contracts = _load_local_contracts(library_contracts_dir())
+    contracts = load_local_contracts(library_contracts_dir())
     payload = [
         {
             "package_name": c.package_name,
@@ -3076,6 +3075,13 @@ def architecture_analysis_prompt(target: str = "src") -> str:
     return _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE.format(target=target)
 
 
+def _tool_read_only_hint(tool: Any) -> bool | None:
+    """Extract the read_only_hint boolean from a FastMCP tool's annotations."""
+    annotations = getattr(tool, "annotations", None)
+    raw = getattr(annotations, "read_only_hint", None) if annotations is not None else None
+    return raw if isinstance(raw, bool) else None
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return every tool registered on the FastMCP server, gated or not.
 
@@ -3089,6 +3095,7 @@ def list_mcp_tools() -> list[MCPToolInfo]:
         MCPToolInfo(
             name=t.name,
             description=t.description or MESSAGES.mcp.no_description_provided,
+            read_only_hint=_tool_read_only_hint(t),
         )
         for t in tools
     ]
@@ -3205,7 +3212,7 @@ def _notify_tool_list_changed(ctx: Context | None) -> None:
                 pass
 
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True})
 def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, Any]:
     """Advertise the tools for one domain, which are withheld from the listing by default.
 

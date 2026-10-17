@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from devops_cli.github.check_verdict import (
     CheckBucket,
     CheckVerdictSummary,
@@ -547,3 +549,54 @@ def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_empty() -> No
         verdict.is_passing,
         "empty response" in verdict.unread_reason,
     ) == (1, False, True)
+
+
+def _run(conclusion: str, started_at: str) -> dict[str, str]:
+    return {
+        "name": "Fail-to-Pass Check",
+        "status": "completed",
+        "conclusion": conclusion,
+        "started_at": started_at,
+    }
+
+
+@pytest.mark.parametrize(
+    ("runs", "passing"),
+    [
+        (
+            [_run("cancelled", "2026-10-16T23:01:07Z"), _run("success", "2026-10-16T23:01:38Z")],
+            True,
+        ),
+        ([_run("cancelled", "2026-10-16T23:01:07Z")], False),
+        (
+            [_run("success", "2026-10-16T23:01:07Z"), _run("cancelled", "2026-10-16T23:01:38Z")],
+            False,
+        ),
+        ([_run("failure", "2026-10-16T23:01:07Z"), _run("success", "2026-10-16T23:01:38Z")], False),
+    ],
+    ids=["replaced-cancel", "cancel-only", "cancel-after-pass", "failure-then-pass"],
+)
+def test_a_cancelled_run_a_newer_run_of_its_check_replaced_does_not_fail_the_pr(
+    runs: list[dict[str, str]], passing: bool
+) -> None:
+    """A workflow that cancels its in-progress run when a newer event starts it leaves the old
+    run, cancelled, beside the new one in the commit's check runs, which the REST API lists
+    across check suites. Only that run is dropped: a failure is never hidden."""
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha1599"}}), stderr=""),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"total_count": len(runs), "check_runs": runs}),
+                stderr="",
+            ),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"state": "success", "total_count": 0, "statuses": []}),
+                stderr="",
+            ),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(1599, repo="owner/repo", runner=mock_runner)
+    assert verdict.is_passing is passing

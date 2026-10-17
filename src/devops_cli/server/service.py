@@ -13,7 +13,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
@@ -511,6 +512,8 @@ def create_service_app(
     pause_reader = pause_until or no_round_pause
 
     _warn_missing_secrets(active_settings.service.repos, service_secrets)
+    for http_logger_name in ("httpx", "httpx2", "httpcore"):
+        logging.getLogger(http_logger_name).setLevel(logging.WARNING)
 
     manager = ServiceManager(
         config=active_settings.service,
@@ -556,9 +559,9 @@ def create_service_app(
 
     @app.get("/metrics")
     async def metrics() -> Response:
-        return PlainTextResponse(
-            GLOBAL_METRICS.export_prometheus_text(),
-            media_type="text/plain; version=0.0.4; charset=utf-8",
+        return Response(
+            content=generate_latest(GLOBAL_METRICS.registry),
+            media_type=CONTENT_TYPE_LATEST,
         )
 
     return app
