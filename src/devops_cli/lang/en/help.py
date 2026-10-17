@@ -1366,7 +1366,10 @@ class ReviewCommandHelp:
         "MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, "
         "dependencies and network references one line each that points at review.md."
     )
-    concurrency: str = "Max concurrent workers for parallel review."
+    concurrency: str = (
+        "Max concurrent workers for parallel review. Through the gateway it is capped at the "
+        "gateway's backend slots."
+    )
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
 

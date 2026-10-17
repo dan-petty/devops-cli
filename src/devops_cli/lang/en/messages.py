@@ -22,6 +22,9 @@ class ReviewMessages:
     stage_metadata: str = "Analyzing metadata across {count} file(s)..."
     stage_segment: str = "Reviewing {count} file(s)..."
     stage_compose: str = "Composing final review..."
+    gateway_concurrency_clamped: str = (
+        "--concurrency {requested} is above the gateway's {slots} backend slots; using {slots}"
+    )
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed}"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
     total_elapsed: str = "  total {elapsed}"

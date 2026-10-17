@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Generator
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 import httpx2
@@ -16,10 +17,13 @@ from devops_cli.ai.client.models import (
     provider_finish_reason,
 )
 from devops_cli.ai.client.network import (
+    acquire_gateway_slot,
     extract_served_by,
     reply_schema,
     request_limited_json,
     stream_served_by,
+    stream_slot_wait,
+    uses_gateway_slots,
 )
 from devops_cli.ai.client.streaming import _openai_stream_frame, _read_event_stream
 from devops_cli.config.constants import (
@@ -174,6 +178,16 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             ),
         )
 
+    def _gateway_slot(self) -> AbstractContextManager[float]:
+        """One of the gateway's backend slots for a gateway chat call, yielding the seconds spent
+        waiting for it; other providers take none and wait none.
+
+        The slot is held across the transport's own retries, so one logical call is one slot.
+        """
+        if uses_gateway_slots(self._config):
+            return acquire_gateway_slot()
+        return nullcontext(0.0)
+
     def _openai_compat_messages(
         self,
         system: str,
@@ -181,27 +195,29 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         *,
         enable_thinking: bool = True,
     ) -> LLMResponse:
-        start_time = time.monotonic()
         headers = inject_trace_context(self._openai_compat_headers())
         payload = self._build_compat_payload(system, messages, enable_thinking=enable_thinking)
-        try:
-            raw_json, reply_headers = request_limited_json(
-                self._shared_client(),
-                "POST",
-                f"{self._api_base()}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=self._request_timeout(),
-            )
-            wall_elapsed = time.monotonic() - start_time
-            served_by = extract_served_by(reply_headers)
-            return self._parse_compat_response(raw_json, wall_elapsed, served_by)
-        except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
-            raise self._connection_error(exc) from exc
-        except httpx2.HTTPError as exc:
-            raise self._provider_http_error(
-                exc, "Provider request failed. Check network access, API endpoint, and credentials."
-            ) from exc
+        with self._gateway_slot():
+            start_time = time.monotonic()
+            try:
+                raw_json, reply_headers = request_limited_json(
+                    self._shared_client(),
+                    "POST",
+                    f"{self._api_base()}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=self._request_timeout(),
+                )
+                wall_elapsed = time.monotonic() - start_time
+                served_by = extract_served_by(reply_headers)
+                return self._parse_compat_response(raw_json, wall_elapsed, served_by)
+            except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
+                raise self._connection_error(exc) from exc
+            except httpx2.HTTPError as exc:
+                raise self._provider_http_error(
+                    exc,
+                    "Provider request failed. Check network access, API endpoint, and credentials.",
+                ) from exc
 
     def _openai_compat_stream(
         self,
@@ -215,12 +231,15 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             system, messages, stream=True, enable_thinking=enable_thinking
         )
         try:
+            # A stream holds its gateway slot until the generator closes.
             with (
+                self._gateway_slot() as slot_wait,
                 self._create_http_client() as http_client,
                 http_client.stream(
                     "POST", f"{self._api_base()}/chat/completions", headers=headers, json=payload
                 ) as response,
             ):
+                stream_slot_wait.set(slot_wait)
                 if response.status_code >= 400:
                     response.read()
                 response.raise_for_status()

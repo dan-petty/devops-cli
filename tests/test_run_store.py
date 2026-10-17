@@ -335,6 +335,41 @@ def test_a_review_benchmark_can_review_without_static_scanners(
     )
 
 
+@pytest.mark.parametrize(("provider", "recorded"), [("gateway", 3), ("ollama", 8)])
+def test_a_review_benchmark_records_the_concurrency_its_reviews_ran_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str, recorded: int
+) -> None:
+    """Verify a benchmark's setup records the file workers its reviews ran with. Through the
+    gateway, `--concurrency 8` runs at the gateway's 3 backend slots, so benchmarks at 4, 8 and
+    16 record one setup; another provider runs and records the 8 asked for (#1354)."""
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "site.yaml").write_text("- hosts: all\n", encoding="utf-8")
+    requested: list[int | None] = []
+
+    def fake_review(**kwargs: Any) -> None:
+        requested.append(kwargs["concurrency"])
+        report_profile(
+            ReviewProfile(
+                session_id="s",
+                target=str(corpus),
+                total_wall_seconds=10,
+                stages=[StageProfile(name="persona_review", wall_seconds=5)],
+            )
+        )
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER", provider)
+    reset_settings_cache()
+    monkeypatch.setattr(run_store, "gateway_pool", lambda task: [])
+    monkeypatch.setattr(review_commands, "path", fake_review)
+    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
+
+    result = cli.invoke(review_commands.app, ["benchmark", str(corpus), "-n", "1", "-c", "8"])
+    (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
+
+    assert (result.exit_code, requested, record.setup["concurrency"]) == (0, [8], recorded)
+
+
 def test_prompt_evaluations_are_kept_and_json_output_stays_parseable(tmp_path: Path) -> None:
     """Verify a prompt evaluation is kept by dataset content, announcing on stderr under --json."""
     dataset = tmp_path / "feedback.jsonl"

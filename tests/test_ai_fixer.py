@@ -12,6 +12,7 @@ from pydantic_ai import RunContext
 from devops_cli.ai.output import TextOutput
 from devops_cli.ai.response_repair import (
     _JSON_FENCE,
+    FormattedLLMResponse,
     extract_tool_invocations,
     fix_llm_response,
     repair_json_string,
@@ -97,6 +98,20 @@ def test_extract_tool_invocations_function_style_in_thinking() -> None:
     assert fixed.tool_calls[0].tool_name == "security_intel_package"
     assert fixed.tool_calls[0].arguments.get("package_name") == "python-dotenv"
     assert fixed.was_repaired is True
+
+
+def test_a_repaired_reply_builds_no_model_class_of_its_own() -> None:
+    """Verify every repaired reply is a plain `FormattedLLMResponse`, with or without a schema.
+    A reply built as `FormattedLLMResponse[T]` made pydantic build a parametrized class that it
+    caches only weakly, so after a garbage collection the next reply rebuilt the class's whole
+    schema, about 30 ms of CPU per reply and much of a review persona call's own work (#1354)."""
+    raw = '```json\n{"name": "a", "count": 1}\n```'
+    replies = [fix_llm_response(raw), fix_llm_response(raw, schema=SampleModel)]
+
+    assert ({type(reply) for reply in replies}, replies[1].parsed_model) == (
+        {FormattedLLMResponse},
+        SampleModel(name="a", count=1),
+    )
 
 
 def test_fix_llm_response_strict_thinking_isolation() -> None:

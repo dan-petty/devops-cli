@@ -7,12 +7,14 @@ Tests:
 4. Fake transport answering 503: exactly max_retries + 1 sends per call (one retry layer).
 5. Closed-by-peer / cut connection: client connection pool holds no closed-by-peer connection.
 6. Slots config table defines DEFAULT_GATEWAY_REVIEW_SLOTS and sum equals DEFAULT_GATEWAY_REVIEW_CONCURRENCY.
+7. Six files of two personas over three Ollama URLs keep at most the slot sum in flight (#1354).
 """
 
 from __future__ import annotations
 
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,18 +22,23 @@ import httpx2
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai import context_budget
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.client.unified import LLMClient
+from devops_cli.ai.response_cache import reset_llm_response_cache
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
-from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.config.settings import AIConfig, Settings, reset_settings_cache
 from devops_cli.http.pool import close_expired_connections
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.telemetry.tracer import reset_tracer
+from tests.llm_stream_fakes import route_client
 
 runner = CliRunner()
 
@@ -402,3 +409,106 @@ class TestSingleRetryLayerAndStatusRules:
             ) == (6, "reviewed", None, [])
         finally:
             close_shared_clients()
+
+
+# How long the fake gateway below holds its first requests open for more to join them.
+_OVERLAP_WINDOW_SECONDS = 0.25
+
+
+class _OverlapGateway:
+    """A fake gateway that holds each request open until more requests than the slot sum are in
+    flight, or until `_OVERLAP_WINDOW_SECONDS` after the first request arrived, and counts them.
+
+    A review the limiter does not cover overfills the slots inside the window on every run, so
+    its peak is above the slot sum. A review it covers can never get there, so its requests wait
+    out the one shared window and then pass straight through, which keeps the run short.
+    """
+
+    def __init__(self, reply: dict[str, Any]) -> None:
+        self.reply = reply
+        self.in_flight = self.peak = self.calls = 0
+        self.window_closes: float | None = None
+        self.changed = threading.Condition()
+
+    def _overfilled(self) -> bool:
+        return self.peak > DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+
+    def answer(self, request: httpx2.Request) -> httpx2.Response:
+        """Count the request in flight and hold it until the slots overfill or the window closes."""
+        with self.changed:
+            self.in_flight += 1
+            self.calls += 1
+            self.peak = max(self.peak, self.in_flight)
+            if self.window_closes is None:
+                self.window_closes = time.monotonic() + _OVERLAP_WINDOW_SECONDS
+            self.changed.notify_all()
+            self.changed.wait_for(
+                self._overfilled, timeout=max(0.0, self.window_closes - time.monotonic())
+            )
+            self.in_flight -= 1
+        return httpx2.Response(200, json=self.reply, request=request)
+
+
+class TestGatewayRequestsStayWithinTheSlotSum:
+    """Verify a gateway review keeps its requests in flight at or under the backend slot sum."""
+
+    def test_six_files_of_two_personas_never_exceed_the_slot_sum(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify 12 persona calls over three Ollama URLs never have more than 3 requests in
+        flight, on a gateway that holds requests open until a fourth joins them. Two personas a
+        file overfill the slots without the limiter even once the file pool is 3, and without
+        both the review sends from 6 files at once."""
+        monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+        gateway = _OverlapGateway(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": '```json\n{"findings": []}\n```',
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            }
+        )
+        config = AIConfig(
+            provider="gateway",
+            gateway_url="http://example.com/v1",
+            model="devops-review",
+            ollama_urls=[f"http://example.com:{port}" for port in (11434, 11435, 11436)],
+            allow_private_network=True,
+        )
+        # Neither the spend ledger, the response cache, span export nor the tokenizer is under
+        # test, and their writes and first loads would dominate the run. Without the shared cache
+        # the suite sets up, the client builds the disabled one it asks for.
+        monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+        monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+        monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
+        reset_settings_cache()
+        reset_tracer()
+        reset_llm_response_cache()
+        client = LLMClient(config, cache_enabled=False)
+        route_client(client, monkeypatch, gateway.answer)
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id="test-gateway-slot-sum", llm_client=client, target_dir=tmp_path
+        )
+        paths = [f"file_{n}.py" for n in range(6)]
+        payloads = [
+            FileReviewPayload(file_path=path, metadata=FileAnalysisMeta(path=path))
+            for path in paths
+        ]
+
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={path: f"x_{n} = {n}\n" for n, path in enumerate(paths)},
+            personas=["devsecops", "architect"],
+        )
+
+        assert (gateway.peak, gateway.calls, orchestrator.errored_files) == (
+            min(gateway.peak, DEFAULT_GATEWAY_REVIEW_CONCURRENCY),
+            12,
+            {},
+        )

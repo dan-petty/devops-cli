@@ -89,6 +89,13 @@ AI_JSON_REPAIRS_TOTAL = Instrument(
     "1",
     "LLM JSON replies repaired after strict parsing failed, by entry point source",
 )
+AI_GATEWAY_SLOT_WAIT = Instrument(
+    "devops_cli_ai_gateway_slot_wait_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Time a chat call to the LLM gateway waited in this process for one of the gateway's backend "
+    "slots, by outcome: ok once it held one, or timeout",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -227,6 +234,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_SPEND_USD_TOTAL,
     AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     AI_JSON_REPAIRS_TOTAL,
+    AI_GATEWAY_SLOT_WAIT,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
@@ -282,6 +290,7 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
     "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
