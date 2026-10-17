@@ -1,0 +1,72 @@
+# Metric families the deployed Qdrant vector database serves (#823): names, types and label
+# names, never label values. tests/test_stack_dashboards.py checks llm-stack.json's Qdrant
+# panels against them.
+#
+# `families` lists every family exactly as its `# TYPE` line printed it, with its type and
+# the label names its samples carried.
+exporter: Qdrant vector database
+image: docker.io/qdrant/qdrant:v1.19.1
+chart: qdrant/qdrant 1.19.1
+captured: "2026-10-17"
+taken_from: >-
+  Qdrant v1.19.1's /metrics endpoint (configured with the chart's production.yaml settings:
+  cluster.enabled=true, telemetry_disabled=true, max_search_threads=2, and
+  QDRANT__SERVICE__API_KEY set), read in the plain text format (version 0.0.4) with
+  Authorization: Bearer after exercising the chart's collection creation, point upsert, and
+  vector search operations.
+scraped_by: >-
+  The qdrant ServiceMonitor (metrics.serviceMonitor in k8s/llm/values-qdrant.yaml), which
+  authenticates with Bearer credentials from Secret qdrant-api-key (key api-key) and is read
+  by Alloy (k8s-monitoring 4.5.2), which remote-writes to the Prometheus server.
+target_labels: [cluster, container, endpoint, instance, job, namespace, pod, service]
+families:
+  app_info: {type: gauge, labels: [name, version]}
+  app_status_recovery_mode: {type: gauge, labels: []}
+  cluster_commit: {type: counter, labels: [peer_id]}
+  cluster_enabled: {type: gauge, labels: []}
+  cluster_last_update_timestamp_seconds: {type: counter, labels: []}
+  cluster_peers_total: {type: gauge, labels: []}
+  cluster_pending_operations_total: {type: gauge, labels: []}
+  cluster_term: {type: counter, labels: []}
+  cluster_voter: {type: gauge, labels: []}
+  cluster_working_state: {type: gauge, labels: [state]}
+  collection_active_replicas_max: {type: gauge, labels: []}
+  collection_active_replicas_min: {type: gauge, labels: []}
+  collection_dead_replicas: {type: gauge, labels: []}
+  collection_hardware_metric_cpu: {type: counter, labels: [id]}
+  collection_hardware_metric_payload_index_io_read: {type: counter, labels: [id]}
+  collection_hardware_metric_payload_index_io_write: {type: counter, labels: [id]}
+  collection_hardware_metric_payload_io_read: {type: counter, labels: [id]}
+  collection_hardware_metric_payload_io_write: {type: counter, labels: [id]}
+  collection_hardware_metric_vector_io_read: {type: counter, labels: [id]}
+  collection_hardware_metric_vector_io_write: {type: counter, labels: [id]}
+  collection_indexed_only_excluded_points: {type: gauge, labels: [id, vector]}
+  collection_points: {type: gauge, labels: [id]}
+  collection_running_optimizations: {type: gauge, labels: [id]}
+  collection_shard_transfer_incoming: {type: gauge, labels: [id]}
+  collection_shard_transfer_outgoing: {type: gauge, labels: [id]}
+  collection_update_queue_deferred_points: {type: gauge, labels: [id]}
+  collection_update_queue_length: {type: gauge, labels: [id]}
+  collection_vectors: {type: gauge, labels: [collection, vector]}
+  collections_total: {type: gauge, labels: []}
+  collections_vector_total: {type: gauge, labels: []}
+  memory_active_bytes: {type: gauge, labels: []}
+  memory_allocated_bytes: {type: gauge, labels: []}
+  memory_metadata_bytes: {type: gauge, labels: []}
+  memory_resident_bytes: {type: gauge, labels: []}
+  memory_retained_bytes: {type: gauge, labels: []}
+  process_major_page_faults_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_minor_page_faults_total: {type: counter, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_open_mmaps: {type: gauge, labels: []}
+  process_threads: {type: gauge, labels: []}
+  rest_responses_avg_duration_seconds: {type: gauge, labels: [endpoint, method, status]}
+  rest_responses_duration_seconds: {type: histogram, labels: [endpoint, method, status]}
+  rest_responses_max_duration_seconds: {type: gauge, labels: [endpoint, method, status]}
+  rest_responses_min_duration_seconds: {type: gauge, labels: [endpoint, method, status]}
+  rest_responses_total: {type: counter, labels: [endpoint, method, status]}
+  snapshot_created_total: {type: counter, labels: [id]}
+  snapshot_creation_running: {type: gauge, labels: [id]}
+  snapshot_recovery_running: {type: gauge, labels: [id]}
+  system_max_mmaps: {type: gauge, labels: []}

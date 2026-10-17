@@ -80,6 +80,7 @@ def test_qdrant_helm_values_security() -> None:
     # never reached the pod (#953).
     container_sec_ctx = data["containerSecurityContext"]
     pod_sec_ctx = data["podSecurityContext"]
+    monitor = data.get("metrics", {}).get("serviceMonitor", {})
     assert (
         "securityContext" in data,
         container_sec_ctx.get("runAsNonRoot"),
@@ -91,6 +92,8 @@ def test_qdrant_helm_values_security() -> None:
         container_sec_ctx.get("seccompProfile", {}).get("type"),
         container_sec_ctx.get("runAsGroup"),
         pod_sec_ctx.get("runAsNonRoot"),
+        monitor.get("enabled"),
+        monitor.get("authorization"),
     ) == (
         False,
         True,
@@ -102,6 +105,14 @@ def test_qdrant_helm_values_security() -> None:
         "RuntimeDefault",
         pod_sec_ctx["runAsGroup"],
         True,
+        True,
+        {
+            "type": "Bearer",
+            "credentials": {
+                "name": "qdrant-api-key",
+                "key": "api-key",
+            },
+        },
     )
 
 
