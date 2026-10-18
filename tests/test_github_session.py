@@ -41,10 +41,12 @@ from devops_cli.github.session import GitHubSession, get_github_session, reset_g
 from devops_cli.http.egress import EgressLevel
 from tests.github_session_fakes import (
     API,
+    JSON_TYPE,
     GitHubApiFake,
     github_json,
     github_redirect,
     github_text,
+    next_page,
     quota_headers,
 )
 from tests.web_fakes import rebinding, scripted_resolver
@@ -640,3 +642,163 @@ def test_the_fake_github_api_and_stub_web_refuse_to_share_a_test(
     """Both fake `httpx2.AsyncClient`, so a test asking for both fails instead of one winning."""
     with pytest.raises(RuntimeError, match=r"both fake httpx2\.AsyncClient"):
         request.getfixturevalue("stub_web")
+
+
+# ── Pagination (#983) ────────────────────────────────────────────────────────────────────────────
+
+_ISSUES = "/repos/octo/repo/issues?state=all&per_page=2"
+
+# How GitHub links one page to the next: by page number, or by an opaque cursor.
+_LINK_STYLES = {
+    "page-links": (
+        "/repositories/1/issues?state=all&per_page=2&page=2",
+        "/repositories/1/issues?state=all&per_page=2&page=3",
+    ),
+    "cursor-links": (
+        "/repositories/1/issues?per_page=2&after=Y3Vyc29yOjI",
+        "/repositories/1/issues?per_page=2&after=Y3Vyc29yOjQ",
+    ),
+}
+
+
+def _page(
+    items: list[Any], iterable_key: str | None, *, next_url: str | None = None
+) -> httpx2.Response:
+    """One page of a listing: a plain array, or an object holding it under `iterable_key`."""
+    payload: Any = items if iterable_key is None else {"total_count": 5, iterable_key: items}
+    return github_json(payload, headers=next_page(next_url) if next_url else None)
+
+
+@pytest.mark.parametrize("links", sorted(_LINK_STYLES))
+@pytest.mark.parametrize("iterable_key", [None, "check_runs", "workflow_runs", "items"])
+def test_linked_pages_yield_one_flat_sequence(
+    github_api: GitHubApiFake, links: str, iterable_key: str | None
+) -> None:
+    """Three pages linked by `rel="next"`, by page or by cursor, read as one listing of items."""
+    second, third = _LINK_STYLES[links]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}, {"id": 2}], iterable_key, next_url=second))
+    github_api.route("GET", second, _page([{"id": 3}, {"id": 4}], iterable_key, next_url=third))
+    github_api.route("GET", third, _page([{"id": 5}], iterable_key))
+    items = list(get_github_session().paginate(_ISSUES, iterable_key=iterable_key))
+    assert (items, github_api.requested) == (
+        [{"id": n} for n in range(1, 6)],
+        [f"GET {API}{_ISSUES}", f"GET {API}{second}", f"GET {API}{third}"],
+    )
+
+
+def test_a_short_listing_is_one_request(github_api: GitHubApiFake) -> None:
+    """A page without `rel="next"` is the last one."""
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None))
+    assert (list(get_github_session().paginate(_ISSUES)), len(github_api.sent)) == ([{"id": 1}], 1)
+
+
+def test_an_empty_page_ends_the_listing(github_api: GitHubApiFake) -> None:
+    """`[]` ends a listing, even when GitHub still links a next page."""
+    github_api.route("GET", _ISSUES, _page([], None, next_url=_LINK_STYLES["page-links"][0]))
+    assert (list(get_github_session().paginate(_ISSUES)), len(github_api.sent)) == ([], 1)
+
+
+def test_a_consumer_that_stops_after_the_first_item_sends_one_request(
+    github_api: GitHubApiFake,
+) -> None:
+    """Pages are read as the consumer asks for items, so one that stops early asks for no more."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}, {"id": 2}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 3}], None))
+    first = next(iter(get_github_session().paginate(_ISSUES)))
+    assert (first, len(github_api.sent)) == ({"id": 1}, 1)
+
+
+def test_a_listing_that_runs_past_the_page_cap_fails_closed(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `rel="next"` chain that never ends stops at the page cap, read when the listing runs,
+    and raises naming the endpoint and the cap instead of reading forever."""
+    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    second, third = _LINK_STYLES["page-links"]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], None, next_url=third))
+    github_api.route("GET", third, _page([{"id": 3}], None, next_url=second))
+    read: list[Any] = []
+    with pytest.raises(GitHubUnreadError) as raised:
+        read.extend(get_github_session().paginate(_ISSUES))
+    details = raised.value.details
+    assert (
+        read,
+        len(github_api.sent),
+        details["path"],
+        details["max_pages"],
+        "runs past 2 pages" in str(raised.value),
+    ) == ([{"id": 1}, {"id": 2}], 2, _ISSUES, 2, True)
+
+
+def test_a_listing_of_exactly_the_page_cap_reads_every_page(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A listing whose last page falls on the cap is read whole."""
+    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], None))
+    items = list(get_github_session().paginate(_ISSUES))
+    assert (items, len(github_api.sent)) == ([{"id": 1}, {"id": 2}], 2)
+
+
+def test_a_link_to_another_origin_is_refused_before_it_is_sent(github_api: GitHubApiFake) -> None:
+    """A `Link` naming another origin is refused by the origin hook, so the token never goes
+    there: the transport sees no request to it."""
+    github_api.route(
+        "GET",
+        _ISSUES,
+        _page([{"id": 1}], None, next_url="https://example.com/repos/octo/repo/issues?page=2"),
+    )
+    read: list[Any] = []
+    with pytest.raises(GitHubUnreadError) as raised:
+        read.extend(get_github_session().paginate(_ISSUES))
+    assert (read, github_api.requested, "https://example.com:443" in str(raised.value)) == (
+        [{"id": 1}],
+        [f"GET {API}{_ISSUES}"],
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("second_page", "iterable_key"),
+    [
+        pytest.param(
+            httpx2.Response(
+                200, headers={"content-type": "text/html; charset=utf-8"}, content=b"<html></html>"
+            ),
+            None,
+            id="html",
+        ),
+        pytest.param(github_json({"message": "Server Error"}), None, id="error-object"),
+        pytest.param(
+            github_json({"message": "Server Error"}), "check_runs", id="error-object-wrapped"
+        ),
+        pytest.param(
+            httpx2.Response(200, headers={"content-type": JSON_TYPE}, content=b'[{"id": 3'),
+            None,
+            id="truncated",
+        ),
+        pytest.param(httpx2.Response(200, headers={"content-type": JSON_TYPE}), None, id="empty"),
+    ],
+)
+def test_a_page_that_is_no_list_of_items_fails_closed(
+    github_api: GitHubApiFake, second_page: httpx2.Response, iterable_key: str | None
+) -> None:
+    """A page that is not the listing's array raises `GitHubUnreadError` naming the endpoint and
+    the page, rather than a string's characters or a dict's keys being read as items."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], iterable_key, next_url=second))
+    github_api.route("GET", second, second_page)
+    read: list[Any] = []
+    with pytest.raises(GitHubUnreadError) as raised:
+        read.extend(get_github_session().paginate(_ISSUES, iterable_key=iterable_key))
+    details = raised.value.details
+    assert (read, details["path"], details["page"], "page 2" in str(raised.value)) == (
+        [{"id": 1}],
+        _ISSUES,
+        2,
+        True,
+    )

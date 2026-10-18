@@ -46,17 +46,22 @@ _OPERATION: Final[str] = "github_request"
 
 @dataclass(frozen=True, slots=True)
 class FailedRequest:
-    """The request a failure answered: its method and its path on GitHub's API."""
+    """The request a failure answered: its method, its path on GitHub's API and, for a listing
+    read page by page, the page."""
 
     method: str
     path: str
+    page: int | None = None
 
     def __str__(self) -> str:
-        return f"{self.method} {self.path}"[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        page = "" if self.page is None else f" (page {self.page})"
+        return f"{self.method} {self.path[:CONST_MAX_ERROR_DETAIL_LENGTH]}{page}"
 
     def details(self, error: HTTPException | None = None) -> dict[str, Any]:
-        """The path, bounded, and the HTTP status when GitHub answered."""
-        bounded = {"path": self.path[:CONST_MAX_ERROR_DETAIL_LENGTH]}
+        """The path, bounded, the page of a listing, and the HTTP status when GitHub answered."""
+        bounded: dict[str, Any] = {"path": self.path[:CONST_MAX_ERROR_DETAIL_LENGTH]}
+        if self.page is not None:
+            bounded["page"] = self.page
         return bounded if error is None else {**bounded, "status": int(error.status_code)}
 
 
@@ -171,10 +176,13 @@ _HTTP_CLASSES: Final[tuple[tuple[Callable[[HTTPException], bool], _Classifier], 
 )
 
 
-def classify_http_error(error: Exception, *, method: str, path: str) -> GitHubOperationError:
-    """The project's error for a failed request: by gidgethub's exception type, status and
-    headers for an answer, and `GitHubUnreadError` when no answer could be read."""
-    request = FailedRequest(method, path)
+def classify_http_error(
+    error: Exception, *, method: str, path: str, page: int | None = None
+) -> GitHubOperationError:
+    """The project's error for a failed request, or for one page of a listing: by gidgethub's
+    exception type, status and headers for an answer, and `GitHubUnreadError` when no answer
+    could be read."""
+    request = FailedRequest(method, path, page)
     if not isinstance(error, HTTPException):
         return GitHubUnreadError(
             f"GitHub gave no readable answer to {request}: {type(error).__name__}",
@@ -195,6 +203,31 @@ def refused_retry(
         subcommand=str(refusal.details.get("subcommand", DEFAULT_GH_RESOURCE)),
         operation=_OPERATION,
         details={**refusal.details, "operation": _OPERATION, **request.details(error)},
+    )
+
+
+def unlisted_page(
+    answer: Any, *, path: str, page: int, iterable_key: str | None
+) -> GitHubUnreadError:
+    """The error for a page of a listing that holds no list of items: not a JSON array, or not an
+    object holding one under `iterable_key`. Its type is named, never its text."""
+    request = FailedRequest("GET", path, page)
+    expected = (
+        "a JSON array" if iterable_key is None else f"an object with a list at {iterable_key!r}"
+    )
+    return GitHubUnreadError(
+        f"GitHub's answer to {request} is {type(answer).__name__}, not {expected}",
+        details=request.details(),
+    )
+
+
+def listing_past_page_cap(*, path: str, max_pages: int) -> GitHubUnreadError:
+    """The error for a listing still linking a next page after `max_pages` pages: a chain that
+    never ends is read no further, and the listing is never taken as whole."""
+    request = FailedRequest("GET", path)
+    return GitHubUnreadError(
+        f"The listing at {request} runs past {max_pages} pages, so the read can't complete",
+        details={**request.details(), "max_pages": max_pages},
     )
 
 

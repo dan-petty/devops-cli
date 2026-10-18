@@ -5,15 +5,17 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from typing import Any
+from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +108,10 @@ _EVERY_ISSUE = 100_000
 
 
 def _filter_rest_issues(
-    raw_list: list[Any], milestone: str | None, limit: int | None
+    raw_list: Iterable[Any], milestone: str | None, limit: int | None
 ) -> list[GitHubIssue]:
-    """Filter raw REST issue dictionaries into typed GitHubIssue objects."""
+    """Filter raw REST issue dictionaries into typed GitHubIssue objects, reading no more of
+    `raw_list` once `limit` issues are kept."""
     issues: list[GitHubIssue] = []
     for item in raw_list:
         if not isinstance(item, dict) or "pull_request" in item or "number" not in item:
@@ -129,22 +132,17 @@ def _fetch_issues_rest(
     labels: list[str] | None = None,
     limit: int | None = 30,
 ) -> list[GitHubIssue]:
-    """Retrieve every page of issues via the REST API when gh issue list fails.
+    """Read issues page by page through the GitHub session when gh issue list fails, until
+    `limit` are kept.
 
-    Raises when this read fails too, so a failure never looks like a repository with no issues.
+    Raises when this read fails too, or a page holds no list of issues, so a failure never looks
+    like a repository with no issues.
     """
-    api_path = f"repos/{repo}/issues?state={state}&per_page=100"
+    query = {"state": state, "per_page": DEFAULT_GH_REST_PER_PAGE}
     if labels:
-        api_path += f"&labels={','.join(labels)}"
-    res = run_gh([CONST_GH_CLI, "api", "--paginate", api_path], check=False, quiet=True)
-    if res.returncode != 0:
-        err_output = f"{res.stderr or ''} {res.stdout or ''}".strip()
-        raise GitHubOperationError(
-            f"Failed to read issues for {repo} (exit {res.returncode}): {err_output[:256]}",
-            operation="fetch_issues",
-            details={"repo": repo, "state": state},
-        )
-    return _filter_rest_issues(parse_paginated_json(res.stdout or ""), milestone, limit)
+        query["labels"] = ",".join(labels)
+    listing = get_github_session().paginate(f"/repos/{repo}/issues?{urlencode(query)}")
+    return _filter_rest_issues(listing, milestone, limit)
 
 
 def get_repository_issues(
@@ -363,18 +361,8 @@ def _is_trivial_milestone(milestone: str | int | None) -> bool:
     return not cleaned or cleaned in ("none", "null", "clear", "0")
 
 
-def _parse_milestones_response(stdout: str) -> list[dict[str, Any]]:
-    """Parse JSON milestone list from paginated or standard response."""
-    try:
-        from devops_cli.github.client import parse_paginated_json
-
-        return parse_paginated_json(stdout)
-    except Exception:
-        return json.loads(stdout) if stdout.startswith("[") else []
-
-
-def _find_milestone_match(items: list[dict[str, Any]], cleaned: str) -> int | None:
-    """Find matching milestone integer number from parsed API items."""
+def _find_milestone_match(items: Iterable[Any], cleaned: str) -> int | None:
+    """Find matching milestone integer number from API items, reading no further once found."""
     candidates = {cleaned, cleaned.lstrip("v"), f"v{cleaned.lstrip('v')}"}
     for m in items:
         if isinstance(m, dict) and m.get("title") in candidates and "number" in m:
@@ -392,22 +380,9 @@ def _resolve_milestone_number(repo: str, milestone: str | int | None) -> int | N
     if cleaned.isdigit():
         return int(cleaned)
 
-    cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{repo}/milestones?state=all&per_page=100",
-    ]
-    res = run_gh(cmd, check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout:
-        raise GitHubOperationError(
-            f"Failed to query milestones for repository {repo}",
-            operation="resolve_milestone",
-            details={"repo": repo, "milestone": cleaned[:256]},
-        )
-
-    items = _parse_milestones_response(res.stdout)
-    matched = _find_milestone_match(items, cleaned)
+    query = urlencode({"state": "all", "per_page": DEFAULT_GH_REST_PER_PAGE})
+    milestones = get_github_session().paginate(f"/repos/{repo}/milestones?{query}")
+    matched = _find_milestone_match(milestones, cleaned)
     if matched is not None:
         return matched
 

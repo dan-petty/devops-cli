@@ -59,6 +59,13 @@ def github_redirect(location: str, *, status: int = 301) -> httpx2.Response:
     return httpx2.Response(status, headers={"location": location})
 
 
+def next_page(url: str) -> dict[str, str]:
+    """The `Link` header GitHub sends with a page that has a next one, at `url` (or a path under
+    the API), beside the link to the last page."""
+    target = httpx2.URL(API).join(url)
+    return {"link": f'<{target}>; rel="next", <{target.copy_with(query=b"page=99")}>; rel="last"'}
+
+
 def quota_headers(
     remaining: int, *, resource: str = "core", limit: int = 5000, reset_in: float = 600.0
 ) -> dict[str, str]:
