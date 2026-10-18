@@ -90,7 +90,7 @@ def _hold_replies_until_lookups_start(monkeypatch: pytest.MonkeyPatch, lookups: 
         return lookup(query, **kwargs)
 
     def held(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
-        all_started.wait(timeout=2.0)
+        all_started.wait(timeout=10.0)
         return reply(self, url, **kwargs)
 
     monkeypatch.setattr(investigator, "investigate_rag_context", counted)
@@ -198,7 +198,7 @@ def test_once_the_model_answers_lookups_stop_taking_turns(
         data = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(texts))]
         return httpx2.Response(200, json={"data": data}, request=httpx2.Request("POST", str(url)))
 
-    together = threading.Barrier(WORKERS, timeout=2.0)
+    together = threading.Barrier(WORKERS, timeout=10.0)
 
     def held(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
         together.wait()

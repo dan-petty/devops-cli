@@ -188,31 +188,6 @@ class TestPydanticAIRetriesSubsystem:
         r_model = normalize_agent_retries(model_retries)
         assert r_model == {"tools": 5, "output": 3}
 
-    def test_package_reexports(self) -> None:
-        """Verify retries symbols are re-exported across package tiers."""
-        import devops_cli.ai
-        import devops_cli.ai.agents
-        import devops_cli.ai.agents.pydantic_agent
-
-        expected_symbols = (
-            "HTTPX2TenacityTransport",
-            "AsyncHTTPX2TenacityTransport",
-            "TenacityTransport",
-            "AsyncTenacityTransport",
-            "RetryConfig",
-            "wait_retry_after",
-            "create_retry_config",
-            "create_retry_transport",
-            "create_async_retry_transport",
-            "normalize_agent_retries",
-        )
-        for pkg in (
-            devops_cli.ai,
-            devops_cli.ai.agents,
-            devops_cli.ai.agents.pydantic_agent,
-        ):
-            assert all(hasattr(pkg, s) for s in expected_symbols)
-
     def test_httpx2_tenacity_transport_retries_on_http_524(self) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on Cloudflare HTTP 524 gateway timeout."""
         attempts = 0

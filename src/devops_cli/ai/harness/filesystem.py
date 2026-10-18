@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import DEFAULT_PROTECTED_PATTERNS
 from devops_cli.core.repo import is_ignored_by_git
 

@@ -29,8 +29,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.analyze.symbols import (

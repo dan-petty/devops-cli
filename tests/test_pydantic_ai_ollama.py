@@ -249,10 +249,7 @@ def test_pydantic_agent_with_ollama_model() -> None:
 
 
 def test_public_package_reexports() -> None:
-    """Verify Ollama models and helper functions are re-exported across public package tiers."""
-    import devops_cli.ai as ai
-    import devops_cli.ai.agents as agents
-    import devops_cli.ai.agents.pydantic_agent as pydantic_agent
+    """Verify Ollama models and helper functions are re-exported in ai.models."""
     import devops_cli.ai.models as models
     import devops_cli.ai.models.ollama as ollama
 
@@ -264,9 +261,3 @@ def test_public_package_reexports() -> None:
         assert hasattr(pkg, "normalize_ollama_base_url")
         assert hasattr(pkg, "is_ollama_cloud")
         assert hasattr(pkg, "get_recommended_output_mode")
-
-    for pkg in (ai, agents, pydantic_agent):
-        assert hasattr(pkg, "OllamaModel")
-        assert hasattr(pkg, "OllamaProvider")
-        assert hasattr(pkg, "create_ollama_model")
-        assert hasattr(pkg, "create_ollama_provider")

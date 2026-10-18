@@ -123,7 +123,8 @@ from devops_cli.ai.review_schema import Finding
   - `devops_cli.ai.agents.tools.MCPToolset`: Connects external Model Context Protocol servers as native callable agent tools.
 
 ```python
-from devops_cli.ai.agents import PydanticAgent, AgentTool, MCPToolset
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.tools import AgentTool, MCPToolset
 
 async with MCPToolset(url="http://localhost:8000/sse") as mcp:
     agent = PydanticAgent(

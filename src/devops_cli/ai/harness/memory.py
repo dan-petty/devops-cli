@@ -12,13 +12,10 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentTool,
-    BaseCapability,
-    RunContext,
-    Tool,
-)
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.config.constants import CONST_SQLITE_PER_CONNECTION_DATABASES
 from devops_cli.exceptions.ai import HarnessExecutionError, HarnessValidationError
 

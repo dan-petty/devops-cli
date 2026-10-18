@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.spend import (
     BudgetExceededError,
     ModelPricing,
-    RunContext,
     Spend,
     SpendGuard,
     SpendUsage,

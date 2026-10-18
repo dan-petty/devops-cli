@@ -33,7 +33,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.mcp.server import code_review_prompt
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.classification import (

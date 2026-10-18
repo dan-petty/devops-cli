@@ -275,36 +275,3 @@ def test_pydantic_agent_structured_dict_execution() -> None:
     assert isinstance(result.data, dict)
     assert result.data.get("status") == "ok"
     assert result.data.get("code") == 200
-
-
-def test_public_reexports_in_ai_and_agents() -> None:
-    """Verify output symbols are re-exported in devops_cli.ai and devops_cli.ai.agents."""
-    import devops_cli.ai as ai
-    import devops_cli.ai.agents as agents
-    import devops_cli.ai.agents.pydantic_agent as pydantic_agent
-
-    # devops_cli.ai
-    assert hasattr(ai, "ToolOutput")
-    assert hasattr(ai, "NativeOutput")
-    assert hasattr(ai, "PromptedOutput")
-    assert hasattr(ai, "TextOutput")
-    assert hasattr(ai, "StructuredDict")
-    assert hasattr(ai, "build_output_spec")
-    assert hasattr(ai, "unwrap_output_spec")
-    assert hasattr(ai, "extract_output_json_schema")
-    assert hasattr(ai, "get_review_output_spec")
-
-    # devops_cli.ai.agents
-    assert hasattr(agents, "ToolOutput")
-    assert hasattr(agents, "NativeOutput")
-    assert hasattr(agents, "PromptedOutput")
-    assert hasattr(agents, "TextOutput")
-    assert hasattr(agents, "StructuredDict")
-    assert hasattr(agents, "build_output_spec")
-
-    # devops_cli.ai.agents.pydantic_agent
-    assert hasattr(pydantic_agent, "ToolOutput")
-    assert hasattr(pydantic_agent, "NativeOutput")
-    assert hasattr(pydantic_agent, "PromptedOutput")
-    assert hasattr(pydantic_agent, "TextOutput")
-    assert hasattr(pydantic_agent, "StructuredDict")

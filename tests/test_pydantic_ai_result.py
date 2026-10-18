@@ -136,18 +136,3 @@ class TestPydanticAIResultSubsystem:
         final_res = resp.to_final_result()
         assert isinstance(final_res, FinalResult)
         assert final_res.output == data
-
-    def test_package_reexports(self) -> None:
-        """Verify result classes and functions are cleanly re-exported across public tiers."""
-        import devops_cli.ai as ai_pkg
-        import devops_cli.ai.agents as agents_pkg
-        import devops_cli.ai.agents.pydantic_agent as pa_module
-
-        for mod in (ai_pkg, agents_pkg, pa_module):
-            assert hasattr(mod, "RunUsage")
-            assert hasattr(mod, "FinalResult")
-            assert hasattr(mod, "StreamedRunResult")
-            assert hasattr(mod, "StreamedRunResultSync")
-            assert hasattr(mod, "create_run_usage")
-            assert hasattr(mod, "calculate_usage_cost")
-            assert hasattr(mod, "to_agent_response")

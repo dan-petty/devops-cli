@@ -112,31 +112,3 @@ class TestPydanticAIRunSubsystem:
         assert resp.backend_info == "openai:gpt-4o"
         assert resp.usage.input_tokens == 250
         assert resp.usage.output_tokens == 75
-
-    def test_package_reexports(self) -> None:
-        """Verify run symbols are re-exported across package tiers."""
-        import devops_cli.ai
-        import devops_cli.ai.agents
-        import devops_cli.ai.agents.pydantic_agent
-
-        for pkg in (
-            devops_cli.ai,
-            devops_cli.ai.agents,
-            devops_cli.ai.agents.pydantic_agent,
-        ):
-            assert hasattr(pkg, "AgentRun")
-            assert hasattr(pkg, "AgentRunResult")
-            assert hasattr(pkg, "AgentRunResultEvent")
-            assert hasattr(pkg, "BaseNode")
-            assert hasattr(pkg, "End")
-            assert hasattr(pkg, "EndMarker")
-            assert hasattr(pkg, "ErrorMarker")
-            assert hasattr(pkg, "GraphRun")
-            assert hasattr(pkg, "GraphRunContext")
-            assert hasattr(pkg, "GraphTaskRequest")
-            assert hasattr(pkg, "JoinItem")
-            assert hasattr(pkg, "NodeStep")
-            assert hasattr(pkg, "PendingMessage")
-            assert hasattr(pkg, "get_active_traceparent")
-            assert hasattr(pkg, "create_pending_message")
-            assert hasattr(pkg, "format_run_summary")

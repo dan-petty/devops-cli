@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from devops_cli.ai.agents import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.harness import (
     Coder,
     FileSystem,
@@ -664,7 +664,7 @@ def test_planning_subtasks_and_dependencies() -> None:
 def test_planning_hooks_and_options() -> None:
     import pytest
 
-    from devops_cli.ai.agents.pydantic_agent import RunContext
+    from devops_cli.ai.agents.context import RunContext
     from devops_cli.ai.harness import InMemoryPlanStore, PlanItem, Planning
     from devops_cli.models.ai import ChatMessage
 

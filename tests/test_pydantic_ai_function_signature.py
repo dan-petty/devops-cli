@@ -10,7 +10,7 @@ import pytest
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext, Tool
 
-from devops_cli.ai.agents import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.tools import AgentTool
 from devops_cli.ai.function_signature import (
     FunctionParam,
@@ -202,25 +202,6 @@ def test_get_tool_signatures_batch() -> None:
     assert len(sigs) == 2
     assert sigs[0].name == "sample_scan"
     assert sigs[1].name == "sample_async_remediate"
-
-
-def test_public_package_reexports() -> None:
-    """Verify function_signature types and helpers are re-exported across package tiers."""
-    import devops_cli.ai as ai
-    import devops_cli.ai.agents as agents
-    import devops_cli.ai.agents.pydantic_agent as pydantic_agent
-
-    assert hasattr(ai, "FunctionSignature")
-    assert hasattr(ai, "FunctionParam")
-    assert hasattr(ai, "TypeSignature")
-    assert hasattr(ai, "signature_from_tool")
-    assert hasattr(ai, "signature_from_callable")
-    assert hasattr(ai, "render_signatures")
-    assert hasattr(ai, "render_tool_interface")
-
-    assert hasattr(agents, "FunctionSignature")
-    assert hasattr(agents, "FunctionParam")
-    assert hasattr(pydantic_agent, "FunctionSignature")
 
 
 def test_signature_from_schema_async() -> None:

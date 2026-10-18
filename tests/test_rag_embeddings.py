@@ -401,7 +401,7 @@ async def test_ollama_embedding_model_properties_and_embed(
 
 def test_embeddings_engine_to_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify EmbeddingsEngine.to_embedder returns an operational Pydantic AI Embedder."""
-    from devops_cli.ai.agents import Embedder
+    from devops_cli.ai.agents.embeddings import Embedder
 
     monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", _fixed_vectors(512, 0.3))
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])

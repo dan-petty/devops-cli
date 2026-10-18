@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.agents import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.ext_langchain import LangChainToolset, tool_from_langchain
 
 

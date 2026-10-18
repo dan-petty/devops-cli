@@ -16,7 +16,8 @@ from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.agents.pydantic_agent import BaseCapability, PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.governance import TokenBucketGovernance, TokenBudgetConfig

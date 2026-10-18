@@ -701,14 +701,14 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 51
+DEFAULT_C901_SUPPRESSION_CEILING: int = 49
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
 DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 91,
+    "src type: ignore": 89,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
     "src noqa: F401": 22,

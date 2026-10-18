@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.prompt import (
     GLOBAL_PROMPT_REGISTRY,
     ManagedPrompt,
     PromptRegistry,
-    RunContext,
 )
 
 
