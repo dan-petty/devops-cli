@@ -18,24 +18,28 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_PROJECT_TEMPLATE_PATH
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_PROJECT_TEMPLATE_PATH,
+    CONST_URL_GITHUB_API_BASE,
+)
 from devops_cli.config.defaults import (
-    DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
     DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
+    DEFAULT_GH_REST_PER_PAGE,
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
     run_gh,
 )
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
     BoardBudgetPayload,
@@ -722,29 +726,27 @@ def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str,
     return options
 
 
-def _repository_list_args(repo: str, kind: str, state: str) -> list[str]:
-    """Every page of `repo`'s issues or pull requests in `state`, as one `gh api --paginate`."""
-    return [
-        "api",
-        "--paginate",
-        f"repos/{repo}/{kind}?state={state}&per_page=100",
-        "-H",
-        "Accept: application/vnd.github+json",
-    ]
+def _repository_list_path(repo: str, kind: str, state: str) -> str:
+    """The REST listing of `repo`'s issues or pull requests in `state`, a full page at a time."""
+    return f"/repos/{repo}/{kind}?state={state}&per_page={DEFAULT_GH_REST_PER_PAGE}"
 
 
 def _fetch_repository_list(repo: str, kind: str, state: str) -> list[dict[str, Any]]:
-    """Fetch every page of a repository's issues or pull requests, raising if GitHub can't be read."""
-    res = run_gh(
-        [CONST_GH_CLI, *_repository_list_args(repo, kind, state)],
-        check=False,
-        quiet=True,
-        use_cache=True,
-        cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
+    """Read every linked page of a repository's issues or pull requests through the GitHub
+    session, raising when a page can't be read or holds no list."""
+    return list(get_github_session().paginate(_repository_list_path(repo, kind, state)))
+
+
+def _planned_listing(repo: str, kind: str, state: str) -> PlannedRequest:
+    """The session's read of one repository listing, as a dry run lists it."""
+    url = f"{CONST_URL_GITHUB_API_BASE}{_repository_list_path(repo, kind, state)}"
+    return PlannedRequest(
+        method="GET",
+        target=url,
+        repeat=MESSAGES.project.request_repeat_listing.format(
+            max_pages=DEFAULT_GH_MAX_PAGINATED_PAGES
+        ),
     )
-    if res.returncode != 0:
-        raise _read_failure(res, f"{kind} for {repo}", f"fetch_{kind}")
-    return parse_paginated_json(res.stdout or "")
 
 
 def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
@@ -1120,14 +1122,8 @@ def reconcile_dry_run(
                 repeat=MESSAGES.roadmap.plan_repeat_board_page,
             ),
             planned_gh(field_list_args(login, board), targets["fields"].format(board=board)),
-            planned_gh(
-                _repository_list_args(repo, "issues", state),
-                targets["issues"].format(state=state, repo=repo),
-            ),
-            planned_gh(
-                _repository_list_args(repo, "pulls", state),
-                targets["pulls"].format(state=state, repo=repo),
-            ),
+            _planned_listing(repo, "issues", state),
+            _planned_listing(repo, "pulls", state),
         ]
     )
     if writes:

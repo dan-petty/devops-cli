@@ -273,31 +273,6 @@ class GitHubClient:
         return [b.model_dump() for b in builds]
 
 
-def parse_paginated_json(text: str) -> list[dict[str, Any]]:
-    """Parse one or multiple concatenated JSON documents or arrays from gh api --paginate."""
-    if not text or not text.strip():
-        return []
-    decoder = json.JSONDecoder()
-    items: list[dict[str, Any]] = []
-    idx = 0
-    length = len(text)
-    while idx < length:
-        while idx < length and text[idx].isspace():
-            idx += 1
-        if idx >= length:
-            break
-        try:
-            obj, end_idx = decoder.raw_decode(text, idx)
-            idx = end_idx
-            if isinstance(obj, list):
-                items.extend(item for item in obj if isinstance(item, dict))
-            elif isinstance(obj, dict):
-                items.append(obj)
-        except json.JSONDecodeError:
-            break
-    return items
-
-
 class GhCliClient:
     """GitHub client backed by the gh CLI tool for local operations without raw PATs."""
 
@@ -405,13 +380,9 @@ class GhCliClient:
         except Exception:
             return False
 
-    def api(self, endpoint: str, paginate: bool = False) -> str:
+    def api(self, endpoint: str) -> str:
         """Execute a GitHub API request via rate-managed run_gh."""
-        cmd = [CONST_GH_CLI, "api"]
-        if paginate:
-            cmd.append("--paginate")
-        cmd.append(endpoint)
-        res = run_gh(cmd, check=False, quiet=True)
+        res = run_gh([CONST_GH_CLI, "api", endpoint], check=False, quiet=True)
         if res.returncode != 0:
             raise GitHubOperationError(
                 f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",

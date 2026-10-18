@@ -62,10 +62,6 @@ class GhApiArgs:
     typed_fields: tuple[str, ...]
     input_path: str | None
     paginate: bool = False
-    jq: tuple[str, ...] = ()
-    template: tuple[str, ...] = ()
-    include: bool = False
-    silent: bool = False
 
     @property
     def has_params(self) -> bool:
@@ -137,42 +133,7 @@ def parse_gh_api_args(api_args: Sequence[str]) -> GhApiArgs | None:
         typed_fields=typed_fields,
         input_path=parsed.input,
         paginate=bool(parsed.paginate),
-        jq=tuple(parsed.jq or ()),
-        template=tuple(parsed.template or ()),
-        include=bool(parsed.include),
-        silent=bool(parsed.silent),
     )
-
-
-def _find_matching_argv_flag(api_args: Sequence[str], candidates: tuple[str, ...]) -> str:
-    """Find which candidate flag string was passed in api_args."""
-    for arg in api_args:
-        for flag in candidates:
-            if (
-                arg == flag
-                or arg.startswith(f"{flag}=")
-                or (len(flag) == 2 and arg.startswith(flag))
-            ):
-                return flag
-    return candidates[-1]
-
-
-def incompatible_gh_api_paginate_flag(api_args: Sequence[str]) -> str | None:
-    """If api_args carries --paginate with an incompatible flag (-q, -t, -i, --silent),
-    return the flag string that was passed, or None."""
-    parsed = parse_gh_api_args(api_args)
-    if parsed is None or not parsed.paginate:
-        return None
-    flag_map: tuple[tuple[bool, tuple[str, ...]], ...] = (
-        (bool(parsed.jq), ("-q", "--jq")),
-        (bool(parsed.template), ("-t", "--template")),
-        (parsed.include, ("-i", "--include")),
-        (parsed.silent, ("--silent",)),
-    )
-    for is_set, candidates in flag_map:
-        if is_set:
-            return _find_matching_argv_flag(api_args, candidates)
-    return None
 
 
 def describe_gh_api_request(

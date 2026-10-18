@@ -1416,23 +1416,13 @@ def _gh_json(res: Any, api: str) -> Any:
 
 
 def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
-    """Read every file a pull request changes, raising when GitHub can't say which.
+    """Read every file a pull request changes, page by linked page through the GitHub session,
+    raising when GitHub can't say which: a failed or malformed page raises, never a shorter
+    list."""
+    from devops_cli.github.session import get_github_session
 
-    `run_gh` pages a `--paginate` request itself and stops at the first page shorter than the
-    URL's `per_page`, assuming 100 when the URL sets none. This endpoint's default page is 30,
-    so without `per_page=100` the read ended after 30 files.
-    """
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            f"repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}",
-        ],
-        check=False,
-        quiet=True,
-    )
-    return _changed_files(_gh_json(res, _PR_FILES_API), _PR_FILES_API)
+    files = f"/repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    return [_changed_file(entry, _PR_FILES_API) for entry in get_github_session().paginate(files)]
 
 
 def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead:

@@ -17,8 +17,12 @@ from devops_cli.config.constants import (
     CONST_GH_CHECK_BUCKET_SKIPPING,
     CONST_GH_CHECK_BUCKET_UNREAD,
     CONST_GH_CLI,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
 )
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
 
@@ -217,18 +221,6 @@ def _parse_gh_checks_json(raw_json: str) -> list[PRCheckItem] | None:
     return None
 
 
-def _extract_page_check_runs(page: Any) -> list[dict[str, Any]]:
-    """Extract check run dicts from a single REST response page."""
-    if not isinstance(page, dict):
-        raise ValueError("GitHub check-runs API returned invalid page structure")
-    check_runs = page.get("check_runs")
-    if isinstance(check_runs, list):
-        return [c for c in check_runs if isinstance(c, dict)]
-    if "name" in page:
-        return [page]
-    raise ValueError("GitHub check-runs API returned page without check_runs")
-
-
 def _without_replaced_cancellations(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop each cancelled run that a later-started run of the same check replaced (#1599).
 
@@ -246,23 +238,6 @@ def _without_replaced_cancellations(runs: list[dict[str, Any]]) -> list[dict[str
         if BUCKET_CLASSIFIER_MAP.get(_normalize_token(run.get("conclusion"))) != CheckBucket.CANCEL
         or str(run.get("started_at") or "") >= newest[str(run.get("name") or "")]
     ]
-
-
-def _parse_rest_check_runs_payload(raw_json: str) -> list[PRCheckItem]:
-    """Parse check-runs response from REST API into PRCheckItem objects."""
-    try:
-        data = json.loads(raw_json)
-    except (json.JSONDecodeError, TypeError, ValueError) as err:
-        raise ValueError(f"Invalid JSON from check-runs API: {err}") from err
-
-    if isinstance(data, list):
-        raw_runs = [r for page in data for r in _extract_page_check_runs(page)]
-    elif isinstance(data, dict):
-        raw_runs = _extract_page_check_runs(data)
-    else:
-        raise ValueError("GitHub check-runs API returned unexpected payload structure")
-
-    return [_check_run_dict_to_item(cr) for cr in _without_replaced_cancellations(raw_runs)]
 
 
 def _parse_single_status_item(s: Any) -> PRCheckItem | None:
@@ -330,31 +305,21 @@ def _parse_rest_commit_statuses_payload(
 
 
 def _fetch_check_runs_from_rest(
-    owner: str,
-    repo_name: str,
-    head_sha: str,
-    runner: Any,
+    owner: str, repo_name: str, head_sha: str
 ) -> tuple[list[PRCheckItem], str]:
-    """Fetch check runs from GitHub REST API, returning (items, unread_reason)."""
-    cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        "--slurp",
-        f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
-    ]
-    res = runner(cmd, check=False, quiet=True)
-    if res.returncode != 0:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        return [], f"GitHub check-runs API error: {err_msg}"
-    if not res.stdout.strip():
-        return [], "GitHub check-runs API returned empty response"
-
+    """Read every page of a commit's check runs through the GitHub session, returning (items,
+    unread_reason). A page that can't be read, or holds no list of runs, leaves no items and
+    the reason, never a shorter list."""
+    check_runs = (
+        f"/repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page="
+        f"{DEFAULT_GH_REST_PER_PAGE}"
+    )
     try:
-        items = _parse_rest_check_runs_payload(res.stdout)
-        return items, ""
-    except ValueError as err:
-        return [], str(err)
+        runs = list(get_github_session().paginate(check_runs, iterable_key="check_runs"))
+    except GitHubOperationError as err:
+        return [], f"GitHub check-runs API error: {str(err)[:CONST_MAX_ERROR_DETAIL_LENGTH]}"
+    readable = [run for run in runs if isinstance(run, dict)]
+    return [_check_run_dict_to_item(cr) for cr in _without_replaced_cancellations(readable)], ""
 
 
 def _fetch_commit_statuses_from_rest(
@@ -417,7 +382,7 @@ def _fetch_checks_from_rest(
     if not head_sha:
         return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
 
-    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, runner)
+    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha)
     if check_err:
         return CheckVerdictSummary(unread_reason=check_err)
 

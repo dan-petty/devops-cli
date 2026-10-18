@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -348,6 +349,7 @@ def _reconcile_cli(fake: ProjectGitHub, *args: str, limit: int = 25) -> Result:
     """`devops gh project reconcile -n 2 --repo o/r` against `fake`, standing in for `run_gh`."""
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=limit)),
     ):
         return runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, *args])
@@ -416,6 +418,7 @@ def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status() -> None:
     fake = _board_with_five_changes()
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=3)),
         pytest.raises(ToolError) as stopped,
     ):
@@ -932,6 +935,29 @@ def test_gh_api_options_and_cache() -> None:
         assert "title=BugReport" in args
         assert mock_gh.call_args.kwargs["use_cache"] is True
         assert mock_gh.call_args.kwargs["cache_ttl"] == 25.0
+
+
+def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged() -> None:
+    """`devops gh api --paginate -q` reaches gh as typed: gh follows the `Link` pages and applies
+    the filter itself, and what it prints is printed (#983)."""
+    from devops_cli.config.constants import CONST_GH_CLI
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    answer = subprocess.CompletedProcess([], 0, stdout="1\n2\n3\n", stderr="")
+    argv = ["api", "repos/:owner/:repo/issues", "--paginate", "-q", ".[].number"]
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
+    ):
+        result = runner.invoke(app, argv)
+    assert (result.exit_code, result.output, [call.args[0] for call in gh.call_args_list]) == (
+        0,
+        "1\n2\n3\n",
+        [[CONST_GH_CLI, *argv]],
+    )
 
 
 def test_gh_api_error_masked() -> None:

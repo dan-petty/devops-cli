@@ -19,7 +19,6 @@ from devops_cli.github.client import (
     GhCliClient,
     GitHubClient,
     RepoInfo,
-    parse_paginated_json,
 )
 from tests.github_session_fakes import github_json, github_redirect, github_text
 
@@ -353,22 +352,6 @@ def test_one_identity_reaches_pygithub_gh_and_the_quota_refresh(
             (["label", "list"], "A", None),
         ],
     )
-
-
-def test_parse_paginated_json_concatenated_documents() -> None:
-    """Verify parse_paginated_json correctly parses multiple concatenated pages from gh api --paginate."""
-    page_1 = '[{"number": 1, "title": "v0.1.0"}]'
-    page_2 = '[{"number": 2, "title": "v0.2.0"}, {"number": 3, "title": "v0.3.0"}]'
-    raw_output = f"{page_1}\n{page_2}\n"
-
-    parsed = parse_paginated_json(raw_output)
-    assert len(parsed) == 3
-    assert parsed[0]["title"] == "v0.1.0"
-    assert parsed[1]["title"] == "v0.2.0"
-    assert parsed[2]["title"] == "v0.3.0"
-
-    assert parse_paginated_json("") == []
-    assert parse_paginated_json("   ") == []
 
 
 def test_gh_cli_client_labels() -> None:

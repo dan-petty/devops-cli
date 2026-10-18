@@ -2101,8 +2101,6 @@ class ProjectMessages:
             "first": "the first page of board {board}'s items",
             "page": "the next page of board {board}'s items",
             "fields": "board {board}'s fields, for the options a change may set",
-            "issues": "the issues of {repo} in state {state}, every page",
-            "pulls": "the pull requests of {repo} in state {state}, every page",
             "edit": "set a planned field change on a card of board {board}",
         }
     )
@@ -2118,6 +2116,9 @@ class ProjectMessages:
     )
     request_repeat_owner_fallback: str = (
         "once more with --owner @me when GitHub answers 'unknown owner type'"
+    )
+    request_repeat_listing: str = (
+        "for each next page GitHub links, through the GitHub session, up to {max_pages} pages"
     )
     sync_done: str = "Project '{title}' (#{number}){linked}. Provisioned fields: {fields}."
     sync_linked: str = " linked to {repo}"

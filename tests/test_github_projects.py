@@ -12,6 +12,7 @@ from devops_cli.github.projects import (
     ProjectTemplate,
     load_project_template,
 )
+from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
 
 
@@ -226,7 +227,10 @@ def _sync_cli(fake: ProjectGitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     template.write_text(json.dumps({"name": BOARD_TITLE, "fields": fields}))
     monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
     monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
-    with patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh):
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
+    ):
         return CliRunner().invoke(
             project_app, ["sync", "--repo", REPO, "--template", str(template)]
         )
@@ -724,49 +728,40 @@ def test_project_sync_sends_no_option_update_when_the_template_options_differ() 
     ) == ([], [["project", "field-list"]], False)
 
 
-def test_paginated_project_fetch_helpers() -> None:
-    """_fetch_repository_issues and _fetch_repository_prs handle multi-page JSON."""
-    import json
-    from unittest.mock import MagicMock, patch
+@pytest.mark.parametrize("kind", ["issues", "pulls"])
+def test_the_repository_listings_are_read_from_every_linked_page(
+    github_api: GitHubApiFake, kind: str
+) -> None:
+    """Issues and pull requests are read through the session, every linked page of them."""
+    from devops_cli.github.projects import _fetch_repository_issues, _fetch_repository_prs
 
-    from devops_cli.github.projects import (
-        _fetch_repository_issues,
-        _fetch_repository_prs,
+    second = f"/repositories/1/{kind}?state=open&per_page=100&page=2"
+    github_api.route(
+        "GET",
+        f"/repos/owner/repo/{kind}?state=open&per_page=100",
+        github_json([{"number": 1}], headers=next_page(second)),
     )
+    github_api.route("GET", second, github_json([{"number": 2}]))
+    read = _fetch_repository_issues if kind == "issues" else _fetch_repository_prs
+    assert [item["number"] for item in read("owner/repo")] == [1, 2]
 
-    issues_page1 = [
-        {"number": 1, "title": "First", "html_url": "https://example.com/owner/repo/issues/1"}
-    ]
-    issues_page2 = [
-        {"number": 2, "title": "Second", "html_url": "https://example.com/owner/repo/issues/2"}
-    ]
-    paginated_issues = f"{json.dumps(issues_page1)}\n{json.dumps(issues_page2)}"
 
-    with patch(
-        "devops_cli.github.projects.run_gh",
-        return_value=MagicMock(returncode=0, stdout=paginated_issues, stderr=""),
-    ):
-        issues = _fetch_repository_issues("owner/repo")
-        assert len(issues) == 2
-        assert issues[0]["number"] == 1
-        assert issues[1]["number"] == 2
+def test_a_repository_listing_page_that_is_no_list_fails_the_read(
+    github_api: GitHubApiFake,
+) -> None:
+    """A malformed page raises, so reconcile never works from part of the issues."""
+    from devops_cli.exceptions.git import GitHubUnreadError
+    from devops_cli.github.projects import _fetch_repository_issues
 
-    prs_page1 = [
-        {"number": 3, "title": "PR 3", "html_url": "https://example.com/owner/repo/pull/3"}
-    ]
-    prs_page2 = [
-        {"number": 4, "title": "PR 4", "html_url": "https://example.com/owner/repo/pull/4"}
-    ]
-    paginated_prs = f"{json.dumps(prs_page1)}\n{json.dumps(prs_page2)}"
-
-    with patch(
-        "devops_cli.github.projects.run_gh",
-        return_value=MagicMock(returncode=0, stdout=paginated_prs, stderr=""),
-    ):
-        prs = _fetch_repository_prs("owner/repo")
-        assert len(prs) == 2
-        assert prs[0]["number"] == 3
-        assert prs[1]["number"] == 4
+    second = "/repositories/1/issues?state=open&per_page=100&page=2"
+    github_api.route(
+        "GET",
+        "/repos/owner/repo/issues?state=open&per_page=100",
+        github_json([{"number": 1}], headers=next_page(second)),
+    )
+    github_api.route("GET", second, github_json({"message": "Server Error"}))
+    with pytest.raises(GitHubUnreadError, match="page 2"):
+        _fetch_repository_issues("owner/repo")
 
 
 def test_extract_item_fields_case_insensitive() -> None:
