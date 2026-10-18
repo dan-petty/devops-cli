@@ -4,7 +4,24 @@
 
 replicas: 1
 
+# The otel namespace enforces PodSecurity restricted (k8s/namespaces.yaml), which admits a pod only
+# with a seccomp profile and a container that drops every capability and cannot escalate (#1627).
+# Tempo writes only under the /var/tempo volume, so its root filesystem stays read-only.
+securityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
 tempo:
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
   reportingEnabled: false
   retention: 168h
   compactor:
