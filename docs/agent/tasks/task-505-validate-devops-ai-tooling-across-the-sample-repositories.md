@@ -1,9 +1,6 @@
 # Task 505: Validate devops ai Tooling Across the Sample Repositories
 
 **Issue**: [#505](https://github.com/dan-petty/devops-cli/issues/505)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 
 ---

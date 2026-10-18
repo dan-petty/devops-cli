@@ -1,7 +1,6 @@
 # Task #857: MCP ToolAnnotations (`readOnlyHint`) and Safe `tf_apply` Default
 
 **Issue**: [#857](https://github.com/dan-petty/devops-cli/issues/857)
-**Status**: Done
 **Feasibility**: Confirmed against FastMCP 3.4.7 (`mcp._list_tools()`) and MCP SDK v2 (`ToolAnnotations`): passing `annotations={"readOnlyHint": True/False}` to `@mcp.tool(...)` populates `tool.annotations.read_only_hint` on all 155 registered tools and serializes to `{"readOnlyHint": true/false}` via `model_dump(by_alias=True, exclude_none=True)`.
 
 ## Deliverables

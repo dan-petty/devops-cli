@@ -1,9 +1,6 @@
 # Task 587: Mitigated Findings Re-Verified When Their Perimeter Changes
 
 **Issue**: [#587](https://github.com/dan-petty/devops-cli/issues/587)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/review`, `priority/p2-medium`
 
 ---

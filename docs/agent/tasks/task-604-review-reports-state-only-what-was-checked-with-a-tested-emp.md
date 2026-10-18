@@ -1,9 +1,6 @@
 # Task 604: Review Reports State Only What Was Checked, With a Tested Empty Outcome
 
 **Issue**: [#604](https://github.com/dan-petty/devops-cli/issues/604)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/review`, `priority/p0-critical`
 
 ---

@@ -1,9 +1,6 @@
 # Task: Every HTTP Client Dials Only Addresses Its Egress Level Allows, Checked at the Connect (#898)
 
 **Issue**: [#898](https://github.com/dan-petty/devops-cli/issues/898)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/security
 
 ## Description

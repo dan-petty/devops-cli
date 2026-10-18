@@ -1,9 +1,6 @@
 # Task 547: devops-cli Telemetry Never Reaches the Collector
 
 **Issue**: [#547](https://github.com/dan-petty/devops-cli/issues/547)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/telemetry`, `priority/p1-high`
 
 ---

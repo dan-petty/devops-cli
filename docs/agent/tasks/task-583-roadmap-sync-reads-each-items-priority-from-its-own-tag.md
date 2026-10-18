@@ -1,9 +1,6 @@
 # Task 583: Roadmap Sync Reads Each Item's Priority From Its Own Tag
 
 **Issue**: [#583](https://github.com/dan-petty/devops-cli/issues/583)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/github`, `priority/p1-high`
 
 ---

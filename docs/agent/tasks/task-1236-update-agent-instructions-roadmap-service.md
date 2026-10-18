@@ -1,9 +1,6 @@
 # Task: Update Agent Instructions with Roadmap-Service Details, Concurrency Guardrails, and Liveness Diagnostics (#1236)
 
 **Issue**: [#1236](https://github.com/dan-petty/devops-cli/issues/1236)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/ai, type/docs
 
 ## Description

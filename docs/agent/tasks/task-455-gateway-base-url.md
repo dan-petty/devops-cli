@@ -1,9 +1,6 @@
 # Task 455: Provider Gateway Talks Only to the Gateway
 
 **Issue**: [#455](https://github.com/dan-petty/devops-cli/issues/455)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/security`, `scope/ai`, `priority/p1-high`
 
 ---

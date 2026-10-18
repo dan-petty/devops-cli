@@ -1,9 +1,6 @@
 # Task: Agentic Information Foraging & Scent Trails (#274)
 
 **Issue**: [#274](https://github.com/dan-petty/devops-cli/issues/274)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p0-critical
 **Scope**: scope/ai
 **Feasibility**: Feasible - Confirmed offline through repository analysis that relational edge extraction across Python imports, markdown links, and git history combined with local BM25 scoring enables a fast (<1s tests), deterministic crawler with zero LLM and zero network dependencies.
 

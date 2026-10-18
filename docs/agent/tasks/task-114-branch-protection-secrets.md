@@ -1,9 +1,6 @@
 # Task 114: Declarative Branch Protection Auditor & Repository Secret Synchronization
 
 **Issue**: [#114](https://github.com/dan-petty/devops-cli/issues/114)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/github`
 
 ---

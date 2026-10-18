@@ -1,7 +1,6 @@
 # Task: Local Names from the Public Suffix List and DNS-Label Domain Matching (#887)
 
 **Issue**: [#887](https://github.com/dan-petty/devops-cli/issues/887)
-**Status**: Done
 **Feasibility**: Verified against `tldextract` 5.3.2 (`TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True, cache_dir=None)`) and `dnspython[idna]` 2.8.0 (`dns.name.from_unicode(..., idna_codec=dns.name.IDNA_2008)`, `Name.is_subdomain`) in the local environment.
 
 ## Summary

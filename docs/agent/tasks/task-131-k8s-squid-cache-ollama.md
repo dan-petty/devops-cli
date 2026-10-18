@@ -1,9 +1,6 @@
 # Task 131: Deploy Kubernetes Squid Cache for Outbound Pods & 70B Ollama Models
 
 **Issue**: [#131](https://github.com/dan-petty/devops-cli/issues/131)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`
 
 ---

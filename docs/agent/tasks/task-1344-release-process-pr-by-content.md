@@ -1,9 +1,6 @@
 # Task: PR readiness exempts a release-process pull request only by the files it changes (#1344)
 
 **Issue**: [#1344](https://github.com/dan-petty/devops-cli/issues/1344)
-**Status**: Done
-**Milestone**: v0.2.37
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, scope/release
 **Feasibility**: Confirmed on origin with read-only `devops gh api` calls. `pulls/1614/files` (`chore/cut-v0.2.36` into `release/v0.2.36`) lists `CHANGELOG.md`, `docs/ROADMAP.md`, `pyproject.toml` and `uv.lock` as `modified` and 24 `changelog.d/<n>.md` as `removed`, and nothing else. The closed pull requests list `chore/open-v0.2.33-trivyignore`, `-bandit-coverage` and `-fastmcp-log-isolation`, which carried code fixes into `release/v0.2.33` under the old exemption. `compare/de09432a59...main` returns the same 188 files with and without `per_page=1`, and with `per_page=1` one commit instead of two, as GitHub documents (the changed files are on the first page, at most 300 for the whole comparison).
 

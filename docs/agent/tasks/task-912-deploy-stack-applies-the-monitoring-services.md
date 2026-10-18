@@ -1,9 +1,6 @@
 # Task: deploy-stack Applies the Monitoring Services Alloy, Grafana and Port-Forward Use (#912)
 
 **Issue**: [#912](https://github.com/dan-petty/devops-cli/issues/912)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/k8s
 
 ## Description

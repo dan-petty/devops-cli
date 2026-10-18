@@ -1,9 +1,6 @@
 # Task: Scanner Failure Reasons Are Masked and Capped Before SARIF, the CLI and review.md Print Them (#915)
 
 **Issue**: [#915](https://github.com/dan-petty/devops-cli/issues/915)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/security
 
 ## Description

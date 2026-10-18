@@ -1,9 +1,6 @@
 # Task: Changelog Fragments So Open PRs Never Conflict on CHANGELOG.md or docs/ROADMAP.md (#933)
 
 **Issue**: [#933](https://github.com/dan-petty/devops-cli/issues/933)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p0-critical
 **Scope**: scope/cli
 
 ## Description

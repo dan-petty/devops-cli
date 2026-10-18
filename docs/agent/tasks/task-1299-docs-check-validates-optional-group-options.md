@@ -1,9 +1,6 @@
 # Task: The docs check validates the options inside optional-group brackets (#1299)
 
 **Issue**: [#1299](https://github.com/dan-petty/devops-cli/issues/1299)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p3-low
 **Scope**: type/bug, scope/docs, priority/p3-low
 
 ## Description

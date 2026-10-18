@@ -1,9 +1,6 @@
 # Task 594: Stage-Attributed Spend Ledger and One genai-prices Price Source
 
 **Issue**: [#594](https://github.com/dan-petty/devops-cli/issues/594)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

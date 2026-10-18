@@ -1,9 +1,6 @@
 # Task 478: LLM Gateway Tuning Render and Apply Configuration With Rollback
 
 **Issue**: [#478](https://github.com/dan-petty/devops-cli/issues/478)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `scope/k8s`
 **Feasibility**: Verified against real system manifests: `k8s/llm/profiles/ollama-profiles.yaml` declares DaemonSet `OLLAMA_CONTEXT_LENGTH` values (48000 for 16gib, 128000 for 48gib, 160000 for 64gib), `k8s/llm/gateway/configmap.yaml` has mismatched `max_input_tokens: 96000` on 16gib-fast and superfluous `weight` fields under `least-busy` routing strategy.
 

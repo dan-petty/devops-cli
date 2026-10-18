@@ -1,8 +1,6 @@
 # Task: CI's Trivy scans run the Trivy version tools.lock pins (#1499)
 
 **Issue**: [#1499](https://github.com/dan-petty/devops-cli/issues/1499)
-**Status**: Done
-**Milestone**: v0.2.32
 **Scope**: type/bug, scope/ci
 
 ## Description

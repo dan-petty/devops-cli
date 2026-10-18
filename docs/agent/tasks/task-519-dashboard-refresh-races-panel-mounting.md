@@ -1,9 +1,6 @@
 # Task 519: Dashboard Refresh Races Panel Mounting and Fails the Worker
 
 **Issue**: [#519](https://github.com/dan-petty/devops-cli/issues/519)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/cli
 
 ---

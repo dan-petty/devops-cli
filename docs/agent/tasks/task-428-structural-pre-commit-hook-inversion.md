@@ -1,9 +1,6 @@
 # Task 428: Structural Pre-Commit Hook Inversion
 
 **Issue**: [#428](https://github.com/dan-petty/devops-cli/issues/428)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

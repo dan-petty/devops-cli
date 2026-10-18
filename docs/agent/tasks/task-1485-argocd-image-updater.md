@@ -1,9 +1,6 @@
 # Task: Argo CD Image Updater keeps the devops Application on the digest of service:latest (#1485)
 
 **Issue**: [#1485](https://github.com/dan-petty/devops-cli/issues/1485)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/feature, scope/k8s
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Project reconcile reads an unknown quota, fixes existing cards first, and says when it stopped early (#892)
 
 **Issue**: [#892](https://github.com/dan-petty/devops-cli/issues/892)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, priority/p1-high
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Grounded Model Analysis and Plan per Finding Group (#1147)
 
 **Issue**: [#1147](https://github.com/dan-petty/devops-cli/issues/1147)
-**Status**: Done
-**Milestone**: v0.2.36
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/review
 **Feasibility**: Verified against `src/devops_cli/review/admission.py` (`AdmittedFinding` frozen dataclass), `src/devops_cli/review/anchors.py` (`RegionAnchor`, `ObjectAnchor`, `AdvisoryAnchor`), `src/devops_cli/ai/review/pipeline.py` (`ReviewPipelineOrchestrator`), `src/devops_cli/review/score.py` (`ScoreReport.run_metrics`), and `src/devops_cli/ai/run_store.py` (`RegressionTolerances` and `_SCORE_DROP_METRICS`).
 

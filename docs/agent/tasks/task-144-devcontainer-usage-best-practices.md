@@ -1,9 +1,6 @@
 # Task 144: Align Dev Container Usage Guide with Modern Best Practices
 
 **Issue**: [#144](https://github.com/dan-petty/devops-cli/issues/144)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/infra`
 
 ---

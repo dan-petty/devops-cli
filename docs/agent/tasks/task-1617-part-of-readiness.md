@@ -1,9 +1,6 @@
 # Task: A Pull Request That Delivers Part of an Item Says Part of #N and Passes Readiness (#1617)
 
 **Issue**: [#1617](https://github.com/dan-petty/devops-cli/issues/1617)
-**Status**: Done
-**Milestone**: v0.2.37
-**Priority**: priority/p0-critical
 **Scope**: scope/github
 **Feasibility**: Read `_GROUNDING_CHECKS` and `_closes_one_issue` in `src/devops_cli/commands/pr.py` and `extract_linked_issues` in `src/devops_cli/github/issue_closure.py` at release/v0.2.37 (3dd7fa6): a body with no closing keyword was one `grounding_closes_no_issue` blocker, so every pull request of a multi-PR item but its last failed readiness. `devops roadmap close` (`src/devops_cli/roadmap/close.py`) reads only `extract_linked_issues`, so a new phrase leaves it unchanged.
 

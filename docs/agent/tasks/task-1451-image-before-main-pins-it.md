@@ -1,9 +1,6 @@
 # Task: The Service image a release pins is published before main pins it (#1451)
 
 **Issue**: [#1451](https://github.com/dan-petty/devops-cli/issues/1451)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: P2-Medium (set by intake on 2026-10-08)
 **Scope**: type/bug, scope/k8s, scope/ci, scope/release
 
 > **Superseded by #1486.** Release-branch publishing, the plan step and the promote step are gone: `release.yml` builds, attests and tags the Service image only on `main`, and Image Updater rolls it out.

@@ -1,9 +1,6 @@
 # Task: devops serve --service leaves the process's logging alone until uvicorn applies its JSON config, so in-process tests keep their captured logs (#1543)
 
 **Issue**: [#1543](https://github.com/dan-petty/devops-cli/issues/1543)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: unset on the issue; it fixes a failing check of release pull request #1537 (owner, 2026-10-10: "fix release branch")
 **Scope**: type/bug, scope/cli, scope/telemetry
 **Feasibility**: Checked at release/v0.2.33 (5c5df79). Before calling `uvicorn.run`, `devops serve --service` called `setup_service_logging`, which cleared the root logger's handlers, installed a JSON stdout handler and gave the `devops_cli` logger its own handler with `propagate=False`. `tests/test_roadmap_run.py::test_service_wiring`, changed by #1532, runs the command in the pytest process with only `uvicorn.run` doubled, so that setup stayed for the rest of the session. On #1537 the Changed-Test Independence check (seed 281456038, run 2 of 3) then failed the two dispatcher log tests in `tests/test_fastmcp_contracts.py`, whose `caplog` saw no `devops_cli` record. uvicorn already applies a `log_config` dict and builds an app from a factory (`factory=True`, as the `--reload` path does), so the fix needs no new mechanism.
 

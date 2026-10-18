@@ -1,9 +1,6 @@
 # Task: The Ollama Tier DaemonSets Run as Non-Root, With No Privilege Escalation or Capabilities, RuntimeDefault Seccomp and a Read-Only Root Filesystem (#1060)
 
 **Issue**: [#1060](https://github.com/dan-petty/devops-cli/issues/1060)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s, scope/security
 
 ## Description

@@ -1,7 +1,6 @@
 # Task: Reasoning Request Parameters Follow Declared Capability (#888)
 
 **Issue**: [#888](https://github.com/dan-petty/devops-cli/issues/888)
-**Status**: Done
 **Feasibility**: Verified against gateway `/model/info` schema, Ollama `/api/show` capabilities specification, and OpenAI/Copilot client parameter builders.
 
 ## Summary

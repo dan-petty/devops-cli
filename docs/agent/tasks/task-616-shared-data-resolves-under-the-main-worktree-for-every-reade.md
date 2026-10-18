@@ -1,9 +1,6 @@
 # Task 616: Shared Data Resolves Under the Main Worktree for Every Reader, Writer and Cleanup
 
 **Issue**: [#616](https://github.com/dan-petty/devops-cli/issues/616)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/config`, `priority/p1-high`
 
 ---

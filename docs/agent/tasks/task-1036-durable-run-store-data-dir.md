@@ -1,9 +1,6 @@
 # Task: The durable-run store resolves under the data directory (#1036)
 
 **Issue**: [#1036](https://github.com/dan-petty/devops-cli/issues/1036)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/ai, scope/k8s
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 546: LLM Serving and GPU Metrics in Prometheus
 
 **Issue**: [#546](https://github.com/dan-petty/devops-cli/issues/546)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p1-high`
 
 ---

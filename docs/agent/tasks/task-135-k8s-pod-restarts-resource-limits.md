@@ -1,9 +1,6 @@
 # Task 135: Review Pod Restarts, Eliminate Cgroup OOM Kills & Optimize Resource Limits
 
 **Issue**: [#135](https://github.com/dan-petty/devops-cli/issues/135)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`
 
 ---

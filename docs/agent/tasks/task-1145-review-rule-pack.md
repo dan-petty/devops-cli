@@ -1,7 +1,6 @@
 # Task #1145: Tested Semgrep Rule Pack for Review Recall Network-Exposure Entries
 
 **Issue**: [#1145](https://github.com/dan-petty/devops-cli/issues/1145)
-**Status**: Done
 **Feasibility**: Confirmed against pinned Semgrep 1.179.0 (`tools.lock`): `semgrep --test --metrics off src/devops_cli/review/rules` executes offline in ~6s, passes 1/1 on `k8s-networkpolicy-ingress-any.yaml` and `k8s-networkpolicy-ingress-any.test.yaml`, and matches both recall set NetworkPolicy manifests (`k8s/monitoring/networkpolicy.yaml:20` and `k8s/otel/networkpolicy.yaml:32`) at `38517a89ebd1439e245c08ce0d9ad9cd17932b74` without matching egress `0.0.0.0/0` blocks.
 
 ## Deliverables

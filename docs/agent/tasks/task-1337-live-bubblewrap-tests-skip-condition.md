@@ -1,9 +1,6 @@
 # Task: Live bubblewrap tests skip condition (#1337)
 
 **Issue**: [#1337](https://github.com/dan-petty/devops-cli/issues/1337)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/security, scope/ci, priority/p1-high
 
 ## Description

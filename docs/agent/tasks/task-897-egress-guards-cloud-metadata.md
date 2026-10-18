@@ -1,9 +1,6 @@
 # Task: Egress Guards Refuse Cloud Metadata (#897)
 
 **Issue**: [#897](https://github.com/dan-petty/devops-cli/issues/897)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/security
 
 ## Description

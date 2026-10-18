@@ -1,9 +1,6 @@
 # Task 346: Add Claude CLI and VS Code Extension to DevContainer Configuration & Lifecycle
 
 **Issue**: [#346](https://github.com/dan-petty/devops-cli/issues/346)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/infra`, `priority/p2-medium`
 
 ---

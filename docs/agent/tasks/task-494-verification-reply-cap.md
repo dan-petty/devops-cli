@@ -1,9 +1,6 @@
 # Task 494: Review Replies Are Capped
 
 **Issue**: [#494](https://github.com/dan-petty/devops-cli/issues/494)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

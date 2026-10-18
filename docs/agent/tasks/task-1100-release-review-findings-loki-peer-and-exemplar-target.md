@@ -1,9 +1,6 @@
 # Task: Loki Admits Only the Collector from `otel`, and Persona Exemplars Come from the Review's Target (#1100)
 
 **Issue**: [#1100](https://github.com/dan-petty/devops-cli/issues/1100)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p0-critical
 **Scope**: scope/security
 
 ## Description

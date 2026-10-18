@@ -1,9 +1,6 @@
 # Task: The Review Report Ranks, Counts and Headlines What Was Verified (#948)
 
 **Issue**: [#948](https://github.com/dan-petty/devops-cli/issues/948)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Resolve Argo CD Application Out-Of-Sync and Manifest Generation Failures (#1279)
 
 **Issue**: [#1279](https://github.com/dan-petty/devops-cli/issues/1279)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

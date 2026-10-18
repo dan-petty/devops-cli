@@ -9,7 +9,6 @@ import pytest
 
 TASKS_DIR = Path("docs/agent/tasks")
 TASK_FILES = sorted(TASKS_DIR.glob("task-*.md"))
-STATUSES = ("Backlog", "Ready", "In Progress", "Done")
 _BASELINE_FILE = Path(__file__).parent / "fixtures" / "task_files_baseline.txt"
 _BASELINE_TASK_FILES = frozenset(_BASELINE_FILE.read_text(encoding="utf-8").splitlines())
 # A fenced code block, from its opening fence through a closing fence of the same character at
@@ -34,33 +33,61 @@ def unchecked_boxes(text: str) -> list[str]:
     return [line for line in prose.splitlines() if _UNCHECKED_BOX_RE.match(line)]
 
 
-@pytest.mark.parametrize("task_file", TASK_FILES, ids=lambda p: p.name)
-def test_task_file_links_its_issue_and_ticks_only_done_work(task_file: Path) -> None:
-    """Verify a task file links its issue, has no PR field, uses a task status, and has no `- [ ]`.
-
-    The issue links its pull request through the closing keyword, and project cards take
-    `In Review` from the open pull request, so neither belongs in the file. Recording a PR
-    number took a second commit after the PR existed, which re-ran every check.
-
-    A box is ticked only for work that is done. Work that was not done is a plain bullet naming
-    its follow-up issue, and a check only a person can run is a plain bullet starting
-    "Pending a person:". Before this rule, 15 files marked Done still held unchecked boxes.
-    New task files must also include a **Feasibility** line stating how the item's premise
-    was verified against the real system before coding.
-    """
-    text = task_file.read_text(encoding="utf-8")
+def check_task_file_contract(text: str, *, is_new: bool = False) -> None:
+    """Verify task file text satisfies all invariants: links issue, no metadata fields, no unchecked boxes."""
     issue = _field(text, "Issue") or ""
-    is_new = task_file.name not in _BASELINE_TASK_FILES
     feasibility = _field(text, "Feasibility")
     feasibility_valid = bool(feasibility) if is_new else True
 
     assert (
         bool(re.search(r"\[#\d+\]\(https://github\.com/[^)]+/(?:issues|pull)/\d+\)", issue)),
         _field(text, "PR"),
-        _field(text, "Status") in STATUSES,
+        _field(text, "Status"),
+        _field(text, "Milestone"),
+        _field(text, "Priority"),
         unchecked_boxes(text),
         feasibility_valid,
-    ) == (True, None, True, [], True)
+    ) == (True, None, None, None, None, [], True)
+
+
+@pytest.mark.parametrize("task_file", TASK_FILES, ids=lambda p: p.name)
+def test_task_file_links_its_issue_and_ticks_only_done_work(task_file: Path) -> None:
+    """Verify a task file links its issue, has no PR, Status, Milestone, or Priority field, and has no `- [ ]`.
+
+    The issue links its pull request through the closing keyword, and status, milestone,
+    and priority live on GitHub (Projects v2 and Issues per ADR 0001). Task files carry no PR,
+    Status, Milestone, or Priority lines.
+
+    A box is ticked only for work that is done. Work that was not done is a plain bullet naming
+    its follow-up issue, and a check only a person can run is a plain bullet starting
+    "Pending a person:".
+    New task files must also include a **Feasibility** line stating how the item's premise
+    was verified against the real system before coding.
+    """
+    text = task_file.read_text(encoding="utf-8")
+    is_new = task_file.name not in _BASELINE_TASK_FILES
+    check_task_file_contract(text, is_new=is_new)
+
+
+@pytest.mark.parametrize(
+    "forbidden_line",
+    [
+        "**Status**: Done\n",
+        "**Status**: Backlog\n",
+        "**Milestone**: v0.2.37\n",
+        "**Priority**: priority/p1-high\n",
+        "**PR**: [#1636](https://github.com/dan-petty/devops-cli/pull/1636)\n",
+    ],
+)
+def test_task_file_with_metadata_field_fails(forbidden_line: str) -> None:
+    """A task file carrying Status, Milestone, Priority, or PR fails the contract check."""
+    valid_text = (
+        "# Task: Example (#123)\n\n"
+        "**Issue**: [#123](https://github.com/dan-petty/devops-cli/issues/123)\n"
+        "**Feasibility**: Verified against documentation.\n"
+    )
+    with pytest.raises(AssertionError):
+        check_task_file_contract(valid_text + forbidden_line, is_new=True)
 
 
 @pytest.mark.parametrize(
@@ -90,7 +117,6 @@ def test_feasibility_field_extraction() -> None:
     without_feasibility = (
         "# Task: Something (#123)\n\n"
         "**Issue**: [#123](https://github.com/dan-petty/devops-cli/issues/123)\n"
-        "**Status**: Done\n"
     )
     with_feasibility = without_feasibility + "**Feasibility**: Verified against upstream docs.\n"
     assert (

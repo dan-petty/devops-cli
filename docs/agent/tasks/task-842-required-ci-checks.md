@@ -1,9 +1,6 @@
 # Task: Required CI Checks Bind Merges into Release and Main (#842)
 
 **Issue**: [#842](https://github.com/dan-petty/devops-cli/issues/842)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 ## Description

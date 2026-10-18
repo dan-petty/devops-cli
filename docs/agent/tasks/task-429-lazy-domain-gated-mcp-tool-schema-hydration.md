@@ -1,9 +1,6 @@
 # Task 429: Lazy Domain-Gated MCP Tool Schema Hydration
 
 **Issue**: [#429](https://github.com/dan-petty/devops-cli/issues/429)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/mcp`, `priority/p0-critical`
 
 ---

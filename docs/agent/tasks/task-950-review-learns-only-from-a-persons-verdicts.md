@@ -1,9 +1,6 @@
 # Task: The Review Learns Only From a Person's Verdicts, and Every Reader of the Feedback Dataset Is Honest (#950)
 
 **Issue**: [#950](https://github.com/dan-petty/devops-cli/issues/950)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

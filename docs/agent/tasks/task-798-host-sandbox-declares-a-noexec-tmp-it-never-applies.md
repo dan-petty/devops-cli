@@ -1,9 +1,6 @@
 # Task: The Host Sandbox Declares a Noexec /tmp It Never Applies (#798)
 
 **Issue**: [#798](https://github.com/dan-petty/devops-cli/issues/798)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p3-low
 **Scope**: type/security, scope/security
 
 ## Description

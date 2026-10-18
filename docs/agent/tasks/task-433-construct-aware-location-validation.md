@@ -1,9 +1,6 @@
 # Task 433: Construct-Aware Location Validation
 
 **Issue**: [#433](https://github.com/dan-petty/devops-cli/issues/433)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

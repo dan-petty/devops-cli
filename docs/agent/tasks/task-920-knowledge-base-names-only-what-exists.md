@@ -1,9 +1,6 @@
 # Task: Knowledge Base Names Only Commands, Options, and Components That Exist (#920)
 
 **Issue**: [#920](https://github.com/dan-petty/devops-cli/issues/920)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/docs
 
 ## Description

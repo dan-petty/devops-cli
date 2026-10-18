@@ -1,9 +1,6 @@
 # Task: Only Collaborators Can Trigger PR Updates with /update or /sync Comments (#754)
 
 **Issue**: [#754](https://github.com/dan-petty/devops-cli/issues/754)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ci
 
 ## Description

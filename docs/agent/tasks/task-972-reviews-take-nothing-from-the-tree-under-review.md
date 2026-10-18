@@ -1,9 +1,6 @@
 # Task: Reviews Take No Config, Data, Contracts, Scanner Config or Probe Suppressions From the Tree Under Review (#972)
 
 **Issue**: [#972](https://github.com/dan-petty/devops-cli/issues/972)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

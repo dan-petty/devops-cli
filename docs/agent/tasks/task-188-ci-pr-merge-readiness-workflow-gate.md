@@ -1,8 +1,6 @@
 # Task 188: Gate Pull Request Workflow on Unresolved Review Threads and Merge Blockers
 
 **Issue**: [#188](https://github.com/dan-petty/devops-cli/issues/188)
-**Status**: Done
-**Milestone**: `v0.2.17`
 **Taxonomy**: `type/bug`, `scope/ci`, `priority/high`, `status/in-review`
 
 ---

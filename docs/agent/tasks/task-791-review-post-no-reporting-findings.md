@@ -1,9 +1,6 @@
 # Task 791: Review PR Post Without Reporting Preserves Findings and Personas
 
 **Issue**: [#791](https://github.com/dan-petty/devops-cli/issues/791)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/review`, `priority/p2-medium`
 **Feasibility**: Verified against `ai/review/runner.py` (_report_review and _record_review_metrics), `ai/review/pipeline.py` (generate_consolidated_report and _collect_and_deduplicate_findings), and `ai/review_schema.py` (Finding and SavedFinding models).
 

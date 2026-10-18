@@ -1,9 +1,6 @@
 # Task: devops-cli in the cluster, and every cluster Secret from the keyring (#741)
 
 **Issue**: [#741](https://github.com/dan-petty/devops-cli/issues/741)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/k8s, priority/p1-high
 
 > **Superseded in part by #1486.** The service-image pin in `k8s/devops/kustomization.yaml`, its bump in the cut and its check in `devops release check` were removed; Image Updater sets the image's digest.

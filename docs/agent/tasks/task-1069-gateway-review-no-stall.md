@@ -1,9 +1,6 @@
 # Task: Gateway Review Calls No Longer Stall for About 190 s on Ollama (#1069)
 
 **Issue**: [#1069](https://github.com/dan-petty/devops-cli/issues/1069)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

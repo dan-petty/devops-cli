@@ -1,9 +1,6 @@
 # Task: SRE Dashboards Heatmap and Ratio-Based Graphs (#938)
 
 **Issue**: [#938](https://github.com/dan-petty/devops-cli/issues/938)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/telemetry, scope/k8s
 
 ## Description

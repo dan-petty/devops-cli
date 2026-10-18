@@ -1,9 +1,6 @@
 # Task 701: IPv6 Egress CIDR Fix and Deny-Class Property Tests for Sandbox Policy
 
 **Issue**: [#701](https://github.com/dan-petty/devops-cli/issues/701)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

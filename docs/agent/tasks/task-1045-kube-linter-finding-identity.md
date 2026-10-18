@@ -1,9 +1,6 @@
 # Task: kube-linter findings carry their own check, message and manifest file, and scan reports keep each one (#1045)
 
 **Issue**: [#1045](https://github.com/dan-petty/devops-cli/issues/1045)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/security, scope/review
 
 ## Description

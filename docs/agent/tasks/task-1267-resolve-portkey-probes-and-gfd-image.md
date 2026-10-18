@@ -1,9 +1,6 @@
 # Task 1267: Resolve Portkey Probe Path and GPU Feature Discovery Image Tag
 
 **Issue**: [#1267](https://github.com/dan-petty/devops-cli/issues/1267)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/k8s
 
 ---

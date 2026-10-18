@@ -1,9 +1,6 @@
 # Task 489: Task Files Link Their Issue Only
 
 **Issue**: [#489](https://github.com/dan-petty/devops-cli/issues/489)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/chore`, `scope/github`, `priority/p1-high`
 
 ---

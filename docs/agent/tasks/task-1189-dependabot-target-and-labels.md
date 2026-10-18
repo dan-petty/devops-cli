@@ -1,9 +1,6 @@
 # Task: Target Dependabot Updates to Main and Configure Taxonomy Labels (#1189)
 
 **Issue**: [#1189](https://github.com/dan-petty/devops-cli/issues/1189)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ci
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Tests Touch No State Outside Their Temporary Directories (#1311)
 
 **Issue**: [#1311](https://github.com/dan-petty/devops-cli/issues/1311)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p0-critical
 **Scope**: scope/ci
 
 ## Description

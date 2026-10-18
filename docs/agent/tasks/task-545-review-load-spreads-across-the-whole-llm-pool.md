@@ -1,9 +1,6 @@
 # Task 545: Review Load Spreads Across the Whole LLM Pool
 
 **Issue**: [#545](https://github.com/dan-petty/devops-cli/issues/545)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 **Pull Request**: [#644](https://github.com/dan-petty/devops-cli/pull/644)
 

@@ -1,9 +1,6 @@
 # Task: One Roadmap Store Reads and Writes Items, Releases and Board Fields (#768)
 
 **Issue**: [#768](https://github.com/dan-petty/devops-cli/issues/768)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 ## Description

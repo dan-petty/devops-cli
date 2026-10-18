@@ -1,9 +1,6 @@
 # Task: Roadmap service runs in the cluster devops namespace (#1083)
 
 **Issue**: [#1083](https://github.com/dan-petty/devops-cli/issues/1083)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/k8s, priority/p1-high
 
 ## Description

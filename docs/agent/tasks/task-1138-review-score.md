@@ -1,9 +1,6 @@
 # Task: devops review score scores saved review sessions against a label file offline and reproduces the S11 and loop baselines (#1138)
 
 **Issue**: [#1138](https://github.com/dan-petty/devops-cli/issues/1138)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/review
 
 ## Description

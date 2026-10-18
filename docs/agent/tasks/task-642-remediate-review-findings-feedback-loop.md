@@ -1,9 +1,6 @@
 # Task 642: Remediate Review Findings 20260927-040516 and Enhance Feedback Loop
 
 **Issue**: [#642](https://github.com/dan-petty/devops-cli/issues/642)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

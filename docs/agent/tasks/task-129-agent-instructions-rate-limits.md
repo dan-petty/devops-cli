@@ -1,9 +1,6 @@
 # Task 129: Update Agent Instructions to Honor API Rate Limits and Quotas
 
 **Issue**: [#129](https://github.com/dan-petty/devops-cli/issues/129)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`
 
 ---

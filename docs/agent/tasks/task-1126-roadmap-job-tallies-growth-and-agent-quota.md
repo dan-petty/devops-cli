@@ -1,9 +1,6 @@
 # Task 1126: Roadmap Job Tallies Release Growth and Agent Quota
 
 **Issue**: [#1126](https://github.com/dan-petty/devops-cli/issues/1126)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/telemetry`, `scope/github`, `priority/p2-medium`
 **Feasibility**: Verified against `reprioritize.py` (decision lifecycle, `JobMark`, transitions, run record), `store.py` (JobMark, Item), `github_store.py` (_JOB_RECORD_KEYS), `telemetry/instruments.py` (InstrumentKind.GAUGE), `metrics.py`, `dashboards/project-metrics.json`, and `test_roadmap_lifecycle_properties.py`.
 

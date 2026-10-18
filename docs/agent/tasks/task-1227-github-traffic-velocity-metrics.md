@@ -1,9 +1,6 @@
 # Task: GitHub Traffic & Velocity Metrics Telemetry Automation (#1227)
 
 **Issue**: [#1227](https://github.com/dan-petty/devops-cli/issues/1227)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/telemetry
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 765: Handle Null Items Array in ArgoCD Applications Response
 
 **Issue**: [#765](https://github.com/dan-petty/devops-cli/issues/765)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p2-medium`
 
 ---

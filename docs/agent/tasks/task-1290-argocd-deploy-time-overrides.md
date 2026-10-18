@@ -1,9 +1,6 @@
 # Task: Argo CD Takes Homelab Values From Deploy-Time Overrides (#1290)
 
 **Issue**: [#1290](https://github.com/dan-petty/devops-cli/issues/1290)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p0-critical
 **Scope**: scope/k8s
 
 ## Description

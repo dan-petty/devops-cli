@@ -1,9 +1,6 @@
 # Task: Bandit Runs on Reviews of More Than 50 Python Files, and a Failed Analyzer Says Why (#1009)
 
 **Issue**: [#1009](https://github.com/dan-petty/devops-cli/issues/1009)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/security, scope/review
 
 ## Description

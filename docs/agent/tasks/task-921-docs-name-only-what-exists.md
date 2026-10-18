@@ -1,9 +1,6 @@
 # Task: Hand-Written Docs Name Only Commands, Options, and Architecture Patterns That Exist (#921)
 
 **Issue**: [#921](https://github.com/dan-petty/devops-cli/issues/921)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/docs
 
 ## Description

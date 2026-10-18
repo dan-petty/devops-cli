@@ -1,9 +1,6 @@
 # Task: CLI help renders at the same width locally and in GitHub CI (#1041)
 
 **Issue**: [#1041](https://github.com/dan-petty/devops-cli/issues/1041)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/bug, priority/p2-medium, scope/ci
 
 ## Description

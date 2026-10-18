@@ -1,9 +1,6 @@
 # Task: Tests Never Write to the Project Config, Data or Tracked Files (#749)
 
 **Issue**: [#749](https://github.com/dan-petty/devops-cli/issues/749)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/ci
 
 ## Description

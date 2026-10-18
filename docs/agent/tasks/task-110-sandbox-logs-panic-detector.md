@@ -1,9 +1,6 @@
 # Task 110: Streaming Diagnostic Log Aggregator and Panic Detector (`devops sandbox logs`)
 
 **Issue**: [#110](https://github.com/dan-petty/devops-cli/issues/110)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
 
 ---

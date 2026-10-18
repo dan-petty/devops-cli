@@ -1,9 +1,6 @@
 # Task 718: Remediate Review Findings 20260928-201857 and Enhance Feedback Loop
 
 **Issue**: [#718](https://github.com/dan-petty/devops-cli/issues/718)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p1-high`
 **Scope**: `type/security`, `type/refactor`, `scope/review`, `priority/p1-high`
 
 ---

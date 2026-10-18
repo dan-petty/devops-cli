@@ -1,9 +1,6 @@
 # Task 323: Git Low-Level Plumbing Optimization, PathSpec In-Memory Tree Caching & Parallel Worktree Research
 
 **Issue**: [#323](https://github.com/dan-petty/devops-cli/issues/323)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

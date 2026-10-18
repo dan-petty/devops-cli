@@ -1,9 +1,6 @@
 # Task: Switch from Dependabot to Renovate (#1219)
 
 **Issue**: [#1219](https://github.com/dan-petty/devops-cli/issues/1219)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/ci
 
 ## Description

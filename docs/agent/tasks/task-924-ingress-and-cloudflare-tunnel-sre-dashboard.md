@@ -1,9 +1,6 @@
 # Task: Ingress and Cloudflare Tunnel SRE Grafana Dashboard (#924)
 
 **Issue**: [#924](https://github.com/dan-petty/devops-cli/issues/924)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

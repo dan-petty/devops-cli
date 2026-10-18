@@ -1,9 +1,6 @@
 # Task: Provide subject-name for Service Image Build Provenance Attestation in release.yml (#1192)
 
 **Issue**: [#1192](https://github.com/dan-petty/devops-cli/issues/1192)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ci
 
 ## Description

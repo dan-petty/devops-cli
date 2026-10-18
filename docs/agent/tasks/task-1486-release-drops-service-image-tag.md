@@ -1,9 +1,6 @@
 # Task: The release no longer pins, bumps or pre-publishes the service image tag; Image Updater rolls service:latest (#1486)
 
 **Issue**: [#1486](https://github.com/dan-petty/devops-cli/issues/1486)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: type/refactor, scope/release
 
 ## Description

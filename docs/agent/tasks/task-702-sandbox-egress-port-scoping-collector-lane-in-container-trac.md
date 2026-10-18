@@ -1,9 +1,6 @@
 # Task: Sandbox Egress Port Scoping, Collector Lane & In-Container Trace Context (#702)
 
 **Issue**: [#702](https://github.com/dan-petty/devops-cli/issues/702)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/security, scope/telemetry
 
 ## Description

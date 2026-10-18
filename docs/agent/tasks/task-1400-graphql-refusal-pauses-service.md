@@ -1,9 +1,6 @@
 # Task: A GraphQL budget refusal pauses every roadmap Service worker until the reset, and each Service round ends with its spend line (#1400)
 
 **Issue**: [#1400](https://github.com/dan-petty/devops-cli/issues/1400)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: P1-High (set by intake on 2026-10-08)
 **Scope**: type/bug, scope/github
 
 ## Description

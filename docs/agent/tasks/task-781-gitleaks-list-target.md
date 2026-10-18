@@ -1,9 +1,6 @@
 # Task: Gitleaks Scans Every File of a List Target Again (#781)
 
 **Issue**: [#781](https://github.com/dan-petty/devops-cli/issues/781)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/security
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Review Prompts State a Threat Model and an Evidence Bar, and Send Nothing the Pipeline Does Not Use (#951)
 
 **Issue**: [#951](https://github.com/dan-petty/devops-cli/issues/951)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

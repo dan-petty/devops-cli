@@ -1,9 +1,6 @@
 # Task: An item a person places in a release stays there, and the roadmap jobs comment on a rule it breaks instead of moving it out (#1349)
 
 **Issue**: [#1349](https://github.com/dan-petty/devops-cli/issues/1349)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/roadmap, priority/p1-high
 
 ## Description

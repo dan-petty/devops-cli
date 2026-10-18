@@ -1,9 +1,6 @@
 # Task: Fingerprint v2 and Deterministic Order-Independent Correlation (#1141)
 
 **Issue**: [#1141](https://github.com/dan-petty/devops-cli/issues/1141)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p1-high
 **Scope**: scope/security
 
 ## Description

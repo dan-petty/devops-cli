@@ -1,9 +1,6 @@
 # Task: The Finding Detail Pane Scrolls to the Top Before the Next Refresh (#834)
 
 **Issue**: [#834](https://github.com/dan-petty/devops-cli/issues/834)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/cli
 
 ## Description

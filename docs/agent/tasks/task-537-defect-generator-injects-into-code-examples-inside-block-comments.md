@@ -1,9 +1,6 @@
 # Task 537: Defect Generator Injects Into Code Examples Inside Block Comments
 
 **Issue**: [#537](https://github.com/dan-petty/devops-cli/issues/537)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

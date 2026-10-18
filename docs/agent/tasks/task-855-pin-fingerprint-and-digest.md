@@ -1,9 +1,6 @@
 # Task: Pin finding fingerprint and run-store digest to literal values (#855)
 
 **Issue**: [#855](https://github.com/dan-petty/devops-cli/issues/855)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/test, priority/p2-medium, scope/security
 
 ## Description

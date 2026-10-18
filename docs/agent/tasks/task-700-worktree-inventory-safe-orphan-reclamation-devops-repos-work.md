@@ -1,9 +1,6 @@
 # Task 700: Worktree Inventory & Safe Orphan Reclamation (`devops repos worktrees`)
 
 **Issue**: [#700](https://github.com/dan-petty/devops-cli/issues/700)
-**Status**: Done
-**Milestone**: `v0.2.34`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 **Feasibility**: Verified with `git worktree list --porcelain -z` and `git for-each-ref --contains` across local repository worktrees.
 

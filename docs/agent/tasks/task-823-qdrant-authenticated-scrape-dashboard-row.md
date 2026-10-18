@@ -1,9 +1,6 @@
 # Task: Qdrant Metrics with an Authenticated Scrape, and Its Dashboard Row Restored (#823)
 
 **Issue**: [#823](https://github.com/dan-petty/devops-cli/issues/823)
-**Status**: Done
-**Milestone**: v0.2.36
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 **Feasibility**: Verified against `docker.io/qdrant/qdrant:v1.19.1` container runtime (`/metrics` returns HTTP 401 without `Authorization: Bearer <key>` when `QDRANT__SERVICE__API_KEY` is set, and HTTP 200 with it), Qdrant `v1.19.1` source (`src/common/metrics.rs`), and cached Helm charts `qdrant/qdrant` 1.19.1 (`templates/servicemonitor.yaml`) and `grafana/k8s-monitoring` 4.5.2 (`alloy-metrics` ClusterRole rules).
 

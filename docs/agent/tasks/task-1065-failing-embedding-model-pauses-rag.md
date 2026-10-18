@@ -1,9 +1,6 @@
 # Task: Failing Embedding Model Pauses RAG Lookups and Embedders Gain Model-Specific Configurations (#1065)
 
 **Issue**: [#1065](https://github.com/dan-petty/devops-cli/issues/1065)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Pod logs reach loki once and labelled, without duplicate scraping (#548)
 
 **Issue**: [#548](https://github.com/dan-petty/devops-cli/issues/548)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/k8s, priority/p1-high
 
 ## Description

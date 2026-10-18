@@ -1,9 +1,6 @@
 # Task 175: Project Field Options Synchronization, Complete Pagination & Generic Owner Resolution
 
 **Issue**: [#175](https://github.com/dan-petty/devops-cli/issues/175)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/github`
 
 ---

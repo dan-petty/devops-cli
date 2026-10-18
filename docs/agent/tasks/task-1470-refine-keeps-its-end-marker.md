@@ -1,9 +1,6 @@
 # Task: Refine writes its section's end marker, so a re-refined item keeps one design section (#1470)
 
 **Issue**: [#1470](https://github.com/dan-petty/devops-cli/issues/1470)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/roadmap
 **Feasibility**: Reproduced on release/v0.2.33 (4635fdd): with the unfixed `render_proposal_section`, the refine-twice test below left two `## Proposed design` sections, and the round-trip test found no section. Both markers are HTML comments, which `sanitize_text`'s tag pattern (`<[a-zA-Z/]`) leaves alone, so only its end-marker replacement removed the section's own end marker.
 

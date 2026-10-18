@@ -1,9 +1,6 @@
 # Task: Podman engine discovery and rootless sandbox workspace write mapping (#1117)
 
 **Issue**: [#1117](https://github.com/dan-petty/devops-cli/issues/1117)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/cli, scope/security, priority/p1-high
 **Feasibility**: Verified Podman socket layout ($XDG_RUNTIME_DIR/podman/podman.sock, /run/podman/podman.sock), docker-py compatibility with Podman Engine API, and user namespace UID 0 mapping for rootless container write permissions.
 

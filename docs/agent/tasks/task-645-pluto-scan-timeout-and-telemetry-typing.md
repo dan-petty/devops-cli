@@ -1,9 +1,6 @@
 # Task 645: Resolve Pluto Single File Scan Timeout and Telemetry Typing Errors
 
 **Issue**: [#645](https://github.com/dan-petty/devops-cli/issues/645)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/security`, `priority/p1-high`
 
 ---

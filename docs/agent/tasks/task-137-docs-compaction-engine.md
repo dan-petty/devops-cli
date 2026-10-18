@@ -1,9 +1,6 @@
 # Task 137: Automated Release Series Documentation Compaction Engine (v0.2.x -> v0.3.x)
 
 **Issue**: [#137](https://github.com/dan-petty/devops-cli/issues/137)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
 
 ---

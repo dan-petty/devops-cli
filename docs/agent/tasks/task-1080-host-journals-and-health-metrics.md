@@ -1,9 +1,6 @@
 # Task: Homelab Hosts Send Their Journals to Loki and Their Health Metrics to Prometheus (#1080)
 
 **Issue**: [#1080](https://github.com/dan-petty/devops-cli/issues/1080)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 
 ## Description

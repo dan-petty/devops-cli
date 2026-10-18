@@ -1,9 +1,6 @@
 # Task 293: Turnkey Kubernetes Stack Grafana Observability Dashboards Roadmap Expansion
 
 **Issue**: [#293](https://github.com/dan-petty/devops-cli/issues/293)
-**Status**: Done
-**Milestone**: `v0.2.21`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`, `scope/telemetry`, `scope/docs`
 
 ---

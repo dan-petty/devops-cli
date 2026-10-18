@@ -1,7 +1,6 @@
 # Task: Dry-Run Review Writes No Session Directory or Findings (#872)
 
 **Issue**: [#872](https://github.com/dan-petty/devops-cli/issues/872)
-**Status**: Done
 **Feasibility**: Verified against `src/devops_cli/ai/review/pipeline.py`, `src/devops_cli/ai/review/review_environment.py`, `src/devops_cli/ai/review/runner.py`, and `src/devops_cli/security/mypy.py`; confirmed `ReviewPipelineOrchestrator` previously created `session_dir` and `files_dir` and persisted `findings.json`, `candidates.json`, `findings.sarif`, `review.md`, and per-file `.json` payloads even when `is_dry_run()` was True.
 
 ## Summary

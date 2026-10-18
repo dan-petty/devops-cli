@@ -1,9 +1,6 @@
 # Task 668: GPU Placement, Exporter Privileges and Gateway Routing for the LLM Pool
 
 **Issue**: [#668](https://github.com/dan-petty/devops-cli/issues/668)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p2-medium`
 
 ---

@@ -1,9 +1,6 @@
 # Task 500: Missing-Symbol Check Leaves "Missing Check" Findings Alone
 
 **Issue**: [#500](https://github.com/dan-petty/devops-cli/issues/500)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

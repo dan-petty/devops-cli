@@ -1,9 +1,6 @@
 # Task 344: Centralize AI Network Slot Leasing Defaults & Elevate File Size Limits to Minimum 50 MiB
 
 **Issue**: [#344](https://github.com/dan-petty/devops-cli/issues/344)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/ai`, `priority/p2-medium`
 
 ---

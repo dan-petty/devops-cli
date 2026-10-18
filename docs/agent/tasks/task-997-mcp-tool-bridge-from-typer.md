@@ -1,7 +1,6 @@
 # Task: Generate FastMCP Tool Bridge from Typer App (#997)
 
 **Issue**: [#997](https://github.com/dan-petty/devops-cli/issues/997)
-**Status**: Done
 **Feasibility**: Verified against Click/Typer app command metadata introspection, parameter signature generation with `pydantic.Field` annotations, and `fastmcp` 2.14.5 dynamic tool registration in the local environment.
 
 ## Summary

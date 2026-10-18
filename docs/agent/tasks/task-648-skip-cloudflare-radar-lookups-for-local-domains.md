@@ -1,9 +1,6 @@
 # Task 648: Skip Cloudflare Radar Threat Intel Lookups for Local and Reserved Domains
 
 **Issue**: [#648](https://github.com/dan-petty/devops-cli/issues/648)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/security`, `priority/p1-high`
 
 ---

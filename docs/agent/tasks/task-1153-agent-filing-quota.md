@@ -1,8 +1,6 @@
 # Task: Agent Filing Quota Specification & Pure Quota Engine (#1153)
 
 **Issue**: [#1153](https://github.com/dan-petty/devops-cli/issues/1153)
-**Status**: Done
-**Priority**: priority/p1-high
 **Scope**: type/feature, priority/p1-high, scope/roadmap
 
 ## Description

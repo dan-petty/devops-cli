@@ -1,9 +1,6 @@
 # Task: Centralized Kubernetes Logging Stack & LogQL Integration (#89)
 
 **Issue**: [#89](https://github.com/dan-petty/devops-cli/issues/89)
-**Status**: Done
-**Milestone**: v0.2.15
-**Priority**: priority/p0-critical
 **Scope**: scope/k8s
 
 ## Description

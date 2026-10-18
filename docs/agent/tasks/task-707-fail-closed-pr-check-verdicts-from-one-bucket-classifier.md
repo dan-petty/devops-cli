@@ -1,9 +1,6 @@
 # Task 707: Fail-Closed PR Check Verdicts From One Bucket Classifier
 
 **Issue**: [#707](https://github.com/dan-petty/devops-cli/issues/707)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/github`, `priority/p0-critical`
 
 ---

@@ -1,9 +1,6 @@
 # Task 722: Configure DevContainer Extensions and Integrate Structural Invariants Sentinel
 
 **Issue**: [#722](https://github.com/dan-petty/devops-cli/issues/722)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`
 
 ---

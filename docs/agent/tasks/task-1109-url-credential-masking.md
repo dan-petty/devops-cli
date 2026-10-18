@@ -1,9 +1,6 @@
 # Task: URL Credential Masking via Standard Library and HTTPX2 (#1109)
 
 **Issue**: [#1109](https://github.com/dan-petty/devops-cli/issues/1109)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p1-high
 **Scope**: scope/security, scope/ai, scope/telemetry
 
 ## Description

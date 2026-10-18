@@ -1,9 +1,6 @@
 # Task: Reviews Ask an Unserved Embedding Model Once, and a Failed Embedding Raises (#945)
 
 **Issue**: [#945](https://github.com/dan-petty/devops-cli/issues/945)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

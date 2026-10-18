@@ -1,9 +1,6 @@
 # Task: The Collector Remote-Writes devops-cli Metrics to the Path Alloy Serves (#829)
 
 **Issue**: [#829](https://github.com/dan-petty/devops-cli/issues/829)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/telemetry
 
 ## Description

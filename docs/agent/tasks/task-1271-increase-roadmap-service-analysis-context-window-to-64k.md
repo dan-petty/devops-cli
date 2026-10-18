@@ -1,9 +1,6 @@
 # Task: Increase Roadmap Service Analysis Context Window to 64k (#1271)
 
 **Issue**: [#1271](https://github.com/dan-petty/devops-cli/issues/1271)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

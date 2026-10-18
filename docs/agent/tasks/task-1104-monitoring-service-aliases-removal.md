@@ -1,7 +1,6 @@
 # Task: Remove monitoring alias Services and direct consumers to Helm chart Services (#1104)
 
 **Issue**: [#1104](https://github.com/dan-petty/devops-cli/issues/1104)
-**Status**: Done
 **Feasibility**: Verified against local manifests, Helm chart definitions, and codebase search: Prometheus chart 29.35.0 deploys Service `prometheus-server` on port 9090; Grafana chart creates Service `grafana` on port 80; plain manifest `service-aliases.yaml` declares unpinned Services that collide with Helm release ownership during `devops k8s deploy-stack`.
 
 ## Deliverables

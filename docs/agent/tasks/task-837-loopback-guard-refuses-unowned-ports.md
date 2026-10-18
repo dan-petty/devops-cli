@@ -1,9 +1,6 @@
 # Task: The Test Network Guard Refuses Loopback Connects to Services the Test Did Not Start (#837)
 
 **Issue**: [#837](https://github.com/dan-petty/devops-cli/issues/837)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/cli
 
 ## Description

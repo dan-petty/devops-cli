@@ -1,9 +1,6 @@
 # Task: mask_secrets masks every GitHub token prefix, ghu_, ghs_ and ghr_ included (#1398)
 
 **Issue**: [#1398](https://github.com/dan-petty/devops-cli/issues/1398)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: type/security, scope/security, priority/p1-high
 
 ## Description

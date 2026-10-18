@@ -1,9 +1,6 @@
 # Task: The Project's Claude Code Settings Are Checked In, While Local Settings, Scratch and Worktrees Stay Ignored (#1087)
 
 **Issue**: [#1087](https://github.com/dan-petty/devops-cli/issues/1087)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/config
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: The Service runs close and reprioritize in their own lane, so a slow model-bound intake or refine round never holds up a release (#1532)
 
 **Issue**: [#1532](https://github.com/dan-petty/devops-cli/issues/1532)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: unset on the issue; the owner placed it in v0.2.33 as a blocker for its release pull request (2026-10-09)
 **Scope**: type/bug, scope/roadmap
 **Feasibility**: Checked at release/v0.2.33 (1d1ccc5) and against the running Service (v0.2.32), read-only. `ServiceManager` built one `RepoWorker` per repository, and a round ran every due row of `DEFAULT_DUE_TABLE` in order, so a trigger that arrived during a refine round waited for all of it. Close and reprioritize call no model; intake and refine call the background model, which answers one call at a time. `_execute_due_rows` wrote back the whole `schedule.json` its round had read at its start, which two concurrent rounds would turn into a lost update, and `ensure_checkout` fetches, checks out with `--force` and resets hard in the same `clone` that close's cut commits and pushes from. Rate limiting is not the cause: over 6 h of Service logs the rate limiter's per-request pauses ran from 0.06 to 5.3 s (at most 5.30 s for core, 4.17 s for GraphQL, 3.79 s for search). Between 19 and 21 UTC it logged about 1,350 pauses an hour, about 1,500 s of sleep spread across every worker, while 76 to 97 rounds finished an hour and spent 1,178 to 1,413 GraphQL points. In the 22 UTC hour only 3 rounds finished, with 283 pauses (149 s): requests fell off because the rounds were waiting on the model. The last devops-cli round to finish before the stall ended at 22:04:13 with 4,726 points left.
 

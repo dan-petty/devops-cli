@@ -1,9 +1,6 @@
 # Task 556: Defect Template Well-Formedness Check as a Command
 
 **Issue**: [#556](https://github.com/dan-petty/devops-cli/issues/556)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 
 ---

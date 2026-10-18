@@ -1,9 +1,6 @@
 # Task: Agent Feasibility Check & Stop Guidelines (#1348)
 
 **Issue**: [#1348](https://github.com/dan-petty/devops-cli/issues/1348)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: type/docs, scope/agent, priority/p1-high
 **Feasibility**: Verified AGENTS.md workflow structure, task file validation rules, and roadmap store API for returning items.
 

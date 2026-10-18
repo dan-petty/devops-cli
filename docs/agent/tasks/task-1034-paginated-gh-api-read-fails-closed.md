@@ -1,9 +1,6 @@
 # Task: Paginated gh api read fails closed on a page that is not the expected json (#1034)
 
 **Issue**: [#1034](https://github.com/dan-petty/devops-cli/issues/1034)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, priority/p1-high
 
 ## Description

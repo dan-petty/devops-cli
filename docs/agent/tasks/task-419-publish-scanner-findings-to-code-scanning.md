@@ -2,9 +2,6 @@
 
 **Issue**: [#419](https://github.com/dan-petty/devops-cli/issues/419)
 **Feasibility**: Verified that `devops scan report --sarif .data/scan.sarif` produces valid SARIF 2.1.0 with per-scanner runs and stable fingerprints, and github/codeql-action/upload-sarif publishes under /devops-scan category with security-events: write permission.
-**Status**: Done
-**Milestone**: `v0.2.33`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

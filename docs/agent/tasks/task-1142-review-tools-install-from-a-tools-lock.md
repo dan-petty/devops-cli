@@ -1,9 +1,6 @@
 # Task: Review tools install from a tools lock with exact versions, binary checksums and hashed Python requirements (#1142)
 
 **Issue**: [#1142](https://github.com/dan-petty/devops-cli/issues/1142)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/security, scope/review
 
 ## Description

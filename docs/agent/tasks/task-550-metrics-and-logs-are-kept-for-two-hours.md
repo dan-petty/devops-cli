@@ -1,9 +1,6 @@
 # Task 550: Logs and Metrics Are Kept for 30 Days
 
 **Issue**: [#550](https://github.com/dan-petty/devops-cli/issues/550)
-**Status**: Done
-**Milestone**: `v0.2.25`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p2-medium`
 
 ---

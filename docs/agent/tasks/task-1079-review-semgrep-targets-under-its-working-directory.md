@@ -1,9 +1,6 @@
 # Task: A Review's Isolated Semgrep Scan Names Only Targets Under Its Working Directory (#1079)
 
 **Issue**: [#1079](https://github.com/dan-petty/devops-cli/issues/1079)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Integrate Grafana Pyroscope to Monitoring Stack (#943)
 
 **Issue**: [#943](https://github.com/dan-petty/devops-cli/issues/943)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s, scope/telemetry
 
 ## Description

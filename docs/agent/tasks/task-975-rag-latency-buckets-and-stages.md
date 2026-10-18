@@ -1,9 +1,6 @@
 # Task: RAG Query Latency Reaches 600 s, Is Timed by Stage, and Searches Its Collections at Once (#975)
 
 **Issue**: [#975](https://github.com/dan-petty/devops-cli/issues/975)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/telemetry
 
 ## Description

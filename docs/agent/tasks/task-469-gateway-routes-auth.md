@@ -1,9 +1,6 @@
 # Task 469: Gateway Route Discovery Authenticates
 
 **Issue**: [#469](https://github.com/dan-petty/devops-cli/issues/469)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/ai`, `priority/p2-medium`
 
 ---

@@ -1,9 +1,6 @@
 # Task: Instruction Surfaces State Only What Agents Are Held To (#840)
 
 **Issue**: [#840](https://github.com/dan-petty/devops-cli/issues/840)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

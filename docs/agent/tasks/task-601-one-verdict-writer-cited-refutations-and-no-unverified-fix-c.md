@@ -1,9 +1,6 @@
 # Task 601: One Verdict Writer, Cited Refutations and No Unverified Fix Claims
 
 **Issue**: [#601](https://github.com/dan-petty/devops-cli/issues/601)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

@@ -1,9 +1,6 @@
 # Task 412: Reachable `--dry-run` Previews for Delegated Commands
 
 **Issue**: [#412](https://github.com/dan-petty/devops-cli/issues/412)
-**Status**: Done
-**Milestone**: `v0.2.33`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

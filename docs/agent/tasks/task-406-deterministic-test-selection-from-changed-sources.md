@@ -1,9 +1,6 @@
 # Task 406: Deterministic Test Selection From Changed Sources
 
 **Issue**: [#406](https://github.com/dan-petty/devops-cli/issues/406)
-**Status**: Done
-**Milestone**: `v0.2.26`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

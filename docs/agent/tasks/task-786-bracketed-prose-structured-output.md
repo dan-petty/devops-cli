@@ -1,9 +1,6 @@
 # Task: Keep a Reply's Structured Output When Its Prose Contains Brackets (#786)
 
 **Issue**: [#786](https://github.com/dan-petty/devops-cli/issues/786)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/ai
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 277: Cross-Domain Analogical Pattern Retriever (`devops ai research analogies`)
 
 **Issue**: [#277](https://github.com/dan-petty/devops-cli/issues/277)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 **Feasibility**: Verified against Qdrant vector index schema in ai/rag/indexer.py, knowledge base articles in ai/knowledge_base, and Typer CLI subcommands in commands/ai_research.py.
 

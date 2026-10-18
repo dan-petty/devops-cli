@@ -1,9 +1,6 @@
 # Task 260: CI Performance Acceleration, Worker Auto-Scaling & Pathological Test Mocking
 
 **Issue**: [#260](https://github.com/dan-petty/devops-cli/issues/260)
-**Status**: Done
-**Milestone**: `v0.2.20`
-**Priority**: `priority/p0-critical`
 **Scope**: `scope/cli`
 
 ---

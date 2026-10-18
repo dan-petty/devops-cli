@@ -1,9 +1,6 @@
 # Task: The Symbol Delta Reads the Base Revision's File Again (#787)
 
 **Issue**: [#787](https://github.com/dan-petty/devops-cli/issues/787)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/review
 
 ## Description

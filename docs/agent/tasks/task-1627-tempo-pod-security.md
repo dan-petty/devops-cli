@@ -1,9 +1,6 @@
 # Task: Tempo Runs Under the otel Namespace's Restricted Pod Security (#1627)
 
 **Issue**: [#1627](https://github.com/dan-petty/devops-cli/issues/1627)
-**Status**: Done
-**Milestone**: v0.2.37
-**Priority**: priority/p0-critical
 **Scope**: scope/k8s
 **Feasibility**: Confirmed against the live cluster. The `tempo` StatefulSet failed to create `tempo-0` 343 times over 3 days 17 hours with `violates PodSecurity "restricted:latest"`, and its volume claim stayed Pending. A server-side dry run of the pod the fixed values render (`helm template` of chart 3.1.0, then `kubectl apply --dry-run=server` into `otel`) is admitted; the same dry run of the current values is refused with the same violation.
 
