@@ -6589,6 +6589,10 @@ devops pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
+One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
+judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+that closes the item, its last, adds changelog.d/\<issue\>.md.
+
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
 and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
@@ -7692,6 +7696,10 @@ devops gh pr close [OPTIONS] <number>
 **Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
+judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+that closes the item, its last, adds changelog.d/\<issue\>.md.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
 and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its

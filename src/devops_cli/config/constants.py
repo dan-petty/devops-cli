@@ -3355,6 +3355,10 @@ CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
         "resolved",
     }
 )
+# The phrase a pull request body names an item with when it delivers part of it: an item planned
+# as several pull requests says `Part of #N` in each but the last, which closes it. GitHub gives
+# the phrase no meaning, so it closes nothing; it is matched case-insensitively, word by word.
+CONST_ISSUE_PART_PHRASE: Final[str] = "part of"
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
 CONST_GH_MILESTONE_STATE_ALL: Final[str] = "all"

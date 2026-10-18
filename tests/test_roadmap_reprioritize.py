@@ -387,16 +387,19 @@ def test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_
     )
 
 
+@pytest.mark.parametrize("link", ["Closes", "Part of"], ids=["closes", "part-of"])
 def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_its_limit(
-    roadmap: Roadmap,
+    roadmap: Roadmap, link: str
 ) -> None:
+    """A pull request that delivers part of the item protects it as a closing one does: its
+    merged parts are in the release branch already."""
     high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(13)]
     low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
     low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
     p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
     started_with(roadmap, *high, low_a, low_b, p3_high)
     roadmap.person.open_pull_request(
-        "feat: low b", base=f"release/{CURRENT}", head="feat/low-b", body=f"Closes #{low_b}"
+        "feat: low b", base=f"release/{CURRENT}", head="feat/low-b", body=f"{link} #{low_b}"
     )
     fix = roadmap.fix()
     roadmap.run()
@@ -1449,10 +1452,11 @@ def test_an_admitted_critical_fix_is_descoped_only_when_it_is_blocked(roadmap: R
 # ── The stall window ──────────────────────────────────────────────────────────
 
 
-def _working_on(roadmap: Roadmap, number: int) -> int:
-    """A person opens the item's pull request into the release branch."""
+def _working_on(roadmap: Roadmap, number: int, link: str = "Closes") -> int:
+    """A person opens the item's pull request into the release branch: one that closes it, or
+    with `link="Part of"` one of several that deliver it."""
     return roadmap.person.open_pull_request(
-        "feat: work", base=f"release/{CURRENT}", head="feat/work", body=f"Closes #{number}"
+        "feat: work", base=f"release/{CURRENT}", head="feat/work", body=f"{link} #{number}"
     )
 
 
@@ -1482,10 +1486,16 @@ def test_an_in_progress_item_idle_for_fourteen_days_goes_back_to_ready_and_is_de
     )
 
 
-def test_a_commit_on_a_linked_pull_request_keeps_an_item_from_stalling(roadmap: Roadmap) -> None:
+@pytest.mark.parametrize("link", ["Closes", "Part of"], ids=["closes", "part-of"])
+def test_a_commit_on_a_linked_pull_request_keeps_an_item_from_stalling(
+    roadmap: Roadmap, link: str
+) -> None:
+    """An item delivered in several pull requests stays In Progress across its parts, so its
+    Status last changed when it started: a `Part of #N` pull request's commits are its activity,
+    as a closing one's are, or it would be readied and moved on part-way through."""
     item = roadmap.file("in progress", status="In Progress")
     started_with(roadmap, item)
-    pull_request = _working_on(roadmap, item)
+    pull_request = _working_on(roadmap, item, link)
     roadmap.now += timedelta(days=10)
     roadmap.person.push_to_pull_request(pull_request)
     roadmap.now += timedelta(days=10)

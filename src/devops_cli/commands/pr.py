@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
     CONST_GH_RAW_CONTENT_ACCEPT,
+    CONST_ISSUE_STATE_OPEN,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PR_API_STATE_MAP,
     CONST_PR_FILE_CHANGED_STATUSES,
@@ -51,7 +52,7 @@ from devops_cli.github.defect_classifier import (
     audit_pr_hardening,
     classify_defect_pr,
 )
-from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -1527,10 +1528,11 @@ def _grounding_scope(
         return True, [blocker]
 
 
-class _ClosedItem(NamedTuple):
-    """The Release of the one issue a PR into `release/vX.Y.Z` closes, or why it wasn't read."""
+class _GroundedItem(NamedTuple):
+    """The Release and state of the one issue a PR is grounded on, or why it wasn't read."""
 
     release: str | None
+    state: str | None = None
     error: str = ""
 
 
@@ -1543,31 +1545,51 @@ class _BaseChangelog(NamedTuple):
 
 
 class _Grounding(NamedTuple):
-    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes,
-    and, into a release branch, the Release of the one issue it closes and, for a PR changing
-    CHANGELOG.md, whether the cut wrote the release's section there."""
+    """What the grounding checks judge: the PR's base, the issues it closes, the issues it delivers
+    part of, the files it changes, the Release and state of the one issue it is grounded on, read
+    into a release branch or for a part, and, for a PR changing CHANGELOG.md, whether the cut wrote
+    the release's section there."""
 
     pr_num: int
     repo: str
     base: str
     issues: list[int]
+    parts: list[int]
     changed: _ChangedFilesRead
-    item: _ClosedItem | None = None
+    item: _GroundedItem | None = None
     changelog: _BaseChangelog | None = None
 
+    @property
+    def issue(self) -> int | None:
+        """The one issue the PR is grounded on: the one it closes, or the one it delivers part of
+        when it closes none; None unless the body names exactly one of either."""
+        named = [*self.issues, *self.parts]
+        return named[0] if len(named) == 1 else None
 
-def _closes_one_issue(grounding: _Grounding) -> str | None:
-    """The body closes exactly one issue, read as `devops roadmap close` will act on it."""
-    if len(grounding.issues) == 1:
+
+def _issue_list(numbers: list[int]) -> str:
+    """Issue numbers as a body names them: `#1, #2`."""
+    return ", ".join(f"#{number}" for number in numbers)
+
+
+def _names_one_issue(grounding: _Grounding) -> str | None:
+    """The body closes exactly one issue, read as `devops roadmap close` will act on it, or,
+    closing none, delivers part of exactly one with `Part of #<issue>`."""
+    if grounding.issue is not None:
         return None
-    if not grounding.issues:
-        return MESSAGES.pr.grounding_closes_no_issue.format(
-            number=grounding.pr_num, repo=grounding.repo
+    texts, number = MESSAGES.pr, grounding.pr_num
+    if grounding.issues and grounding.parts:
+        return texts.grounding_closes_and_parts.format(
+            number=number, issues=_issue_list(grounding.issues), parts=_issue_list(grounding.parts)
         )
-    return MESSAGES.pr.grounding_closes_several_issues.format(
-        number=grounding.pr_num,
-        count=len(grounding.issues),
-        issues=", ".join(f"#{issue}" for issue in grounding.issues),
+    if grounding.parts:
+        return texts.grounding_several_parts.format(
+            number=number, count=len(grounding.parts), parts=_issue_list(grounding.parts)
+        )
+    if not grounding.issues:
+        return texts.grounding_closes_no_issue.format(number=number, repo=grounding.repo)
+    return texts.grounding_closes_several_issues.format(
+        number=number, count=len(grounding.issues), issues=_issue_list(grounding.issues)
     )
 
 
@@ -1591,10 +1613,10 @@ def _writes_task_file(changed: ChangedFile, issue: int) -> bool:
 
 
 def _changes_its_task_file(grounding: _Grounding) -> str | None:
-    """The PR adds, modifies or renames the task file of the one issue it closes."""
-    if len(grounding.issues) != 1 or grounding.changed.error:
+    """The PR adds, modifies or renames the task file of the one issue it is grounded on."""
+    issue = grounding.issue
+    if issue is None or grounding.changed.error:
         return None
-    issue = grounding.issues[0]
     if any(_writes_task_file(changed, issue) for changed in grounding.changed.files):
         return None
     return MESSAGES.pr.grounding_task_file_missing.format(
@@ -1641,7 +1663,7 @@ def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
     if not found:
         return None
     texts = MESSAGES.pr
-    issue = str(grounding.issues[0]) if len(grounding.issues) == 1 else "<issue>"
+    issue = "<issue>" if grounding.issue is None else str(grounding.issue)
     blocker = texts.grounding_release_files_changed.format(
         number=grounding.pr_num,
         files=" and ".join(path for path in CONST_RELEASE_SHARED_FILES if path in found),
@@ -1649,75 +1671,106 @@ def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
     )
     if cut:
         return blocker
-    return blocker + texts.grounding_release_files_fragment.format(
-        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md"
+    # Only the PR that closes an item adds its fragment, so a part PR's blocker names that PR.
+    hint = (
+        texts.grounding_release_files_part_fragment
+        if grounding.parts
+        else texts.grounding_release_files_fragment
+    )
+    return blocker + hint.format(
+        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md", issue=issue
     )
 
 
-def _closes_an_item_of_its_release(grounding: _Grounding) -> str | None:
-    """A PR into `release/vX.Y.Z` closes an item of release vX.Y.Z (#740).
+def _item_was_read(grounding: _Grounding) -> str | None:
+    """The issue the PR is grounded on was read, where its Release or state is judged."""
+    if grounding.item is None or not grounding.item.error:
+        return None
+    return MESSAGES.pr.grounding_item_unread.format(
+        number=grounding.pr_num, issue=grounding.issue, error=grounding.item.error
+    )
+
+
+def _delivers_an_item_of_its_release(grounding: _Grounding) -> str | None:
+    """A PR into `release/vX.Y.Z` closes, or delivers part of, an item of release vX.Y.Z (#740).
 
     The release's scope is fixed when it starts, so work on an item of another release, or of
-    the backlog, waits for that release. It judges the one issue the body closes, which
-    `_closes_one_issue` requires; a PR into the default branch is not judged.
+    the backlog, waits for that release. It judges the one issue the PR is grounded on, which
+    `_names_one_issue` requires; a PR into the default branch is not judged.
     """
     branch = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base)
-    if branch is None or grounding.item is None:
+    if branch is None or grounding.item is None or grounding.item.error:
         return None
-    issue = grounding.issues[0]
-    if grounding.item.error:
-        return MESSAGES.pr.grounding_item_unread.format(
-            number=grounding.pr_num, issue=issue, error=grounding.item.error
-        )
     version = Version(branch["version"])
     if in_release(grounding.item.release, version):
         return None
+    texts = MESSAGES.pr
     placement = (
-        MESSAGES.pr.grounding_item_in_release.format(release=grounding.item.release)
+        texts.grounding_item_in_release.format(release=grounding.item.release)
         if grounding.item.release
-        else MESSAGES.pr.grounding_item_in_backlog
+        else texts.grounding_item_in_backlog
     )
-    return MESSAGES.pr.grounding_item_not_in_release.format(
+    delivers = texts.grounding_item_part if grounding.parts else texts.grounding_item_closes
+    return texts.grounding_item_not_in_release.format(
         number=grounding.pr_num,
-        issue=issue,
+        delivers=delivers.format(issue=grounding.issue),
         placement=placement,
         release=f"v{version}",
         base=grounding.base,
     )
 
 
+def _delivers_part_of_an_open_item(grounding: _Grounding) -> str | None:
+    """A part PR's item is open: each part lands before the PR that closes the item, its last."""
+    item = grounding.item
+    if not grounding.parts or item is None or item.error or item.state == CONST_ISSUE_STATE_OPEN:
+        return None
+    return MESSAGES.pr.grounding_part_of_closed_item.format(
+        number=grounding.pr_num, issue=grounding.issue
+    )
+
+
 # Each check names what is missing, or returns None. A check that needs what an earlier one
 # found missing returns None, so each failure is one blocker. A new rule is one more entry.
 _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
-    _closes_one_issue,
+    _names_one_issue,
     _changed_files_were_read,
     _changes_its_task_file,
     _base_changelog_was_read,
     _leaves_release_files_to_the_cut,
-    _closes_an_item_of_its_release,
+    _item_was_read,
+    _delivers_an_item_of_its_release,
+    _delivers_part_of_an_open_item,
 )
 
 
-def _read_closed_item(
-    owner: str, repo_name: str, base: str, issues: list[int]
-) -> _ClosedItem | None:
-    """The Release of the one issue a PR into a release branch closes; None for any other PR."""
-    if CONST_RELEASE_BRANCH_RE.fullmatch(base) is None or len(issues) != 1:
+def _grounded_item(reply: object) -> _GroundedItem:
+    """The Release and state an `issues/{n}` reply names."""
+    issue = reply if isinstance(reply, dict) else {}
+    milestone, state = issue.get("milestone"), issue.get("state")
+    title = milestone.get("title") if isinstance(milestone, dict) else None
+    return _GroundedItem(
+        title if isinstance(title, str) else None, state if isinstance(state, str) else None
+    )
+
+
+def _read_grounded_item(owner: str, repo_name: str, grounding: _Grounding) -> _GroundedItem | None:
+    """The Release and state of the one issue a PR is grounded on, read into a release branch,
+    whose item is judged by its Release, or for a part, whose item must be open; None otherwise."""
+    into_release = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base) is not None
+    if grounding.issue is None or not (into_release or grounding.parts):
         return None
     res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{issues[0]}"],
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{grounding.issue}"],
         check=False,
         quiet=True,
     )
     if res.returncode != 0:
-        return _ClosedItem(None, _gh_failure(res))
+        return _GroundedItem(None, error=_gh_failure(res))
     try:
-        issue = json.loads(res.stdout or "")
+        return _grounded_item(json.loads(res.stdout or ""))
     except json.JSONDecodeError as exc:
-        return _ClosedItem(None, f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
-    milestone = issue.get("milestone") if isinstance(issue, dict) else None
-    title = milestone.get("title") if isinstance(milestone, dict) else None
-    return _ClosedItem(title if isinstance(title, str) else None)
+        return _GroundedItem(None, error=f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _edits_the_changelog(changed: ChangedFile) -> bool:
@@ -1761,9 +1814,9 @@ def _read_base_changelog(
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
-    """Require every item PR to close one issue, change its task file and leave the files the
-    cut writes alone (CHANGELOG.md until the cut has written its section), and a PR into
-    `release/vX.Y.Z` to close an item of that release.
+    """Require every item PR to close one issue, or deliver part of one open issue, change its
+    task file and leave the files the cut writes alone (CHANGELOG.md until the cut has written
+    its section), and a PR into `release/vX.Y.Z` to deliver an item of that release.
 
     The release PR and release-process PRs deliver no single item and are exempt. It applies
     where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
@@ -1777,12 +1830,14 @@ def _grounding_blockers(
             )
         return []
     repo = f"{owner}/{repo_name}"
-    linked = extract_linked_issues(str(pr_data.get("body") or ""), repo)
+    body = str(pr_data.get("body") or "")
     base = _branch_ref(pr_data, "base")
-    issues = [issue.number for issue in linked]
-    item = _read_closed_item(owner, repo_name, base, issues)
-    changelog = _read_base_changelog(owner, repo_name, base, changed)
-    grounding = _Grounding(pr_num, repo, base, issues, changed, item, changelog)
+    issues = [issue.number for issue in extract_linked_issues(body, repo)]
+    named = _Grounding(pr_num, repo, base, issues, extract_part_references(body, repo), changed)
+    grounding = named._replace(
+        item=_read_grounded_item(owner, repo_name, named),
+        changelog=_read_base_changelog(owner, repo_name, base, changed),
+    )
     return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
@@ -1931,6 +1986,10 @@ def check_readiness(
     ] = None,
 ) -> None:
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+    One of several PRs that deliver an item says Part of #<issue> instead of closing it. Grounding
+    judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+    that closes the item, its last, adds changelog.d/<issue>.md.
 
     Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
     and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
