@@ -778,6 +778,10 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
+# The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
+# --paginate` call (#983): sized for a listing of about DEFAULT_GH_MAX_PAGINATED_PAGES pages of
+# 100 items, not 100 pages of 30 s each.
+DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
 # `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).

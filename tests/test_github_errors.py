@@ -205,6 +205,21 @@ def test_a_long_path_is_bounded_in_the_details(github_api: GitHubApiFake) -> Non
     assert raised.value.details["path"] == path[:256]
 
 
+def test_an_entry_that_is_no_object_names_its_type_and_the_bounded_path() -> None:
+    """The error for a listing entry that is not an object names the entry's type, never its
+    text, and carries the listing's path at most 256 characters long."""
+    from devops_cli.github.error_classifier import unlisted_entry
+
+    path = f"/repos/octo/repo/issues?q={'a' * 400}"
+    error = unlisted_entry("ghp_not_shown", path=path)
+    assert (
+        type(error),
+        "holds a str, not an object" in error.message,
+        "ghp_not_shown" in error.message,
+        error.details["path"],
+    ) == (GitHubUnreadError, True, False, path[:256])
+
+
 def test_the_session_errors_are_github_operation_errors_with_their_own_codes() -> None:
     """Every `except GitHubOperationError` still catches them, and each has its error code."""
     errors = (

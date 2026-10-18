@@ -52,23 +52,32 @@ def _readiness_gh(
 
 
 class _RoutedSession:
-    """The GitHub session readiness reads a pull request's changed files through, answered from
-    the routes of the test's `run_gh` stub (#983).
+    """The GitHub session readiness reads a pull request's changed files and check runs through,
+    answered from the routes of the test's `run_gh` stub (#983).
 
-    The stub is asked for the listing's endpoint, so its calls record the read beside the gh
-    reads. A reply holding a list is the whole listing; a failed reply raises the read's
-    failure; anything else fails closed as the session does, through its own `listed_items`.
+    Each read is recorded in `reads`, and the stub is asked for its endpoint with an argv that
+    is plainly no gh command (`<session> GET <endpoint>`), so a reader that went back to a
+    one-page `gh api` read shows in a test as a different call. A reply holding a list is the
+    whole listing; a failed reply raises the read's failure; anything else fails closed as the
+    session does, through its own `listed_items`. A read with `run_gh` left unstubbed fails the
+    test instead of reaching a real gh.
     """
 
     def __init__(self, gh: Callable[..., MagicMock]) -> None:
         self._gh = gh
+        self.reads: list[str] = []
 
     def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[object]:
+        from devops_cli.commands import pr as pr_module
         from devops_cli.exceptions.git import GitHubOperationError
+        from devops_cli.github import rate_limiter
         from devops_cli.github.error_classifier import classify_http_error
         from devops_cli.github.session_transport import listed_items
 
-        reply = self._gh(["gh", "api", path.lstrip("/")])
+        if pr_module.run_gh is rate_limiter.run_gh:
+            raise AssertionError("A session read under test_pr_cmd needs run_gh stubbed")
+        self.reads.append(path)
+        reply = self._gh([_SESSION_READ, "GET", path.lstrip("/")])
         if reply.returncode != 0:
             raise GitHubOperationError(reply.stderr.strip())
         try:
@@ -78,21 +87,39 @@ class _RoutedSession:
         yield from listed_items(answer, path=path, page=1, iterable_key=iterable_key)
 
 
+# What a session read looks like among the `run_gh` stub's calls: no gh command does.
+_SESSION_READ = "<session>"
+
+
 @pytest.fixture(autouse=True)
-def session_reads_answered_by_the_run_gh_stub(
+def routed_session(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> _RoutedSession | None:
     """Readiness reads a pull request's changed files and check runs through the GitHub
     session (#983). Here both are answered from the routes of whatever stands in for `run_gh`
-    in `commands.pr`, as its gh reads are, so no test reaches GitHub or a real `gh`. A test over
-    the `github_api` fake keeps the real session."""
+    in `commands.pr`, as its gh reads are, and recorded on the session, which a test can ask
+    for by name. A read with `run_gh` unstubbed fails, so no test reaches GitHub or a real gh.
+    A test over the `github_api` fake keeps the real session."""
     if "github_api" in request.fixturenames:
-        return
+        return None
     from devops_cli.commands import pr as pr_module
 
     session = _RoutedSession(lambda args, **kwargs: pr_module.run_gh(args, **kwargs))
     monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: session)
     monkeypatch.setattr("devops_cli.github.check_verdict.get_github_session", lambda: session)
+    return session
+
+
+def test_the_routed_session_refuses_an_unstubbed_run_gh() -> None:
+    """A session read in a test that left `run_gh` alone fails at once and starts no gh."""
+    from devops_cli.github import session as session_module
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess") as spawned,
+        pytest.raises(AssertionError, match="needs run_gh stubbed"),
+    ):
+        list(session_module.get_github_session().paginate("/repos/o/r/pulls/1/files?per_page=100"))
+    assert spawned.call_count == 0
 
 
 class TestPrCommands:
@@ -1886,7 +1913,7 @@ def _blockers(
     **kwargs: object,
 ) -> list[str]:
     """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed,
-    which also answers the files read (`session_reads_answered_by_the_run_gh_stub`).
+    which also answers the files read (`routed_session`).
 
     Unless `gh` answers instead, the base keeps task files and the PR changes #704's.
     """
@@ -2088,21 +2115,27 @@ def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each() -> None:
+def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each(
+    routed_session: _RoutedSession,
+) -> None:
     """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
-    gh reads the base's task directory and the closed issue."""
+    gh reads the base's task directory and the closed issue. A files read sent through
+    `gh api` instead shows here as a gh call."""
     gh = _grounding_gh([_TASK_704])
     _blockers(_ready_pr(), gh=gh)
-    assert [call.args[0] for call in gh.call_args_list] == [
-        ["gh", "api", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+    assert (routed_session.reads, [call.args[0] for call in gh.call_args_list]) == (
+        ["/repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
         [
-            "gh",
-            "api",
-            "--silent",
-            f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            [_SESSION_READ, "GET", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+            [
+                "gh",
+                "api",
+                "--silent",
+                f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            ],
+            ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
         ],
-        ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
-    ]
+    )
 
 
 _FILES_PAGE_2 = "/repositories/1/pulls/335/files?per_page=100&page=2"

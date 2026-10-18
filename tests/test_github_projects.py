@@ -764,6 +764,33 @@ def test_a_repository_listing_page_that_is_no_list_fails_the_read(
         _fetch_repository_issues("owner/repo")
 
 
+@pytest.mark.parametrize(
+    ("kind", "entry", "type_name"),
+    [
+        ("issues", 5, "int"),
+        ("issues", None, "NoneType"),
+        ("issues", "text", "str"),
+        ("pulls", 5, "int"),
+    ],
+)
+def test_a_repository_listing_entry_that_is_no_object_fails_the_read(
+    github_api: GitHubApiFake, kind: str, entry: object, type_name: str
+) -> None:
+    """An entry that is not an object is a typed read failure naming its type, never a bare
+    TypeError or AttributeError and never a shorter list."""
+    from devops_cli.exceptions.git import GitHubUnreadError
+    from devops_cli.github.projects import _fetch_repository_issues, _fetch_repository_prs
+
+    github_api.route(
+        "GET",
+        f"/repos/owner/repo/{kind}?state=open&per_page=100",
+        github_json([{"number": 1, "html_url": "u1"}, entry]),
+    )
+    read = _fetch_repository_issues if kind == "issues" else _fetch_repository_prs
+    with pytest.raises(GitHubUnreadError, match=type_name):
+        read("owner/repo")
+
+
 def test_extract_item_fields_case_insensitive() -> None:
     """_extract_item_fields extracts custom fields regardless of casing or dict formatting."""
     from devops_cli.github.projects import _extract_item_fields

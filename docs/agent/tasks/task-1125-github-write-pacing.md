@@ -84,7 +84,7 @@ Built on #741 and #742. Stage 1 is the store and the limiter; stage 2 makes dry 
 - Narrower job filters (`is:open` plus a Release's closed members) need reprioritize and render to read closed members separately; the auto-archive workflow takes old closed items out of every read once it is on.
 
 - Write spacing across processes: the per-target schedule and the last write are not persisted (`_persist_to_disk_locked`); a shared write clock belongs with the per-identity session of #983.
-- `run_gh`'s page-by-page `--paginate` path rewrites a `gh api graphql --paginate` read to `graphql?page=1`; every paginated call in `src` is a REST GET, so gh's own GraphQL pagination is not used yet. #983 removed that path, so `gh api graphql --paginate` now pages with gh's own cursor.
+- `run_gh`'s page-by-page `--paginate` path first rewrote a `gh api graphql --paginate` read to `graphql?page=1` and, from v0.2.29, refused it; #983 removed that path, so gh now pages such a query with its own `$endCursor` cursor.
 - argparse takes neither a `gh api` switch given a value (`--paginate=true`, `-i=true`) nor a value starting with a dash (`--jq -.a`), both of which gh accepts; such a call counts as a write, so it is paced as one and not cached. No call in `src` uses these forms.
 - A write slot comes after the last write scheduled, not from a gap between writes: with concurrent callers in one process, a write waiting out one resource's reset holds later writes on other resources until it goes.
 - `commands/pr.py::_run_gh_pr_command` has no caller.

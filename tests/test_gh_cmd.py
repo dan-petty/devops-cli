@@ -960,6 +960,36 @@ def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("flags", "timeout_default"),
+    [
+        pytest.param(["--paginate"], "DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS", id="paginated"),
+        pytest.param([], "DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS", id="one-page"),
+    ],
+)
+def test_gh_api_gives_a_paginated_walk_the_listing_timeout(
+    flags: list[str], timeout_default: str
+) -> None:
+    """gh walks every `Link` page of a `--paginate` call in one process, so the whole walk gets
+    the listing's timeout rather than one request's."""
+    from devops_cli.config import defaults
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    answer = subprocess.CompletedProcess([], 0, stdout="[]\n", stderr="")
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
+    ):
+        result = runner.invoke(app, ["api", "repos/:owner/:repo/issues", *flags])
+    assert (result.exit_code, gh.call_args.kwargs["timeout"]) == (
+        0,
+        getattr(defaults, timeout_default),
+    )
+
+
 def test_gh_api_error_masked() -> None:
     """devops gh api masks sensitive tokens on request failure."""
     with (

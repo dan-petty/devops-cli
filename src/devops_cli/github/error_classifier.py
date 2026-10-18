@@ -221,6 +221,16 @@ def unlisted_page(
     )
 
 
+def unlisted_entry(entry: Any, *, path: str) -> GitHubUnreadError:
+    """The error for an entry of a listing of objects that is not one. Its type is named, never
+    its text."""
+    request = FailedRequest("GET", path)
+    return GitHubUnreadError(
+        f"GitHub's listing at {request} holds a {type(entry).__name__}, not an object",
+        details=request.details(),
+    )
+
+
 def listing_past_page_cap(*, path: str, max_pages: int) -> GitHubUnreadError:
     """The error for a listing still linking a next page after `max_pages` pages: a chain that
     never ends is read no further, and the listing is never taken as whole."""

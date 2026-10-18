@@ -99,7 +99,8 @@ class ProjectGitHub:
 
     def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[dict[str, Any]]:
         """The GitHub session's listing read (#983): the issues or pull requests the listing's
-        `state` selects, recorded as one GET of `path`."""
+        `state` selects, recorded as one GET of `path`. A gh listing is an unexpected call."""
+        assert iterable_key is None, f"a repository listing has no {iterable_key!r} wrapper"
         endpoint = path.lstrip("/")
         self.sent.append(["GET", endpoint])
         yield from self._listing(endpoint)
@@ -129,8 +130,6 @@ class ProjectGitHub:
             return 0, ""
         if args[:2] == ["api", "user"]:
             return 0, "someone\n"
-        if args[0] == "api":
-            return 0, json.dumps(self._listing(next(a for a in args if a.startswith("repos/"))))
         raise AssertionError(f"unexpected gh call: {args}")
 
     def _fields(self) -> dict[str, Any]:
@@ -162,10 +161,7 @@ class ProjectGitHub:
 
     def _listing(self, endpoint: str) -> list[dict[str, Any]]:
         parts = urlsplit(endpoint)
-        query = parse_qs(parts.query)
-        if int(query.get("page", ["1"])[0]) > 1:
-            return []
-        state = query["state"][0]
+        state = parse_qs(parts.query)["state"][0]
         items = self.pulls if parts.path.endswith("/pulls") else self.issues
         return [item for item in items if state == "all" or item["state"] == state]
 
@@ -176,13 +172,13 @@ class ProjectGitHub:
 
 def request_kind(args: list[str]) -> str:
     """A request's kind: a board query's operation, a listing's path, or the gh command. A
-    listing is `gh api repos/...` or the session's `GET repos/...`."""
+    listing is the session's `GET repos/...`; no gh command lists."""
     joined = " ".join(args)
     operations = ("RoadmapBoardBudget", "RoadmapBoardItems")
     listing = next((a for a in args if a.startswith("repos/")), None)
     if args[:2] == ["api", "graphql"]:
         return next((op for op in operations if op in joined), "api graphql")
-    if args[0] in ("api", "GET") and listing is not None:
+    if args[0] == "GET" and listing is not None:
         return urlsplit(listing).path
     return " ".join(args[:2])
 

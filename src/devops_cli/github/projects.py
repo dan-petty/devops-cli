@@ -34,6 +34,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.github.error_classifier import unlisted_entry
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
@@ -733,8 +734,14 @@ def _repository_list_path(repo: str, kind: str, state: str) -> str:
 
 def _fetch_repository_list(repo: str, kind: str, state: str) -> list[dict[str, Any]]:
     """Read every linked page of a repository's issues or pull requests through the GitHub
-    session, raising when a page can't be read or holds no list."""
-    return list(get_github_session().paginate(_repository_list_path(repo, kind, state)))
+    session, raising when a page can't be read or holds no list, or an entry is not an object:
+    the read fails rather than return a shorter list."""
+    path = _repository_list_path(repo, kind, state)
+    items = list(get_github_session().paginate(path))
+    for item in items:
+        if not isinstance(item, dict):
+            raise unlisted_entry(item, path=path)
+    return items
 
 
 def _planned_listing(repo: str, kind: str, state: str) -> PlannedRequest:
