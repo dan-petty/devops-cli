@@ -35,8 +35,7 @@ from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.output import print_dry_run_command
-from devops_cli.telemetry import record_metric, trace_span
-from devops_cli.telemetry.tracer import get_tracer
+from devops_cli.telemetry.tracer import get_tracer, record_metric, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
     {"rev-parse", "symbolic-ref", "for-each-ref", "diff", "cat-file", "tag", "remote", "status"}

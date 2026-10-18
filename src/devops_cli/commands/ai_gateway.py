@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.client import AICredentialsError
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.gateway import GatewayRoute, GatewayRouter
 from devops_cli.ai.gateway_tune import (
     GatewayTuneError,
