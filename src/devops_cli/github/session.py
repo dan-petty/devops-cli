@@ -25,8 +25,6 @@ from devops_cli.github.rate_limiter import resolve_identity_cache_dir, run_gh
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import httpx2
-
     from devops_cli.github.client import GitHubClient
     from devops_cli.github.session_transport import RestTransport
 
@@ -34,10 +32,8 @@ if TYPE_CHECKING:
 class GitHubSession:
     """One GitHub identity: its token, the login behind it, its ledger directory and its client."""
 
-    def __init__(self, token: str, *, transport: httpx2.MockTransport | None = None) -> None:
-        """`transport` answers the session's requests in place of GitHub, as a test's fake does."""
+    def __init__(self, token: str) -> None:
         self._token = token
-        self._http_transport = transport
         self._rest: RestTransport | None = None
         self._rest_lock = threading.Lock()
 
@@ -93,7 +89,7 @@ class GitHubSession:
 
         with self._rest_lock:
             if self._rest is None:
-                self._rest = RestTransport(self._token, transport=self._http_transport)
+                self._rest = RestTransport(self._token)
             return self._rest
 
 

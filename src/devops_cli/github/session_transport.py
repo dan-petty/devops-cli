@@ -109,15 +109,15 @@ async def refuse_other_origins(request: httpx2.Request) -> None:
     )
 
 
-def session_client(transport: httpx2.MockTransport | None = None) -> httpx2.AsyncClient:
-    """The session's client from the factory, at the public egress level or over `transport`,
-    following redirects under the origin hook and pinning the REST API version."""
+def session_client() -> httpx2.AsyncClient:
+    """The session's client from the egress factory at the public level, following redirects
+    under the origin hook and pinning the REST API version."""
     options: ClientOptions = {
         "follow_redirects": True,
         "headers": {CONST_GITHUB_HEADER_API_VERSION: CONST_GITHUB_API_VERSION},
         "event_hooks": {"request": [refuse_other_origins]},
     }
-    return new_async_http_client(level=EgressLevel.PUBLIC, mock_transport=transport, **options)
+    return new_async_http_client(level=EgressLevel.PUBLIC, **options)
 
 
 def _gh_api_command(url: str) -> list[str]:
@@ -266,11 +266,11 @@ class RestTransport:
     interpreter would wait forever on a thread that no longer runs.
     """
 
-    def __init__(self, token: str, *, transport: httpx2.MockTransport | None = None) -> None:
+    def __init__(self, token: str) -> None:
         with ExitStack() as resources:
             portal = resources.enter_context(start_blocking_portal())
             resources.callback(portal.call, portal.stop, True)
-            client = session_client(transport)
+            client = session_client()
             resources.callback(portal.call, client.aclose)
             self._portal = portal
             self._api = SessionGitHubAPI(client, token)

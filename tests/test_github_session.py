@@ -34,9 +34,11 @@ from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
+from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.github import rate_limiter, session_transport, ssh
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
+from devops_cli.http.egress import EgressLevel
 from tests.github_session_fakes import (
     API,
     GitHubApiFake,
@@ -45,6 +47,7 @@ from tests.github_session_fakes import (
     github_text,
     quota_headers,
 )
+from tests.web_fakes import rebinding, scripted_resolver
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SRC = _PROJECT_ROOT / "src" / "devops_cli"
@@ -398,8 +401,8 @@ def _record_clients(monkeypatch: pytest.MonkeyPatch) -> list[httpx2.AsyncClient]
     built: list[httpx2.AsyncClient] = []
     real_session_client = session_transport.session_client
 
-    def recording(transport: httpx2.MockTransport | None = None) -> httpx2.AsyncClient:
-        built.append(real_session_client(transport))
+    def recording() -> httpx2.AsyncClient:
+        built.append(real_session_client())
         return built[-1]
 
     monkeypatch.setattr(session_transport, "session_client", recording)
@@ -437,25 +440,32 @@ def test_a_token_change_closes_the_replaced_session(
     assert (current is replaced, [client.is_closed for client in clients]) == (False, [True])
 
 
-# The child sends one request through a session over the fake GitHub API, and again through the
-# same session after `reset_github_session()` reopened it, and never closes it: the interpreter
-# must still exit. No network and no gh: its quota is seeded and its transport is the fake's.
+# The child sends one request through the process's session over the fake GitHub API, and again
+# through the same session after `reset_github_session()` reopened it, and never closes it: the
+# interpreter must still exit. It fakes GitHub as the `github_api` fixture does, through the
+# httpx2 client seam, and resolves GitHub's API host to a public address with the web fakes'
+# resolver, so its requests are vetted with no DNS, no network and no gh.
 _EXITING_CHILD = """
+import socket
 import time
+
+import httpx2
 
 from devops_cli.core import process
 from devops_cli.github import session
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.web_fakes import PUBLIC_ADDRESS, ScriptedResolver
 
+socket.getaddrinfo = ScriptedResolver({"api.github.com": [[PUBLIC_ADDRESS]]}, socket.getaddrinfo)
 process._github_token = "child-token"
 api = GitHubApiFake()
 api.route("GET", "/user", github_json({"login": "octocat"}))
+httpx2.AsyncClient = api.client_class()
 get_github_rate_limiter().update_quota(
     "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
 )
-held = session.GitHubSession("child-token", transport=api.transport)
-session._SESSION = held
+held = session.get_github_session()
 first = held.rest("GET", "/user")["login"]
 session.reset_github_session()
 print(first, held.rest("GET", "/user")["login"], flush=True)
@@ -517,16 +527,13 @@ def test_closing_a_session_cancels_a_request_waiting_out_a_retry(
 
 
 def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(
-    github_api: GitHubApiFake, pin_github_session: str
+    github_api: GitHubApiFake,
 ) -> None:
     """Requests in flight when the session closes fail with `GitHubUnreadError`, never with the
     closed client's or the stopped loop's own exceptions."""
-
-    async def answer_later(request: httpx2.Request) -> httpx2.Response:
-        await anyio.sleep(0.005)
-        return github_json({"login": "octocat"})
-
-    session = GitHubSession(pin_github_session, transport=httpx2.MockTransport(answer_later))
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    github_api.delay = 0.005
+    session = get_github_session()
     outcomes: list[str] = []
 
     def call(times: int) -> None:
@@ -583,8 +590,7 @@ def test_two_sessions_charge_their_own_identities_ledgers(github_api: GitHubApiF
         rate_limiter.identity_rate_limiter(token).update_quota(
             "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
         )
-    first = GitHubSession("token-a", transport=github_api.transport)
-    second = GitHubSession("token-b", transport=github_api.transport)
+    first, second = GitHubSession("token-a"), GitHubSession("token-b")
     try:
         first.rest("GET", "/user")
         second.rest("GET", "/user/keys")
@@ -608,3 +614,29 @@ def test_braces_in_a_path_are_sent_as_literal_characters(github_api: GitHubApiFa
         {"name": "a{b}c.txt"},
         [f"GET {API}/repos/octo/repo/contents/a%7Bb%7Dc.txt"],
     )
+
+
+def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The factory builds the session's client at the public egress level, and a request whose
+    host comes to resolve to loopback is refused before anything reaches GitHub's fake."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    scripted_resolver(monkeypatch, {"api.github.com": rebinding(1, "127.0.0.1")})
+    session = get_github_session()
+    first = session.rest("GET", "/user")
+    with pytest.raises(SSRFBlockedError):
+        session.rest("GET", "/user")
+    assert (first, github_api.levels, len(github_api.sent)) == (
+        {"login": "octocat"},
+        [EgressLevel.PUBLIC],
+        1,
+    )
+
+
+def test_the_fake_github_api_and_stub_web_refuse_to_share_a_test(
+    github_api: GitHubApiFake, request: pytest.FixtureRequest
+) -> None:
+    """Both fake `httpx2.AsyncClient`, so a test asking for both fails instead of one winning."""
+    with pytest.raises(RuntimeError, match=r"both fake httpx2\.AsyncClient"):
+        request.getfixturevalue("stub_web")

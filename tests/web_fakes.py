@@ -252,11 +252,19 @@ class StubWeb:
         self, level: EgressLevel | None
     ) -> Callable[[httpx2.Request], httpx2.Response]:
         """`handle`, after vetting the request's host at `level` as the connect would."""
-        if level is None:
-            return self.handle
+        return vetted_handler(self.handle, level)
 
-        def handle_vetted(request: httpx2.Request) -> httpx2.Response:
-            vet_addresses(request.url.host, request.url.port or 0, level)
-            return self.handle(request)
 
-        return handle_vetted
+def vetted_handler[Answer](
+    handler: Callable[[httpx2.Request], Answer], level: EgressLevel | None
+) -> Callable[[httpx2.Request], Answer]:
+    """`handler`, after vetting each request's host at `level` as a factory client's connect
+    would; `handler` itself for a client the factory did not build."""
+    if level is None:
+        return handler
+
+    def handle_vetted(request: httpx2.Request) -> Answer:
+        vet_addresses(request.url.host, request.url.port or 0, level)
+        return handler(request)
+
+    return handle_vetted

@@ -177,18 +177,10 @@ def new_async_http_client(
     verify: ssl.SSLContext | bool = True,
     http2: bool = True,
     limits: httpx2.Limits | None = None,
-    mock_transport: httpx2.MockTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.AsyncClient:
-    """Create an httpx2.AsyncClient that dials only what `level` allows, with HTTP/2.
-
-    `mock_transport` answers every request from its handler in place of the network, as a test's
-    fake server does. Such a client opens no connection, so there is nothing for `level` to vet,
-    and it keeps the factory's timeouts and the caller's options.
-    """
-    transport: httpx2.AsyncBaseTransport = mock_transport or async_egress_transport(
-        level, verify=verify, http2=http2, limits=limits
-    )
+    """Create an httpx2.AsyncClient that dials only what `level` allows, with HTTP/2."""
+    transport = async_egress_transport(level, verify=verify, http2=http2, limits=limits)
     return httpx2.AsyncClient(
         timeout=_resolve_client_timeout(timeout, read_timeout), transport=transport, **options
     )
