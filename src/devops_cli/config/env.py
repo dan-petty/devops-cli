@@ -10,6 +10,7 @@ import devops_cli.config.options as opt
 from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
 
 ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
+ENV_AGENT_GRANT = "DEVOPS_CLI_AGENT_GRANT"
 # OpenTelemetry's own name for the collector. devops-cli reads it only when its configuration
 # names no `telemetry.endpoint`.
 ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -30,6 +31,7 @@ ENV_AI_MODEL = "DEVOPS_CLI_AI_MODEL"
 ENV_AI_OLLAMA_URLS = "DEVOPS_CLI_AI_OLLAMA_URLS"
 ENV_AI_OLLAMA_MAX_PARALLEL = "DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL"
 ENV_AI_API_BASE_URL = "DEVOPS_CLI_AI_API_BASE_URL"
+ENV_AI_GATEWAY_URL = "DEVOPS_CLI_AI_GATEWAY_URL"
 ENV_AI_API_KEY = "DEVOPS_CLI_AI_API_KEY"
 ENV_AI_REASONING_EFFORT = "DEVOPS_CLI_AI_REASONING_EFFORT"
 ENV_AI_ALLOW_PRIVATE_NETWORK = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
@@ -123,6 +125,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_OLLAMA_URLS: ENV_AI_OLLAMA_URLS,
     opt.AI_OLLAMA_MAX_PARALLEL: ENV_AI_OLLAMA_MAX_PARALLEL,
     opt.AI_API_BASE_URL: ENV_AI_API_BASE_URL,
+    opt.AI_GATEWAY_URL: ENV_AI_GATEWAY_URL,
     opt.AI_API_KEY: ENV_AI_API_KEY,
     opt.AI_REASONING_EFFORT: ENV_AI_REASONING_EFFORT,
     opt.AI_ALLOW_PRIVATE_NETWORK: ENV_AI_ALLOW_PRIVATE_NETWORK,
@@ -331,6 +334,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.AI_API_BASE_URL,
             False,
             "AI API base URL",
+        ),
+        EnvVarSpec(
+            ENV_AI_GATEWAY_URL,
+            opt.AI_GATEWAY_URL,
+            False,
+            "AI gateway URL",
         ),
         EnvVarSpec(
             ENV_AI_API_KEY,

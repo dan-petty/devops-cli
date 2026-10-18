@@ -293,3 +293,24 @@ def test_the_telemetry_variables_hold_when_the_settings_cannot_load(
         (True, "http://127.0.0.1:4319"),
         (False, "http://127.0.0.1:4319"),
     )
+
+
+def test_ai_gateway_url_environment_variable_override_and_spec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify DEVOPS_CLI_AI_GATEWAY_URL overrides ai.gateway_url and is registered as non-secret."""
+    from devops_cli.config import env as env_mod
+    from devops_cli.config import options as opt
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("ai:\n  gateway_url: http://localhost:4000/v1\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "CONFIG_PATH", config_path)
+    monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", "https://example.com/v1")
+
+    loaded = settings.load_settings()
+    assert loaded.ai.gateway_url == "https://example.com/v1"
+
+    specs = {s.env_var: s for s in env_mod.get_all_env_var_specs()}
+    spec = specs.get(env_mod.ENV_AI_GATEWAY_URL)
+    assert spec is not None
+    assert (spec.is_secret, spec.option_key) == (False, opt.AI_GATEWAY_URL)

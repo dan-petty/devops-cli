@@ -547,3 +547,40 @@ class TestGatewayRouteDiscovery:
         result = runner.invoke(gateway_cli_app, ["routes"])
 
         assert (result.exit_code, "DEVOPS_CLI_AI_API_KEY" in result.output) == (1, True)
+
+    def test_list_routes_401_with_agent_grant_names_grant_and_omits_api_key_hint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify a 401 with DEVOPS_CLI_AGENT_GRANT set names the grant ID, cuts long IDs, and omits the generic key hint."""
+        _requests, fake_get = _model_info(status=401)
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        router = GatewayRouter(AIConfig(allow_private_network=True), api_key="stale-key")
+
+        # Standard grant ID
+        monkeypatch.setenv("DEVOPS_CLI_AGENT_GRANT", "g-123")
+        with pytest.raises(AICredentialsError) as exc_info:
+            router.list_routes(GATEWAY_URL)
+
+        msg = str(exc_info.value)
+        assert ("g-123" in msg, "DEVOPS_CLI_AI_API_KEY" not in msg, "person" in msg) == (
+            True,
+            True,
+            True,
+        )
+
+        # Long grant ID cut to 256
+        long_id = "x" * 300
+        monkeypatch.setenv("DEVOPS_CLI_AGENT_GRANT", long_id)
+        with pytest.raises(AICredentialsError) as exc_info_long:
+            router.list_routes(GATEWAY_URL)
+
+        msg_long = str(exc_info_long.value)
+        assert (long_id[:256] in msg_long, long_id not in msg_long) == (True, True)
+
+        # Without DEVOPS_CLI_AGENT_GRANT, message is unchanged
+        monkeypatch.delenv("DEVOPS_CLI_AGENT_GRANT")
+        with pytest.raises(AICredentialsError) as exc_info_orig:
+            router.list_routes(GATEWAY_URL)
+
+        msg_orig = str(exc_info_orig.value)
+        assert ("DEVOPS_CLI_AI_API_KEY" in msg_orig, "g-123" not in msg_orig) == (True, True)
