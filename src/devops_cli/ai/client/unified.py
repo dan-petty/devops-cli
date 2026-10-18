@@ -803,13 +803,22 @@ class LLMClient(
             priority=priority,
         )
 
+    @staticmethod
+    def _stream_seconds(t_start: float) -> float:
+        """Seconds a stream has run since `t_start`, less its wait for a gateway slot.
+
+        A plain call is timed from when it holds its slot, so a stream is too: a review starved
+        of slots must not read as slow inference. The wait is its own span and metric.
+        """
+        return time.perf_counter() - t_start - network.stream_slot_wait.get()
+
     def _record_first_token(
         self, span_h: Any, t_start: float, first_token_time: float | None
     ) -> float:
         """Record the time to the first chunk, in seconds, on the stream span once."""
         if first_token_time is not None:
             return first_token_time
-        ttft = time.perf_counter() - t_start
+        ttft = self._stream_seconds(t_start)
         span_h.set_attribute("gen_ai.response.time_to_first_chunk", ttft)
         return ttft
 
@@ -852,6 +861,7 @@ class LLMClient(
         ) as span_h:
             network.stream_served_by.set(None)
             network.stream_finish_reason.set(None)
+            network.stream_slot_wait.set(0.0)
             accumulated_chunks: list[str] = []
             try:
                 gen = self._dispatch_stream(
@@ -875,12 +885,12 @@ class LLMClient(
                         messages,
                         system,
                         "".join(accumulated_chunks),
-                        time.perf_counter() - t_start,
+                        self._stream_seconds(t_start),
                         CONST_FINISH_REASON_ERROR,
                     )
                 raise
 
-            total_dur = time.perf_counter() - t_start
+            total_dur = self._stream_seconds(t_start)
             finish_reason = network.stream_finish_reason.get()
             _set_finish_reason_attribute(span_h, finish_reason)
             span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))

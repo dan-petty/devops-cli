@@ -544,7 +544,9 @@ def fix_llm_response[T = Any](
         or (final_content.strip() != raw_str.strip())
     )
 
-    return FormattedLLMResponse[T](
+    # Not `FormattedLLMResponse[T]`: pydantic would build a parametrized class that it caches
+    # only weakly, and rebuild its whole schema for a reply after any garbage collection.
+    return FormattedLLMResponse(
         content=final_content,
         raw_content=raw_str,
         thoughts=thoughts,

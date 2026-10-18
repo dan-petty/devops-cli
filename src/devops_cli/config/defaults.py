@@ -429,6 +429,8 @@ DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
     "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
 }
 DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values())
+# The longest a gateway chat request waits for one of those slots, as long as an Ollama lease.
+DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_REVIEW_MAX_CONCURRENCY: int = 32
 DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0

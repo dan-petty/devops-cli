@@ -1705,7 +1705,7 @@ Review a git branch diff with one or all AI personas.
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
-| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
@@ -1787,7 +1787,7 @@ Review source files directly (no git required).
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `watch` | `boolean` | No | `False` | Continuously watch target paths for changes and re-run reviews. |
 | `debounce_ms` | `integer` | No | `500` | Debounce window in milliseconds for filesystem watcher. |
-| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
@@ -1823,7 +1823,7 @@ Review a GitHub pull request with one or all AI personas.
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
-| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
 | `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 

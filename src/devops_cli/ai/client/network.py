@@ -17,13 +17,20 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError, RequestPriority
-from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_SERVED_BY_HEADER,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RESPONSE_BYTES,
+    DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
+    DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS,
     DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
 )
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -45,6 +52,15 @@ current_request_priority: ContextVar[RequestPriority] = ContextVar(
 )
 global_ollama_url_index: int = 0
 global_ollama_url_lock = threading.Lock()
+
+# Every chat request the process sends to the gateway holds one of these, so the requests in
+# flight never outnumber the slots of the backends behind it, whatever thread pools sent them.
+gateway_slots = threading.BoundedSemaphore(DEFAULT_GATEWAY_REVIEW_CONCURRENCY)
+
+# How long a streamed call waited for its gateway slot, set by the stream once it holds one. A
+# plain call starts its clock once it holds its slot; a stream's clock starts before its
+# generator first runs, so the wait travels like the serving backend and is taken off its time.
+stream_slot_wait: ContextVar[float] = ContextVar("stream_slot_wait", default=0.0)
 
 # The backend a gateway named in a streamed response's headers. A stream is a generator consumed
 # in the caller's context, so its spend is recorded after the last chunk, not where headers arrive.
@@ -279,6 +295,49 @@ def acquire_ollama_slot(
         yield leased_url
     finally:
         _release_ollama_slot(leased_url)
+
+
+def uses_gateway_slots(config: Any) -> bool:
+    """Whether a client's chat calls take the gateway's backend slots: the `gateway` provider's.
+
+    `ai.gateway_enabled` alone sends no chat call to the gateway, so it takes no slot.
+    """
+    return getattr(config, "provider", None) == CONST_AI_GATEWAY_PROVIDER
+
+
+def _wait_for_gateway_slot() -> float:
+    """Take one of the gateway's backend slots and return the seconds spent waiting for it.
+
+    The wait is an `ai.llm.gateway_slot` span under the call's span and an observation of
+    `devops_cli_ai_gateway_slot_wait_seconds`, so a call queued in this process is told apart
+    from a slow reply. It is bounded by `DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS`; past it the
+    request is refused with an `AIClientError` naming the slot count.
+    """
+    timeout = DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS
+    with trace_span(
+        "ai.llm.gateway_slot", {"llm.gateway.slots": DEFAULT_GATEWAY_REVIEW_CONCURRENCY}
+    ) as span_handle:
+        started = time.monotonic()
+        held = gateway_slots.acquire(timeout=timeout)
+        waited = time.monotonic() - started
+        span_handle.set_attribute("llm.gateway.slot_wait_seconds", waited)
+        emit(AI_GATEWAY_SLOT_WAIT, waited, {"outcome": "ok" if held else "timeout"})
+        if not held:
+            raise AIClientError(
+                f"Timed out after {timeout:g}s waiting for one of the gateway's "
+                f"{DEFAULT_GATEWAY_REVIEW_CONCURRENCY} backend slots."
+            )
+    return waited
+
+
+@contextmanager
+def acquire_gateway_slot() -> Generator[float]:
+    """Hold one of the gateway's backend slots for the block, yielding how long it waited."""
+    waited = _wait_for_gateway_slot()
+    try:
+        yield waited
+    finally:
+        gateway_slots.release()
 
 
 @contextmanager
