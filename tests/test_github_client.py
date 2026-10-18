@@ -9,18 +9,22 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from github.GithubException import UnknownObjectException
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_DIFF_MEDIA_TYPE
+from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.client import (
     GhCliClient,
     GitHubClient,
     RepoInfo,
     parse_paginated_json,
 )
+from tests.github_session_fakes import github_json, github_redirect, github_text
 
 if TYPE_CHECKING:
+    from tests.github_session_fakes import GitHubApiFake
     from tests.web_fakes import StubWeb
 
 
@@ -252,47 +256,53 @@ def test_get_merge_base_reads_the_compare_endpoint() -> None:
     )
 
 
-def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify get_pr_diff fetches unified diff with and without redirect."""
-    import httpx2
-
-    client = GitHubClient("token123")
-
-    class MockDiffResponse:
-        def __init__(self, text: str, is_redirect: bool = False, location: str = ""):
-            self.text = text
-            self.is_redirect = is_redirect
-            self.headers = {"location": location} if location else {}
-
-        def raise_for_status(self) -> None:
-            pass
-
-    # 1. Direct diff response
-    monkeypatch.setattr(
-        httpx2.Client,
-        "get",
-        lambda self, url, **kwargs: MockDiffResponse("diff --git a/foo b/foo\n+line"),
+def test_get_pr_diff_normal_and_redirect(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The diff is one session request, and a moved repository's redirect is followed with the
+    session's token and the diff media type."""
+    github_api.route(
+        "GET",
+        "/repos/octo/repo/pulls/42",
+        github_text("diff --git a/foo b/foo\n+line", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
     )
-    diff = client.get_pr_diff("octo/repo", 42)
-    assert "diff --git a/foo b/foo" in diff
+    github_api.route("GET", "/repos/octo/moved/pulls/7", github_redirect("/repositories/1/pulls/7"))
+    github_api.route(
+        "GET",
+        "/repositories/1/pulls/7",
+        github_text(
+            "diff --git a/redirected b/redirected", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE
+        ),
+    )
+    client = GitHubClient(pin_github_session)
+    diffs = (client.get_pr_diff("octo/repo", 42), client.get_pr_diff("octo/moved", 7))
+    carried = {(r.headers["accept"], r.headers["authorization"]) for r in github_api.sent}
+    assert (diffs, github_api.requested, carried) == (
+        ("diff --git a/foo b/foo\n+line", "diff --git a/redirected b/redirected"),
+        [
+            "GET https://api.github.com/repos/octo/repo/pulls/42",
+            "GET https://api.github.com/repos/octo/moved/pulls/7",
+            "GET https://api.github.com/repositories/1/pulls/7",
+        ],
+        {(CONST_GITHUB_DIFF_MEDIA_TYPE, f"token {pin_github_session}")},
+    )
 
-    # 2. Redirected diff response
-    calls = []
 
-    def mock_redirect_get(self: Any, url: str, **kwargs: Any) -> MockDiffResponse:
-        calls.append(url)
-        if len(calls) == 1:
-            return MockDiffResponse(
-                "",
-                is_redirect=True,
-                location="https://api.github.com/repos/octo/repo/pulls/42/diff",
-            )
-        return MockDiffResponse("diff --git a/redirected b/redirected\n+newline")
-
-    monkeypatch.setattr(httpx2.Client, "get", mock_redirect_get)
-    diff_redir = client.get_pr_diff("octo/repo", 42)
-    assert "diff --git a/redirected" in diff_redir
-    assert len(calls) == 2
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param(httpx2.Response(200, content=b"diff --git a/f b/f"), id="no-content-type"),
+        pytest.param(github_json({"number": 42}), id="json"),
+    ],
+)
+def test_an_answer_that_is_no_diff_raises_the_unread_error(
+    github_api: GitHubApiFake, pin_github_session: str, answer: httpx2.Response
+) -> None:
+    """A diff GitHub did not send as text is unread, not an empty or stringified diff."""
+    github_api.route("GET", "/repos/octo/repo/pulls/42", answer)
+    with pytest.raises(GitHubUnreadError) as raised:
+        GitHubClient(pin_github_session).get_pr_diff("octo/repo", 42)
+    assert raised.value.details["path"] == "/repos/octo/repo/pulls/42"
 
 
 def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
@@ -335,7 +345,7 @@ def test_one_identity_reaches_pygithub_gh_and_the_quota_refresh(
     github_requests = [request for request in stub_web.sent if request.url.host == "api.github.com"]
     assert (diff, [request.headers["authorization"] for request in github_requests], children) == (
         "diff --git a/f b/f",
-        ["Bearer A"],
+        ["token A"],
         [
             (["auth", "token"], None, "C"),
             (["api", "rate_limit"], "A", None),

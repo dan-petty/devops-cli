@@ -855,6 +855,9 @@ DEFAULT_ROADMAP_RELEASE_ITEM_TARGET: int = 50
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
+# The least a read the GitHub session retries after a 5xx waits; jittered exponential backoff is
+# added to it. A server error is no rate limit, so it does not wait the secondary-limit floor.
+DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS: float = 1.0
 DEFAULT_GH_MAX_RATE_LIMIT_WAIT: float | None = None
 DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
 DEFAULT_SECRET_SOURCE: str = "keyring"

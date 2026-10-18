@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
+    from tests.github_session_fakes import GitHubApiFake
     from tests.web_fakes import StubWeb
 
 
@@ -251,16 +252,37 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     class StubAsyncClient(httpx2.AsyncClient):
         """An httpx2.AsyncClient whose transport is always the stub's."""
 
+        fake_owner = "stub_web"
+
         def __init__(self, **kwargs: Any) -> None:
             transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
+    install_async_client_fake(monkeypatch, StubAsyncClient)
     monkeypatch.setattr(httpx2, "Client", StubClient)
-    monkeypatch.setattr(httpx2, "AsyncClient", StubAsyncClient)
     stub_broker = broker.HttpClientBroker()
     monkeypatch.setattr(broker, "DEFAULT_HTTP_BROKER", stub_broker)
     yield web
     stub_broker.close()
+
+
+def install_async_client_fake(monkeypatch: pytest.MonkeyPatch, fake: type[Any]) -> None:
+    """Make `fake` the `httpx2.AsyncClient` for the rest of the test.
+
+    `stub_web` and `github_api` each answer async clients from their own fake, so a test that asks
+    for both would have one silently win; the second to install raises instead.
+    """
+    import httpx2
+
+    from tests.github_session_fakes import FAKE_OWNER_ATTRIBUTE
+
+    installed = getattr(httpx2.AsyncClient, FAKE_OWNER_ATTRIBUTE, None)
+    if installed is not None:
+        raise RuntimeError(
+            f"{getattr(fake, FAKE_OWNER_ATTRIBUTE)} and {installed} both fake httpx2.AsyncClient; "
+            "a test uses one of them"
+        )
+    monkeypatch.setattr(httpx2, "AsyncClient", fake)
 
 
 # Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per
@@ -484,6 +506,45 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.setattr(process, "_github_lookup_failure", None)
     yield PINNED_GITHUB_TOKEN
     drop_session()
+
+
+@pytest.fixture
+def github_api(
+    monkeypatch: pytest.MonkeyPatch, pin_github_session: str, public_dns: str
+) -> GitHubApiFake:
+    """GitHub's API, faked for every GitHub session the test opens (`tests/github_session_fakes.py`).
+
+    The session's client is still built by the egress factory; as with `stub_web`, only its
+    transport is the fake's, so every request goes through the session's redirect handling and
+    origin hook, and its host is vetted at the factory's egress level, resolving as `public_dns`
+    resolves it. A test cannot ask for this fixture and `stub_web` together. The pinned identity's
+    `core` quota is fresh, so pacing never runs `gh api rate_limit`; a quota that is unknown or
+    past its reset fails the test instead of refreshing through gh. Neither the rate limiter's
+    pauses nor the retry waits take any time: the fake records them in `paced` and `waits`, and
+    only the rate limiter's clock and gidgethub's wait are replaced, so no other sleep changes.
+    """
+    import time
+
+    from devops_cli.github import rate_limiter, session_transport
+    from tests.github_session_fakes import GitHubApiFake, PacedClock
+
+    def refuse_quota_refresh(_limiter: object) -> NoReturn:
+        raise AssertionError(
+            "A test over the fake GitHub API reached `gh api rate_limit`: give the resource a "
+            "quota whose reset is still ahead, built when the test runs."
+        )
+
+    api = GitHubApiFake()
+    install_async_client_fake(monkeypatch, api.client_class())
+    monkeypatch.setattr(
+        rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
+    )
+    monkeypatch.setattr(rate_limiter, "time", PacedClock(api.paced))
+    monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", api.wait)
+    rate_limiter.get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    return api
 
 
 @functools.lru_cache(maxsize=1)

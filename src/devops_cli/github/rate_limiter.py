@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import functools
 import hashlib
 import json
 import logging
@@ -45,6 +46,7 @@ from devops_cli.config.constants import (
     CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS,
     CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
+    CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
     CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
 )
@@ -507,6 +509,12 @@ def gh_request_resource(args: list[str]) -> str:
     return _detect_resource(_normalize_gh_args(args))
 
 
+def gh_request_is_paced(args: list[str]) -> bool:
+    """Whether `run_gh` paces a `gh` command: all but `gh api rate_limit`, which spends no quota,
+    and gh's local commands, which send no request."""
+    return not _is_rate_limit_exempt(_normalize_gh_args(args))
+
+
 def _parse_reset_epoch(reset_at: str | None) -> float | None:
     """Parse ISO resetAt string into epoch timestamp."""
     if not reset_at:
@@ -564,8 +572,8 @@ def _parse_float_safe(value: str, default: float | None = None) -> float | None:
         return default
 
 
-def _parse_retry_after_safe(value: str, default: float | None = None) -> float | None:
-    """Parse string Retry-After value safely as float seconds or HTTP-date."""
+def parse_retry_after(value: str, default: float | None = None) -> float | None:
+    """A Retry-After value as seconds: its delay-seconds, or the time until its HTTP-date."""
     seconds = _parse_float_safe(value)
     if seconds is not None:
         return seconds
@@ -595,7 +603,7 @@ def _process_header_metrics(output: str) -> dict[str, Any]:
         "x-ratelimit-limit": ("limit", _parse_int_safe),
         "x-ratelimit-used": ("used", _parse_int_safe),
         "x-ratelimit-reset": ("reset_epoch", _parse_float_safe),
-        "retry-after": ("retry_after", _parse_retry_after_safe),
+        "retry-after": ("retry_after", parse_retry_after),
     }
     for line in output.splitlines():
         parsed = _parse_header_line(line)
@@ -1249,8 +1257,22 @@ class GitHubRateLimiter:
         """Calculate backoff delay for primary, secondary, or Retry-After rate limits."""
         if not self.is_rate_limit_error(message):
             return 0.0
+        return self.retry_delay(
+            extract_retry_after(message), attempt=attempt, subcommand=subcommand
+        )
 
-        retry_after = extract_retry_after(message)
+    def retry_delay(
+        self,
+        retry_after: float | None,
+        *,
+        attempt: int = 1,
+        subcommand: str = "core",
+        floor: float | None = None,
+    ) -> float:
+        """The wait before retrying a refused request: the server's Retry-After, else until the
+        quota resets when it is spent, else jittered exponential backoff from `floor`, which is
+        `secondary_rate_wait` unless given. Raises GitHubRateLimitError for a wait longer than
+        `max_rate_limit_wait`."""
         if retry_after is not None and retry_after > 0.0:
             return _handle_retry_after_wait(retry_after, self.max_rate_limit_wait, subcommand)
 
@@ -1263,7 +1285,7 @@ class GitHubRateLimiter:
 
         return _calculate_secondary_delay(
             attempt,
-            floor=self.secondary_rate_wait,
+            floor=self.secondary_rate_wait if floor is None else floor,
             max_cap=self.secondary_max_cap,
             max_rate_limit_wait=self.max_rate_limit_wait,
             subcommand=subcommand,
@@ -1374,7 +1396,6 @@ def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
         pass
 
 
-_GLOBAL_RATE_LIMITER: GitHubRateLimiter | None = None
 _GLOBAL_LOCK = threading.RLock()
 
 
@@ -1396,21 +1417,29 @@ def resolve_quota_cache_path() -> Path:
     return resolve_identity_cache_dir(github_token()) / CONST_GH_QUOTA_CACHE_FILENAME
 
 
+@functools.lru_cache(maxsize=CONST_GITHUB_IDENTITY_LIMITERS_KEPT)
+def _ledger_limiter(persist_path: Path) -> GitHubRateLimiter:
+    """The one rate limiter over the quota ledger at `persist_path`."""
+    return GitHubRateLimiter(persist_path=persist_path)
+
+
 def reset_github_rate_limiter() -> None:
-    """Reset the global rate limiter instance (useful for test isolation)."""
-    global _GLOBAL_RATE_LIMITER
+    """Forget every identity's rate limiter, so the next one reads its ledger from disk again."""
     with _GLOBAL_LOCK:
-        _GLOBAL_RATE_LIMITER = None
+        _ledger_limiter.cache_clear()
+
+
+def identity_rate_limiter(token: str) -> GitHubRateLimiter:
+    """The rate limiter of the identity `token` is: its quota ledger and the pacing of its requests,
+    one per identity, which `run_gh` and that identity's session share."""
+    with _GLOBAL_LOCK:
+        return _ledger_limiter(resolve_identity_cache_dir(token) / CONST_GH_QUOTA_CACHE_FILENAME)
 
 
 def get_github_rate_limiter() -> GitHubRateLimiter:
-    """The rate limiter of the session's identity, keeping that identity's quota and cache."""
-    global _GLOBAL_RATE_LIMITER
-    persist_path = resolve_quota_cache_path()
+    """The rate limiter of the process's identity, keeping that identity's quota and cache."""
     with _GLOBAL_LOCK:
-        if _GLOBAL_RATE_LIMITER is None or _GLOBAL_RATE_LIMITER.persist_path != persist_path:
-            _GLOBAL_RATE_LIMITER = GitHubRateLimiter(persist_path=persist_path)
-        return _GLOBAL_RATE_LIMITER
+        return _ledger_limiter(resolve_quota_cache_path())
 
 
 def _is_sensitive_command(args: list[str]) -> bool:

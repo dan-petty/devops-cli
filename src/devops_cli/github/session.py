@@ -6,13 +6,17 @@ gives every gh and git child that token live in `core.process`, which does not i
 the session reads its token from there. Its quota ledger and response cache are the identity's
 directory under the cache dir, and PyGithub is built here, from the session's token, and nowhere
 else.
+
+`rest()` sends a REST request as the identity through gidgethub (#983, ADR 0006), paced and
+charged on the same ledger as `run_gh`; `github.session_transport` holds the client, the event
+loop it runs on and the retry rules, and opens them on the first request.
 """
 
 from __future__ import annotations
 
 import threading
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import github_token, reset_github_token
@@ -22,6 +26,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from devops_cli.github.client import GitHubClient
+    from devops_cli.github.session_transport import RestTransport
 
 
 class GitHubSession:
@@ -29,6 +34,8 @@ class GitHubSession:
 
     def __init__(self, token: str) -> None:
         self._token = token
+        self._rest: RestTransport | None = None
+        self._rest_lock = threading.Lock()
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(cache_dir={self.cache_dir.name!r})"
@@ -56,24 +63,63 @@ class GitHubSession:
 
         return GitHubClient(self._token)
 
+    def rest(self, method: str, path: str, *, accept: str | None = None, body: Any = None) -> Any:
+        """Send one request to GitHub's REST API as the session's identity; return its answer.
+
+        JSON comes back as Python values and any other body as text, as `accept` asks for; `body`
+        is sent as JSON. The request waits its turn on the identity's ledger, which takes the
+        quota GitHub reports back, and follows redirects only within GitHub's API origin. A rate
+        limit, and a read that GitHub fails with a 5xx, are retried; what still fails raises the
+        `GitHubOperationError` subclass `github.error_classifier` gives it.
+        """
+        return self._rest_transport().send(method, path, accept=accept, body=body)
+
+    def close(self) -> None:
+        """Close the session's client, cancel its requests in flight and stop the loop they ran
+        on; the next `rest` opens them again. A transport left open is closed when it is
+        garbage-collected or at interpreter exit."""
+        with self._rest_lock:
+            transport, self._rest = self._rest, None
+        if transport is not None:
+            transport.close()
+
+    def _rest_transport(self) -> RestTransport:
+        """The session's REST transport, opened on the first request."""
+        from devops_cli.github.session_transport import RestTransport
+
+        with self._rest_lock:
+            if self._rest is None:
+                self._rest = RestTransport(self._token)
+            return self._rest
+
 
 _SESSION: GitHubSession | None = None
 _SESSION_LOCK = threading.Lock()
 
 
 def get_github_session() -> GitHubSession:
-    """The session of the process's GitHub identity, raising the unauthenticated error without one."""
+    """The session of the process's GitHub identity, raising the unauthenticated error without one.
+
+    A session the identity's change replaces is closed.
+    """
     global _SESSION
     token = github_token()
+    replaced = None
     with _SESSION_LOCK:
         if _SESSION is None or _SESSION.token != token:
-            _SESSION = GitHubSession(token)
-        return _SESSION
+            replaced, _SESSION = _SESSION, GitHubSession(token)
+        current = _SESSION
+    if replaced is not None:
+        replaced.close()
+    return current
 
 
 def reset_github_session() -> None:
-    """Forget the session and its token, so the next GitHub call resolves the identity again."""
+    """Close and forget the session and its token, so the next GitHub call resolves the identity
+    again."""
     global _SESSION
     with _SESSION_LOCK:
-        _SESSION = None
+        session, _SESSION = _SESSION, None
+    if session is not None:
+        session.close()
     reset_github_token()
