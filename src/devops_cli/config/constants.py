@@ -1018,6 +1018,17 @@ CONST_GITHUB_SSH_URL_PREFIX = "ssh://git@github.com/"
 CONST_GITHUB_HTTP_PREFIX = "http://github.com/"
 CONST_GITHUB_HTTPS_PREFIX = "https://github.com/"
 CONST_GITHUB_REPO_SUFFIX = ".git"
+# ── What a failed gh command wrote (#983) ─────────────────────────────────────
+# gh reports a failure only as text and an exit status, so this table is the one place gh's text
+# is matched, lower-cased, and only `devops_cli.github.error_classifier` reads it. An HTTP answer
+# the session receives is classified by its status and headers instead.
+#
+# gh project's owner lookup (`OwnerIDAndType`, gh 2.102.0) returns this for any failed lookup
+# that is not a "not found" for both a user and an organization, dropping the lookup's own error;
+# a spent GraphQL quota is the usual one, so it is read as a rate limit, and a project command
+# that wrote it is sent once more as `--owner @me`.
+CONST_GH_UNKNOWN_OWNER_TYPE: Final[str] = "unknown owner type"
+# A primary or secondary rate limit.
 CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "rate limit exceeded",
     "rate limit already exceeded",
@@ -1028,6 +1039,8 @@ CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "wait a few minutes before you try again",
     "retry-after",
     "retry after",
+    "graphql_rate_limit",
+    CONST_GH_UNKNOWN_OWNER_TYPE,
 )
 CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "secondary rate limit",
@@ -1036,6 +1049,34 @@ CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "please retry your request again later",
     "exceeded a secondary rate limit",
 )
+# A token without a scope the command needs: gh project's GraphQL message ("your authentication
+# token is missing required scopes"), gh api's scope suggestion ("This API operation needs the
+# ... scope") and the wordings of the project scope.
+CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
+    "missing required scopes",
+    "insufficient_scopes",
+    "this api operation needs the",
+    "read:project",
+    "scope 'project'",
+    'scope "project"',
+    "project scope",
+    "oauth scope",
+    "requires additional permissions",
+    "requires the 'project' scope",
+    "need the 'project' scope",
+)
+# No login, or one GitHub refused (HTTP 401).
+CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
+    "not logged in",
+    "authentication required",
+    "http 401",
+    "bad credentials",
+)
+# gh's exit status for a command that requires authentication (`gh help exit-codes`).
+CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
+# The HTTP status gh names: `gh api` writes `<message> (HTTP <status>)` or `HTTP <status>`, and
+# its other commands go-gh's `HTTP <status>: <message> (<url>)`.
+CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (\d{3})\b")
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"

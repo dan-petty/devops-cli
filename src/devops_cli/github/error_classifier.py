@@ -11,12 +11,20 @@ rate limit or a missing resource by type. Nothing here reads a response's messag
 words its messages for people, and the status and headers are what its REST documentation
 specifies. Every error carries the request's path, at most `CONST_MAX_ERROR_DETAIL_LENGTH`
 characters, and an HTTP failure its status as an int, so a caller can treat a 422 as it needs to.
+
+A failed gh command has no exception to read, only its exit status and what it wrote, so
+`classify_gh_failure` reads those against the gh-output table in `config/constants.py`, the one
+place gh's text is matched: a rate limit, a missing scope, or no login GitHub accepts, which
+gh's exit status 4 ("requires authentication") also means. The status gh names in its text is
+carried as an int, like an HTTP failure's.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from typing import Any, Final
 from urllib.request import parse_http_list
@@ -24,10 +32,17 @@ from urllib.request import parse_http_list
 from gidgethub import GitHubBroken, HTTPException, RateLimitExceeded, RedirectionException
 
 from devops_cli.config.constants import (
+    CONST_GH_AUTH_REQUIRED_EXIT_CODE,
+    CONST_GH_HTTP_STATUS_RE,
+    CONST_GH_UNKNOWN_OWNER_TYPE,
     CONST_GITHUB_HEADER_ACCEPTED_OAUTH_SCOPES,
     CONST_GITHUB_HEADER_OAUTH_SCOPES,
     CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE,
     CONST_GITHUB_HEADER_RETRY_AFTER,
+    CONST_GITHUB_RATE_LIMIT_PATTERNS,
+    CONST_GITHUB_SCOPE_PATTERNS,
+    CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
+    CONST_GITHUB_UNAUTHENTICATED_PATTERNS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import DEFAULT_GH_RESOURCE
@@ -39,9 +54,26 @@ from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
-from devops_cli.github.rate_limiter import parse_retry_after
 
 _OPERATION: Final[str] = "github_request"
+_GH_OPERATION: Final[str] = "gh_command"
+
+
+def parse_retry_after(value: str, default: float | None = None) -> float | None:
+    """A Retry-After value as seconds: its delay-seconds, or the time until its HTTP-date."""
+    try:
+        return float(value.strip())
+    except ValueError:
+        return _seconds_until(value, default)
+
+
+def _seconds_until(http_date: str, default: float | None) -> float | None:
+    """The seconds until an HTTP-date, none if it has passed, or `default` for no date."""
+    try:
+        delay = parsedate_to_datetime(http_date.strip()).timestamp() - time.time()
+    except ValueError, TypeError:
+        return default
+    return max(0.0, delay)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,3 +279,106 @@ def unread_after_close(*, method: str, path: str) -> GitHubUnreadError:
     return GitHubUnreadError(
         f"The GitHub session closed before {request} was answered", details=request.details()
     )
+
+
+def _gh_says(output: str, phrases: tuple[str, ...]) -> bool:
+    """Whether what gh wrote holds one of `phrases`, in any case."""
+    said = output.lower()
+    return any(phrase in said for phrase in phrases)
+
+
+def is_gh_rate_limited(output: str) -> bool:
+    """Whether what gh wrote names a primary or secondary rate limit."""
+    return _gh_says(
+        output, CONST_GITHUB_RATE_LIMIT_PATTERNS + CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS
+    )
+
+
+def is_gh_owner_lookup_failure(output: str) -> bool:
+    """Whether gh project could not look up the owner it was given, and dropped why."""
+    return _gh_says(output, (CONST_GH_UNKNOWN_OWNER_TYPE,))
+
+
+def gh_http_status(output: str) -> int | None:
+    """The HTTP status gh names in what it wrote, or None when it names none."""
+    found = CONST_GH_HTTP_STATUS_RE.search(output)
+    return None if found is None else int(found.group(1))
+
+
+def gh_failure_details(output: str, *, exit_code: int | None) -> dict[str, Any]:
+    """A failed gh command's details: its exit status, the HTTP status gh names, both as ints,
+    and what gh wrote on one line, at most `CONST_MAX_ERROR_DETAIL_LENGTH` characters."""
+    said = " ".join(output.split())[:CONST_MAX_ERROR_DETAIL_LENGTH]
+    found = {"exit_code": exit_code, "status": gh_http_status(output), "output": said}
+    return {key: value for key, value in found.items() if value is not None}
+
+
+@dataclass(frozen=True, slots=True)
+class _GhFailure:
+    """A gh command that failed: what it wrote, its exit status and the operation it served."""
+
+    output: str
+    exit_code: int | None
+    operation: str
+
+    def details(self) -> dict[str, Any]:
+        return gh_failure_details(self.output, exit_code=self.exit_code)
+
+    def reason(self) -> str:
+        """What gh wrote, bounded on one line, or its exit status when it wrote nothing."""
+        return str(self.details()["output"]) or f"gh exited {self.exit_code}"
+
+
+def _gh_rate_limit_error(failure: _GhFailure) -> GitHubOperationError:
+    return GitHubRateLimitError(
+        f"GitHub rate-limited a gh command ({failure.reason()}); wait for the quota to reset, "
+        "which `devops gh rate-limit` shows",
+        operation=failure.operation,
+        details=failure.details(),
+    )
+
+
+def _gh_scope_error(failure: _GhFailure) -> GitHubOperationError:
+    return GitHubScopeError(
+        f"The GitHub token lacks a scope a gh command needs ({failure.reason()}); add it with "
+        "`gh auth refresh -s <scope>`",
+        operation=failure.operation,
+        details=failure.details(),
+    )
+
+
+def _gh_unauthenticated_error(failure: _GhFailure) -> GitHubOperationError:
+    return GitHubUnauthenticatedError(
+        f"gh has no GitHub login that GitHub accepts ({failure.reason()}); log in with "
+        "`gh auth login`, or set GH_TOKEN to a valid token",
+        operation=failure.operation,
+        details=failure.details(),
+    )
+
+
+def _gh_requires_authentication(failure: _GhFailure) -> bool:
+    return failure.exit_code == CONST_GH_AUTH_REQUIRED_EXIT_CODE
+
+
+_GhClassifier = Callable[[_GhFailure], GitHubOperationError]
+
+# In order: gh's documented exit status first, then its text, where a rate limit wins.
+_GH_CLASSES: Final[tuple[tuple[Callable[[_GhFailure], bool], _GhClassifier], ...]] = (
+    (_gh_requires_authentication, _gh_unauthenticated_error),
+    (lambda failure: is_gh_rate_limited(failure.output), _gh_rate_limit_error),
+    (lambda failure: _gh_says(failure.output, CONST_GITHUB_SCOPE_PATTERNS), _gh_scope_error),
+    (
+        lambda failure: _gh_says(failure.output, CONST_GITHUB_UNAUTHENTICATED_PATTERNS),
+        _gh_unauthenticated_error,
+    ),
+)
+
+
+def classify_gh_failure(
+    output: str, *, exit_code: int | None = None, operation: str = _GH_OPERATION
+) -> GitHubOperationError | None:
+    """The project's error for a gh command that exited `exit_code` writing `output`: a rate
+    limit, a missing scope or no accepted login, read from the exit status and the gh-output
+    table; or None when neither names one, so the caller reports the failure as its own."""
+    failure = _GhFailure(output, exit_code, operation)
+    return next((build(failure) for matches, build in _GH_CLASSES if matches(failure)), None)

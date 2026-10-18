@@ -1758,6 +1758,34 @@ class TestPrCommands:
             assert result.exit_code == 1
             assert "GitHub GraphQL rate limit exceeded" in result.output
 
+    @pytest.mark.parametrize(
+        "said",
+        [
+            pytest.param("gh: Too Many Requests (HTTP 429)", id="429"),
+            pytest.param("gh: Please retry your request again later. (HTTP 403)", id="secondary"),
+        ],
+    )
+    def test_ready_names_a_rate_limit_only_the_gh_table_names(
+        self, runner: CliRunner, said: str
+    ) -> None:
+        """A rate limit gh writes without the words "rate limit" is still named one (#983)."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._fetch_pr_details",
+                return_value={"draft": True, "number": 184},
+            ),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=1, stdout="", stderr=said),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "184"])
+        assert (result.exit_code, "GitHub GraphQL rate limit exceeded" in result.output) == (
+            1,
+            True,
+        )
+
     def test_ready_pr_success(self, runner: CliRunner) -> None:
         """devops pr ready marks draft PR as ready."""
         with (

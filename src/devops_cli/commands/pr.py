@@ -60,6 +60,7 @@ from devops_cli.github.defect_classifier import (
     audit_pr_hardening,
     classify_defect_pr,
 )
+from devops_cli.github.error_classifier import is_gh_rate_limited
 from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
@@ -981,14 +982,15 @@ def create_pr(
 
 
 def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
-    """Handle and explain failures when marking a PR ready."""
+    """Handle and explain failures when marking a PR ready; a rate limit is what the gh
+    classifier calls one."""
     from devops_cli.security.sanitizer import mask_secrets
 
     clean_err = mask_secrets(stderr_text.strip()[:256])
-    if "rate limit" in clean_err.lower():
+    if is_gh_rate_limited(stderr_text):
         print_error(
-            f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded.\n"
-            f"Details: {clean_err}\n"
+            f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded. "
+            f"Details: {clean_err}. "
             "Note: GitHub REST API PATCH /pulls does NOT support converting drafts. "
             "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI.",
             safe=True,

@@ -7,7 +7,8 @@ import subprocess
 from http import HTTPStatus
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
+from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
 
@@ -126,18 +127,22 @@ def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
     if result.returncode == 0:
         return
 
-    combined = f"{result.stdout}\n{result.stderr}".lower()
-    if "already" in combined and "key" in combined:
+    said = f"{result.stderr or ''} {result.stdout or ''}"
+    # GitHub answers a key it already holds with a 422, as `_add_signing_key` reads it.
+    if gh_http_status(said) == HTTPStatus.UNPROCESSABLE_ENTITY:
         return
 
-    if "needs the" in combined and "scope" in combined:
+    refused = classify_gh_failure(said, exit_code=result.returncode, operation="ssh_key_upload")
+    if isinstance(refused, GitHubScopeError):
         raise SSHRegistrationError(
             "GitHub CLI auth is missing required scopes. "
             "Run: gh auth refresh -h github.com "
             "-s admin:public_key,write:ssh_signing_key"
-        )
+        ) from refused
 
-    raise SSHRegistrationError(result.stderr.strip() or result.stdout.strip() or "gh api failed")
+    raise SSHRegistrationError(
+        result.stderr.strip() or result.stdout.strip() or "gh api failed"
+    ) from refused
 
 
 def _add_signing_key(session: GitHubSession, pub_key: str, title: str) -> None:

@@ -1027,3 +1027,32 @@ def test_gh_commands_report_no_identity_without_a_traceback(
         SystemExit,
         True,
     )
+
+
+def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -> None:
+    """`gh api rate_limit` fails `HTTP 401: Bad credentials` before `gh issue list` is paced:
+    the command prints the unauthenticated error, without a traceback, exits 1 and sends no
+    listing (#983)."""
+    from devops_cli.github import rate_limiter
+
+    refused = subprocess.CompletedProcess(
+        ["gh", "api", "rate_limit"], 1, "", "HTTP 401: Bad credentials"
+    )
+    with (
+        patch.object(rate_limiter, "run_subprocess", return_value=refused) as gh,
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    text = _flat(result.output)
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "gh has no GitHub login that GitHub accepts (HTTP 401: Bad credentials)" in text,
+        "gh auth login" in text,
+        "Failed to refresh rate limits" in text,
+        "Traceback" in result.output,
+        [call.args[0] for call in gh.call_args_list],
+    ) == (1, SystemExit, True, True, False, False, [["gh", "api", "rate_limit"]])

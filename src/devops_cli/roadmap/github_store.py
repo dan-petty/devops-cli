@@ -90,7 +90,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.github.projects import check_github_rate_limit_error
+from devops_cli.github.error_classifier import classify_gh_failure
 from devops_cli.github.rate_limiter import gh_request_resource, run_gh
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
@@ -2523,10 +2523,12 @@ class GitHubRoadmapStore(RoadmapStore):
     def _failure(
         self, proc: subprocess.CompletedProcess[str], action: str, operation: str
     ) -> GitHubOperationError:
-        """The error for a failed gh command; a rate limit raises `GitHubRateLimitError` instead."""
+        """The error for a failed gh command: the class the gh classifier names, such as
+        `GitHubRateLimitError`, else a failure to do `action`."""
         output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-        check_github_rate_limit_error(output, operation=operation)
-        return GitHubOperationError(
+        return classify_gh_failure(
+            output, exit_code=proc.returncode, operation=operation
+        ) or GitHubOperationError(
             f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},

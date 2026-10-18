@@ -23,7 +23,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.core import process
-from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github.rate_limiter import (
     GitHubRateLimiter,
     QuotaState,
@@ -139,7 +144,8 @@ def test_graphql_mandatory_pacing_default_no_bypass() -> None:
 
 
 def test_rate_limiter_no_initial_quotas() -> None:
-    """Verify rate limiter has no hardcoded initial quotas and raises error if refresh fails."""
+    """Verify rate limiter has no hardcoded initial quotas, and that a failed refresh leaves the
+    quota unread."""
     limiter = GitHubRateLimiter()
     state = limiter.get_quota("core")
     assert (state.remaining, state.limit, state.reset_epoch) == (None, None, None)
@@ -151,7 +157,7 @@ def test_rate_limiter_no_initial_quotas() -> None:
             stdout="",
             stderr="API unavailable",
         )
-        with pytest.raises(GitHubRateLimitError):
+        with pytest.raises(GitHubUnreadError):
             limiter.calculate_delay("core")
 
 
@@ -991,21 +997,41 @@ def test_rate_limiter_throttle_persistence_across_instances(tmp_path: Path) -> N
     ) == (2, 107.5, 2, 107.5)
 
 
-def test_is_secondary_rate_limit() -> None:
-    """Verify is_secondary_rate_limit identifies secondary patterns accurately."""
+def test_the_rate_limit_check_reads_every_rate_limit_row_of_the_gh_output_table() -> None:
+    """A rate limit is what the gh classifier calls one (#983): the secondary rows and gh
+    project's owner lookup count, and a refused login or a missing scope does not."""
     limiter = GitHubRateLimiter()
-    sec_1 = (
-        "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+    assert [
+        limiter.is_rate_limit_error(said)
+        for said in (
+            "You have exceeded a secondary rate limit. Please wait a few minutes.",
+            "gh: Please retry your request again later. (HTTP 403)",
+            "unknown owner type",
+            "API rate limit exceeded for user ID 12345",
+            "gh: Bad credentials (HTTP 401)",
+            "error: your authentication token is missing required scopes [read:project]",
+            "repository not found",
+            "",
+        )
+    ] == [True, True, True, True, False, False, False, False]
+
+
+def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gh's first answer names a secondary rate limit in words only the secondary rows hold:
+    `run_gh` waits and sends the command again (#983)."""
+    monkeypatch.setattr(get_github_rate_limiter(), "min_interval", 0.01)
+    refused = subprocess.CompletedProcess(
+        ["gh", "api", "issues"], 1, "", "gh: Please retry your request again later. (HTTP 403)"
     )
-    sec_2 = "abuse-rate-limit triggered"
-    prim = "API rate limit exceeded for user ID 12345"
-    normal = "repository not found"
-    assert (
-        limiter.is_secondary_rate_limit(sec_1),
-        limiter.is_secondary_rate_limit(sec_2),
-        limiter.is_secondary_rate_limit(prim),
-        limiter.is_secondary_rate_limit(normal),
-    ) == (True, True, False, False)
+    answered = subprocess.CompletedProcess(["gh", "api", "issues"], 0, "[]", "")
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]),
+        patch("time.sleep") as sleep,
+    ):
+        res = run_gh(["api", "issues"], max_retries=2)
+    assert (res.returncode, sleep.called) == (0, True)
 
 
 def test_each_identity_keeps_its_own_quota_and_response_cache(
@@ -1562,14 +1588,16 @@ _REAL_RUN = subprocess.run
 
 
 class _GhAtTheReset:
-    """gh faked at the process edge: `gh api rate_limit` answers `resources`, or fails as GitHub
-    does with a 502, and any other gh command answers `[]`. Every gh argv is recorded, from any
-    thread. A command that is not gh, such as the `uname -p` the tracer runs on first use, runs
-    for real, so no test depends on which test warmed that cache."""
+    """gh faked at the process edge: `gh api rate_limit` answers `resources`, or exits with the
+    status and stderr of `refusal`, and any other gh command answers `[]`. Every gh argv is
+    recorded, from any thread. A command that is not gh, such as the `uname -p` the tracer runs on
+    first use, runs for real, so no test depends on which test warmed that cache."""
 
-    def __init__(self, resources: dict[str, Any], *, refresh_fails: bool = False) -> None:
+    def __init__(
+        self, resources: dict[str, Any], *, refusal: tuple[int, str] | None = None
+    ) -> None:
         self.resources = resources
-        self.refresh_fails = refresh_fails
+        self.refusal = refusal
         self.argvs: list[list[str]] = []
         self._lock = threading.Lock()
 
@@ -1580,8 +1608,8 @@ class _GhAtTheReset:
             self.argvs.append(list(cmd[1:]))
         if cmd[1:] != _RATE_LIMIT:
             return subprocess.CompletedProcess(cmd, 0, "[]", "")
-        if self.refresh_fails:
-            return subprocess.CompletedProcess(cmd, 1, "", "HTTP 502: Bad Gateway")
+        if self.refusal is not None:
+            return subprocess.CompletedProcess(cmd, self.refusal[0], "", self.refusal[1])
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"resources": self.resources}), "")
 
     def refreshes(self) -> int:
@@ -1702,20 +1730,70 @@ def test_a_clock_past_the_bound_fails_closed_naming_both_clocks() -> None:
 
 
 def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
-    """`gh api rate_limit` exits 1 with a 502: the error names gh's failure and the command
-    never runs."""
-    gh = _GhAtTheReset({}, refresh_fails=True)
+    """`gh api rate_limit` exits 1 with a 502: the unread error names gh's failure and the
+    command never runs."""
+    gh = _GhAtTheReset({}, refusal=(1, "HTTP 502: Bad Gateway"))
     with (
         _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep,
-        pytest.raises(GitHubRateLimitError) as raised,
+        pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
-    assert (raised.value.message, gh.refreshes(), gh.commands(), _waits(sleep)) == (
+    assert (
+        type(raised.value),
+        raised.value.message,
+        gh.refreshes(),
+        gh.commands(),
+        _waits(sleep),
+    ) == (
+        GitHubUnreadError,
         "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
         1,
         [],
         [],
     )
+
+
+@pytest.mark.parametrize(
+    ("refusal", "error", "status"),
+    [
+        pytest.param(
+            (1, "gh: Bad credentials (HTTP 401)"), GitHubUnauthenticatedError, 401, id="401"
+        ),
+        pytest.param(
+            (4, "To get started with GitHub CLI, please run:  gh auth login"),
+            GitHubUnauthenticatedError,
+            None,
+            id="exit-4",
+        ),
+        pytest.param(
+            (1, "gh: API rate limit exceeded for user ID 1. (HTTP 403)"),
+            GitHubUnreadError,
+            403,
+            id="rate-limited",
+        ),
+        pytest.param((1, ""), GitHubUnreadError, None, id="silent"),
+    ],
+)
+def test_a_refused_refresh_is_unauthenticated_for_a_refused_login_and_unread_otherwise(
+    refusal: tuple[int, str], error: type[GitHubOperationError], status: int | None
+) -> None:
+    """GitHub refusing gh's token (HTTP 401) or gh exiting 4 ("requires authentication") raises
+    the unauthenticated error; any other failed refresh leaves the quota unread. Each carries
+    gh's exit status and the status gh wrote, as ints, and the command never runs."""
+    gh = _GhAtTheReset({}, refusal=refusal)
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    details = raised.value.details
+    assert (
+        type(raised.value),
+        details.get("status"),
+        details["exit_code"],
+        details["operation"],
+        gh.commands(),
+    ) == (error, status, refusal[0], "refresh_quota", [])
 
 
 def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> None:

@@ -31,6 +31,7 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
 )
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
@@ -1167,6 +1168,27 @@ def test_a_rate_limited_read_raises_rate_limit_error() -> None:
     store, _ = board_store({"milestones?state=all": (1, "API rate limit exceeded for user ID 1.")})
     with pytest.raises(GitHubRateLimitError):
         store.releases()
+
+
+@pytest.mark.parametrize(
+    ("said", "error"),
+    [
+        pytest.param("gh: Too Many Requests (HTTP 429)", GitHubRateLimitError, id="429"),
+        pytest.param(
+            "You have exceeded a secondary rate limit.", GitHubRateLimitError, id="secondary"
+        ),
+        pytest.param("gh: Bad credentials (HTTP 401)", GitHubUnauthenticatedError, id="401"),
+    ],
+)
+def test_a_failed_read_raises_the_class_the_gh_classifier_names(
+    said: str, error: type[GitHubOperationError]
+) -> None:
+    """A failed gh read raises what `classify_gh_failure` makes of gh's output (#983), not only
+    the rate limits the store once matched itself, with gh's exit status as an int."""
+    store, _ = board_store({"milestones?state=all": (1, said)})
+    with pytest.raises(GitHubOperationError) as raised:
+        store.releases()
+    assert (type(raised.value), raised.value.details["exit_code"]) == (error, 1)
 
 
 def test_malformed_json_raises() -> None:
