@@ -192,7 +192,6 @@ class LLMClient(
         self._api_key = api_key or ""
         self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
-        self._ollama_thinking_supported: bool | None = None
 
         cache_cfg = getattr(config, "cache", None)
         if cache_enabled is None:

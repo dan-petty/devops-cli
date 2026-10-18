@@ -2588,23 +2588,6 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
-CONST_REASONING_MODEL_SUBSTRINGS: Final[tuple[str, ...]] = (
-    "deepseek-r1",
-    "qwq",
-)
-CONST_REASONING_MODEL_PREFIXES: Final[tuple[str, ...]] = (
-    "gpt-5",
-    "o1",
-    "o3",
-    "o4",
-    "deepseek-r1",
-    "deepseek-reasoner",
-    "devops-reasoning",
-    "qwq",
-)
-CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
-    {"gpt-5", "o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
-)
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
 CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (

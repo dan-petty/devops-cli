@@ -236,30 +236,46 @@ def _sanitize_api_key_header(api_key: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {clean}"}
 
 
-def _query_model_info(gateway_url: str, allow_private: bool, api_key: str | None) -> Any:
+def _fetch_endpoint_resp(
+    http_client: httpx2.Client, gateway_url: str, headers: dict[str, str]
+) -> httpx2.Response:
+    resp = http_client.get(f"{gateway_url}/model/info", headers=headers)
+    if resp.status_code not in (200, 401, 403):
+        resp = http_client.get(f"{gateway_url}/models", headers=headers)
+    return resp
+
+
+def _query_model_info(
+    gateway_url: str,
+    allow_private: bool,
+    api_key: str | None,
+    client: httpx2.Client | None = None,
+) -> Any:
     """GET the gateway's /model/info (falling back to /models); None when unreachable."""
     headers = _sanitize_api_key_header(api_key)
     try:
         validate_url_egress(gateway_url, purpose="AI gateway", allow_private=allow_private)
-        with httpx2.Client(timeout=2.0) as client:
-            resp = client.get(f"{gateway_url}/model/info", headers=headers)
-            if resp.status_code not in (200, 401, 403):
-                resp = client.get(f"{gateway_url}/models", headers=headers)
-            return resp
+        if client is not None:
+            return _fetch_endpoint_resp(client, gateway_url, headers)
+        with httpx2.Client(timeout=2.0) as ephemeral_client:
+            return _fetch_endpoint_resp(ephemeral_client, gateway_url, headers)
     except Exception as exc:
         logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
         return None
 
 
 def fetch_model_info(
-    gateway_url: str, allow_private: bool, api_key: str | None = None
+    gateway_url: str,
+    allow_private: bool,
+    api_key: str | None = None,
+    client: httpx2.Client | None = None,
 ) -> list[dict[str, Any]] | None:
     """Return the gateway's `/model/info` entries; None when it is unreachable or lists nothing.
 
     Raises AICredentialsError when the gateway rejects the request, rather than letting the
     caller fall back to defaults that do not describe the gateway.
     """
-    resp = _query_model_info(gateway_url.rstrip("/"), allow_private, api_key)
+    resp = _query_model_info(gateway_url.rstrip("/"), allow_private, api_key, client=client)
     if resp is None:
         return None
     if resp.status_code in (401, 403):
@@ -271,6 +287,76 @@ def fetch_model_info(
     except ValueError:
         return None
     return data if isinstance(data, list) and data else None
+
+
+_GATEWAY_REASONING_CACHE: dict[tuple[str, str | None], dict[str, bool]] = {}
+
+
+def clear_gateway_reasoning_cache() -> None:
+    """Clear cached gateway reasoning capabilities."""
+    _GATEWAY_REASONING_CACHE.clear()
+
+
+def parse_gateway_reasoning_models(data: list[dict[str, Any]] | None) -> dict[str, bool]:
+    """Derive reasoning capability by model name from /model/info data items.
+
+    A model group gets reasoning capability only when every deployment in it declares
+    supports_reasoning: true. A mixed or undeclared group evaluates to False.
+    """
+    if not data or not isinstance(data, list):
+        return {}
+    deployments: dict[str, list[dict[str, Any]]] = {}
+    for item in data:
+        if isinstance(item, dict) and isinstance(item.get("model_name"), str):
+            deployments.setdefault(item["model_name"], []).append(item)
+
+    return {
+        m_name: (
+            bool(deps)
+            and all(
+                isinstance(d.get("model_info"), dict)
+                and bool(d["model_info"].get("supports_reasoning"))
+                for d in deps
+            )
+        )
+        for m_name, deps in deployments.items()
+    }
+
+
+def resolve_gateway_reasoning_models(
+    gateway_url: str,
+    allow_private: bool,
+    api_key: str | None = None,
+    *,
+    data: list[dict[str, Any]] | None = None,
+    client: httpx2.Client | None = None,
+) -> dict[str, bool]:
+    """Return model_name -> supports_reasoning map for gateway, cached per process."""
+    if data is not None:
+        return parse_gateway_reasoning_models(data)
+    key = (gateway_url.rstrip("/"), api_key)
+    if key in _GATEWAY_REASONING_CACHE:
+        return _GATEWAY_REASONING_CACHE[key]
+    raw_data = fetch_model_info(gateway_url, allow_private, api_key, client=client)
+    result = parse_gateway_reasoning_models(raw_data)
+    _GATEWAY_REASONING_CACHE[key] = result
+    return result
+
+
+def is_gateway_model_reasoning(
+    model_name: str,
+    gateway_url: str,
+    allow_private: bool,
+    api_key: str | None = None,
+    *,
+    data: list[dict[str, Any]] | None = None,
+    client: httpx2.Client | None = None,
+) -> bool:
+    """Check if model_name is declared with supports_reasoning in gateway deployments."""
+    caps = resolve_gateway_reasoning_models(
+        gateway_url, allow_private, api_key, data=data, client=client
+    )
+    return caps.get(model_name, False)
 
 
 def _fetch_remote_routes(
