@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
+from devops_cli.ai.agents.tools import FunctionToolset, Tool
 
 
 def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:

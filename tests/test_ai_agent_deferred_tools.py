@@ -7,17 +7,17 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.capabilities import (
     BaseCapability,
     DeferredToolRequests,
     DeferredToolResults,
     HandleDeferredToolCalls,
-    RunContext,
     Thinking,
     ToolApproved,
     ToolCallPart,
     ToolDenied,
 )
+from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.agents.runner import _find_deferred_tool_handler
 
 

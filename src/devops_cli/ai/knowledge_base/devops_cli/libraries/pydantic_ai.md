@@ -51,7 +51,8 @@ In `devops-cli`:
 
 ### Instantiating a Multi-Tool Review Agent
 ```python
-from devops_cli.ai.agents import PydanticAgent, AgentTool, FunctionToolset
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.tools import AgentTool, FunctionToolset
 
 
 async def analyze_dependencies(ctx, package_name: str) -> str:
@@ -79,7 +80,8 @@ agent = PydanticAgent(
 ### MCP Client Sampling & Custom TLS Configuration
 ```python
 import httpx2
-from devops_cli.ai.agents import PydanticAgent, MCPToolset
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.tools import MCPToolset
 
 # Custom HTTP client with homelab TLS certificates
 http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(15.0))

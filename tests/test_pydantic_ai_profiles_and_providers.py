@@ -330,25 +330,6 @@ class TestBridgeModelResolutionWithProviders:
         model = resolve_pydantic_ai_model("ollama:qwen2.5-coder:7b", settings=settings)
         assert model is not None
 
-    def test_package_reexports(self) -> None:
-        """Verify profiles and providers symbols are cleanly re-exported across packages."""
-        import devops_cli.ai as ai_pkg
-        import devops_cli.ai.agents as agents_pkg
-        import devops_cli.ai.agents.pydantic_agent as pa_module
-
-        for mod in (ai_pkg, agents_pkg, pa_module):
-            assert hasattr(mod, "ModelProfile")
-            assert hasattr(mod, "DEFAULT_PROFILE")
-            assert hasattr(mod, "DEFAULT_THINKING_TAGS")
-            assert hasattr(mod, "resolve_model_profile")
-            assert hasattr(mod, "get_model_thinking_tags")
-            assert hasattr(mod, "supports_thinking")
-            assert hasattr(mod, "thinking_always_enabled")
-            assert hasattr(mod, "Provider")
-            assert hasattr(mod, "create_pydantic_ai_provider")
-            assert hasattr(mod, "infer_provider")
-            assert hasattr(mod, "infer_provider_class")
-
 
 _EXAMPLE_BASE = "https://example.com/v1"
 _EXAMPLE_GATEWAY = "http://example.com:4000/v1"

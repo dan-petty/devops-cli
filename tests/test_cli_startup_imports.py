@@ -183,12 +183,12 @@ print("__HAS_LOGFIRE__" + json.dumps(has_logfire))
 
 
 def test_ai_agents_and_providers_import_no_model_sdks() -> None:
-    """Verify loading ai.agents and ai.providers imports neither anthropic, google.genai, nor openai."""
+    """Verify loading ai.agents.agent and ai.providers imports neither anthropic, google.genai, nor openai."""
     code = """
 import json
 import sys
 
-import devops_cli.ai.agents
+import devops_cli.ai.agents.agent
 import devops_cli.ai.providers
 
 result = {

@@ -18,7 +18,8 @@ from typing import IO, Any
 
 from pydantic import Field
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, Tool
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import (
     DEFAULT_DENIED_COMMANDS,
     INTERACTIVE_COMMANDS,

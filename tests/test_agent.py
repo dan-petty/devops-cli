@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from devops_cli.ai.agents import AgentResponse, PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.client import LLMClient
 
 
@@ -98,7 +99,8 @@ def test_ollama_stream_400_raises_client_error(mocker: MagicMock) -> None:
 
 
 def test_multi_agent_pipeline() -> None:
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 
     client1 = MagicMock(spec=LLMClient)
     client1.chat_messages.return_value = "Scanner report: files look clean."
@@ -166,7 +168,8 @@ def test_get_persona_tools_selection() -> None:
 
 def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:
     """Verify message_history=[] keeps an agent's earlier runs out of the next request."""
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 
     sent: list[list[str]] = []
 

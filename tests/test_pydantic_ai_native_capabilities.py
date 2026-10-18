@@ -7,6 +7,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.models.test import TestModel
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.capabilities import (
     MCP,
     BaseCapability,
@@ -30,7 +31,6 @@ from devops_cli.ai.agents.capabilities import (
     WebFetch,
     WebSearch,
 )
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.harness.docs import PydanticAIDocs
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.pydantic_ai_bridge import (

@@ -6,12 +6,9 @@ import pytest
 from pydantic import BaseModel
 from pydantic_ai import RunContext as NativeRunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentTool,
-    PydanticAgent,
-    RunContext,
-    _check_path_traversal,
-)
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.context import RunContext, _check_path_traversal
+from devops_cli.ai.agents.tools import AgentTool
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.pydantic_ai_bridge import (
     DevOpsAgentContext,
@@ -108,11 +105,11 @@ def test_pydantic_agent_execution_and_tools() -> None:
 def test_pydantic_agent_advanced_dispatch_and_schema() -> None:
     """Verify tool execution loop, memory serialization, output schema parsing, and fallback resolution."""
     from devops_cli.ai.agents.memory import AgentMemory
-    from devops_cli.ai.agents.pydantic_agent import (
-        ToolCall,
+    from devops_cli.ai.agents.runner import (
         _create_tool_retry_message,
         _resolve_fallback_output,
     )
+    from devops_cli.ai.agents.tools import ToolCall
 
     # 1. Fallback output resolution
     assert _resolve_fallback_output("Final answer", [], []) == "Final answer"
@@ -368,7 +365,7 @@ def test_pydantic_agent_hooks() -> None:
 
 def test_pydantic_agent_capabilities_and_on_demand() -> None:
     """Verify BaseCapability, Capability, and on-demand deferred loading."""
-    from devops_cli.ai.agents import Capability
+    from devops_cli.ai.agents.capabilities import Capability
 
     # 1. Non-deferred capability
     monitoring_cap = Capability(
@@ -427,7 +424,8 @@ def test_pydantic_agent_capabilities_and_on_demand() -> None:
 
 def test_pydantic_agent_spec_and_template_str() -> None:
     """Verify AgentSpec parsing, from_spec factory, and TemplateStr rendering against deps."""
-    from devops_cli.ai.agents import AgentSpec, TemplateStr
+    from devops_cli.ai.agents.tools import AgentSpec
+    from devops_cli.ai.template import TemplateStr
 
     # 1. TemplateStr test
     tmpl = TemplateStr("You are assisting {{user_name}} in {{environment}}.")
@@ -479,7 +477,7 @@ def test_pydantic_agent_message_history() -> None:
 
 def test_pydantic_agent_retries_and_budget_exhaustion() -> None:
     """Verify AgentRetries limits and UnexpectedModelBehavior on budget exhaustion."""
-    from devops_cli.ai.agents import AgentRetries
+    from devops_cli.ai.agents.context import AgentRetries
     from devops_cli.exceptions.ai import ModelRetry, UnexpectedModelBehavior
 
     mock_client = MagicMock()
@@ -510,7 +508,7 @@ def test_pydantic_agent_tool_class_and_timeouts() -> None:
     """Verify Tool.from_function, timeout enforcement, and retry feedback."""
     import time
 
-    from devops_cli.ai.agents import Tool
+    from devops_cli.ai.agents.tools import Tool
 
     # 1. Tool.from_function
     def slow_fn(sec: float) -> str:
@@ -546,7 +544,7 @@ def test_pydantic_agent_tool_class_and_timeouts() -> None:
 
 def test_pydantic_agent_advanced_tools_and_tool_return() -> None:
     """Verify ToolReturn metadata/content handling and Tool.from_schema custom schemas."""
-    from devops_cli.ai.agents import Tool, ToolReturn
+    from devops_cli.ai.agents.tools import Tool, ToolReturn
 
     # 1. Tool.from_schema
     def custom_sum(**kwargs: Any) -> ToolReturn:
@@ -600,7 +598,7 @@ def test_pydantic_agent_advanced_tools_and_tool_return() -> None:
 
 def test_function_toolset_and_instructions() -> None:
     """Verify FunctionToolset tools, static instructions, and agent prompt composition."""
-    from devops_cli.ai.agents import FunctionToolset
+    from devops_cli.ai.agents.tools import FunctionToolset
 
     toolset = FunctionToolset(instructions="Always follow semver when calculating releases.")
 
@@ -740,7 +738,7 @@ async def test_function_toolset_in_a_running_loop_keeps_its_static_text_and_logs
 
 def test_deferred_tools_approval_required_and_handler() -> None:
     """Verify requires_approval flag, ApprovalRequired exception, and HandleDeferredToolCalls capability."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         DeferredToolRequests,
         DeferredToolResults,
         HandleDeferredToolCalls,
@@ -807,7 +805,7 @@ def test_deferred_handler_two_arg_receives_run_context_in_agent_run() -> None:
     The loop looked the handler up without its context, so the handler was called with the
     requests alone and the run died with a TypeError.
     """
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         DeferredToolRequests,
         DeferredToolResults,
         HandleDeferredToolCalls,
@@ -847,7 +845,7 @@ async def test_deny_hook_skipped_in_a_running_loop_does_not_let_a_later_handler_
     The async deny hook was skipped and the approving handler after it decided, so the
     approval-required tool ran.
     """
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         BaseCapability,
         DeferredToolRequests,
         DeferredToolResults,
@@ -887,7 +885,7 @@ async def test_deny_hook_skipped_in_a_running_loop_does_not_let_a_later_handler_
 
 def test_deferred_tools_stop_the_world_and_resume() -> None:
     """Verify stop-the-world workflow returning DeferredToolRequests and resuming with DeferredToolResults."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         DeferredToolRequests,
         DeferredToolResults,
     )
@@ -935,7 +933,7 @@ def test_deferred_tools_stop_the_world_and_resume() -> None:
 
 def test_native_tools_web_search_and_code_execution() -> None:
     """Verify NativeTool capability with WebSearchTool and CodeExecutionTool configurations."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         CodeExecutionTool,
         NativeTool,
         WebSearchTool,
@@ -976,12 +974,12 @@ def test_native_tools_web_search_and_code_execution() -> None:
 
 def test_mcp_capability_and_native_server_tool() -> None:
     """Verify MCP capability and MCPServerTool integration."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         MCP,
         MCPServerTool,
         NativeTool,
-        Tool,
     )
+    from devops_cli.ai.agents.tools import Tool
 
     # 1. Native MCP server tool
     mcp_tool = MCPServerTool(
@@ -1021,7 +1019,7 @@ def test_mcp_capability_and_native_server_tool() -> None:
 
 def test_web_search_capability_adaptive() -> None:
     """Verify WebSearch adaptive capability with native and local fallbacks."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         WebSearch,
         WebSearchTool,
     )
@@ -1052,7 +1050,7 @@ def test_web_search_capability_adaptive() -> None:
 
 def test_web_fetch_capability_adaptive() -> None:
     """Verify WebFetch adaptive capability with native and local fallbacks."""
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         WebFetch,
         WebFetchTool,
     )
@@ -1088,7 +1086,7 @@ def test_web_fetch_capability_adaptive() -> None:
 
 
 def test_thinking_capability_and_parts() -> None:
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.capabilities import (
         Thinking,
         ThinkingPart,
     )
@@ -1119,7 +1117,7 @@ def test_thinking_capability_and_parts() -> None:
 def test_native_tool_all_variants() -> None:
     from pydantic import BaseModel
 
-    from devops_cli.ai.agents.pydantic_agent import (
+    from devops_cli.ai.agents.capabilities import (
         CodeExecutionTool,
         MCPServerTool,
         NativeTool,
@@ -1157,11 +1155,11 @@ def test_native_tool_all_variants() -> None:
 
 
 def test_mcp_capability_variants() -> None:
-    from devops_cli.ai.agents.pydantic_agent import (
+    from devops_cli.ai.agents.capabilities import (
         MCP,
         MCPServerTool,
-        Tool,
     )
+    from devops_cli.ai.agents.tools import Tool
 
     # 1. Native MCPServerTool
     mcp_native = MCP(native=MCPServerTool(id="srv-1", url="http://example.com"))
@@ -1201,12 +1199,12 @@ def test_mcp_capability_variants() -> None:
 
 
 def test_web_search_and_web_fetch_full_branches() -> None:
-    from devops_cli.ai.agents.pydantic_agent import (
-        Tool,
+    from devops_cli.ai.agents.capabilities import (
         WebFetch,
         WebFetchTool,
         WebSearch,
     )
+    from devops_cli.ai.agents.tools import Tool
 
     # WebSearch native=True, local=False
     ws_native = WebSearch(native=True, local=False)
@@ -1251,45 +1249,6 @@ def test_web_search_and_web_fetch_full_branches() -> None:
     # WebFetch local=list
     wf_list = WebFetch(native=False, local=[fetch_fn])
     assert len(wf_list.get_tools()) == 1
-
-
-def test_native_agent_exports_and_models() -> None:
-    """Verify native pydantic_ai Agent types are re-exported and accessible."""
-    from devops_cli.ai.agents import (
-        AbstractAgent,
-        Agent,
-        AgentModelSettings,
-        AgentRun,
-        AgentRunResult,
-        EndStrategy,
-        InstrumentationSettings,
-    )
-    from devops_cli.ai.agents.pydantic_agent import (
-        CallToolsNode,
-        EventStreamHandler,
-        EventStreamProcessor,
-        ModelRequestNode,
-        NativeToolFunc,
-        ParallelExecutionMode,
-        ToolsPrepareFunc,
-        UserPromptNode,
-    )
-
-    assert Agent is not None
-    assert AbstractAgent is not None
-    assert AgentRun is not None
-    assert AgentRunResult is not None
-    assert AgentModelSettings is not None
-    assert InstrumentationSettings is not None
-    assert EndStrategy is not None
-    assert CallToolsNode is not None
-    assert EventStreamHandler is not None
-    assert EventStreamProcessor is not None
-    assert ModelRequestNode is not None
-    assert NativeToolFunc is not None
-    assert ToolsPrepareFunc is not None
-    assert UserPromptNode is not None
-    assert ParallelExecutionMode is not None
 
 
 def test_resolve_pydantic_ai_model() -> None:

@@ -106,19 +106,11 @@ def test_unused_sampling_model_and_os_access_classes_are_gone() -> None:
     """
     import importlib.util
 
-    from pydantic_ai.capabilities import ToolSearch as NativeToolSearch
-
-    import devops_cli.ai as ai_pkg
-    import devops_cli.ai.agents as agents_pkg
     import devops_cli.ai.agents.models as models_mod
-    import devops_cli.ai.agents.pydantic_agent as facade_mod
     import devops_cli.ai.harness as harness_pkg
 
     removed = {
-        ai_pkg: ("MountDir", "OSAccess", "ToolSearch"),
-        agents_pkg: ("MCPSamplingModel", "MountDir", "OSAccess"),
         models_mod: ("MCPSamplingModel",),
-        facade_mod: ("MCPSamplingModel",),
         harness_pkg: ("MountDir", "OSAccess", "ToolSearch"),
     }
     leftovers = [
@@ -131,8 +123,7 @@ def test_unused_sampling_model_and_os_access_classes_are_gone() -> None:
     assert (
         leftovers,
         importlib.util.find_spec("devops_cli.ai.harness.os_access"),
-        agents_pkg.ToolSearch,
-    ) == ([], None, NativeToolSearch)
+    ) == ([], None)
 
 
 def test_devops_cli_error_has_no_code_alias() -> None:

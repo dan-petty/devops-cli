@@ -33,15 +33,8 @@ from devops_cli.config.settings import AIDurableConfig, Settings
 from devops_cli.exceptions import ConfigurationError
 
 
-def test_native_durable_reexports_and_availability_helpers() -> None:
-    """Verify BaseDurabilityCapability re-export and boolean availability checkers."""
-    from devops_cli.ai import BaseDurabilityCapability as ExportedBaseDurability
-    from devops_cli.ai import LocalDurabilityCapability as ExportedLocalDurability
-    from devops_cli.ai import resolve_durability_capability as exported_resolve
-
-    assert ExportedBaseDurability is BaseDurabilityCapability
-    assert ExportedLocalDurability is LocalDurabilityCapability
-    assert exported_resolve is resolve_durability_capability
+def test_native_durable_availability_helpers() -> None:
+    """Verify boolean availability checkers and engine registry."""
 
     assert isinstance(is_temporal_available(), bool)
     assert isinstance(is_dbos_available(), bool)

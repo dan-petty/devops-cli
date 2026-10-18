@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
+from devops_cli.ai.mcp.server import list_mcp_tools, run_mcp_server
 from devops_cli.config.defaults import (
     DEFAULT_MCP_HOST,
     DEFAULT_MCP_PORT,

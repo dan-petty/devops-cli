@@ -7,15 +7,12 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext
 from pydantic_ai.tools import RunContext as NativeRunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentTool,
-    BaseCapability,
-    PydanticAgent,
-    RunContext,
-    Tool,
-)
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import DEFAULT_ADVISOR_INSTRUCTIONS
 from devops_cli.exceptions.ai import HarnessValidationError
 

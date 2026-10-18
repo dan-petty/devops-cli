@@ -11,7 +11,7 @@ import typer
 from typer.testing import CliRunner
 
 import devops_cli.ai.personas  # noqa: F401
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.ai import app as ai_app
@@ -56,7 +56,15 @@ def test_ai_subcommands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
         res_agents_file = runner.invoke(
             ai_app,
-            ["agents", "--template", "--force", "--file", "AGENTS.md", "--repo", str(tmp_path)],
+            [
+                "agents",
+                "--template",
+                "--force",
+                "--file",
+                "AGENTS.md",
+                "--repo",
+                str(tmp_path),
+            ],
         )
         assert res_agents_file.exit_code == 0
 
@@ -96,7 +104,9 @@ def test_ai_chat_model_task_and_cli_overrides() -> None:
         assert "chat-override-model:20b" in res_task.output
 
         res_cli = runner.invoke(
-            ai_app, ["chat", "--model", "cli-model:7b", "--no-prewarm", "--no-rag"], input="exit\n"
+            ai_app,
+            ["chat", "--model", "cli-model:7b", "--no-prewarm", "--no-rag"],
+            input="exit\n",
         )
         assert res_cli.exit_code == 0
         assert "cli-model:7b" in res_cli.output
@@ -139,7 +149,10 @@ def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
     mock_result.all_tool_calls = []
 
     with (
-        patch("devops_cli.ai.agents.pipeline.MultiAgentPipeline.run", return_value=mock_result),
+        patch(
+            "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+            return_value=mock_result,
+        ),
         patch("devops_cli.ai.tools.get_default_tools", return_value=[]),
         patch("devops_cli.config.settings.load_settings", return_value=Settings()),
     ):
@@ -238,7 +251,10 @@ def test_ai_error_branches_and_chat_helpers(tmp_path: Path) -> None:
 def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     """Verify parallel ollama server tests, failed chat handling, and agent path traversal guards."""
     from devops_cli.ai.client import AIClientError
-    from devops_cli.commands.ai import _run_ollama_server_tests, _test_single_ollama_endpoint
+    from devops_cli.commands.ai import (
+        _run_ollama_server_tests,
+        _test_single_ollama_endpoint,
+    )
 
     # 1. _test_single_ollama_endpoint
     st = Settings()
@@ -301,7 +317,10 @@ def test_ai_test_disables_cache_and_targets_url() -> None:
 
 def test_ai_extended_commands(tmp_path: Path) -> None:
     """Verify bundle-models, token-count, route, and live pipeline commands."""
-    from devops_cli.ai.agents.pipeline import MultiAgentPipelineResult, PipelineStepResult
+    from devops_cli.ai.agents.pipeline import (
+        MultiAgentPipelineResult,
+        PipelineStepResult,
+    )
 
     # 1. bundle-models
     with patch(
@@ -355,7 +374,7 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
 
 def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
     """Verify ai config, models, preload, chat interactive mode, and explain."""
-    from devops_cli.ai.agents.pydantic_agent import AgentResponse
+    from devops_cli.ai.agents.models import AgentResponse
     from devops_cli.commands.ai import _print_chat_thought, _print_chat_tool
     from devops_cli.config.settings import SecretStorageError
 
@@ -376,20 +395,27 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
 
     # 4. config with SecretStorageError
     with patch(
-        "devops_cli.commands.ai.dotted_set", side_effect=SecretStorageError("Keyring locked")
+        "devops_cli.commands.ai.dotted_set",
+        side_effect=SecretStorageError("Keyring locked"),
     ):
         res_sec_err = runner.invoke(ai_app, ["config", "--api-key", "secret123"])
         assert res_sec_err.exit_code == 1
         assert "Could not store ai.api_key" in res_sec_err.output
 
     # 5. models command failure
-    with patch("devops_cli.ai.client.LLMClient.list_models", side_effect=RuntimeError("API down")):
+    with patch(
+        "devops_cli.ai.client.LLMClient.list_models",
+        side_effect=RuntimeError("API down"),
+    ):
         res_mod_fail = runner.invoke(ai_app, ["models"])
         assert res_mod_fail.exit_code == 1
         assert "Failed to list models" in res_mod_fail.output
 
     # 6. models command success
-    with patch("devops_cli.ai.client.LLMClient.list_models", return_value=["model-v1", "model-v2"]):
+    with patch(
+        "devops_cli.ai.client.LLMClient.list_models",
+        return_value=["model-v1", "model-v2"],
+    ):
         res_mod_ok = runner.invoke(ai_app, ["models"])
         assert res_mod_ok.exit_code == 0
         assert "model-v1" in res_mod_ok.output
@@ -434,9 +460,10 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         turns=1,
     )
     with (
-        patch("devops_cli.ai.agents.PydanticAgent.run", return_value=mock_run_res),
+        patch("devops_cli.ai.agents.agent.PydanticAgent.run", return_value=mock_run_res),
         patch(
-            "devops_cli.commands.ai._try_retrieve_rag_context", return_value="RAG context snippet"
+            "devops_cli.commands.ai._try_retrieve_rag_context",
+            return_value="RAG context snippet",
         ),
         patch("devops_cli.commands.ai.print_section") as mock_print_section,
         patch("devops_cli.commands.ai.get_console") as mock_get_console,
@@ -450,7 +477,8 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         assert "Hello! How can I help you?" in res_chat.output
         mock_console.input.assert_any_call("[bold cyan]You:[/bold cyan] ")
         mock_console.print.assert_any_call(
-            "\n[bold dark_orange]Enterprise Infrastructure Architect:[/bold dark_orange] ", end=""
+            "\n[bold dark_orange]Enterprise Infrastructure Architect:[/bold dark_orange] ",
+            end="",
         )
         mock_print_section.assert_called_once()
         section_title, section_kwargs = mock_print_section.call_args
@@ -488,7 +516,7 @@ def test_ai_chat_markdown_response_rendering() -> None:
     """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown."""
     from unittest.mock import MagicMock, patch
 
-    from devops_cli.ai.agents.pydantic_agent import AgentResponse
+    from devops_cli.ai.agents.models import AgentResponse
 
     mock_run_res: AgentResponse[Any] = AgentResponse(
         content="Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
@@ -496,7 +524,7 @@ def test_ai_chat_markdown_response_rendering() -> None:
         turns=1,
     )
     with (
-        patch("devops_cli.ai.agents.PydanticAgent.run", return_value=mock_run_res),
+        patch("devops_cli.ai.agents.agent.PydanticAgent.run", return_value=mock_run_res),
         patch("devops_cli.commands.ai.get_console") as mock_get_console,
         patch("devops_cli.output.console.get_console") as mock_output_console,
     ):
@@ -546,7 +574,10 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
         res_pipe_dry = runner.invoke(
             ai_app, ["pipeline", "Audit architecture", "--personas", "architect,qa"]
         )
-        assert (res_pipe_dry.exit_code, "stage_context_tokens" in res_pipe_dry.output) == (0, True)
+        assert (
+            res_pipe_dry.exit_code,
+            "stage_context_tokens" in res_pipe_dry.output,
+        ) == (0, True)
 
     # 7. pipeline command execution
     mock_stage_step = MagicMock()
@@ -561,7 +592,8 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
 
     with (
         patch(
-            "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run", return_value=mock_pipeline_res
+            "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+            return_value=mock_pipeline_res,
         ),
         patch(
             "devops_cli.commands.ai._try_retrieve_rag_context",
@@ -680,7 +712,7 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
     with (
         patch("devops_cli.commands.ai.get_console", return_value=mock_console),
         patch("devops_cli.ai.client.LLMClient.chat_messages_stream", fake_stream),
-        patch("devops_cli.ai.agents.PydanticAgent", WrappedAgent),
+        patch("devops_cli.ai.agents.agent.PydanticAgent", WrappedAgent),
         patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
     ):
         res = runner.invoke(ai_app, ["chat", "--no-tools", "--no-rag", "--no-prewarm"])
@@ -750,7 +782,14 @@ def test_chat_seeds_the_invariants() -> None:
 
         res_non_stream = runner.invoke(
             ai_app,
-            ["chat", "--persona", "architect", "--no-stream", "--no-rag", "--no-prewarm"],
+            [
+                "chat",
+                "--persona",
+                "architect",
+                "--no-stream",
+                "--no-rag",
+                "--no-prewarm",
+            ],
         )
         assert (
             res_non_stream.exit_code,
@@ -781,7 +820,14 @@ def test_chat_seeds_the_invariants() -> None:
 
         res_stream = runner.invoke(
             ai_app,
-            ["chat", "--persona", "architect", "--no-tools", "--no-rag", "--no-prewarm"],
+            [
+                "chat",
+                "--persona",
+                "architect",
+                "--no-tools",
+                "--no-rag",
+                "--no-prewarm",
+            ],
         )
         assert (
             res_stream.exit_code,

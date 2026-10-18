@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
 DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (

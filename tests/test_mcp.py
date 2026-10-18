@@ -12,15 +12,17 @@ import pytest
 from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp import list_mcp_tools, mcp, run_mcp_server
 from devops_cli.ai.mcp.server import (
     _run_mcp_cmd,
     _validate_mcp_arg,
+    list_mcp_tools,
+    mcp,
     review_branch,
     review_findings,
     review_path,
     review_pr,
     review_stats,
+    run_mcp_server,
 )
 from devops_cli.commands.mcp import app
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
@@ -202,7 +204,6 @@ def test_mcp_prompts_execution() -> None:
 def test_ai_architecture_tool_is_removed() -> None:
     """Verify the tool that ran the never-existing `devops analyze architecture` is gone,
     with no shim left behind."""
-    import devops_cli.ai.mcp as mcp_package
     from devops_cli.ai.mcp import server
 
     tool_names = {tool.name for tool in asyncio.run(mcp._list_tools())}
@@ -210,8 +211,7 @@ def test_ai_architecture_tool_is_removed() -> None:
     assert (
         "ai_architecture" in tool_names,
         hasattr(server, "ai_architecture"),
-        "ai_architecture" in mcp_package.__all__,
-    ) == (False, False, False)
+    ) == (False, False)
 
 
 def test_mcp_helpers_and_error_branches() -> None:

@@ -126,20 +126,3 @@ class TestPydanticAISettingsSubsystem:
         assert resolved["temperature"] == 0.9
         assert resolved["max_tokens"] == 2000
         assert resolved["thinking"] == "low"
-
-    def test_package_reexports(self) -> None:
-        """Verify all settings symbols are cleanly exposed across public package tiers."""
-        import devops_cli.ai as ai
-        import devops_cli.ai.agents as agents
-        import devops_cli.ai.agents.pydantic_agent as pa
-
-        for target in (ai, agents, pa):
-            assert hasattr(target, "ModelSettings")
-            assert hasattr(target, "merge_model_settings")
-            assert hasattr(target, "create_model_settings")
-            assert hasattr(target, "ToolOrOutput")
-            assert hasattr(target, "create_tool_or_output")
-            assert hasattr(target, "normalize_thinking_level")
-            assert hasattr(target, "normalize_service_tier")
-            assert hasattr(target, "normalize_tool_choice")
-            assert hasattr(target, "resolve_runtime_model_settings")

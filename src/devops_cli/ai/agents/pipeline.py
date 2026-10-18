@@ -2,7 +2,7 @@
 
 Example:
     >>> from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-    >>> from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+    >>> from devops_cli.ai.agents.agent import PydanticAgent
     >>> from devops_cli.ai.client import LLMClient
     >>>
     >>> client = LLMClient()

@@ -12,14 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentTool,
-    BaseCapability,
-    PydanticAgent,
-    RunContext,
-    Tool,
-)
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.common_tools import duckduckgo_search_tool, web_fetch_tool
 from devops_cli.ai.harness.constants import (
     DEFAULT_CODER_INSTRUCTIONS,

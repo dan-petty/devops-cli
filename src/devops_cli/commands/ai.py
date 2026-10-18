@@ -1055,7 +1055,7 @@ def chat(  # noqa: C901
         return
     import sys
 
-    from devops_cli.ai.agents import PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.client import LLMClient, RequestPriority, current_request_priority
     from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -1237,7 +1237,7 @@ def pipeline(
     ] = False,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
-    from devops_cli.ai.agents import PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.personas import PERSONAS, Persona

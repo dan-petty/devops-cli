@@ -9,8 +9,10 @@ from collections.abc import Callable
 from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import HarnessDeprecationWarning
 from devops_cli.ai.lexical import bm25_scores
 from devops_cli.config.defaults import DEFAULT_BM25_B, DEFAULT_BM25_K1

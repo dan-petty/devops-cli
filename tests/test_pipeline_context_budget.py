@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.ai import app as ai_app

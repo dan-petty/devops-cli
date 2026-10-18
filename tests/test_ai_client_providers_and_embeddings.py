@@ -515,7 +515,7 @@ async def test_direct_model_request_helpers(monkeypatch: pytest.MonkeyPatch) -> 
     """Verify model_request_sync and model_request direct API calls."""
     from unittest.mock import MagicMock
 
-    from devops_cli.ai import model_request, model_request_sync
+    from devops_cli.ai.client import model_request, model_request_sync
     from devops_cli.models.ai import ChatMessage
 
     mock_client = MagicMock()

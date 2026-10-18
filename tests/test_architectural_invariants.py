@@ -1771,3 +1771,102 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
         "[[tool.mypy.overrides]]": {"pyproject.toml": 2},
         "coverage omit": {"pyproject.toml": 1},
     }
+
+
+def _find_package_submodules(pkg_dir: Path) -> set[str]:
+    """Return all valid Python submodule names inside a package directory."""
+    if not pkg_dir.is_dir():
+        return set()
+    return {
+        child.stem if child.is_file() else child.name
+        for child in pkg_dir.iterdir()
+        if (child.is_file() and child.name.endswith(".py") and child.name != "__init__.py")
+        or (child.is_dir() and (child / "__init__.py").exists())
+    }
+
+
+def _collect_facade_import_violations(
+    tree: ast.AST,
+    allowed_submodules: Mapping[str, set[str]],
+    origin: str,
+) -> list[str]:
+    """Find any ImportFrom node on facade packages importing a non-submodule name."""
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module not in allowed_submodules:
+            continue
+        allowed = allowed_submodules[node.module]
+        for alias in node.names:
+            if alias.name not in allowed:
+                violations.append(f"{origin}:{node.lineno}: from {node.module} import {alias.name}")
+    return violations
+
+
+def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
+    """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    init_paths = [
+        repo_root / "src" / "devops_cli" / "ai" / "__init__.py",
+        repo_root / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
+        repo_root / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
+        repo_root / "src" / "devops_cli" / "github" / "__init__.py",
+    ]
+    failures = []
+    for path in init_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        is_only_docstring = (
+            len(tree.body) == 1
+            and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)
+            and isinstance(tree.body[0].value.value, str)
+        )
+        if not is_only_docstring:
+            failures.append(str(path.relative_to(repo_root)))
+    assert failures == []
+
+
+def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
+    """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    facade_packages = {
+        "devops_cli.ai": repo_root / "src" / "devops_cli" / "ai",
+        "devops_cli.ai.agents": repo_root / "src" / "devops_cli" / "ai" / "agents",
+        "devops_cli.ai.mcp": repo_root / "src" / "devops_cli" / "ai" / "mcp",
+        "devops_cli.github": repo_root / "src" / "devops_cli" / "github",
+    }
+    allowed_submodules = {
+        pkg_name: _find_package_submodules(pkg_dir) for pkg_name, pkg_dir in facade_packages.items()
+    }
+    violations: list[str] = []
+
+    for search_dir in (repo_root / "src", repo_root / "tests"):
+        for py_file in search_dir.rglob("*.py"):
+            try:
+                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+                violations.extend(
+                    _collect_facade_import_violations(
+                        tree, allowed_submodules, str(py_file.relative_to(repo_root))
+                    )
+                )
+            except SyntaxError:
+                continue
+
+    fenced_re = re.compile(r"```python\n(.*?)```", re.DOTALL)
+    kb_dir = repo_root / "src" / "devops_cli" / "ai" / "knowledge_base"
+    if kb_dir.is_dir():
+        for md_file in kb_dir.rglob("*.md"):
+            content = md_file.read_text(encoding="utf-8")
+            for idx, match in enumerate(fenced_re.finditer(content)):
+                try:
+                    tree = ast.parse(match.group(1))
+                    violations.extend(
+                        _collect_facade_import_violations(
+                            tree,
+                            allowed_submodules,
+                            f"{md_file.relative_to(repo_root)} (block {idx + 1})",
+                        )
+                    )
+                except SyntaxError:
+                    continue
+
+    assert violations == []

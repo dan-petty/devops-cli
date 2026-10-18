@@ -9,9 +9,9 @@ import pytest
 from pydantic import BaseModel
 from pydantic_ai.models.test import TestModel
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.concurrency import (
     AbstractConcurrencyLimiter,
     ConcurrencyLimit,

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.models.ai import ScratchpadBuffer
 
 
