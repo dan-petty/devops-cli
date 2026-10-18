@@ -184,7 +184,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `ollama_urls` | `list` | `['http://localhost:11434']` | `DEVOPS_CLI_AI_OLLAMA_URLS` | - |
 | `ollama_max_parallel` | `int` | `2` | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | - |
 | `gateway_provider` | `str` | `litellm` | - | - |
-| `gateway_url` | `str` | `http://localhost:4000/v1` | - | - |
+| `gateway_url` | `str` | `http://localhost:4000/v1` | `DEVOPS_CLI_AI_GATEWAY_URL` | - |
 | `gateway_enabled` | `bool` | `False` | - | - |
 | `gateway_weights` | `dict` | `{}` | - | - |
 | `gateway_concurrency` | `dict` | `{}` | - | - |

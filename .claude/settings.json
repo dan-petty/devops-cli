@@ -10,6 +10,11 @@
   "permissions": {
     "allow": [
       "Bash(uv run devops *)"
+    ],
+    "deny": [
+      "Read(//**/.claude/settings.local.json)",
+      "Read(~/.claude/settings.json)",
+      "Read(~/.kube/**)"
     ]
   }
 }
