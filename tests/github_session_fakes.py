@@ -61,6 +61,17 @@ def quota_headers(
     }
 
 
+class PacedClock:
+    """The `time` module as the rate limiter reads it, except that a pause is recorded in `paced`
+    instead of slept, so a test paces without waiting and nothing else's sleep changes."""
+
+    def __init__(self, paced: list[float]) -> None:
+        self.sleep = paced.append
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
+
+
 class GitHubApiFake:
     """GitHub's REST API, answered from routes, recording every request it receives."""
 

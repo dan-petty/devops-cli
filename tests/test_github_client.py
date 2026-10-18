@@ -9,17 +9,19 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from github.GithubException import UnknownObjectException
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_DIFF_MEDIA_TYPE
+from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.client import (
     GhCliClient,
     GitHubClient,
     RepoInfo,
     parse_paginated_json,
 )
-from tests.github_session_fakes import github_redirect, github_text
+from tests.github_session_fakes import github_json, github_redirect, github_text
 
 if TYPE_CHECKING:
     from tests.github_session_fakes import GitHubApiFake
@@ -284,6 +286,23 @@ def test_get_pr_diff_normal_and_redirect(
         ],
         {(CONST_GITHUB_DIFF_MEDIA_TYPE, f"token {pin_github_session}")},
     )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param(httpx2.Response(200, content=b"diff --git a/f b/f"), id="no-content-type"),
+        pytest.param(github_json({"number": 42}), id="json"),
+    ],
+)
+def test_an_answer_that_is_no_diff_raises_the_unread_error(
+    github_api: GitHubApiFake, pin_github_session: str, answer: httpx2.Response
+) -> None:
+    """A diff GitHub did not send as text is unread, not an empty or stringified diff."""
+    github_api.route("GET", "/repos/octo/repo/pulls/42", answer)
+    with pytest.raises(GitHubUnreadError) as raised:
+        GitHubClient(pin_github_session).get_pr_diff("octo/repo", 42)
+    assert raised.value.details["path"] == "/repos/octo/repo/pulls/42"
 
 
 def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:

@@ -11,9 +11,18 @@ from devops_cli.config.constants import (
     CONST_GITHUB_SCOPE_ERROR_CODE,
     CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
     CONST_GITHUB_UNREAD_ERROR_CODE,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_MSG_BRANCH_INVALID,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
+
+
+def _bounded_detail(value: Any) -> Any:
+    """A detail as an error carries it: a number as it is, anything else as text of at most
+    `CONST_MAX_ERROR_DETAIL_LENGTH` characters."""
+    if isinstance(value, int | float):
+        return value
+    return str(value)[:CONST_MAX_ERROR_DETAIL_LENGTH]
 
 
 class GitOperationError(DevOpsCLIError, ValueError):
@@ -199,9 +208,9 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
         operation: str = "rate_limit_resolve",
         details: dict[str, Any] | None = None,
     ) -> None:
-        err_details = {"subcommand": subcommand[:256]}
+        err_details: dict[str, Any] = {"subcommand": subcommand[:256]}
         if details:
-            err_details.update({k: str(v)[:256] for k, v in details.items()})
+            err_details.update({k: _bounded_detail(v) for k, v in details.items()})
         super().__init__(
             message,
             operation=operation,

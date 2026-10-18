@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
+import sys
 import threading
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import anyio
 import httpx2
 import pytest
 
@@ -30,9 +34,9 @@ from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
-from devops_cli.github import ssh
+from devops_cli.github import rate_limiter, session_transport, ssh
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.github.session import get_github_session, reset_github_session
+from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
 from tests.github_session_fakes import (
     API,
     GitHubApiFake,
@@ -42,7 +46,8 @@ from tests.github_session_fakes import (
     quota_headers,
 )
 
-_SRC = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _PROJECT_ROOT / "src" / "devops_cli"
 
 
 def _gh_answers(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
@@ -362,9 +367,7 @@ def test_redirects_on_the_api_origin_are_followed_with_the_token_on_each_hop(
     [
         pytest.param("https://example.com/x", id="another-host"),
         pytest.param("https://api.github.com@example.com/x", id="userinfo-naming-github"),
-        # A deliberate exception to the bare example.com rule for mock hosts: only a subdomain
-        # can begin with GitHub's API host name, which is the look-alike this case refuses.
-        pytest.param("https://api.github.com.example.com/x", id="look-alike-host"),
+        pytest.param("https://api.github.com:8443/x", id="another-port"),
         pytest.param("http://api.github.com/repositories/1/pulls/42", id="scheme-downgrade"),
         pytest.param("https://github.com/octo/repo/pull/42.diff", id="github-web-host"),
     ],
@@ -390,11 +393,218 @@ def _portal_threads() -> set[threading.Thread]:
     return {thread for thread in threading.enumerate() if "-portal-" in thread.name}
 
 
-def test_reset_closes_the_sessions_client_and_portal(github_api: GitHubApiFake) -> None:
-    """`reset_github_session()` stops the event loop thread the session's requests ran on."""
+def _record_clients(monkeypatch: pytest.MonkeyPatch) -> list[httpx2.AsyncClient]:
+    """Keep every client a session's transport builds from now on."""
+    built: list[httpx2.AsyncClient] = []
+    real_session_client = session_transport.session_client
+
+    def recording(transport: httpx2.MockTransport | None = None) -> httpx2.AsyncClient:
+        built.append(real_session_client(transport))
+        return built[-1]
+
+    monkeypatch.setattr(session_transport, "session_client", recording)
+    return built
+
+
+def test_reset_closes_the_sessions_client_and_portal(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`reset_github_session()` closes the session's client and stops the event loop thread its
+    requests ran on."""
+    clients = _record_clients(monkeypatch)
     github_api.route("GET", "/user", github_json({"login": "octocat"}))
     before = _portal_threads()
     get_github_session().rest("GET", "/user")
     opened = _portal_threads() - before
     reset_github_session()
-    assert (len(opened), [thread for thread in opened if thread.is_alive()]) == (1, [])
+    assert (
+        len(opened),
+        [thread for thread in opened if thread.is_alive()],
+        [client.is_closed for client in clients],
+    ) == (1, [], [True])
+
+
+def test_a_token_change_closes_the_replaced_session(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the identity changes, the session it replaces is closed, not left running."""
+    clients = _record_clients(monkeypatch)
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    replaced = get_github_session()
+    replaced.rest("GET", "/user")
+    monkeypatch.setattr(process, "_github_token", "B")
+    current = get_github_session()
+    assert (current is replaced, [client.is_closed for client in clients]) == (False, [True])
+
+
+# The child sends one request through a session over the fake GitHub API, and again through the
+# same session after `reset_github_session()` reopened it, and never closes it: the interpreter
+# must still exit. No network and no gh: its quota is seeded and its transport is the fake's.
+_EXITING_CHILD = """
+import time
+
+from devops_cli.core import process
+from devops_cli.github import session
+from devops_cli.github.rate_limiter import get_github_rate_limiter
+from tests.github_session_fakes import GitHubApiFake, github_json
+
+process._github_token = "child-token"
+api = GitHubApiFake()
+api.route("GET", "/user", github_json({"login": "octocat"}))
+get_github_rate_limiter().update_quota(
+    "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+)
+held = session.GitHubSession("child-token", transport=api.transport)
+session._SESSION = held
+first = held.rest("GET", "/user")["login"]
+session.reset_github_session()
+print(first, held.rest("GET", "/user")["login"], flush=True)
+"""
+
+
+def test_a_process_that_sent_a_request_exits_without_closing_its_session(tmp_path: Path) -> None:
+    """A session left open at exit is closed while its event loop thread can still run, so the
+    interpreter exits instead of waiting forever on the loop it stopped."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _EXITING_CHILD],
+        cwd=_PROJECT_ROOT,
+        env={**os.environ, "DEVOPS_CLI_DATA_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert (proc.returncode, proc.stdout) == (0, "octocat octocat\n")
+
+
+async def _sleep_on_the_loop(_api: object, seconds: float) -> None:
+    """gidgethub's own wait, on the portal's loop."""
+    await anyio.sleep(seconds)
+
+
+def test_closing_a_session_cancels_a_request_waiting_out_a_retry(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closing does not wait out a retry's wait: the request is cancelled and fails as unread."""
+    monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", _sleep_on_the_loop)
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"message": "slow down"}, status=429, headers={"retry-after": "30"}),
+    )
+    session = get_github_session()
+    failures: list[BaseException] = []
+
+    def call() -> None:
+        try:
+            session.rest("GET", "/user")
+        except BaseException as error:
+            failures.append(error)
+
+    caller = threading.Thread(target=call)
+    caller.start()
+    deadline = time.monotonic() + 5.0
+    while not github_api.sent and time.monotonic() < deadline:
+        time.sleep(0.01)
+    started = time.monotonic()
+    session.close()
+    caller.join(timeout=5.0)
+    assert (
+        time.monotonic() - started < 5.0,
+        caller.is_alive(),
+        [type(failure) for failure in failures],
+    ) == (True, False, [GitHubUnreadError])
+
+
+def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """Requests in flight when the session closes fail with `GitHubUnreadError`, never with the
+    closed client's or the stopped loop's own exceptions."""
+
+    async def answer_later(request: httpx2.Request) -> httpx2.Response:
+        await anyio.sleep(0.005)
+        return github_json({"login": "octocat"})
+
+    session = GitHubSession(pin_github_session, transport=httpx2.MockTransport(answer_later))
+    outcomes: list[str] = []
+
+    def call(times: int) -> None:
+        for _ in range(times):
+            try:
+                outcomes.append(session.rest("GET", "/user")["login"])
+            except Exception as error:
+                outcomes.append(type(error).__name__)
+
+    callers = [threading.Thread(target=call, args=(15,)) for _ in range(4)]
+    for caller in callers:
+        caller.start()
+    time.sleep(0.03)
+    session.close()
+    for caller in callers:
+        caller.join(timeout=10.0)
+    session.close()
+    assert set(outcomes) <= {"octocat", "GitHubUnreadError"}
+
+
+def test_the_ledger_is_only_read_and_charged_off_the_event_loop(github_api: GitHubApiFake) -> None:
+    """Pacing, charging and the retry wait take the ledger's lock in a worker thread, so a lock
+    held through another thread's quota refresh never stalls the session's other requests."""
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"message": "slow down"}, status=429, headers={"retry-after": "1"}),
+        github_json({"login": "octocat"}),
+    )
+    limiter = get_github_rate_limiter()
+    threads: set[str] = set()
+
+    def on_the_calling_thread(method: Any) -> Any:
+        def record(*args: Any, **kwargs: Any) -> Any:
+            threads.add(threading.current_thread().name)
+            return method(*args, **kwargs)
+
+        return record
+
+    with ExitStack() as patches:
+        for name in ("acquire", "update_quota", "retry_delay", "record_throttle"):
+            patches.enter_context(
+                patch.object(limiter, name, on_the_calling_thread(getattr(limiter, name)))
+            )
+        get_github_session().rest("GET", "/user")
+    assert threads == {"AnyIO worker thread"}
+
+
+def test_two_sessions_charge_their_own_identities_ledgers(github_api: GitHubApiFake) -> None:
+    """A session paces and charges the ledger of its own token, not the process identity's."""
+    github_api.route("GET", "/user", github_json({"login": "a"}, headers=quota_headers(11)))
+    github_api.route("GET", "/user/keys", github_json([], headers=quota_headers(22)))
+    for token in ("token-a", "token-b"):
+        rate_limiter.identity_rate_limiter(token).update_quota(
+            "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+        )
+    first = GitHubSession("token-a", transport=github_api.transport)
+    second = GitHubSession("token-b", transport=github_api.transport)
+    try:
+        first.rest("GET", "/user")
+        second.rest("GET", "/user/keys")
+    finally:
+        first.close()
+        second.close()
+    assert (
+        rate_limiter.identity_rate_limiter("token-a").get_quota("core").remaining,
+        rate_limiter.identity_rate_limiter("token-b").get_quota("core").remaining,
+        get_github_rate_limiter().get_quota("core").remaining,
+    ) == (11, 22, 5000)
+
+
+def test_braces_in_a_path_are_sent_as_literal_characters(github_api: GitHubApiFake) -> None:
+    """gidgethub expands a path as a URI template; a brace in a file name is still sent."""
+    github_api.route(
+        "GET", "/repos/octo/repo/contents/a%7Bb%7Dc.txt", github_json({"name": "a{b}c.txt"})
+    )
+    answer = get_github_session().rest("GET", "/repos/octo/repo/contents/a{b}c.txt")
+    assert (answer, github_api.requested) == (
+        {"name": "a{b}c.txt"},
+        [f"GET {API}/repos/octo/repo/contents/a%7Bb%7Dc.txt"],
+    )

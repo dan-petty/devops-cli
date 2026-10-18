@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import functools
 import hashlib
 import json
 import logging
@@ -45,6 +46,7 @@ from devops_cli.config.constants import (
     CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS,
     CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
+    CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
     CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
 )
@@ -1394,7 +1396,6 @@ def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
         pass
 
 
-_GLOBAL_RATE_LIMITER: GitHubRateLimiter | None = None
 _GLOBAL_LOCK = threading.RLock()
 
 
@@ -1416,21 +1417,29 @@ def resolve_quota_cache_path() -> Path:
     return resolve_identity_cache_dir(github_token()) / CONST_GH_QUOTA_CACHE_FILENAME
 
 
+@functools.lru_cache(maxsize=CONST_GITHUB_IDENTITY_LIMITERS_KEPT)
+def _ledger_limiter(persist_path: Path) -> GitHubRateLimiter:
+    """The one rate limiter over the quota ledger at `persist_path`."""
+    return GitHubRateLimiter(persist_path=persist_path)
+
+
 def reset_github_rate_limiter() -> None:
-    """Reset the global rate limiter instance (useful for test isolation)."""
-    global _GLOBAL_RATE_LIMITER
+    """Forget every identity's rate limiter, so the next one reads its ledger from disk again."""
     with _GLOBAL_LOCK:
-        _GLOBAL_RATE_LIMITER = None
+        _ledger_limiter.cache_clear()
+
+
+def identity_rate_limiter(token: str) -> GitHubRateLimiter:
+    """The rate limiter of the identity `token` is: its quota ledger and the pacing of its requests,
+    one per identity, which `run_gh` and that identity's session share."""
+    with _GLOBAL_LOCK:
+        return _ledger_limiter(resolve_identity_cache_dir(token) / CONST_GH_QUOTA_CACHE_FILENAME)
 
 
 def get_github_rate_limiter() -> GitHubRateLimiter:
-    """The rate limiter of the session's identity, keeping that identity's quota and cache."""
-    global _GLOBAL_RATE_LIMITER
-    persist_path = resolve_quota_cache_path()
+    """The rate limiter of the process's identity, keeping that identity's quota and cache."""
     with _GLOBAL_LOCK:
-        if _GLOBAL_RATE_LIMITER is None or _GLOBAL_RATE_LIMITER.persist_path != persist_path:
-            _GLOBAL_RATE_LIMITER = GitHubRateLimiter(persist_path=persist_path)
-        return _GLOBAL_RATE_LIMITER
+        return _ledger_limiter(resolve_quota_cache_path())
 
 
 def _is_sensitive_command(args: list[str]) -> bool:

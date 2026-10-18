@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 class GitHubSession:
     """One GitHub identity: its token, the login behind it, its ledger directory and its client."""
 
-    def __init__(self, token: str, *, transport: httpx2.AsyncBaseTransport | None = None) -> None:
-        """`transport` replaces the factory's network transport, as a test's fake GitHub does."""
+    def __init__(self, token: str, *, transport: httpx2.MockTransport | None = None) -> None:
+        """`transport` answers the session's requests in place of GitHub, as a test's fake does."""
         self._token = token
         self._http_transport = transport
         self._rest: RestTransport | None = None
@@ -79,7 +79,9 @@ class GitHubSession:
         return self._rest_transport().send(method, path, accept=accept, body=body)
 
     def close(self) -> None:
-        """Close the session's client and stop the loop it ran on; the next `rest` opens them."""
+        """Close the session's client, cancel its requests in flight and stop the loop they ran
+        on; the next `rest` opens them again. A transport left open is closed when it is
+        garbage-collected or at interpreter exit."""
         with self._rest_lock:
             transport, self._rest = self._rest, None
         if transport is not None:
@@ -100,13 +102,20 @@ _SESSION_LOCK = threading.Lock()
 
 
 def get_github_session() -> GitHubSession:
-    """The session of the process's GitHub identity, raising the unauthenticated error without one."""
+    """The session of the process's GitHub identity, raising the unauthenticated error without one.
+
+    A session the identity's change replaces is closed.
+    """
     global _SESSION
     token = github_token()
+    replaced = None
     with _SESSION_LOCK:
         if _SESSION is None or _SESSION.token != token:
-            _SESSION = GitHubSession(token)
-        return _SESSION
+            replaced, _SESSION = _SESSION, GitHubSession(token)
+        current = _SESSION
+    if replaced is not None:
+        replaced.close()
+    return current
 
 
 def reset_github_session() -> None:

@@ -3,12 +3,14 @@
 gidgethub raises one exception per failed answer: `RateLimitExceeded` for a 403 that reports no
 quota left, `GitHubBroken` for a 5xx, `RedirectionException` for a 3xx it was left with, and
 `BadRequest` and its subclasses for any other 4xx. httpx2 raises `HTTPError` when no answer
-arrived, and a body that does not decode raises a `ValueError`. `classify_http_error` maps each
-onto the project's `GitHubOperationError` classes, so a caller tells a missing scope from a
+arrived. An answer that cannot be read at all raises `ValueError` or `LookupError` from the
+decoding: a body that is not the JSON or text it claims, a charset Python does not know, a status
+outside `http.HTTPStatus`, or rate-limit headers that are not numbers. `classify_http_error` maps
+each onto the project's `GitHubOperationError` classes, so a caller tells a missing scope from a
 rate limit or a missing resource by type. Nothing here reads a response's message text: GitHub
 words its messages for people, and the status and headers are what its REST documentation
 specifies. Every error carries the request's path, at most `CONST_MAX_ERROR_DETAIL_LENGTH`
-characters, and an HTTP failure its status, so a caller can treat a 422 as it needs to.
+characters, and an HTTP failure its status as an int, so a caller can treat a 422 as it needs to.
 """
 
 from __future__ import annotations
@@ -180,3 +182,25 @@ def classify_http_error(error: Exception, *, method: str, path: str) -> GitHubOp
         )
     classify = next((build for matches, build in _HTTP_CLASSES if matches(error)), _refused_error)
     return classify(error, request)
+
+
+def refused_retry(
+    refusal: GitHubRateLimitError, error: HTTPException, *, method: str, path: str
+) -> GitHubRateLimitError:
+    """The ledger's refusal to wait as long as GitHub asked before a retry, carrying the request's
+    path and the status that asked for the wait."""
+    request = FailedRequest(method, path)
+    return GitHubRateLimitError(
+        f"{refusal.message} ({request}, HTTP {int(error.status_code)})",
+        subcommand=str(refusal.details.get("subcommand", DEFAULT_GH_RESOURCE)),
+        operation=_OPERATION,
+        details={**refusal.details, "operation": _OPERATION, **request.details(error)},
+    )
+
+
+def unread_after_close(*, method: str, path: str) -> GitHubUnreadError:
+    """The error of a request the session's close stopped before GitHub's answer was read."""
+    request = FailedRequest(method, path)
+    return GitHubUnreadError(
+        f"The GitHub session closed before {request} was answered", details=request.details()
+    )

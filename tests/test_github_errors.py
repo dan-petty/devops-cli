@@ -27,6 +27,7 @@ from devops_cli.exceptions import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from tests.github_session_fakes import JSON_TYPE, GitHubApiFake, github_json, quota_headers
 
@@ -130,7 +131,7 @@ def test_an_http_failure_is_classified_by_status_and_headers(
     with pytest.raises(GitHubOperationError) as raised:
         get_github_session().rest("GET", _PATH)
     details = raised.value.details
-    assert (type(raised.value), int(details["status"]), details["path"]) == (error, status, _PATH)
+    assert (type(raised.value), details["status"], details["path"]) == (error, status, _PATH)
 
 
 @pytest.mark.parametrize(
@@ -141,12 +142,36 @@ def test_an_http_failure_is_classified_by_status_and_headers(
             httpx2.Response(200, headers={"content-type": JSON_TYPE}, content=b'{"login": '),
             id="undecodable-body",
         ),
+        pytest.param(
+            httpx2.Response(
+                200, headers={"content-type": "application/json; charset=x-nope"}, content=b"{}"
+            ),
+            id="unknown-charset",
+        ),
+        pytest.param(
+            httpx2.Response(520, headers={"content-type": JSON_TYPE}, content=b'{"message": "x"}'),
+            id="status-outside-http",
+        ),
+        pytest.param(
+            httpx2.Response(
+                200,
+                headers={
+                    "content-type": JSON_TYPE,
+                    "x-ratelimit-limit": "5000",
+                    "x-ratelimit-remaining": "lots",
+                    "x-ratelimit-reset": "1",
+                },
+                content=b"{}",
+            ),
+            id="quota-that-is-no-number",
+        ),
     ],
 )
 def test_no_readable_answer_raises_the_unread_error_without_a_retry(
     github_api: GitHubApiFake, answer: httpx2.Response | type[httpx2.TransportError]
 ) -> None:
-    """A refused connect or a body that does not decode is unread, and is not sent again."""
+    """A refused connect, a body that does not decode, a status HTTP does not define and quota
+    headers that are not numbers are unread, and the request is not sent again."""
     github_api.route("GET", _PATH, answer)
     with pytest.raises(GitHubOperationError) as raised:
         get_github_session().rest("GET", _PATH)
@@ -155,6 +180,21 @@ def test_no_readable_answer_raises_the_unread_error_without_a_retry(
         _PATH,
         1,
     )
+
+
+def test_a_retry_wait_past_the_limit_names_the_request_and_its_status(
+    github_api: GitHubApiFake,
+) -> None:
+    """When GitHub asks for a longer wait than `max_rate_limit_wait`, the refusal carries the
+    path and the status that asked for it, and nothing is sent again."""
+    get_github_rate_limiter().max_rate_limit_wait = 1.0
+    github_api.route(
+        "GET", _PATH, github_json({"message": "abuse"}, status=429, headers={"retry-after": "30"})
+    )
+    with pytest.raises(GitHubRateLimitError) as raised:
+        get_github_session().rest("GET", _PATH)
+    details = raised.value.details
+    assert (details["status"], details["path"], len(github_api.sent)) == (429, _PATH, 1)
 
 
 def test_a_long_path_is_bounded_in_the_details(github_api: GitHubApiFake) -> None:

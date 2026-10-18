@@ -275,16 +275,16 @@ def test_each_refusal_carries_its_budgets_reset_in_its_details() -> None:
     store, _ = store_over({BOARD_READ: BoardServer(board_of(3, 0), remaining=left)})
     with pytest.raises(GitHubRateLimitError) as read_refused:
         store.cards()
-    common = {"subcommand": "graphql", "remaining": str(left), "reset_at": reset.isoformat()}
+    common = {"subcommand": "graphql", "remaining": left, "reset_at": reset.isoformat()}
     assert (
         [refusal.details for refusal in refusals],
         [refusal_reset(refusal) for refusal in refusals],
         refusal_reset(read_refused.value),
     ) == (
         [
-            {"operation": "roadmap.read", **common, "cost": "3"},
+            {"operation": "roadmap.read", **common, "cost": 3},
             {"operation": "roadmap.write", **common},
-            {"operation": "roadmap.read", **common, "page": "2"},
+            {"operation": "roadmap.read", **common, "page": 2},
         ],
         [reset] * 3,
         datetime(2099, 1, 1, tzinfo=UTC),

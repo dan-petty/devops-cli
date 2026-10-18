@@ -1061,6 +1061,9 @@ CONST_GITHUB_API_VERSION: Final[str] = "2022-11-28"
 CONST_GITHUB_HEADER_API_VERSION: Final[str] = "x-github-api-version"
 # The media type GitHub serves a pull request's unified diff as.
 CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
+# The characters that open and close an expression in a URI template (RFC 6570, section 2.2).
+# gidgethub expands every path as a template, so the session sends them percent-encoded.
+CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"
 # Response headers the session's error classifier and quota ledger read, named as GitHub's REST
 # documentation names them ("Rate limits for the REST API", "Scopes for OAuth apps").
 CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE: Final[str] = "x-ratelimit-resource"
@@ -1503,6 +1506,9 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 )
 # Hex characters of the token's SHA-256 that name an identity's cache directory.
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
+# Identities whose rate limiters a process keeps in memory at once; a process acts as one, and a
+# second session with another token adds one more. Older ones are read from disk again.
+CONST_GITHUB_IDENTITY_LIMITERS_KEPT: Final[int] = 4
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 # How the session's HTTP failures are told apart (#983): a token without a scope the endpoint
 # needs, an answer that what was asked for does not exist, and no readable answer at all.

@@ -495,12 +495,13 @@ def github_api(monkeypatch: pytest.MonkeyPatch, pin_github_session: str) -> Iter
     to the fake, through the session's own redirect handling and origin hook. Its `core` quota is
     fresh, so pacing never runs `gh api rate_limit`; a quota that is unknown or past its reset
     fails the test instead of refreshing through gh. Neither the rate limiter's pauses nor the
-    retry waits take any time: the fake records them in `paced` and `waits`.
+    retry waits take any time: the fake records them in `paced` and `waits`, and only the rate
+    limiter's clock and gidgethub's wait are replaced, so no other sleep in the process changes.
     """
     import time
 
     from devops_cli.github import rate_limiter, session, session_transport
-    from tests.github_session_fakes import GitHubApiFake
+    from tests.github_session_fakes import GitHubApiFake, PacedClock
 
     def refuse_quota_refresh(_limiter: object) -> NoReturn:
         raise AssertionError(
@@ -512,7 +513,7 @@ def github_api(monkeypatch: pytest.MonkeyPatch, pin_github_session: str) -> Iter
     monkeypatch.setattr(
         rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
     )
-    monkeypatch.setattr(rate_limiter.time, "sleep", api.paced.append)
+    monkeypatch.setattr(rate_limiter, "time", PacedClock(api.paced))
     monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", api.wait)
     rate_limiter.get_github_rate_limiter().update_quota(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0

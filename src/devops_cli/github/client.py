@@ -14,7 +14,7 @@ from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
 from devops_cli.models.ssh import SSHKeyInfo
@@ -41,7 +41,6 @@ class GitHubClient:
     def __init__(self, token: str) -> None:
         from github import Auth, Github
 
-        self._token = token
         self._gh = Github(auth=Auth.Token(token))
 
     def get_org_repos(
@@ -128,11 +127,19 @@ class GitHubClient:
             return None
 
     def get_pr_diff(self, repo: str, number: int) -> str:
-        """The pull request's unified diff, read through the GitHub session."""
-        diff = get_github_session().rest(
-            "GET", f"/repos/{repo}/pulls/{number}", accept=CONST_GITHUB_DIFF_MEDIA_TYPE
-        )
-        return "" if diff is None else str(diff)
+        """The pull request's unified diff, read through the GitHub session.
+
+        GitHub sends a diff as text; any other answer, JSON or a body without a content type,
+        raises `GitHubUnreadError`.
+        """
+        path = f"/repos/{repo}/pulls/{number}"
+        diff = get_github_session().rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+        if not isinstance(diff, str):
+            raise GitHubUnreadError(
+                f"GitHub's answer to GET {path} is no diff: {type(diff).__name__}",
+                details={"path": path[:CONST_MAX_ERROR_DETAIL_LENGTH]},
+            )
+        return diff
 
     def create_pr_review_comment(
         self,
