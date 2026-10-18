@@ -22,7 +22,9 @@ The top-level package facades `devops_cli.ai`, `devops_cli.ai.agents`, `devops_c
 - [x] FastMCP server imports in `devops_cli.commands.mcp` made lazy inside command functions.
 - [x] Comprehensive startup import isolation tests added in `tests/test_cli_startup_imports.py`.
 - [x] `uv run devops ci` passes with 100% success.
-- Follow-up PR 3 (#1002): Dry-run imports, import time budget invariants, and closing changelog fragment.
+- [x] Defined named startup import budget constants and tests for `--version`/`--help` (< 0.5s) and any command `--help` (< 1.0s), reporting slowest imports on failure.
+- [x] Added dry-run import isolation test verifying `ai benchmark`, `k8s deploy-stack`, and `review path` import only what their plans need.
+- [x] Added changelog fragment `changelog.d/1002.md`.
 
 ## Deliverables
 
@@ -36,5 +38,8 @@ The top-level package facades `devops_cli.ai`, `devops_cli.ai.agents`, `devops_c
 - [x] Decoupled `pydantic_ai` exceptions to `src/devops_cli/exceptions/ai_pydantic.py` with lazy re-export in `src/devops_cli/exceptions/ai.py`.
 - [x] Made `src/devops_cli/ai/rag/__init__.py`, `src/devops_cli/ai/review/__init__.py`, and `src/devops_cli/ai/benchmark/__init__.py` lazy via `__getattr__`.
 - [x] Made `src/devops_cli/ai/response_repair.py` lazy for `pydantic_ai.messages`.
-- [x] Made `src/devops_cli/commands/mcp.py` and `src/devops_cli/commands/review.py` imports lazy within command callbacks.
+- [x] Made `src/devops_cli/commands/mcp.py`, `src/devops_cli/commands/review.py`, and `src/devops_cli/commands/dashboard.py` imports lazy within command callbacks.
 - [x] Added heavy module isolation tests across `--version`, `--help`, and all 39 command groups in `tests/test_cli_startup_imports.py`.
+- [x] Added `CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS`, `CONST_STARTUP_IMPORT_BUDGET_HELP_SECONDS`, and `CONST_CLI_HEAVY_MODULES` in `src/devops_cli/config/constants.py`.
+- [x] Added startup budget tests and dry-run dependency isolation tests in `tests/test_cli_startup_imports.py`.
+- [x] Added changelog fragment `changelog.d/1002.md`.

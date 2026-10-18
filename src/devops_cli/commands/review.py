@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.review.runner import ReviewClients
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
+    from devops_cli.review.score import Agreement, ScoreReport
 
 import typer
 
@@ -137,12 +138,6 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-)
-from devops_cli.review.score import (
-    Agreement,
-    ScoreReport,
-    materialise_golden,
-    score_sessions,
 )
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
@@ -1635,6 +1630,8 @@ def _materialise_golden(
     if sessions:
         print_error(MESSAGES.review.score_golden_takes_no_sessions)
         raise typer.Exit(1)
+    from devops_cli.review.score import materialise_golden
+
     try:
         golden = materialise_golden(labels, destination)
     except ValidationError as exc:
@@ -1699,6 +1696,8 @@ def review_score(
     if not sessions:
         print_error(MESSAGES.review.score_no_sessions)
         raise typer.Exit(1)
+    from devops_cli.review.score import score_sessions
+
     try:
         report = score_sessions(sessions, labels)
     except ValidationError as exc:
