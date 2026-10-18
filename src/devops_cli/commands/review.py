@@ -71,7 +71,6 @@ from devops_cli.ai.review.defects import (
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.ai.review.history import HistoryFinding, load_review_history
-from devops_cli.ai.review.pipeline import effective_review_concurrency
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -1491,8 +1490,10 @@ def benchmark(
         pre_analysis=not no_pre_analysis,
         static_scan=not no_static_scan,
         # The file workers the reviews ran with: through the gateway, at most its slot sum.
-        concurrency=effective_review_concurrency(
-            load_settings().ai.for_task("analysis"), concurrency
+        concurrency=(
+            __import__(
+                "devops_cli.ai.review.pipeline", fromlist=["effective_review_concurrency"]
+            ).effective_review_concurrency(load_settings().ai.for_task("analysis"), concurrency)
         ),
     )
     subject = {"corpus_digest": summary.corpus_digest, "target": Path(summary.target).name}
