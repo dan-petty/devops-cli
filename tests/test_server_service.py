@@ -470,6 +470,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
     secrets = {"example-org/repo1": "secret-1"}
     tick_batches: list[TriggerBatch] = []
     tick_event = threading.Event()
+    job_ran = threading.Event()
 
     simulated_now = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
 
@@ -484,6 +485,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
 
     def tick_job(batch: TriggerBatch) -> None:
         tick_batches.append(batch)
+        job_ran.set()
 
     app = create_service_app(
         jobs={LANE: tick_job},
@@ -494,9 +496,10 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
     )
 
     with TestClient(app):
-        # Startup tick triggers immediately
-        time.sleep(0.1)
-        assert len(tick_batches) >= 1
+        # The startup tick runs the job on the lane's worker thread at once, and the loop then
+        # sleeps an interval. Both are awaited, not timed: a loaded machine overruns any fixed
+        # pause before the worker thread is scheduled.
+        assert (job_ran.wait(timeout=5.0), tick_event.wait(timeout=5.0)) == (True, True)
         assert tick_batches[0].counts[("poll", "", "")] >= 1
 
 

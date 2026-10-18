@@ -3371,16 +3371,30 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
-# file. Two kinds of pull request deliver the release process rather than one item, and are
-# exempt: the release pull request, `release/vX.Y.Z` into `main`, and a release-process
-# pull request, `chore/open-vX.Y.Z`, optionally followed by `-<slug>`, from the same
-# repository into `release/vX.Y.Z`.
+# file. The release pull request, `release/vX.Y.Z` into `main`, delivers a release rather than
+# one item, and is exempt. So is a release-process pull request from the same repository into
+# `release/vX.Y.Z`, but only by the files it changes (#1344): the cut, `chore/cut-vX.Y.Z`, only
+# modifies the cut's files and removes changelog fragments, and the merge of `main`,
+# `chore/open-vX.Y.Z`, changes only the cut's files and what `main` changed since its merge
+# base with the release branch. Either head may end in `-<slug>`.
 CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
 CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     rf"{CONST_RELEASE_BRANCH_PREFIX}v(?P<version>\d+\.\d+\.\d+)"
 )
+CONST_RELEASE_PROCESS_CUT_KIND: Final[str] = "cut"
+CONST_RELEASE_PROCESS_OPEN_KIND: Final[str] = "open"
 CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+    rf"chore/(?P<kind>{CONST_RELEASE_PROCESS_CUT_KIND}|{CONST_RELEASE_PROCESS_OPEN_KIND})"
+    r"-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+)
+# The files the cut commit modifies, besides the `changelog.d/` fragments it removes: what
+# `devops roadmap close` lists for the cut, and all a cut pull request may modify.
+CONST_RELEASE_CUT_FILES: Final[tuple[str, ...]] = (
+    CONST_PYPROJECT_FILENAME,
+    str(CONST_INIT_PY_PATH),
+    CONST_UV_LOCK_FILENAME,
+    CONST_CHANGELOG_FILENAME,
+    CONST_ROADMAP_DOCUMENT_PATH,
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
 # open pull request conflict. The cut commit writes both: `CHANGELOG.md`'s section for the
@@ -3400,11 +3414,19 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
 # only) and unchanged. `modified` is an edit in place under the same name.
 CONST_PR_FILE_MODIFIED_STATUS: Final[str] = "modified"
+CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
 CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
     {"added", CONST_PR_FILE_MODIFIED_STATUS, "renamed"}
 )
 # The statuses under which a pull request adds, modifies, renames or removes the file.
-CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
+CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {
+    CONST_PR_FILE_REMOVED_STATUS
+}
+# `GET repos/{repo}/compare/{base}...{head}` lists the changed files on its first page only, at
+# most 300 for the whole comparison whatever the page size, so a list that long may be cut
+# short. One commit per page keeps the commits it also returns small.
+CONST_GH_COMPARE_FILES_CAP: Final[int] = 300
+CONST_GH_COMPARE_COMMITS_PER_PAGE: Final[int] = 1
 # The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
 # docs/ROADMAP.md is explicitly excluded because it is a generated view.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (

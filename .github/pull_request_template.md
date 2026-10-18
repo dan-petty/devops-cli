@@ -15,7 +15,7 @@
 ---
 
 ## Base Branch
-<!-- Every pull request except the release pull request targets the active release branch. A release-process pull request, which opens or cuts the release, comes from `chore/open-v<version>` or `chore/cut-v<version>`. -->
+<!-- Every pull request except the release pull request (`release/v<version>` into `main`), which carries the release branch as it stands, targets the active release branch. Two release-process pull requests into it close no issue: the cut pull request (`chore/cut-v<version>`), which only modifies the cut's files (`pyproject.toml`, `src/devops_cli/__init__.py`, `uv.lock`, `CHANGELOG.md`, `docs/ROADMAP.md`) and removes the fragments it collects, and the merge of `main` (`chore/open-v<version>-main`), which changes only the cut's files and what `main` changed since its merge base with the release branch. `devops pr check-readiness` holds either one to the Item section below when it changes any other file. -->
 - `release/v<version>` (not `main`)
 
 ---

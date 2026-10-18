@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Annotated, NoReturn
 import typer
 
 from devops_cli.config.constants import (
+    CONST_RELEASE_CUT_FILES,
     CONST_ROADMAP_CONFIG_PATH,
     CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_INTAKE_BOARD_FILTER,
@@ -47,7 +48,6 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.output.file_writer import write_text_file
 from devops_cli.roadmap.close import (
-    CUT_FILES,
     Cut,
     apply_close,
     dry_run_close,
@@ -443,7 +443,9 @@ def close_cmd(
     if dry_run or is_dry_run():
         target = _target(repo)
         plan = dry_run_close(target, ref=ref)
-        notes = [MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CUT_FILES))]
+        notes = [
+            MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CONST_RELEASE_CUT_FILES))
+        ]
         render_dry_run("close", target, plan.requests, plan.write_requests, notes=notes)
         return
     opened: list[RoadmapStore] = []
