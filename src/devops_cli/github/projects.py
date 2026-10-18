@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GH_PROJECT_SCOPE,
     CONST_PROJECT_TEMPLATE_PATH,
     CONST_URL_GITHUB_API_BASE,
 )
@@ -33,8 +34,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.github.error_classifier import unlisted_entry
+from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
+from devops_cli.github.error_classifier import (
+    classify_gh_failure,
+    is_gh_owner_lookup_failure,
+    unlisted_entry,
+)
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
@@ -156,57 +161,35 @@ def load_project_template(template_path: Path | None = None) -> ProjectTemplate:
         ) from exc
 
 
-def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
-    """Raise `GitHubRateLimitError` if subprocess output indicates a GitHub API rate limit exhaustion."""
-    clean = output.lower()
-    rate_limit_indicators = (
-        "unknown owner type",
-        "api rate limit already exceeded",
-        "graphql_rate_limit",
-        "rate limit exceeded",
-    )
-    if any(ind in clean for ind in rate_limit_indicators):
-        raise GitHubRateLimitError(
-            "GitHub API rate limit is currently exhausted. Please wait for quota reset.",
-            operation=operation,
-            details={"output": output.strip()},
-        )
+def _gh_output(proc: subprocess.CompletedProcess[str]) -> str:
+    """What a failed gh command reported: gh writes a failure to stderr. Its stdout holds
+    GitHub's answer, possibly partial data with item titles, and is never classified."""
+    return (proc.stderr or "").strip()
 
 
 def verify_project_auth_scopes() -> None:
-    """Verify that the gh CLI has the necessary project/read:project OAuth scopes."""
+    """Verify that gh can list projects: a rate limit or no accepted login raises the class the
+    gh classifier names, a missing scope asks for the `project` scope board sync needs, and any
+    other failure is left to the command that follows."""
     proc = run_gh(
         [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
         check=False,
     )
-    if proc.returncode != 0:
-        err = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-        check_github_rate_limit_error(err, operation="verify_project_auth_scopes")
-        scope_error_patterns = (
-            "missing required scopes",
-            "insufficient_scopes",
-            "read:project",
-            "scope 'project'",
-            'scope "project"',
-            "project scope",
-            "oauth scope",
-            "requires additional permissions",
-            "requires the 'project' scope",
-            "need the 'project' scope",
-        )
-        if any(pattern in err for pattern in scope_error_patterns):
-            raise GitHubOperationError(
-                "GitHub authentication token lacks 'project' scope. "
-                "Please run: gh auth refresh -s project,read:project or configure GH_TOKEN with project scope.",
-                operation="verify_project_auth_scopes",
-                details={"raw_error": proc.stderr.strip() if proc.stderr else proc.stdout.strip()},
-            )
-        if "not logged in" in err or "authentication required" in err:
-            raise GitHubOperationError(
-                "GitHub CLI is not authenticated. Please run: gh auth login",
-                operation="verify_project_auth_scopes",
-                details={"raw_error": proc.stderr.strip() if proc.stderr else proc.stdout.strip()},
-            )
+    if proc.returncode == 0:
+        return
+    refused = classify_gh_failure(
+        _gh_output(proc), exit_code=proc.returncode, operation="verify_project_auth_scopes"
+    )
+    if isinstance(refused, GitHubScopeError):
+        raise GitHubScopeError(
+            f"The GitHub token lacks the `{CONST_GH_PROJECT_SCOPE}` scope that board sync needs "
+            f"({refused.details['output']}); run `gh auth refresh -s {CONST_GH_PROJECT_SCOPE}`, "
+            "which includes read:project",
+            operation="verify_project_auth_scopes",
+            details=refused.details,
+        ) from refused
+    if refused is not None:
+        raise refused
 
 
 def _find_project_in_list(projects: list[Any], target: str) -> dict[str, Any] | None:
@@ -305,8 +288,7 @@ def _run_project_cli(
     proc = run_gh(cmd, check=check, quiet=quiet)
     if proc.returncode == 0 or owner_arg == "@me":
         return proc
-    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-    if "unknown owner type" in err_output and "--owner" in cmd:
+    if is_gh_owner_lookup_failure(_gh_output(proc)) and "--owner" in cmd:
         fallback_cmd = list(cmd)
         owner_idx = fallback_cmd.index("--owner") + 1
         if owner_idx < len(fallback_cmd):
@@ -323,8 +305,11 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
     owner_arg = _resolve_project_owner_arg(owner)
     proc = _run_project_cli([CONST_GH_CLI, *_project_list_args(owner_arg)], owner_arg=owner_arg)
     if proc.returncode != 0:
-        err = f"{proc.stderr or ''} {proc.stdout or ''}"
-        check_github_rate_limit_error(err, operation="find_remote_project")
+        refused = classify_gh_failure(
+            _gh_output(proc), exit_code=proc.returncode, operation="find_remote_project"
+        )
+        if refused is not None:
+            raise refused
         return None
     data = extract_json_payload(proc.stdout)
     projects = (
@@ -601,12 +586,15 @@ def _project_login(owner: str) -> str:
 
 
 def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
-    """The error a read of `what` that exited non-zero raises: the rate limit's when its output
-    names one."""
-    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-    check_github_rate_limit_error(err_output, operation=operation)
-    return GitHubOperationError(
-        f"Failed to read {what} (exit {proc.returncode}): {err_output[:256]}",
+    """The error a read of `what` that exited non-zero raises: the class the gh classifier
+    names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
+    nothing to stderr."""
+    err_output = _gh_output(proc)
+    said = err_output or (proc.stdout or "").strip()
+    return classify_gh_failure(
+        err_output, exit_code=proc.returncode, operation=operation
+    ) or GitHubOperationError(
+        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
         operation=operation,
         details={"read": what[:256]},
     )

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner, Result
 
 import devops_cli.github.projects as projects_mod
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubScopeError,
+    GitHubUnauthenticatedError,
+)
 from devops_cli.github.projects import (
     ProjectTemplate,
     load_project_template,
@@ -34,26 +42,77 @@ def test_load_project_template() -> None:
     assert "Value vs Effort Priority Matrix" in view_names
 
 
-def test_verify_project_auth_scopes_insufficient_scope() -> None:
-    """verify_project_auth_scopes raises GitHubOperationError when token lacks project scope."""
-    from unittest.mock import MagicMock, patch
+_PROJECT_SCOPE_MISSING = (
+    "error: your authentication token is missing required scopes [read:project]\n"
+    "To request it, run:  gh auth refresh -s read:project"
+)
 
-    import pytest
 
-    from devops_cli.exceptions.git import GitHubOperationError
+@pytest.mark.parametrize(
+    ("exit_code", "said", "error"),
+    [
+        pytest.param(1, _PROJECT_SCOPE_MISSING, GitHubScopeError, id="missing-scope"),
+        pytest.param(1, "gh: Too Many Requests (HTTP 429)", GitHubRateLimitError, id="429"),
+        pytest.param(
+            1,
+            "You have exceeded a secondary rate limit. Please retry your request again later.",
+            GitHubRateLimitError,
+            id="secondary-rate-limit",
+        ),
+        pytest.param(
+            1,
+            "HTTP 401: Bad credentials (https://api.github.com/graphql)",
+            GitHubUnauthenticatedError,
+            id="401",
+        ),
+        pytest.param(
+            1,
+            "You are not logged into any GitHub hosts. To log in, run: gh auth login",
+            GitHubUnauthenticatedError,
+            id="not-logged-in",
+        ),
+        pytest.param(
+            4,
+            "To get started with GitHub CLI, please run:  gh auth login",
+            GitHubUnauthenticatedError,
+            id="exit-4",
+        ),
+    ],
+)
+def test_verify_project_auth_scopes_raises_the_class_gh_s_failure_names(
+    exit_code: int, said: str, error: type[GitHubOperationError]
+) -> None:
+    """The scope check raises what `classify_gh_failure` makes of `gh project list`'s failure
+    (#983): a missing scope, a rate limit, a refused token or gh's exit 4, each with gh's text."""
     from devops_cli.github.projects import verify_project_auth_scopes
 
-    mock_proc = MagicMock(
-        return_value=MagicMock(
-            returncode=1,
-            stderr="error: your authentication token is missing required scopes [read:project]",
-            stdout="",
-        )
-    )
-    with patch("devops_cli.github.projects.run_gh", mock_proc):
-        with pytest.raises(GitHubOperationError) as exc_info:
-            verify_project_auth_scopes()
-        assert "lacks 'project' scope" in str(exc_info.value)
+    failed = subprocess.CompletedProcess(["gh", "project", "list"], exit_code, "", said)
+    with (
+        patch("devops_cli.github.projects.run_gh", return_value=failed),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        verify_project_auth_scopes()
+    first_line = " ".join(said.splitlines()[0].split())
+    assert (type(raised.value), first_line in raised.value.message) == (error, True)
+
+
+def test_verify_project_auth_scopes_asks_for_the_project_scope_board_sync_needs() -> None:
+    """gh names only the read scope `gh project list` was refused, but board sync creates
+    boards, links, fields and views, so the advice is the `project` scope, which includes
+    read:project; gh's own words stay in the details (#983)."""
+    from devops_cli.github.projects import verify_project_auth_scopes
+
+    failed = subprocess.CompletedProcess(["gh", "project", "list"], 1, "", _PROJECT_SCOPE_MISSING)
+    with (
+        patch("devops_cli.github.projects.run_gh", return_value=failed),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        verify_project_auth_scopes()
+    assert (
+        type(raised.value),
+        "gh auth refresh -s project" in raised.value.message,
+        "[read:project]" in raised.value.details["output"],
+    ) == (GitHubScopeError, True, True)
 
 
 def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
@@ -62,7 +121,7 @@ def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
 
     from devops_cli.github.projects import verify_project_auth_scopes
 
-    # Subprocess returns non-zero with "project not found", should not raise "lacks 'project' scope"
+    # A non-zero exit with "project not found" names no class, so nothing is raised.
     mock_proc = MagicMock(
         return_value=MagicMock(
             returncode=1,
@@ -582,40 +641,190 @@ def test_audit_project_drift() -> None:
         assert res["views_compliant"] is True
 
 
-def test_check_github_rate_limit_error() -> None:
-    """check_github_rate_limit_error detects rate limit indicators and raises GitHubOperationError."""
-    import pytest
-
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.projects import check_github_rate_limit_error
-
-    with pytest.raises(GitHubOperationError) as exc_info:
-        check_github_rate_limit_error("Fetching UserOrgOwner... unknown owner type")
-    assert "rate limit is currently exhausted" in str(exc_info.value)
-
-    with pytest.raises(GitHubOperationError):
-        check_github_rate_limit_error("API rate limit already exceeded for user ID 12345")
-
-    # Unrelated error should not raise
-    check_github_rate_limit_error("error: repository not found")
+_SECONDARY_RATE_LIMIT = "gh: Please retry your request again later. (HTTP 403)"
 
 
-def test_verify_project_auth_scopes_rate_limit() -> None:
-    """verify_project_auth_scopes raises when rate limit is encountered."""
-    from unittest.mock import MagicMock, patch
+class _FailingGh:
+    """The projects module's gh, failing every command with one exit status and stderr, and
+    keeping each argv."""
 
-    import pytest
+    def __init__(self, exit_code: int, said: str) -> None:
+        self.exit_code, self.said = exit_code, said
+        self.argvs: list[list[str]] = []
 
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.projects import verify_project_auth_scopes
+    def __call__(self, args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        self.argvs.append(list(args))
+        return subprocess.CompletedProcess(args, self.exit_code, "", self.said)
 
-    mock_proc = MagicMock(
-        return_value=MagicMock(returncode=1, stderr="unknown owner type", stdout="")
+
+def _fail_every_gh_command(
+    monkeypatch: pytest.MonkeyPatch, exit_code: int, said: str
+) -> _FailingGh:
+    """Fail every gh command of the projects module, with no login or owner cached."""
+    gh = _FailingGh(exit_code, said)
+    monkeypatch.setattr(projects_mod, "run_gh", gh)
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    return gh
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "said", "error", "status"),
+    [
+        pytest.param(1, _SECONDARY_RATE_LIMIT, GitHubRateLimitError, 403, id="secondary"),
+        pytest.param(1, _PROJECT_SCOPE_MISSING, GitHubScopeError, None, id="missing-scope"),
+        pytest.param(
+            1,
+            "HTTP 401: Bad credentials (https://api.github.com/graphql)",
+            GitHubUnauthenticatedError,
+            401,
+            id="401",
+        ),
+        pytest.param(
+            4,
+            "To get started with GitHub CLI, please run:  gh auth login",
+            GitHubUnauthenticatedError,
+            None,
+            id="exit-4",
+        ),
+    ],
+)
+def test_the_cli_board_lookup_raises_the_class_gh_s_failure_names(
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    said: str,
+    error: type[GitHubOperationError],
+    status: int | None,
+) -> None:
+    """`gh project list` failing on a rate limit, a missing scope, a refused token or gh's exit
+    4 raises that class (#983), where the board lookup's own phrase list read all but a few rate
+    limits as no board."""
+    _fail_every_gh_command(monkeypatch, exit_code, said)
+    with pytest.raises(GitHubOperationError) as raised:
+        projects_mod._find_project_via_cli("octo-org", "Roadmap")
+    assert (type(raised.value), raised.value.details.get("status")) == (error, status)
+
+
+def test_the_cli_board_lookup_finds_no_board_on_a_failure_the_gh_table_names_no_class_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure the classifier names no class for, such as a 500, leaves the lookup with no
+    board, for the caller's other lookups."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    assert projects_mod._find_project_via_cli("octo-org", "Roadmap") is None
+
+
+_PARTIAL_GRAPHQL_ANSWER = (
+    '{{"data": {{"repository": {{"issues": {{"nodes": [{{"number": 705, "title": "{title}"}}]}}}}}},'
+    ' "errors": [{{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}]}}'
+)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "correct secondary-limit backoff and retry-after handling in run_gh",
+        "verify read:project scope",
+        "HTTP 401 Bad credentials",
+        "not logged in",
+        "unknown owner type",
+    ],
+)
+def test_a_failed_board_read_classifies_gh_s_stderr_never_the_titles_on_stdout(
+    monkeypatch: pytest.MonkeyPatch, title: str
+) -> None:
+    """A failed `gh api graphql` copies GitHub's partial answer, item titles included, to stdout
+    and writes only `gh: <message>` to stderr. A title that reads like a rate limit, a scope or a
+    refused login is GitHub's data, so the read fails as a failed read (#983)."""
+    from pydantic import BaseModel
+
+    answer = subprocess.CompletedProcess(
+        ["gh", "api", "graphql"],
+        1,
+        _PARTIAL_GRAPHQL_ANSWER.format(title=title),
+        "gh: Resource not accessible by integration",
     )
-    with patch("devops_cli.github.projects.run_gh", mock_proc):
-        with pytest.raises(GitHubOperationError) as exc_info:
-            verify_project_auth_scopes()
-        assert "rate limit is currently exhausted" in str(exc_info.value)
+    monkeypatch.setattr(projects_mod, "run_gh", lambda args, **_: answer)
+    with pytest.raises(GitHubOperationError) as raised:
+        projects_mod._gh_read(["api", "graphql"], BaseModel, "board items")
+    assert (type(raised.value), raised.value.message.startswith("Failed to read board items")) == (
+        GitHubOperationError,
+        True,
+    )
+
+
+def test_a_failed_board_read_raises_a_rate_limit_only_the_gh_table_names() -> None:
+    """A board read that gh failed on a secondary rate limit raises it (#983); a failure the
+    table does not name stays a failed read naming what was read."""
+    failed = subprocess.CompletedProcess(["gh"], 1, "", _SECONDARY_RATE_LIMIT)
+    other = subprocess.CompletedProcess(["gh"], 1, "", "gh: Server Error (HTTP 500)")
+    limited = projects_mod._read_failure(failed, "board items", "project_items")
+    unread = projects_mod._read_failure(other, "board items", "project_items")
+    assert (type(limited), type(unread), "Failed to read board items" in str(unread)) == (
+        GitHubRateLimitError,
+        GitHubOperationError,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("said", "owners"),
+    [
+        pytest.param("unknown owner type", ["octo-org", "@me"], id="owner-lookup"),
+        pytest.param(_SECONDARY_RATE_LIMIT, ["octo-org"], id="secondary-rate-limit"),
+        pytest.param("gh: Too Many Requests (HTTP 429)", ["octo-org"], id="429"),
+    ],
+)
+def test_only_an_owner_gh_project_cannot_look_up_is_asked_for_again_as_me(
+    monkeypatch: pytest.MonkeyPatch, said: str, owners: list[str]
+) -> None:
+    """gh project's owner lookup drops its error and writes "unknown owner type": the command is
+    sent once more with `--owner @me`. A rate limit is never resent as `@me`, which would read
+    the viewer's boards instead of the org's."""
+    gh = _fail_every_gh_command(monkeypatch, 1, said)
+    projects_mod._run_project_cli(["gh", "project", "list", "--owner", "octo-org"], "octo-org")
+    assert [argv[argv.index("--owner") + 1] for argv in gh.argvs] == owners
+
+
+def test_an_owner_lookup_failure_is_asked_for_as_me_at_once_through_run_gh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Through the real `run_gh`, "unknown owner type" is no rate limit to back off on (#983): the
+    org's `gh project list` goes out once, then once as `--owner @me`, with no backoff wait and
+    no throttle recorded."""
+    import json
+    import time
+
+    from devops_cli.github import rate_limiter
+
+    limiter = rate_limiter.get_github_rate_limiter()
+    for resource in ("core", "graphql"):
+        limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 3600.0)
+    monkeypatch.setattr(limiter, "min_interval", 0.01)
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    boards = json.dumps({"projects": [{"title": "Roadmap", "number": 2}], "totalCount": 1})
+
+    def gh(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if cmd[1:3] == ["api", "user"]:
+            return subprocess.CompletedProcess(cmd, 0, "octocat\n", "")
+        if "octo-org" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "unknown owner type")
+        return subprocess.CompletedProcess(cmd, 0, boards, "")
+
+    with (
+        patch.object(rate_limiter, "run_subprocess", side_effect=gh) as run,
+        patch("time.sleep") as sleep,
+    ):
+        found = projects_mod._find_project_via_cli("octo-org", "Roadmap")
+    sent = [call.args[0] for call in run.call_args_list]
+    waits = [recorded.args[0] for recorded in sleep.call_args_list]
+    assert (
+        [argv[argv.index("--owner") + 1] for argv in sent if "--owner" in argv],
+        max(waits, default=0.0) < limiter.secondary_rate_wait,
+        limiter.get_total_throttles(),
+        (found or {}).get("number"),
+    ) == (["octo-org", "@me"], True, 0, 2)
 
 
 def test_find_remote_project_via_rest() -> None:

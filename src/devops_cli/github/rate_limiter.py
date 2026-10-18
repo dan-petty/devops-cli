@@ -43,8 +43,6 @@ from devops_cli.config.constants import (
     CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
-    CONST_GITHUB_RATE_LIMIT_PATTERNS,
-    CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
@@ -52,11 +50,22 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
+    DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS,
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
 from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
-from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnreadError,
+)
+from devops_cli.github.error_classifier import (
+    classify_gh_failure,
+    gh_failure_details,
+    is_gh_rate_limited,
+    parse_retry_after,
+)
 from devops_cli.github.request_classifier import (
     gh_command_words,
     is_write_gh_command,
@@ -565,21 +574,6 @@ def _parse_float_safe(value: str, default: float | None = None) -> float | None:
         return default
 
 
-def parse_retry_after(value: str, default: float | None = None) -> float | None:
-    """A Retry-After value as seconds: its delay-seconds, or the time until its HTTP-date."""
-    seconds = _parse_float_safe(value)
-    if seconds is not None:
-        return seconds
-    try:
-        from email.utils import parsedate_to_datetime
-
-        dt = parsedate_to_datetime(value.strip())
-        delay = dt.timestamp() - time.time()
-        return max(0.0, delay)
-    except ValueError, TypeError:
-        return default
-
-
 def _parse_header_line(line: str) -> tuple[str, str] | None:
     """Split and normalize header name and value if present."""
     if ":" not in line:
@@ -664,6 +658,29 @@ def _handle_retry_after_wait(
 def _utc_text(epoch: float) -> str:
     """`epoch` as a UTC timestamp to the second."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+_REFRESH_OPERATION = "refresh_quota"
+
+
+def _refresh_failure(proc: subprocess.CompletedProcess[str]) -> GitHubOperationError:
+    """The error of a failed `gh api rate_limit`: the class the gh classifier names, such as
+    `GitHubUnauthenticatedError` when GitHub refused gh's login or gh had none, or
+    `GitHubRateLimitError`, which stops a caller such as intake as a refused write would; else
+    `GitHubUnreadError`, as no quota could be read.
+
+    gh writes the failure to stderr and GitHub's error body to stdout, so stderr alone is read.
+    """
+    stderr = proc.stderr or ""
+    details = gh_failure_details(stderr, exit_code=proc.returncode)
+    said = details["output"] or f"Process exited with code {proc.returncode}"
+    return classify_gh_failure(
+        stderr, exit_code=proc.returncode, operation=_REFRESH_OPERATION
+    ) or GitHubUnreadError(
+        f"Failed to refresh rate limits from GitHub API: {said}",
+        operation=_REFRESH_OPERATION,
+        details=details,
+    )
 
 
 def _unreported_resource_error(
@@ -909,10 +926,10 @@ class GitHubRateLimiter:
 
         GitHub's fresh answer may still carry a reset at or before the clock, as it reports a
         window for a moment after the window ends; `calculate_delay` waits that reset out.
-        Raises GitHubRateLimitError when the refresh fails, when the answer has no `remaining`
-        and `reset` for `subcommand`, or when the clock, read before the refresh so its latency
-        never counts, is further past the reset it reported than
-        `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`.
+        A failed refresh raises what `_refresh_from_github` raises. Raises GitHubRateLimitError
+        when the answer has no `remaining` and `reset` for `subcommand`, or when the clock, read
+        before the refresh so its latency never counts, is further past the reset it reported
+        than `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`.
         """
         if self.persist_path:
             self._sync_from_disk_locked()
@@ -932,33 +949,32 @@ class GitHubRateLimiter:
         """Read GitHub's /rate_limit answer into the stored quotas.
 
         Returns the reset GitHub reported for each resource the answer gave both `remaining` and
-        `reset`. Raises GitHubRateLimitError if gh fails or the answer is empty or malformed, so
-        the underlying cause can be identified.
+        `reset`. When gh fails, it raises the class the gh classifier names, such as
+        `GitHubUnauthenticatedError` for a refused login or `GitHubRateLimitError`, and
+        `GitHubUnreadError` for any other failure, a run past
+        `DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS` or an empty answer. A malformed answer
+        raises GitHubRateLimitError, so the underlying cause can be identified.
         """
-        proc = run_subprocess(
-            [CONST_GH_CLI, "api", "rate_limit"],
-            check=False,
-            quiet=True,
-            timeout=10.0,
-        )
+        timeout = DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS
+        try:
+            proc = run_subprocess(
+                [CONST_GH_CLI, "api", "rate_limit"],
+                check=False,
+                quiet=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitHubUnreadError(
+                "Failed to refresh rate limits from GitHub API: gh api rate_limit timed out after "
+                f"{timeout:g} seconds",
+                operation=_REFRESH_OPERATION,
+                details={"timeout_seconds": timeout},
+            ) from exc
         if proc.returncode != 0:
-            err_msg = (
-                proc.stderr.strip()
-                if proc.stderr
-                else f"Process exited with code {proc.returncode}"
-            )
-            raise GitHubRateLimitError(
-                f"Failed to refresh rate limits from GitHub API: {err_msg}",
-                operation="refresh_quota",
-                details={
-                    "exit_code": proc.returncode,
-                    "stderr": proc.stderr[:256] if proc.stderr else "",
-                },
-            )
+            raise _refresh_failure(proc)
         if not proc.stdout:
-            raise GitHubRateLimitError(
-                "GitHub rate_limit API returned empty output",
-                operation="refresh_quota",
+            raise GitHubUnreadError(
+                "GitHub rate_limit API returned empty output", operation=_REFRESH_OPERATION
             )
         return _extract_rate_limit_endpoint_response(proc.stdout, self)
 
@@ -967,7 +983,8 @@ class GitHubRateLimiter:
 
         At a reset that has passed, the window has ended and the delay runs until
         `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` past it. Refreshes a quota that is not valid,
-        or raises GitHubRateLimitError so the underlying cause can be identified.
+        or raises a `GitHubOperationError` naming why it could not, so the underlying cause can
+        be identified.
         """
         with self._lock:
             if self.persist_path:
@@ -1223,18 +1240,9 @@ class GitHubRateLimiter:
             )
 
     def is_rate_limit_error(self, message: str) -> bool:
-        """Detect whether an error output indicates primary or secondary GitHub rate limits."""
-        if not message:
-            return False
-        clean = message.lower()
-        return any(pattern in clean for pattern in CONST_GITHUB_RATE_LIMIT_PATTERNS)
-
-    def is_secondary_rate_limit(self, message: str) -> bool:
-        """Detect whether an error output indicates a secondary rate limit."""
-        if not message:
-            return False
-        clean = message.lower()
-        return any(pattern in clean for pattern in CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS)
+        """Whether gh's output names a primary or secondary rate limit, as the gh classifier
+        reads it."""
+        return is_gh_rate_limited(message)
 
     def calculate_backoff_delay(
         self, message: str, attempt: int = 1, subcommand: str = "core"
@@ -1667,9 +1675,14 @@ def _handle_attempt_backoff(
     max_retries: int,
     target_resource: str,
 ) -> bool:
-    """Evaluate and sleep backoff if rate limited, returning True if backoff performed."""
+    """Evaluate and sleep backoff if rate limited, returning True if backoff performed.
+
+    Whether gh was rate-limited is read from its stderr alone, where gh writes a failure; its
+    stdout holds GitHub's answer, which may carry item titles. The wait also reads stdout, for
+    the Retry-After header `gh api -i` prints there.
+    """
     combined_err = (proc.stderr or "") + " " + (proc.stdout or "")
-    if not limiter.is_rate_limit_error(combined_err) or attempt >= max_retries:
+    if not limiter.is_rate_limit_error(proc.stderr or "") or attempt >= max_retries:
         return False
 
     backoff = limiter.calculate_backoff_delay(

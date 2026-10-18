@@ -36,8 +36,8 @@ Part B (the session's `rest`, `graphql` and `paginate` transport, the ledger fed
 - [x] **Gate.** Each new test runs under 1 s under `pytest --durations=0` (the command modules `tests/test_github_session.py` exercises are imported at collection), opens no socket outside `prevent_external_network_calls`, and runs no real `gh`.
 - Pending a person: in a terminal logged in to gh, with no `GH_TOKEN` set, `uv run devops gh issues list -R dan-petty/devops-cli` prints the open issues.
 - Pending a person: in the same terminal, `uv run devops gh milestones list -R dan-petty/devops-cli` prints the milestones.
-- Pending a person: `GH_TOKEN=not-a-real-token uv run devops gh issues list -R dan-petty/devops-cli` exits 1 with `Failed to refresh rate limits from GitHub API: HTTP 401: Bad credentials`, without a traceback, and prints no issues.
-- Amended: the issue expects the unauthenticated error for a bad token. `gh auth token` prints any `GH_TOKEN` it is given, so the lookup succeeds, and GitHub's 401 to the first call is reported as a rate-limit refresh failure. Classifying a 401 as unauthenticated is the error-class work of #983.
+- Pending a person: `GH_TOKEN=not-a-real-token uv run devops gh issues list -R dan-petty/devops-cli` exits 1 with the unauthenticated error, `gh has no GitHub login that GitHub accepts (gh: Bad credentials (HTTP 401))`, without a traceback, and prints no issues.
+- Amended: the issue expects the unauthenticated error for a bad token. `gh auth token` prints any `GH_TOKEN` it is given, so the lookup succeeds, and GitHub's 401 to the first call, the quota refresh, was reported as a rate-limit refresh failure until #983's gh classifier made it the unauthenticated error.
 
 ## Deliverables
 

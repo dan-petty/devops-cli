@@ -6,8 +6,10 @@ import json
 import subprocess
 from http import HTTPStatus
 
+from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
+from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
 
@@ -126,18 +128,53 @@ def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
     if result.returncode == 0:
         return
 
-    combined = f"{result.stdout}\n{result.stderr}".lower()
-    if "already" in combined and "key" in combined:
+    # gh writes the failure to stderr; stdout holds GitHub's answer.
+    said = result.stderr or ""
+    if gh_http_status(said) == HTTPStatus.UNPROCESSABLE_ENTITY and _registered_after_422(
+        endpoint, pub_key
+    ):
         return
 
-    if "needs the" in combined and "scope" in combined:
+    refused = classify_gh_failure(said, exit_code=result.returncode, operation="ssh_key_upload")
+    if isinstance(refused, GitHubScopeError):
         raise SSHRegistrationError(
             "GitHub CLI auth is missing required scopes. "
             "Run: gh auth refresh -h github.com "
             "-s admin:public_key,write:ssh_signing_key"
-        )
+        ) from refused
 
-    raise SSHRegistrationError(result.stderr.strip() or result.stdout.strip() or "gh api failed")
+    raise SSHRegistrationError(_registration_failure(result)) from refused
+
+
+def _registered_after_422(endpoint: str, pub_key: str) -> bool:
+    """Whether a key GitHub answered 422 for is registered at `endpoint`. GitHub answers 422 for
+    a key it already holds, but also for one it rejects as invalid and one in use on another
+    account, so the keys are listed again: a listed key, or a list that can't be read, is
+    registered."""
+    listed = _gh_list_keys(endpoint)
+    return listed is None or " ".join(pub_key.split()[:2]) in listed
+
+
+def _registration_failure(result: subprocess.CompletedProcess[str]) -> str:
+    """What gh wrote for a failed key upload, with the reasons GitHub gave in its answer."""
+    said = result.stderr.strip() or result.stdout.strip() or "gh api failed"
+    reasons = _github_reasons(result.stdout or "")
+    return f"{said}: {reasons}" if reasons else said
+
+
+def _github_reasons(answer: str) -> str:
+    """The `errors[].message` of GitHub's validation answer, for display only, at most
+    `CONST_MAX_ERROR_DETAIL_LENGTH` characters; empty when the answer holds none."""
+    try:
+        decoded = json.loads(answer)
+    except json.JSONDecodeError:
+        return ""
+    errors = decoded.get("errors") if isinstance(decoded, dict) else None
+    if not isinstance(errors, list):
+        return ""
+    reasons = [error.get("message") for error in errors if isinstance(error, dict)]
+    said = "; ".join(reason for reason in reasons if isinstance(reason, str))
+    return said[:CONST_MAX_ERROR_DETAIL_LENGTH]
 
 
 def _add_signing_key(session: GitHubSession, pub_key: str, title: str) -> None:

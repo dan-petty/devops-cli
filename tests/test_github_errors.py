@@ -1,8 +1,12 @@
 """How a failed GitHub request is classified: by exception type, HTTP status and headers (#983).
 
-Every case goes through the session over the fake GitHub API, so gidgethub raises what it raises
-for GitHub's answer and the session's retries run first. No case reads a response's message: the
-403 whose message says "rate limit" without the headers that mean one is a plain failure.
+Every HTTP case goes through the session over the fake GitHub API, so gidgethub raises what it
+raises for GitHub's answer and the session's retries run first. No HTTP case reads a response's
+message: the 403 whose message says "rate limit" without the headers that mean one is a plain
+failure. A failed gh command has only its exit status and its stderr, so it is classified from
+gh's exit status and the gh-output table in `config/constants.py`, matched against what gh wrote
+to stderr, never GitHub's answer on stdout. The table is the one place gh's failures are
+classified by its text; the modules its comment names still match gh's text of their own.
 """
 
 from __future__ import annotations
@@ -246,3 +250,177 @@ def test_the_session_errors_are_github_operation_errors_with_their_own_codes() -
         True,
         "GITHUB_FILE_NOT_FOUND",
     )
+
+
+def _every_phrase_of_the_gh_table() -> dict[tuple[str, int], type[GitHubOperationError] | None]:
+    """Each phrase of the gh-output table, written as gh writes a failure and upper-cased, with
+    the class its row means. A phrase two rows hold maps to the later row here, so a phrase the
+    classifier reads as another class fails the table."""
+    from devops_cli.config.constants import (
+        CONST_GITHUB_RATE_LIMIT_PATTERNS,
+        CONST_GITHUB_SCOPE_PATTERNS,
+        CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
+        CONST_GITHUB_UNAUTHENTICATED_PATTERNS,
+    )
+
+    rows: dict[str, type[GitHubOperationError]] = {
+        **dict.fromkeys(
+            CONST_GITHUB_RATE_LIMIT_PATTERNS + CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
+            GitHubRateLimitError,
+        ),
+        **dict.fromkeys(CONST_GITHUB_SCOPE_PATTERNS, GitHubScopeError),
+        **dict.fromkeys(CONST_GITHUB_UNAUTHENTICATED_PATTERNS, GitHubUnauthenticatedError),
+    }
+    return {(f"gh: {phrase.upper()}", 1): error for phrase, error in rows.items()}
+
+
+_SCOPE_SUGGESTION = (
+    "gh: Not Found (HTTP 404)\n"
+    'gh: This API operation needs the "admin:public_key" scope. To request it, run:  '
+    "gh auth refresh -h github.com -s admin:public_key"
+)
+
+# What gh writes, as gh 2.102.0 and go-gh format it, and the status gh exits with.
+_GH_FAILURES: dict[tuple[str, int], type[GitHubOperationError] | None] = {
+    ("gh: Bad credentials (HTTP 401)", 1): GitHubUnauthenticatedError,
+    ("HTTP 401: Bad credentials (https://api.github.com/graphql)", 1): GitHubUnauthenticatedError,
+    (
+        "You are not logged into any GitHub hosts. To log in, run: gh auth login",
+        1,
+    ): GitHubUnauthenticatedError,
+    ("error: authentication required", 1): GitHubUnauthenticatedError,
+    (
+        "To get started with GitHub CLI, please run:  gh auth login",
+        4,
+    ): GitHubUnauthenticatedError,
+    ("", 4): GitHubUnauthenticatedError,
+    ("gh: API rate limit exceeded for user ID 1. (HTTP 403)", 1): GitHubRateLimitError,
+    ("GraphQL: API rate limit already exceeded for user ID 1.", 1): GitHubRateLimitError,
+    ("gh: Too Many Requests (HTTP 429)", 1): GitHubRateLimitError,
+    (_SCOPE_SUGGESTION, 1): GitHubScopeError,
+    (
+        "error: your authentication token is missing required scopes [read:project]\n"
+        "To request it, run:  gh auth refresh -s read:project",
+        1,
+    ): GitHubScopeError,
+    # gh project's owner lookup dropped its error: no rate-limit row, a rate limit of its own.
+    ("unknown owner type", 1): GitHubRateLimitError,
+    ("gh: Not Found (HTTP 404)", 1): None,
+    ("gh: Validation Failed (HTTP 422)", 1): None,
+    ("gh: Server Error (HTTP 500)", 1): None,
+    ("", 1): None,
+}
+
+
+def _class_of(error: GitHubOperationError | None) -> type[GitHubOperationError] | None:
+    return None if error is None else type(error)
+
+
+def test_a_gh_failure_is_classified_by_its_exit_status_and_the_gh_output_table() -> None:
+    """Every phrase of the table, `HTTP 401`, `Bad credentials`, `not logged in`, `authentication
+    required` and gh's exit status 4 ("requires authentication", `gh help exit-codes`) map to
+    their class in any case; anything else is no class."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    table = {**_every_phrase_of_the_gh_table(), **_GH_FAILURES}
+    classified = {
+        (output, exit_code): _class_of(classify_gh_failure(output, exit_code=exit_code))
+        for output, exit_code in table
+    }
+    assert classified == table
+
+
+@pytest.mark.parametrize(
+    ("said", "error"),
+    [
+        pytest.param(
+            "HTTP 404: Not Found "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2F705-retry-after-handling)",
+            None,
+            id="branch-in-the-url",
+        ),
+        pytest.param(
+            "pull request create failed: GraphQL: No commits between main and "
+            "fix/705-retry-after-handling (createPullRequest)",
+            None,
+            id="branch-in-the-message",
+        ),
+        pytest.param(
+            "HTTP 401: Bad credentials "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2Fretry-after)",
+            GitHubUnauthenticatedError,
+            id="401-whose-url-names-retry-after",
+        ),
+    ],
+)
+def test_text_gh_echoes_from_the_request_names_no_rate_limit(
+    said: str, error: type[GitHubOperationError] | None
+) -> None:
+    """gh echoes the request's URL and GraphQL echoes ref names, such as a `fix/...-retry-after`
+    branch; gh never writes "retry-after" for a failure, so that text is no rate limit."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    assert _class_of(classify_gh_failure(said, exit_code=1)) is error
+
+
+@pytest.mark.parametrize(
+    ("output", "status"),
+    [
+        pytest.param("gh: Bad credentials (HTTP 401)", 401, id="gh-api-401"),
+        pytest.param(
+            "HTTP 401: Bad credentials (https://api.github.com/user)", 401, id="go-gh-401"
+        ),
+        pytest.param("gh: API rate limit exceeded for user ID 1. (HTTP 403)", 403, id="403"),
+        pytest.param("gh: Too Many Requests (HTTP 429)", 429, id="429"),
+        pytest.param(_SCOPE_SUGGESTION, 404, id="scope-404"),
+        pytest.param("You are not logged into any GitHub hosts.", None, id="no-status"),
+    ],
+)
+def test_a_classified_gh_failure_keeps_the_status_gh_wrote_as_an_int(
+    output: str, status: int | None
+) -> None:
+    """The status gh names (`(HTTP 401)` or `HTTP 401:`) is carried as an int beside gh's exit
+    status and the operation, so a caller reads a status, never gh's text."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    error = classify_gh_failure(output, exit_code=1, operation="verify_project_auth_scopes")
+    assert error is not None
+    details = error.details
+    assert (
+        details.get("status"),
+        type(details.get("status")),
+        details["exit_code"],
+        details["operation"],
+    ) == (status, type(status), 1, "verify_project_auth_scopes")
+
+
+def test_a_classified_gh_failure_bounds_what_gh_wrote_on_one_line() -> None:
+    """gh's output reaches the message and the details on one line, at most 256 characters."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    error = classify_gh_failure(f"gh: Bad credentials (HTTP 401)\n{'x' * 400}", exit_code=1)
+    assert error is not None
+    said = error.details["output"]
+    assert (
+        len(said),
+        said.startswith("gh: Bad credentials (HTTP 401) xxx"),
+        "\n" in error.message,
+        said in error.message,
+    ) == (256, True, False, True)
+
+
+def test_the_status_gh_wrote_is_read_from_either_of_its_formats() -> None:
+    """`gh api` writes `<message> (HTTP <status>)` or `HTTP <status>`, and other gh commands
+    go-gh's `HTTP <status>: <message> (<url>)`; text naming no status has none."""
+    from devops_cli.github.error_classifier import gh_http_status
+
+    assert [
+        gh_http_status(output)
+        for output in (
+            "gh: Validation Failed (HTTP 422)",
+            "HTTP 502: Bad Gateway (https://api.github.com/graphql)",
+            "gh: HTTP 404",
+            "error: repository not found",
+            "HTTP 4040",
+        )
+    ] == [422, 502, 404, None, None]

@@ -1027,3 +1027,70 @@ def test_gh_commands_report_no_identity_without_a_traceback(
         SystemExit,
         True,
     )
+
+
+def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -> None:
+    """`gh api rate_limit` fails `HTTP 401: Bad credentials` before `gh issue list` is paced:
+    the command prints the unauthenticated error, without a traceback, exits 1 and sends no
+    listing (#983)."""
+    from devops_cli.github import rate_limiter
+
+    refused = subprocess.CompletedProcess(
+        ["gh", "api", "rate_limit"], 1, "", "HTTP 401: Bad credentials"
+    )
+    with (
+        patch.object(rate_limiter, "run_subprocess", return_value=refused) as gh,
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    text = _flat(result.output)
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "gh has no GitHub login that GitHub accepts (HTTP 401: Bad credentials)" in text,
+        "gh auth login" in text,
+        "Failed to refresh rate limits" in text,
+        "Traceback" in result.output,
+        [call.args[0] for call in gh.call_args_list],
+    ) == (1, SystemExit, True, True, False, False, [["gh", "api", "rate_limit"]])
+
+
+def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error() -> None:
+    """`gh api rate_limit` runs past its timeout before `gh issue list` is paced: the command
+    prints the unread error, without a traceback, exits 1 and sends no listing (#983)."""
+    from devops_cli.github import rate_limiter
+
+    timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
+    with (
+        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "Failed to refresh rate limits from GitHub API: gh api rate_limit timed out after 10 "
+        "seconds" in _flat(result.output),
+        "Traceback" in result.output,
+    ) == (1, SystemExit, True, False)
+
+
+def test_views_sync_prints_gh_s_scope_list_as_gh_wrote_it() -> None:
+    """gh names the missing scope as `[read:project]`, which Rich would read as a markup tag and
+    drop; the warning prints gh's text as written (#983)."""
+    refused = subprocess.CompletedProcess(
+        ["gh", "project", "list"],
+        1,
+        "",
+        "error: your authentication token is missing required scopes [read:project]\n"
+        "To request it, run:  gh auth refresh -s read:project",
+    )
+    with patch("devops_cli.github.projects.run_gh", return_value=refused):
+        result = runner.invoke(app, ["views", "sync", "-R", "octo/repo"])
+    assert (result.exit_code, "[read:project]" in _flat(result.output)) == (0, True)

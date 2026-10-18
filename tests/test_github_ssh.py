@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from contextlib import nullcontext
 from unittest.mock import MagicMock
@@ -10,7 +11,12 @@ from unittest.mock import MagicMock
 import httpx2
 import pytest
 
-from devops_cli.exceptions.git import GitHubScopeError, GitHubUnreadError
+from devops_cli.exceptions.git import (
+    GitHubRateLimitError,
+    GitHubScopeError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.github.ssh import (
     SSHRegistrationError,
@@ -122,37 +128,147 @@ def test_gh_list_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _gh_list_keys("/user/keys") is None
 
 
-def test_gh_add_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _gh_add_key handles success, existing key, missing scope, and failure."""
-    # 1. Success
-    mock_ok = MagicMock(returncode=0, stdout="{}", stderr="")
-    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_ok)
-    _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
+_KEY = "ssh-ed25519 AAAAC3 test@example.com"
+_KEY_IN_USE = json.dumps(
+    {
+        "message": "Validation Failed",
+        "errors": [
+            {
+                "resource": "PublicKey",
+                "code": "custom",
+                "field": "key",
+                "message": "key is already in use",
+            }
+        ],
+    }
+)
+_SCOPE_SUGGESTION = (
+    "gh: Not Found (HTTP 404)\n"
+    'gh: This API operation needs the "admin:public_key" scope. To request it, run:  '
+    "gh auth refresh -h github.com -s admin:public_key"
+)
 
-    # 2. Already exists
-    mock_exists = MagicMock(returncode=1, stdout="", stderr="key already exists")
-    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_exists)
-    _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
-    # 3. Missing scope
-    mock_scope = MagicMock(returncode=1, stdout="", stderr="needs the admin:public_key scope")
-    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_scope)
-    with pytest.raises(SSHRegistrationError, match="GitHub CLI auth is missing required scopes"):
-        _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
+@pytest.mark.parametrize(
+    ("answer", "message", "cause"),
+    [
+        pytest.param((0, "{}", ""), None, None, id="added"),
+        pytest.param(
+            (1, "", _SCOPE_SUGGESTION),
+            "GitHub CLI auth is missing required scopes",
+            GitHubScopeError,
+            id="missing-scope",
+        ),
+        pytest.param(
+            (1, "", "gh: API rate limit exceeded for user ID 1. (HTTP 403)"),
+            "API rate limit exceeded for user ID 1.",
+            GitHubRateLimitError,
+            id="rate-limited",
+        ),
+        pytest.param(
+            (1, "", "gh: Bad credentials (HTTP 401)"),
+            "gh: Bad credentials (HTTP 401)",
+            GitHubUnauthenticatedError,
+            id="token-refused",
+        ),
+        pytest.param(
+            (1, "", "gh: Server Error (HTTP 500)"), "gh: Server Error (HTTP 500)", None, id="other"
+        ),
+    ],
+)
+def test_gh_add_key_reads_gh_s_failure_through_the_classifier(
+    monkeypatch: pytest.MonkeyPatch,
+    answer: tuple[int, str, str],
+    message: str | None,
+    cause: type[Exception] | None,
+) -> None:
+    """A key gh adds is done. A missing scope asks for the scopes, and any other failure raises
+    gh's text; a failure the gh classifier names is the raised error's cause (#983)."""
+    added = subprocess.CompletedProcess(["gh", "api"], *answer)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: added)
+    if message is None:
+        _gh_add_key("/user/keys", _KEY, "Title")
+        return
+    with pytest.raises(SSHRegistrationError, match=re.escape(message)) as raised:
+        _gh_add_key("/user/keys", _KEY, "Title")
+    assert type(raised.value.__cause__) is (type(None) if cause is None else cause)
 
-    # 4. Generic error
-    mock_err = MagicMock(returncode=1, stdout="", stderr="API rate limit exceeded")
-    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_err)
-    with pytest.raises(SSHRegistrationError, match="API rate limit exceeded"):
-        _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
-    # 5. Process exception
-    def mock_raise(*args, **kwargs):
+_KEY_INVALID = json.dumps(
+    {
+        "message": "Validation Failed",
+        "errors": [
+            {
+                "resource": "PublicKey",
+                "code": "custom",
+                "field": "key",
+                "message": "key is invalid. You must supply a key in OpenSSH public key format",
+            }
+        ],
+    }
+)
+
+
+class _KeysGh:
+    """gh for the key endpoints: the POST gets GitHub's 422 with `body` on stdout, as gh api
+    writes it, and the key listing gets `listing`, an exit status and stdout."""
+
+    def __init__(self, body: str, listing: tuple[int, str]) -> None:
+        self.body, self.listing = body, listing
+
+    def __call__(self, args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if "--method" in args:
+            return subprocess.CompletedProcess(
+                args, 1, self.body, "gh: Validation Failed (HTTP 422)"
+            )
+        return subprocess.CompletedProcess(args, self.listing[0], self.listing[1], "")
+
+
+@pytest.mark.parametrize(
+    ("body", "listing", "message"),
+    [
+        pytest.param(
+            _KEY_INVALID,
+            (0, "[]"),
+            "key is invalid. You must supply a key in OpenSSH public key format",
+            id="invalid-key",
+        ),
+        pytest.param(_KEY_IN_USE, (0, "[]"), "key is already in use", id="in-use-elsewhere"),
+        pytest.param(_KEY_IN_USE, (0, json.dumps([{"key": _KEY}])), None, id="listed"),
+        pytest.param(_KEY_INVALID, (1, ""), None, id="listing-unread"),
+    ],
+)
+def test_a_422_means_registered_only_when_the_key_is_listed_or_the_list_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, body: str, listing: tuple[int, str], message: str | None
+) -> None:
+    """GitHub answers 422 for a key it already holds, but also for a key it rejects as invalid
+    and for one in use on another account. The keys are listed again: a listed key, or a list
+    that can't be read, is registered; a list read without it raises gh's text with GitHub's
+    reason (#983)."""
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", _KeysGh(body, listing))
+    if message is None:
+        _gh_add_key("/user/keys", _KEY, "Title")
+        return
+    with pytest.raises(SSHRegistrationError) as raised:
+        _gh_add_key("/user/keys", _KEY, "Title")
+    assert (
+        "gh: Validation Failed (HTTP 422)" in str(raised.value),
+        message in str(raised.value),
+    ) == (
+        True,
+        True,
+    )
+
+
+def test_gh_add_key_reports_a_gh_that_could_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """gh failing to start is a registration failure naming the reason."""
+
+    def mock_raise(*args: object, **kwargs: object) -> None:
         raise subprocess.SubprocessError("Subprocess died")
 
     monkeypatch.setattr("devops_cli.github.ssh.run_gh", mock_raise)
     with pytest.raises(SSHRegistrationError, match="GitHub CLI key registration failed"):
-        _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
+        _gh_add_key("/user/keys", _KEY, "Title")
 
 
 def test_register_with_gh(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -63,7 +63,6 @@ from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field, Type
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
-    CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_ISSUE_EVENT_CHANGE_KINDS,
     CONST_GH_PROJECT_ITEM_ISSUE_TYPE,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
@@ -90,7 +89,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.github.projects import check_github_rate_limit_error
+from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import gh_request_resource, run_gh
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
@@ -1761,8 +1760,7 @@ class GitHubRoadmapStore(RoadmapStore):
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
             return proc.stdout or ""
-        status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
-        if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+        if gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
             raise GitHubFileNotFoundError(
                 f"{self._repo} has no {where}.",
                 operation="roadmap.read",
@@ -2362,8 +2360,7 @@ class GitHubRoadmapStore(RoadmapStore):
         proc = self._run(args)
         if proc.returncode == 0:
             return self._validate(proc.stdout or "", adapter, what)
-        status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
-        if status is not None and int(status.group("status")) in absent:
+        if gh_http_status(proc.stderr or "") in absent:
             return None
         raise self._failure(proc, f"read {what}", "roadmap.read")
 
@@ -2523,10 +2520,13 @@ class GitHubRoadmapStore(RoadmapStore):
     def _failure(
         self, proc: subprocess.CompletedProcess[str], action: str, operation: str
     ) -> GitHubOperationError:
-        """The error for a failed gh command; a rate limit raises `GitHubRateLimitError` instead."""
+        """The error for a failed gh command: the class the gh classifier names from gh's
+        stderr, such as `GitHubRateLimitError`, else a failure to do `action`. gh's stdout holds
+        GitHub's answer, possibly partial data with item titles, and is never classified."""
         output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-        check_github_rate_limit_error(output, operation=operation)
-        return GitHubOperationError(
+        return classify_gh_failure(
+            proc.stderr or "", exit_code=proc.returncode, operation=operation
+        ) or GitHubOperationError(
             f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},
