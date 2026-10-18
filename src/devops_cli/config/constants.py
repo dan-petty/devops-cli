@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -2696,6 +2697,41 @@ CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
 # The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
 # decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
 CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
+# The punctuation prose leaves after a network target ("check 100.64.0.1."), which is never part
+# of an address, a URL's end or a name, so a target is classified without it.
+CONST_PROSE_TRAILING_PUNCTUATION: Final[str] = ".,;)>]\"'"
+# The address blocks set aside for documentation and benchmarking, which a network reference
+# report tags as documented examples and no threat-intel service is asked about. Python's
+# `ipaddress` folds them into `is_private`, so no library tells them from RFC 1918 space.
+CONST_DOCUMENTATION_IP_NETWORKS: Final[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+] = (
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
+    ipaddress.ip_network("3fff::/20"),  # Documentation (RFC 9637)
+    ipaddress.ip_network("198.18.0.0/15"),  # Benchmarking (RFC 2544)
+    ipaddress.ip_network("2001:2::/48"),  # Benchmarking (RFC 5180)
+)
+# Space IANA does not list as globally reachable but Python 3.14's `is_global` reads as global.
+# It is local, so no threat-intel service is asked about it. Delete a network when CPython
+# follows IANA, which `test_the_stdlib_still_reads_each_non_global_network_as_global` reports
+# by failing.
+CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL: Final[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+] = (
+    # The deprecated 6to4 relay anycast prefix (RFC 7526), whose one live entry in IANA's IPv4
+    # special-purpose registry, 192.88.99.2/32 (RFC 6751), is "Globally Reachable: False".
+    ipaddress.ip_network("192.88.99.0/24"),
+    # Site-local, IPv6's private space until RFC 3879 deprecated it; IANA's IPv6 address space
+    # registry lists it as reserved by the IETF.
+    ipaddress.ip_network("fec0::/10"),
+)
+# The name Docker Desktop and Podman give the container runtime's host gateway on the
+# workstation. A cluster pod cannot reach that gateway, so the sandbox local whitelist refuses
+# the name and asks for the address the cluster reaches the host on.
+CONST_DOCKER_HOST_GATEWAY_HOSTNAME: Final[str] = "host.docker.internal"
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30

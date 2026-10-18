@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -255,10 +256,102 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
         assert "Safe / Clean IP" in res_intel
 
     res_ex_domain = check_threat_intel("example.com")
-    assert "documented example or reserved network space" in res_ex_domain
+    assert "is a documented example" in res_ex_domain
 
     res_ex_ip = check_threat_intel("192.0.2.1")
-    assert "documented example or reserved network space" in res_ex_ip
+    assert "is a documented example" in res_ex_ip
+
+
+# 0.0.0.0, the unspecified IPv4 address, as a value under test rather than a bind address.
+_UNSPECIFIED_IPV4 = str(ipaddress.IPv4Address(0))
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "3fff::1",
+        "555-0100",
+        _UNSPECIFIED_IPV4,
+        "::",
+        f"http://{_UNSPECIFIED_IPV4}:8000",
+        "3221225985",
+    ],
+)
+def test_check_threat_intel_names_the_rfcs_of_every_target_it_excludes(target: str) -> None:
+    """The reply names everything `is_example_or_invalid_network_target` excludes: example
+    domains, documentation and benchmarking addresses, fictional phone numbers and the
+    unspecified addresses, and not RFC 6890, whose reserved space is local. A documentation
+    address in a numeric spelling a resolver dials (`3221225985` is 192.0.2.1) is excluded too.
+    No service is asked (#1174)."""
+    with patch(
+        "devops_cli.security.vulnerability_lookup.httpx2.Client.get",
+        side_effect=AssertionError("no threat-intel request may leave"),
+    ) as http_get:
+        reply = check_threat_intel(target)
+    assert (http_get.call_count, reply) == (
+        0,
+        f"Target {target} is a documented example or an unspecified address: an example domain "
+        "(RFC 2606 / RFC 6761), a documentation address (RFC 5737 / RFC 3849 / RFC 9637), a "
+        "benchmarking address (RFC 2544 / RFC 5180), a fictional phone number (ATIS-0300115 / "
+        "Ofcom drama numbers) or an unspecified address (RFC 1122 / RFC 4291). Excluded from "
+        "external threat intelligence scanning.",
+    )
+
+
+@pytest.mark.parametrize(
+    ("target", "address"),
+    [
+        ("224.0.0.1", "224.0.0.1"),
+        ("100.64.0.1", "100.64.0.1"),
+        ("192.88.99.1", "192.88.99.1"),
+        ("::ffff:192.88.99.1", "192.88.99.1"),
+        ("fec0::1", "fec0::1"),
+        ("100.64.0.1.", "100.64.0.1"),
+        ("224.0.0.1,", "224.0.0.1"),
+        ("10.0.0.1.", "10.0.0.1"),
+        ("2130706433", "127.0.0.1"),
+        ("http://100.64.0.1./v1", "100.64.0.1"),
+    ],
+)
+def test_check_threat_intel_asks_no_service_about_a_local_address(
+    target: str, address: str
+) -> None:
+    """Multicast, shared address space, 6to4 relay anycast in either spelling and site-local
+    space are local, so neither Shodan nor Cloudflare Radar is asked, and the reply says so
+    without calling the address a domain. That holds after a trailing punctuation mark, in a
+    URL and in a numeric spelling a resolver dials (`2130706433` is 127.0.0.1). Multicast used to
+    be in no class and went to Radar, as each punctuated address did; 6to4 relay anycast in its
+    IPv4-mapped spelling and site-local space went to Shodan (#1174)."""
+    with patch(
+        "devops_cli.security.vulnerability_lookup.httpx2.Client.get",
+        side_effect=AssertionError("no threat-intel request may leave"),
+    ) as http_get:
+        reply = check_threat_intel(target)
+    assert (http_get.call_count, reply) == (
+        0,
+        f"Target {target} is a local address ({address}): private, loopback, link-local, shared, "
+        "site-local, multicast or reserved space, which is not globally reachable. No threat "
+        "intelligence service was asked.",
+    )
+
+
+@pytest.mark.parametrize("target", ["8.8.8.8.", "8.8.8.8,", "::ffff:8.8.8.8"])
+def test_check_threat_intel_asks_shodan_about_the_address_the_target_names(target: str) -> None:
+    """A public address is sent to Shodan InternetDB as the address it is, without the
+    punctuation prose leaves after it and in its IPv4 spelling; a trailing dot used to send it
+    to Cloudflare Radar's domain lookup (#1174)."""
+    from devops_cli.models.vulnerability import NetworkReputationRecord
+
+    record = NetworkReputationRecord(target="8.8.8.8", ip="8.8.8.8", reputation_summary="Clean")
+    with patch(
+        "devops_cli.security.vulnerability_lookup.ShodanInternetDBClient.check_ip",
+        return_value=record,
+    ) as check_ip:
+        reply = check_threat_intel(target)
+    assert (check_ip.call_args_list, reply.splitlines()[0]) == (
+        [call("8.8.8.8")],
+        "Shodan Intelligence for IP 8.8.8.8:",
+    )
 
 
 def test_scan_osv_names_only_the_database_it_queries() -> None:
