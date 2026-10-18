@@ -20,7 +20,9 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
 from devops_cli.core.process import github_token, reset_github_token
+from devops_cli.github.error_classifier import listing_past_page_cap
 from devops_cli.github.rate_limiter import resolve_identity_cache_dir, run_gh
 
 if TYPE_CHECKING:
@@ -85,11 +87,16 @@ class GitHubSession:
         origin only; an empty page or one without a next link ends the listing. A consumer that
         stops early sends no further request. A page that holds no list of items raises
         `GitHubUnreadError` naming `path` and the page, and a failed page raises what `rest`
-        would, so a listing never ends short without saying so (#1034).
+        would, so a listing never ends short without saying so (#1034). A listing still linking
+        a next page after `DEFAULT_GH_MAX_PAGINATED_PAGES` pages, read when the listing runs,
+        raises `GitHubUnreadError` naming `path` and the cap instead of reading on.
         """
+        max_pages = DEFAULT_GH_MAX_PAGINATED_PAGES
         url: str | None = path
         number = 1
         while url is not None:
+            if number > max_pages:
+                raise listing_past_page_cap(path=path, max_pages=max_pages)
             items, url = self._rest_transport().page(
                 path, url, number=number, iterable_key=iterable_key
             )

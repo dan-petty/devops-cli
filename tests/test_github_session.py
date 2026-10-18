@@ -709,6 +709,41 @@ def test_a_consumer_that_stops_after_the_first_item_sends_one_request(
     assert (first, len(github_api.sent)) == ({"id": 1}, 1)
 
 
+def test_a_listing_that_runs_past_the_page_cap_fails_closed(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `rel="next"` chain that never ends stops at the page cap, read when the listing runs,
+    and raises naming the endpoint and the cap instead of reading forever."""
+    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    second, third = _LINK_STYLES["page-links"]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], None, next_url=third))
+    github_api.route("GET", third, _page([{"id": 3}], None, next_url=second))
+    read: list[Any] = []
+    with pytest.raises(GitHubUnreadError) as raised:
+        read.extend(get_github_session().paginate(_ISSUES))
+    details = raised.value.details
+    assert (
+        read,
+        len(github_api.sent),
+        details["path"],
+        details["max_pages"],
+        "runs past 2 pages" in str(raised.value),
+    ) == ([{"id": 1}, {"id": 2}], 2, _ISSUES, 2, True)
+
+
+def test_a_listing_of_exactly_the_page_cap_reads_every_page(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A listing whose last page falls on the cap is read whole."""
+    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], None))
+    items = list(get_github_session().paginate(_ISSUES))
+    assert (items, len(github_api.sent)) == ([{"id": 1}, {"id": 2}], 2)
+
+
 def test_a_link_to_another_origin_is_refused_before_it_is_sent(github_api: GitHubApiFake) -> None:
     """A `Link` naming another origin is refused by the origin hook, so the token never goes
     there: the transport sees no request to it."""

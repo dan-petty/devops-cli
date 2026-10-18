@@ -221,6 +221,16 @@ def unlisted_page(
     )
 
 
+def listing_past_page_cap(*, path: str, max_pages: int) -> GitHubUnreadError:
+    """The error for a listing still linking a next page after `max_pages` pages: a chain that
+    never ends is read no further, and the listing is never taken as whole."""
+    request = FailedRequest("GET", path)
+    return GitHubUnreadError(
+        f"The listing at {request} runs past {max_pages} pages, so the read can't complete",
+        details={**request.details(), "max_pages": max_pages},
+    )
+
+
 def unread_after_close(*, method: str, path: str) -> GitHubUnreadError:
     """The error of a request the session's close stopped before GitHub's answer was read."""
     request = FailedRequest(method, path)
