@@ -1559,13 +1559,27 @@ CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GITHUB_SCOPE_ERROR_CODE: Final[str] = "GITHUB_SCOPE_MISSING"
 CONST_GITHUB_NOT_FOUND_ERROR_CODE: Final[str] = "GITHUB_NOT_FOUND"
 CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
-# Copilot code review's bot, as GitHub names it (#1345): `copilot-pull-request-reviewer[bot]` in a
-# REST payload, the login GitHub's Copilot documentation requests its review with through the REST
-# API, and `copilot-pull-request-reviewer` in GraphQL, gh's `CopilotReviewerLogin` (gh 2.102.0,
-# api/queries_repo.go). A review is Copilot's only when its author's login is exactly one of them.
+# Copilot code review is the GitHub App `copilot-pull-request-reviewer`, and GitHub names an app's
+# bot account `<slug>[bot]` (#1345). The reviews endpoint names the bot
+# `copilot-pull-request-reviewer[bot]`, and GraphQL names it `copilot-pull-request-reviewer`, gh's
+# `CopilotReviewerLogin` (gh 2.102.0, api/queries_repo.go): a review record is Copilot's only when
+# its author's login is exactly one of them. The issue timeline names the same account (id
+# 175728472) `Copilot`, type Bot, a login the Copilot coding agent shares, so a timeline `reviewed`
+# event is matched by the id of one of Copilot's reviews, never by login, and a review request by
+# the account's type and its app's page, `/apps/<slug>` (read on #1283's timeline).
+CONST_COPILOT_REVIEWER_APP_SLUG: Final[str] = "copilot-pull-request-reviewer"
 CONST_COPILOT_REVIEWER_LOGINS: Final[frozenset[str]] = frozenset(
-    {"copilot-pull-request-reviewer[bot]", "copilot-pull-request-reviewer"}
+    {f"{CONST_COPILOT_REVIEWER_APP_SLUG}[bot]", CONST_COPILOT_REVIEWER_APP_SLUG}
 )
+CONST_COPILOT_REVIEWER_APP_PATH: Final[str] = f"/apps/{CONST_COPILOT_REVIEWER_APP_SLUG}"
+# The `type` GitHub gives an app's bot account.
+CONST_GITHUB_BOT_ACCOUNT_TYPE: Final[str] = "Bot"
+# The issue timeline events that request a review or withdraw the request, each with whether it
+# leaves the reviewer requested.
+CONST_GH_REVIEW_REQUEST_EVENTS: Final[dict[str, bool]] = {
+    "review_requested": True,
+    "review_request_removed": False,
+}
 # The keys a review record names its author under: `user` in a REST review, `author` in a
 # GraphQL one.
 CONST_GITHUB_REVIEW_AUTHOR_KEYS: Final[tuple[str, ...]] = ("user", "author")

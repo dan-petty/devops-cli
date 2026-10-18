@@ -640,16 +640,22 @@ class PRMessages:
         "PR #{number} is not the release pull request ({head} into {base}): Copilot reviews only "
         "release/vX.Y.Z into the default branch (ADR 0004), so no pass was requested."
     )
+    copilot_pass_not_open: str = (
+        "PR #{number} is {state}, not open, so no pass was requested: a pass on it would spend "
+        "Copilot's budget on a release that is not open."
+    )
     copilot_passes_unread: str = (
         "Copilot's passes on PR #{number} could not be read, so no pass was requested: {reason}"
     )
     copilot_pass_request_failed: str = "Requesting a Copilot pass on PR #{number} failed: {error}"
+    # What a failed request is named by when gh says nothing.
+    copilot_pass_request_exit_code: str = "exit code {code}"
     copilot_pass_dry_run_heading: str = (
         "Dry run: no request was made. copilot-pass would make these requests, in order:"
     )
-    copilot_pass_plan_branch_pr: str = "the open pull request of the current branch, <branch>"
-    copilot_pass_plan_branch_pr_unnamed: str = "the open pull requests name none"
-    copilot_pass_plan_release: str = "PR #{number} is the release pull request"
+    copilot_pass_plan_branch_pr_fallback: str = "the REST read names no open pull request, or fails"
+    copilot_pass_plan_release: str = "PR #{number} is the open release pull request"
+    copilot_pass_plan_request: str = "Copilot's review of {repo} pull request {number}"
     copilot_pass_plan_below_budget: str = "its Copilot passes are below release_copilot_passes"
     copilot_pass_plan_per_page: str = "per page, until the last"
     update_table_title: str = "Pull Request Branch Update Summary"

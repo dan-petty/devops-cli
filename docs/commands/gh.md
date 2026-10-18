@@ -1041,7 +1041,7 @@ devops gh pr hardening-report [OPTIONS]
 
 ### `devops gh pr copilot-pass`
 
-**Request one Copilot review pass on the release pull request while its passes, every Copilot review submitted and one still running, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request is refused, since Copilot reviews only the release pull request.**
+**Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request.**
 
 ```bash
 devops gh pr copilot-pass [OPTIONS] <number>

@@ -223,9 +223,9 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
 class CopilotPassRefusedError(GitHubOperationError):
     """Raised when `devops pr copilot-pass` refuses to request a Copilot pass.
 
-    It refuses on any pull request but the release pull request, and once the release pull
-    request's Copilot budget is spent. Each detail is bounded to `CONST_MAX_ERROR_DETAIL_LENGTH`
-    characters (#1345).
+    It refuses on a pull request that is merged or closed, on any pull request but the release
+    pull request, and once the release pull request's Copilot budget is spent. Each detail is
+    bounded to `CONST_MAX_ERROR_DETAIL_LENGTH` characters (#1345).
     """
 
     def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
