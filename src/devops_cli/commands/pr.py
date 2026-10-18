@@ -1604,7 +1604,13 @@ def _fetch_default_branch_changes(process: _ReleaseProcessPR) -> list[ChangedFil
 
 def _read_default_branch_changes(process: _ReleaseProcessPR) -> _DefaultBranchChanges:
     """What the default branch changed since its merge base with the PR's base, or why that
-    was not read. A list as long as GitHub's cap may be cut short, so it shows nothing."""
+    was not read. A list as long as GitHub's cap may be cut short, so it shows nothing, and a
+    payload that names no default branch can't name the compare's side, so none is sent."""
+    if not _default_branch(process.pr_data):
+        repo = f"{process.owner}/{process.repo_name}"
+        return _DefaultBranchChanges(
+            frozenset(), MESSAGES.pr.grounding_no_default_branch.format(repo=repo)
+        )
     try:
         files = _fetch_default_branch_changes(process)
     except GitHubOperationError as exc:
@@ -1627,7 +1633,7 @@ def _merge_hold(process: _ReleaseProcessPR) -> list[str] | None:
         return None
     fields = {
         "number": process.pr_num,
-        "default": _default_branch(process.pr_data),
+        "default": _default_branch(process.pr_data) or MESSAGES.pr.grounding_unnamed_default_branch,
         "base": _branch_ref(process.pr_data, "base"),
         "head": _branch_ref(process.pr_data, "head"),
     }
@@ -1695,8 +1701,9 @@ def _grounding_scope(
 ) -> tuple[bool, list[str]]:
     """Whether grounding applies to this PR, and the blockers that lead its checks.
 
-    The release PR is exempt, and so is a release-process PR that changes only what its kind
-    may, both before any lookup. A release-process PR that changes more leads with a blocker
+    The release PR is exempt before any lookup, and a release-process PR that changes only what
+    its kind may is exempt before the task-directory lookup; a merge of the default branch may
+    first read one compare request. A release-process PR that changes more leads with a blocker
     naming the rest. A lookup that fails for any reason but a 404 can't rule grounding out, so
     the check still applies and the failure is a blocker of its own.
     """

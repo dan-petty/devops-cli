@@ -660,6 +660,9 @@ class PRMessages:
     grounding_merge_changes_capped: str = (
         "GitHub listed {count} files, its limit, so the list may be cut short"
     )
+    # The PR payload names no default branch, so no compare is sent and the blocker names it.
+    grounding_unnamed_default_branch: str = "the default branch"
+    grounding_no_default_branch: str = "the pull request names no default branch for {repo}"
     grounding_release_files_changed: str = (
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
         "never conflict on them."

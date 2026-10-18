@@ -2535,6 +2535,22 @@ def test_an_unread_or_full_compare_holds_a_merge_of_main_to_grounding(
     ) == (True, True, True), blockers
 
 
+def test_a_merge_of_main_whose_default_branch_is_unnamed_is_held_without_a_compare() -> None:
+    """With no default branch in the payload no compare can name its side, so none is sent,
+    and the blocker says the default branch is unknown rather than leaving its name blank."""
+    base = {**_INTO_V0225, "repo": {"full_name": "dan-petty/devops-cli"}}
+    gh = _process_gh([_file("docs/0.md"), _file("uv.lock")])
+    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=base), gh=gh)
+    assert (blockers[0], _compare_reads(gh), "closes no issue" in blockers[1]) == (
+        "PR #335 is not grounded: the files the default branch changed since its merge base "
+        "with release/v0.2.25 could not be read, so nothing shows that chore/open-v0.2.25-main "
+        "only merges the default branch (the pull request names no default branch for "
+        "dan-petty/devops-cli).",
+        [],
+        True,
+    ), blockers
+
+
 @pytest.mark.parametrize(
     ("head", "base", "release_file_blockers"),
     [
