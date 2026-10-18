@@ -1,9 +1,6 @@
 # Task: The GitHub Session Owns Transport, Ledger, Error Classes and Link Pagination (#983)
 
 **Issue**: [#983](https://github.com/dan-petty/devops-cli/issues/983)
-**Status**: In Progress
-**Milestone**: v0.2.37
-**Priority**: priority/p1-high
 **Scope**: scope/github
 **Feasibility**: Read the gidgethub 6.0.0 wheel as locked. `gidgethub/httpx.py` imports `httpx2` before `httpx` and sends through the `httpx2.AsyncClient` it is given. `gidgethub/abc.py` awaits `handle_rate_limit_error(*, method, url, exception, attempt) -> bool` on every `HTTPException` and leaves the wait to the hook. `gidgethub/sansio.py`'s `RateLimit.from_http` reads `x-ratelimit-limit`, `-remaining` and `-reset` and returns None without all three, and `decipher_response` raises `RateLimitExceeded` only for a 403 with no quota left, `BadRequest` for a 429 and `GitHubBroken` for a 5xx. In httpx2 2.13.1, `URL.origin` is the scheme, lower-cased host and effective port, and `_send_handling_redirects` runs the request hooks before every hop. In anyio 4.15.1, `start_blocking_portal` runs its loop in a daemon thread and its context's exit calls `portal.call(portal.stop)`, which needs that thread. The plan's file and line references were rechecked at 30b8fdd: all still match except those in `config/constants.py`, whose symbols sit 459 lines lower, unchanged.
 
