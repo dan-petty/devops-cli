@@ -35,7 +35,6 @@ class BaseLLMProviderMixin:
 
     _config: AIConfig
     _api_key: str
-    _ollama_thinking_supported: bool | None
     _request_timeout_seconds: float | None
 
     @property

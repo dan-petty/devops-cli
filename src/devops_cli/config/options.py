@@ -24,6 +24,7 @@ AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
 AI_API_KEY = "ai.api_key"
 AI_REASONING_EFFORT = "ai.reasoning_effort"
+AI_SUPPORTS_REASONING = "ai.supports_reasoning"
 AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
 AI_MAX_RETRIES = "ai.max_retries"
 

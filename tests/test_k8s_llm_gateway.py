@@ -285,8 +285,7 @@ class TestK8sLLMGatewayManifests:
         ) == (
             True,
             _routes(review),
-            [(["litellm_params", "model_name"], ["api_base", "model", "num_retries"])]
-            * len(review),
+            [(sorted(m), ["api_base", "model", "num_retries"]) for m in review],
             False,
             [],
         )

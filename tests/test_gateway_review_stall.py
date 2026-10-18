@@ -367,6 +367,7 @@ class TestSingleRetryLayerAndStatusRules:
             return real_handle_request(transport, request)
 
         monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refuse_gateway)
+        monkeypatch.setattr("devops_cli.ai.gateway.fetch_model_info", lambda *args, **kwargs: [])
         retry_transport = create_retry_transport(
             max_attempts=5, min_wait=0.01, max_wait=0.02, wrapped=Transient503Transport()
         )

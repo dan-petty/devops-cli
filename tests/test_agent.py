@@ -65,9 +65,11 @@ def test_agent_stream() -> None:
     assert chunks == ["Hello", " ", "world!"]
 
 
-def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
+def test_ollama_stream_400_raises_client_error(mocker: MagicMock) -> None:
     import httpx2
+    import pytest
 
+    from devops_cli.ai.client import AIClientError
     from devops_cli.config.settings import AIConfig
 
     config = AIConfig(
@@ -85,15 +87,14 @@ def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
     mock_stream_req = mocker.patch.object(
         client,
         "_ollama_stream_request",
-        side_effect=[exc_400, iter(["Response ", "without ", "thinking"])],
+        side_effect=exc_400,
     )
 
-    chunks = list(
-        client._ollama_stream("sys", [{"role": "user", "content": "hi"}], enable_thinking=True)
-    )
-    assert "".join(chunks) == "Response without thinking"
-    assert client._ollama_thinking_supported is False
-    assert mock_stream_req.call_count == 2
+    with pytest.raises(AIClientError, match="HTTP 400"):
+        list(
+            client._ollama_stream("sys", [{"role": "user", "content": "hi"}], enable_thinking=True)
+        )
+    assert mock_stream_req.call_count == 1
 
 
 def test_multi_agent_pipeline() -> None:

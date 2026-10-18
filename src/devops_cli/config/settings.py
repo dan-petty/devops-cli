@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
     DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_SUPPORTS_REASONING,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
@@ -426,6 +427,7 @@ class AITaskOverride(BaseModel):
     provider: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    supports_reasoning: bool | None = None
     temperature: float | None = None
     top_p: float | None = None
     context_window: int | None = None
@@ -460,6 +462,7 @@ class AIConfig(BaseModel):
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
     hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
+    supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
     temperature: float = DEFAULT_AI_TEMPERATURE
     top_p: float = DEFAULT_AI_TOP_P
     context_window: int = DEFAULT_AI_CONTEXT_WINDOW
@@ -550,6 +553,7 @@ class AIConfig(BaseModel):
                 "provider": override.provider,
                 "model": override.model,
                 "reasoning_effort": override.reasoning_effort,
+                "supports_reasoning": override.supports_reasoning,
                 "temperature": override.temperature,
                 "top_p": override.top_p,
                 "context_window": override.context_window,

@@ -12,7 +12,6 @@ import httpx2
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import (
     LLMResponse,
-    is_reasoning_model,
     provider_finish_reason,
 )
 from devops_cli.ai.client.network import (
@@ -58,12 +57,29 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
+    def _supports_reasoning(self) -> bool:
+        """Return True if model declared reasoning capability via gateway or direct config."""
+        if getattr(self._config, "supports_reasoning", False):
+            return True
+        if self._config.provider == "gateway":
+            from devops_cli.ai.gateway import is_gateway_model_reasoning
+
+            gw_url = getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL
+            allow_private = getattr(self._config, "allow_private_network", False)
+            return is_gateway_model_reasoning(
+                self._config.model,
+                gateway_url=gw_url,
+                allow_private=allow_private,
+                api_key=self._api_key,
+            )
+        return False
+
     def _apply_reasoning_params(
         self, payload: dict[str, Any], limit: int | None, enable_thinking: bool
     ) -> None:
         """Apply reasoning-specific parameters to the request payload."""
-        effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
-        if effort:
+        if enable_thinking:
+            effort = self._config.reasoning_effort or "medium"
             payload["reasoning_effort"] = effort
         if limit is not None:
             payload["max_completion_tokens"] = limit
@@ -103,7 +119,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             payload["stream"] = True
 
         limit = self._completion_limit()
-        if is_reasoning_model(self._config.model):
+        if self._supports_reasoning():
             self._apply_reasoning_params(payload, limit, enable_thinking)
         else:
             self._apply_standard_params(payload, limit, stream)

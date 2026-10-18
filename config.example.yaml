@@ -90,6 +90,7 @@ ai:
   # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
   model: qwen3.8:27b
   # reasoning_effort: low  # Reasoning effort level: low | medium | high
+  # supports_reasoning: false  # Set true if model natively supports reasoning / thinking parameters
 
   # Reference model used for counterfactual cloud spend calculations and hardware payoff.
   # Defaults to gpt-4o-mini.

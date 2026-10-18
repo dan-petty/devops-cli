@@ -207,13 +207,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         use_thinking: bool,
         max_par: int = 1,
     ) -> LLMResponse:
-        """Attempt single Ollama request with fallback if thinking is unsupported."""
+        """Attempt single Ollama request."""
         try:
             return self._ollama_request(base, system, messages, use_thinking)
         except httpx2.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
-                self._ollama_thinking_supported = False
-                return self._ollama_request(base, system, messages, think=False)
             if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
                 raise httpx2.RequestError(
                     f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
@@ -244,9 +241,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
                     base = self._validate_base_url(leased_url, purpose="Ollama")
-                    use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                     return self._try_single_ollama_request(
-                        base, leased_url, system, messages, use_thinking
+                        base, leased_url, system, messages, enable_thinking
                     )
             except (
                 httpx2.ConnectError,
@@ -289,9 +285,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 *[m.to_dict() for m in messages],
             ],
         }
-        payload["think"] = bool(think)
-        if self._config.reasoning_effort:
-            payload["reasoning_effort"] = self._config.reasoning_effort
+        if think and getattr(self._config, "supports_reasoning", False):
+            payload["think"] = True
+            if self._config.reasoning_effort:
+                payload["reasoning_effort"] = self._config.reasoning_effort
         ollama_opts: dict[str, Any] = {}
         temp = getattr(self._config, "temperature", None)
         if temp is not None:
@@ -319,8 +316,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             headers=headers,
             timeout=self._request_timeout(),
         )
-        if think and self._ollama_thinking_supported is None:
-            self._ollama_thinking_supported = True
         wall_elapsed = time.monotonic() - start_time
 
         msg = raw_res.get("message", {})
@@ -389,15 +384,11 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         use_thinking: bool,
         max_par: int = 1,
     ) -> Generator[str]:
-        """Attempt single Ollama stream with fallback if thinking unsupported."""
+        """Attempt single Ollama stream."""
         try:
             yield from self._ollama_stream_request(base, system, messages, think=use_thinking)
             return
         except httpx2.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
-                self._ollama_thinking_supported = False
-                yield from self._ollama_stream_request(base, system, messages, think=False)
-                return
             if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
                 raise httpx2.RequestError(
                     f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
@@ -429,9 +420,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
                     base = self._validate_base_url(leased_url, purpose="Ollama")
-                    use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                     yield from self._try_single_ollama_stream(
-                        base, leased_url, system, messages, use_thinking
+                        base, leased_url, system, messages, enable_thinking
                     )
                     return
             except (
@@ -465,9 +455,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 *[m.to_dict() for m in messages],
             ],
         }
-        payload["think"] = bool(think)
-        if self._config.reasoning_effort:
-            payload["reasoning_effort"] = self._config.reasoning_effort
+        if think and getattr(self._config, "supports_reasoning", False):
+            payload["think"] = True
+            if self._config.reasoning_effort:
+                payload["reasoning_effort"] = self._config.reasoning_effort
         http_client = self._shared_client()
         with http_client.stream(
             "POST", f"{base}/api/chat", json=payload, timeout=self._request_timeout()
@@ -475,8 +466,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             if response.status_code >= 400:
                 response.read()
             response.raise_for_status()
-            if think and self._ollama_thinking_supported is None:
-                self._ollama_thinking_supported = True
             yield from _read_ndjson_stream(response, _ollama_stream_frame, "Ollama")
 
     def _fetch_ollama_tags(self, base: str) -> list[str]:

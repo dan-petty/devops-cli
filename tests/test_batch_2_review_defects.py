@@ -267,20 +267,20 @@ def test_reasoning_models_use_max_completion_tokens() -> None:
         "vendor/qwq-32b",
     ]
     for m in models_to_test:
-        provider = LLMClient(
-            config=AIConfig(
-                provider="openai",
-                model=m,
-                max_tokens=4096,
-                reasoning_effort="high",
-            )
+        cfg = AIConfig(
+            provider="openai",
+            model=m,
+            max_tokens=4096,
+            reasoning_effort="high",
+            supports_reasoning=True,
         )
+        provider = LLMClient(config=cfg)
         payload = provider._build_compat_payload(
             system="system prompt",
             messages=[ChatMessage(role="user", content="hello")],
         )
         assert (
-            is_reasoning_model(m),
+            is_reasoning_model(m, config=cfg),
             "max_completion_tokens" in payload,
             "max_tokens" not in payload,
             payload.get("reasoning_effort"),

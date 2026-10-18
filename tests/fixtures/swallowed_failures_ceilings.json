@@ -44,7 +44,6 @@
   "src/devops_cli/ai/output/__init__.py": 2,
   "src/devops_cli/ai/personas/__init__.py": 1,
   "src/devops_cli/ai/pipeline_protocol.py": 6,
-  "src/devops_cli/ai/profiles/__init__.py": 2,
   "src/devops_cli/ai/providers/ollama.py": 1,
   "src/devops_cli/ai/rag/drift.py": 4,
   "src/devops_cli/ai/rag/embeddings.py": 12,

@@ -26,43 +26,77 @@ def _make_resp(status_code: int = 200, json_data: dict[str, Any] | None = None) 
     return httpx2.Response(status_code, request=req, json=json_data)
 
 
-class TestReasoningModelDetection:
-    """Validate reasoning model classification heuristics."""
+class TestReasoningCapabilityResolution:
+    """Validate reasoning model capability resolution from config and gateway declarations."""
 
-    def test_detects_openai_reasoning_models(self) -> None:
-        assert is_reasoning_model("o1") is True
-        assert is_reasoning_model("o1-mini") is True
-        assert is_reasoning_model("o1-preview") is True
-        assert is_reasoning_model("o3-mini") is True
-        assert is_reasoning_model("o3") is True
-        assert is_reasoning_model("o4-preview") is True
-        assert is_reasoning_model("gpt-4o") is False
-        assert is_reasoning_model("gpt-4o-mini") is False
+    def test_undeclared_models_default_to_not_reasoning(self) -> None:
+        """Models without declared reasoning capability return False."""
+        models = [
+            "o1",
+            "o1-mini",
+            "o3",
+            "o3-mini",
+            "o4-preview",
+            "gpt-4o",
+            "claude-3-7-sonnet:thinking",
+            "deepseek-r1",
+            "devops-reasoning",
+            "devops-review",
+            "qwen2.5-coder:7b",
+        ]
+        assert all(not is_reasoning_model(m) for m in models)
 
-    def test_detects_claude_reasoning_models(self) -> None:
-        assert is_reasoning_model("claude-3-7-sonnet-20250219:thinking") is True
-        assert is_reasoning_model("claude-3-7-sonnet:thinking") is True
-        assert is_reasoning_model("claude-3-5-sonnet") is False
-
-    def test_detects_open_weights_reasoning_models(self) -> None:
+    def test_declared_model_via_config_returns_true(self) -> None:
+        """Explicit supports_reasoning in AIConfig marks model as reasoning."""
+        cfg_declared = AIConfig(model="o3", supports_reasoning=True)
+        cfg_undeclared = AIConfig(model="o3", supports_reasoning=False)
         assert (
-            is_reasoning_model("deepseek-r1"),
-            is_reasoning_model("deepseek-r1:32b"),
-            is_reasoning_model("deepseek-reasoner"),
-            is_reasoning_model("devops-reasoning"),
-            is_reasoning_model("qwq-32b"),
-            is_reasoning_model("qwen2.5-coder:7b"),
-            is_reasoning_model("devops-review"),
-        ) == (True, True, True, True, True, False, False)
+            is_reasoning_model("o3", config=cfg_declared),
+            is_reasoning_model("o3", config=cfg_undeclared),
+        ) == (True, False)
+
+    def test_gateway_model_info_parsing(self) -> None:
+        """Fake /model/info payload checks that only unanimously declared models reason."""
+        from devops_cli.ai.gateway import parse_gateway_reasoning_models
+
+        fake_info = [
+            {
+                "model_name": "gpt-oss:20b",
+                "litellm_params": {"model": "ollama_chat/gpt-oss:20b"},
+                "model_info": {"supports_reasoning": True},
+            },
+            {
+                "model_name": "devops-review",
+                "litellm_params": {"model": "ollama_chat/qwen3-coder:30b"},
+                "model_info": {},
+            },
+            {
+                "model_name": "devops-review",
+                "litellm_params": {"model": "ollama_chat/gpt-oss:20b"},
+                "model_info": {"supports_reasoning": True},
+            },
+            {
+                "model_name": "qwen3-coder:30b",
+                "litellm_params": {"model": "ollama_chat/qwen3-coder:30b"},
+                "model_info": {},
+            },
+        ]
+        capabilities = parse_gateway_reasoning_models(fake_info)
+        assert (
+            capabilities.get("gpt-oss:20b"),
+            capabilities.get("devops-review"),
+            capabilities.get("qwen3-coder:30b"),
+            capabilities.get("o3"),
+        ) == (True, False, False, None)
 
 
 class TestOpenAIReasoningPayloadAndParsing:
-    """Validate OpenAI-compatible payload adaptation for reasoning models (o1, o3-mini, DeepSeek)."""
+    """Validate OpenAI-compatible payload adaptation for declared reasoning models."""
 
     def test_openai_reasoning_payload_omits_temperature_and_uses_max_completion_tokens(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """o1/o3 reasoning models must omit temperature and use max_completion_tokens."""
+        """Declared reasoning models must omit temperature and use max_completion_tokens."""
         captured_payload: dict[str, Any] = {}
 
         def mock_post(request: httpx2.Request) -> httpx2.Response:
@@ -82,6 +116,7 @@ class TestOpenAIReasoningPayloadAndParsing:
         cfg = AIConfig(
             provider="openai",
             model="o3-mini",
+            supports_reasoning=True,
             temperature=0.7,
             max_tokens=4000,
             reasoning_effort="high",
@@ -90,11 +125,91 @@ class TestOpenAIReasoningPayloadAndParsing:
         client = LLMClient(cfg, api_key="sk-test-token")
         res = client.chat("System instructions", "Solve this logic problem")
 
-        assert "temperature" not in captured_payload
-        assert "max_tokens" not in captured_payload
-        assert captured_payload.get("max_completion_tokens") == 4000
-        assert captured_payload.get("reasoning_effort") == "high"
-        assert res.text == "Reasoned response"
+        assert (
+            "temperature" in captured_payload,
+            "max_tokens" in captured_payload,
+            captured_payload.get("max_completion_tokens"),
+            captured_payload.get("reasoning_effort"),
+            res.text,
+        ) == (False, False, 4000, "high", "Reasoned response")
+
+    def test_openai_undeclared_o3_model_gets_standard_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A model named o3 with no declaration gets standard parameters."""
+        captured_payload: dict[str, Any] = {}
+
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
+            nonlocal captured_payload
+            if "chat/completions" in str(request.url):
+                captured_payload = json.loads(request.content)
+            return _make_resp(
+                200,
+                {
+                    "choices": [{"message": {"content": "Standard response", "role": "assistant"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                },
+            )
+
+        route_llm_clients(monkeypatch, mock_post)
+
+        cfg = AIConfig(
+            provider="openai",
+            model="o3",
+            temperature=0.7,
+            max_tokens=4000,
+            reasoning_effort="high",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg, api_key="sk-test-token")
+        res = client.chat("System instructions", "Solve this problem")
+
+        assert (
+            "reasoning_effort" in captured_payload,
+            "max_completion_tokens" in captured_payload,
+            captured_payload.get("max_tokens"),
+            captured_payload.get("temperature"),
+            res.text,
+        ) == (False, False, 4000, 0.7, "Standard response")
+
+    def test_openai_reasoning_disabled_thinking_omits_reasoning_effort(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When thinking is disabled on a reasoning model, no reasoning parameter is sent."""
+        captured_payload: dict[str, Any] = {}
+
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
+            nonlocal captured_payload
+            if "chat/completions" in str(request.url):
+                captured_payload = json.loads(request.content)
+            return _make_resp(
+                200,
+                {
+                    "choices": [{"message": {"content": "Direct response", "role": "assistant"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                },
+            )
+
+        route_llm_clients(monkeypatch, mock_post)
+
+        cfg = AIConfig(
+            provider="openai",
+            model="gpt-oss:20b",
+            supports_reasoning=True,
+            temperature=0.7,
+            max_tokens=4000,
+            reasoning_effort="high",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg, api_key="sk-test-token")
+        res = client.chat("System instructions", "Answer directly", enable_thinking=False)
+
+        assert (
+            "reasoning_effort" in captured_payload,
+            "temperature" in captured_payload,
+            captured_payload.get("max_completion_tokens"),
+            res.text,
+        ) == (False, False, 4000, "Direct response")
 
     def test_openai_non_reasoning_payload_omits_reasoning_effort(
         self, monkeypatch: pytest.MonkeyPatch
@@ -294,3 +409,190 @@ class TestStreamingThinkingExtractors:
         data = '{"choices": [{"delta": {"reasoning_content": "step 1 reasoning"}}]}'
         frame = _openai_stream_frame(httpx2.ServerSentEvent(data=data))
         assert frame == StreamFrame(chunk="<think>step 1 reasoning</think>")
+
+
+class TestGatewayReasoningPayloadRouting:
+    """Validate gateway parameter routing based on /model/info capability declarations."""
+
+    def test_gateway_declared_reasoning_model_gets_reasoning_parameters(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When gateway /model/info declares supports_reasoning, reasoning params are applied."""
+        from devops_cli.ai.gateway import clear_gateway_reasoning_cache
+
+        clear_gateway_reasoning_cache()
+        captured_payload: dict[str, Any] = {}
+
+        monkeypatch.setattr(
+            "devops_cli.ai.gateway.fetch_model_info",
+            lambda *args, **kwargs: [
+                {
+                    "model_name": "gpt-oss:20b",
+                    "model_info": {"supports_reasoning": True},
+                }
+            ],
+        )
+
+        def mock_handler(request: httpx2.Request) -> httpx2.Response:
+            nonlocal captured_payload
+            url_str = str(request.url)
+            if "chat/completions" in url_str:
+                captured_payload = json.loads(request.content)
+                return _make_resp(
+                    200,
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": "Gateway reasoning response",
+                                    "role": "assistant",
+                                }
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                    },
+                )
+            return _make_resp(404)
+
+        route_llm_clients(monkeypatch, mock_handler)
+
+        cfg = AIConfig(
+            provider="gateway",
+            model="gpt-oss:20b",
+            gateway_url="http://localhost:4000/v1",
+            temperature=0.7,
+            max_tokens=4000,
+            reasoning_effort="medium",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg)
+        res = client.chat("System", "Reason through this")
+
+        assert (
+            "temperature" in captured_payload,
+            "max_tokens" in captured_payload,
+            captured_payload.get("max_completion_tokens"),
+            captured_payload.get("reasoning_effort"),
+            res.text,
+        ) == (False, False, 4000, "medium", "Gateway reasoning response")
+
+    def test_gateway_mixed_deployment_group_gets_standard_parameters(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When a model group has mixed deployments, standard parameters are used."""
+        from devops_cli.ai.gateway import clear_gateway_reasoning_cache
+
+        clear_gateway_reasoning_cache()
+        captured_payload: dict[str, Any] = {}
+
+        monkeypatch.setattr(
+            "devops_cli.ai.gateway.fetch_model_info",
+            lambda *args, **kwargs: [
+                {
+                    "model_name": "devops-review",
+                    "model_info": {"supports_reasoning": True},
+                },
+                {
+                    "model_name": "devops-review",
+                    "model_info": {},
+                },
+            ],
+        )
+
+        def mock_handler(request: httpx2.Request) -> httpx2.Response:
+            nonlocal captured_payload
+            url_str = str(request.url)
+            if "chat/completions" in url_str:
+                captured_payload = json.loads(request.content)
+                return _make_resp(
+                    200,
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": "Standard review response",
+                                    "role": "assistant",
+                                }
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                    },
+                )
+            return _make_resp(404)
+
+        route_llm_clients(monkeypatch, mock_handler)
+
+        cfg = AIConfig(
+            provider="gateway",
+            model="devops-review",
+            gateway_url="http://localhost:4000/v1",
+            temperature=0.2,
+            max_tokens=4000,
+            reasoning_effort="high",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg)
+        res = client.chat("System", "Review code")
+
+        assert (
+            "reasoning_effort" in captured_payload,
+            "max_completion_tokens" in captured_payload,
+            captured_payload.get("max_tokens"),
+            captured_payload.get("temperature"),
+            res.text,
+        ) == (False, False, 4000, 0.2, "Standard review response")
+
+    def test_gateway_disabled_thinking_omits_reasoning_effort(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When enable_thinking=False on gateway reasoning model, reasoning_effort is omitted."""
+        from devops_cli.ai.gateway import clear_gateway_reasoning_cache
+
+        clear_gateway_reasoning_cache()
+        captured_payload: dict[str, Any] = {}
+
+        monkeypatch.setattr(
+            "devops_cli.ai.gateway.fetch_model_info",
+            lambda *args, **kwargs: [
+                {
+                    "model_name": "gpt-oss:20b",
+                    "model_info": {"supports_reasoning": True},
+                }
+            ],
+        )
+
+        def mock_handler(request: httpx2.Request) -> httpx2.Response:
+            nonlocal captured_payload
+            url_str = str(request.url)
+            if "chat/completions" in url_str:
+                captured_payload = json.loads(request.content)
+                return _make_resp(
+                    200,
+                    {
+                        "choices": [
+                            {"message": {"content": "Direct response", "role": "assistant"}}
+                        ],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                    },
+                )
+            return _make_resp(404)
+
+        route_llm_clients(monkeypatch, mock_handler)
+
+        cfg = AIConfig(
+            provider="gateway",
+            model="gpt-oss:20b",
+            gateway_url="http://localhost:4000/v1",
+            temperature=0.7,
+            max_tokens=4000,
+            reasoning_effort="high",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg)
+        res = client.chat("System", "Direct answer", enable_thinking=False)
+
+        assert (
+            "reasoning_effort" in captured_payload,
+            captured_payload.get("max_completion_tokens"),
+            res.text,
+        ) == (False, 4000, "Direct response")
