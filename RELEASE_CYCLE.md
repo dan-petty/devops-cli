@@ -208,6 +208,8 @@ uv run devops release prepare X.Y.Z --create-pr
    - On pull requests, the advisory **Changed-Test Independence** job: each added or modified test file runs three times, one run after another, each in a shuffled order (`devops ci test --repeat 3`)
 2. `ci.yml`'s **Service Image** job builds, smoke-tests and scans the release PR's image without pushing; `release.yml` publishes it after the merge (Step 5).
 3. Maintainers review the release diff, changelog, and documentation updates.
+4. Copilot reviews the release PR, and only it (ADR 0004). Its passes are held to `release_copilot_passes` in `.github/roadmap.toml`, 2 unless the file sets it: every Copilot review submitted on the release PR counts, whoever asked for it, the pass when it opens included, and so does a pass still running. Nothing is stored, so each release PR starts with the whole budget. A person requests a further pass, or the first when the ruleset gave none, with `uv run devops pr copilot-pass <pr>`; `--dry-run` lists the requests it would make. Once the passes are spent it requests nothing, prints `Copilot budget spent: N of N passes`, and exits 1.
+5. **The stop rule**: once the budget is spent, a remaining Copilot comment blocks the release only if it is a regression the release introduces, which is fixed in the release branch before the release PR merges. Every other remaining comment becomes a follow-up issue: file it, reply in the thread with its number, and resolve the thread, so the release PR's unresolved threads are only the regressions.
 
 ### A Critical Fix While the Release PR Is Open
 Opening the release PR cuts the release, and a critical fix (P0 with `type/bug` or `type/security`) still joins it, so the release branch holds every change before the release PR merges:

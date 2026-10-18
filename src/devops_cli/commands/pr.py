@@ -61,6 +61,12 @@ from devops_cli.github.defect_classifier import (
 )
 from devops_cli.github.error_classifier import gh_http_status, is_gh_rate_limited
 from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
+from devops_cli.github.pr_branches import (
+    branch_ref,
+    default_branch,
+    is_release_pr,
+    same_repository,
+)
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -1455,47 +1461,15 @@ def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
         print_warning(format_covering_suppressions(covering))
 
 
-def _repo_full_name(side: dict[str, Any]) -> str:
-    """The `owner/repo` one side of a pull request lives in, lower-cased; empty when unknown."""
-    repo = side.get("repo")
-    return str(repo.get("full_name") or "").lower() if isinstance(repo, dict) else ""
-
-
-def _same_repository(pr_data: dict[str, Any]) -> bool:
-    """Whether the PR's head lives in its base's repository rather than a fork."""
-    head, base = pr_data.get("head") or {}, pr_data.get("base") or {}
-    return _repo_full_name(head) != "" and _repo_full_name(head) == _repo_full_name(base)
-
-
-def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
-    """The branch name on one side (`head` or `base`) of a pull request."""
-    return str((pr_data.get(side) or {}).get("ref") or "")
-
-
-def _default_branch(pr_data: dict[str, Any]) -> str:
-    """The default branch of the PR's base repository; empty when unknown."""
-    base = pr_data.get("base") or {}
-    return str((base.get("repo") or {}).get("default_branch") or "")
-
-
-def _is_release_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
-    default_branch = _default_branch(pr_data)
-    into_default = default_branch != "" and _branch_ref(pr_data, "base") == default_branch
-    head_ref = _branch_ref(pr_data, "head")
-    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(head_ref) is not None
-    return _same_repository(pr_data) and into_default and release_head
-
-
 def _release_process_kind(pr_data: dict[str, Any]) -> str | None:
     """The kind of release-process PR this is, `cut` or `open`; None for any other PR.
 
     Its head is `chore/cut-vX.Y.Z` or `chore/open-vX.Y.Z`, optionally followed by `-<slug>`,
     from the same repository, and its base is `release/vX.Y.Z` of the same version.
     """
-    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head"))
-    release = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "base"))
-    if process is None or release is None or not _same_repository(pr_data):
+    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(branch_ref(pr_data, "head"))
+    release = CONST_RELEASE_BRANCH_RE.fullmatch(branch_ref(pr_data, "base"))
+    if process is None or release is None or not same_repository(pr_data):
         return None
     return process["kind"] if process["version"] == release["version"] else None
 
@@ -1568,7 +1542,7 @@ def _cut_hold(process: _ReleaseProcessPR) -> list[str] | None:
         number=process.pr_num,
         cut_files=", ".join(CONST_RELEASE_CUT_FILES),
         fragments=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/<issue>.md",
-        head=_branch_ref(process.pr_data, "head"),
+        head=branch_ref(process.pr_data, "head"),
         outside=_named_paths(outside),
     )
     return [blocker]
@@ -1587,7 +1561,7 @@ def _fetch_default_branch_changes(process: _ReleaseProcessPR) -> list[ChangedFil
     default branch's tip.
     """
     base = process.pr_data.get("base") or {}
-    sides = (str(base.get("sha") or base.get("ref") or ""), _default_branch(process.pr_data))
+    sides = (str(base.get("sha") or base.get("ref") or ""), default_branch(process.pr_data))
     spec = "...".join(quote(side, safe="/") for side in sides)
     query = urlencode({"per_page": CONST_GH_COMPARE_COMMITS_PER_PAGE})
     endpoint = f"repos/{process.owner}/{process.repo_name}/compare/{spec}?{query}"
@@ -1599,7 +1573,7 @@ def _read_default_branch_changes(process: _ReleaseProcessPR) -> _DefaultBranchCh
     """What the default branch changed since its merge base with the PR's base, or why that
     was not read. A list as long as GitHub's cap may be cut short, so it shows nothing, and a
     payload that names no default branch can't name the compare's side, so none is sent."""
-    if not _default_branch(process.pr_data):
+    if not default_branch(process.pr_data):
         repo = f"{process.owner}/{process.repo_name}"
         return _DefaultBranchChanges(
             frozenset(), MESSAGES.pr.grounding_no_default_branch.format(repo=repo)
@@ -1626,9 +1600,9 @@ def _merge_hold(process: _ReleaseProcessPR) -> list[str] | None:
         return None
     fields = {
         "number": process.pr_num,
-        "default": _default_branch(process.pr_data) or MESSAGES.pr.grounding_unnamed_default_branch,
-        "base": _branch_ref(process.pr_data, "base"),
-        "head": _branch_ref(process.pr_data, "head"),
+        "default": default_branch(process.pr_data) or MESSAGES.pr.grounding_unnamed_default_branch,
+        "base": branch_ref(process.pr_data, "base"),
+        "head": branch_ref(process.pr_data, "head"),
     }
     default_changes = _read_default_branch_changes(process)
     if default_changes.error:
@@ -1699,7 +1673,7 @@ def _grounding_scope(
     naming the rest. A lookup that fails for any reason but a 404 can't rule grounding out, so
     the check still applies and the failure is a blocker of its own.
     """
-    if _is_release_pr(pr_data):
+    if is_release_pr(pr_data):
         return False, []
     held = _release_process_hold(pr_data, pr_num, owner, repo_name, changed)
     if held is None:
@@ -2017,7 +1991,7 @@ def _grounding_blockers(
         return []
     repo = f"{owner}/{repo_name}"
     body = str(pr_data.get("body") or "")
-    base = _branch_ref(pr_data, "base")
+    base = branch_ref(pr_data, "base")
     issues = [issue.number for issue in extract_linked_issues(body, repo)]
     named = _Grounding(pr_num, repo, base, issues, extract_part_references(body, repo), changed)
     grounding = named._replace(
@@ -2878,6 +2852,45 @@ def hardening_report_cmd(
         _audit_all_defect_prs(
             limit=limit, repo=repo, output_format=output_format, fail_on_missing=fail_on_missing
         )
+
+
+# =============================================================================
+# Command: devops pr copilot-pass
+# =============================================================================
+
+
+@app.command("copilot-pass", help=HELP.pr.copilot_pass)
+def copilot_pass(
+    number: Annotated[int | None, typer.Argument(help=HELP.pr.copilot_pass_number)] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Request one Copilot pass on the release pull request while its budget lasts (#1345)."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.github.copilot_budget import plan_copilot_pass, request_copilot_pass
+
+    _require_gh_cli()
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error(ERRORS.pr.invalid_target_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        plan = plan_copilot_pass(target_repo, number)
+        heading = MESSAGES.pr.copilot_pass_dry_run_heading
+        render_request_plan(heading, plan, (MESSAGES.dry_run.placeholders_note,))
+        return
+    owner, repo_name = target_repo.split("/", 1)
+    pr_number = _resolve_monitor_pr_number(number, owner, repo_name)
+    try:
+        passes = request_copilot_pass(owner, repo_name, pr_number)
+    except DevOpsCLIError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+    requested = MESSAGES.pr.copilot_pass_requested
+    print_success(
+        requested.format(pass_number=passes.used + 1, budget=passes.budget, number=pr_number)
+    )
 
 
 # =============================================================================

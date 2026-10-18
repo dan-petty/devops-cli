@@ -11,7 +11,12 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field, model_validator
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_MAX_ERROR_DETAIL_LENGTH
+from devops_cli.config.constants import (
+    CONST_COPILOT_REVIEWER_LOGINS,
+    CONST_GH_CLI,
+    CONST_GITHUB_REVIEW_AUTHOR_KEYS,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+)
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
@@ -246,8 +251,8 @@ def _process_single_timeline_event(
     if evt_name == "copilot_work_started":
         return True, "copilot_work_started"
     if evt_name == "reviewed":
-        evt_author = _extract_timeline_author(evt).lower()
-        if not evt_author or "copilot" in evt_author:
+        evt_author = _extract_timeline_author(evt)
+        if not evt_author or is_copilot_login(evt_author):
             return False, "reviewed"
     return current_state
 
@@ -261,13 +266,23 @@ def _timeline_copilot_state(events: Iterable[Any]) -> tuple[bool, str]:
     return state
 
 
-def _is_copilot_review_dict(r: Any) -> bool:
-    """Predicate determining whether a review record originates from Copilot."""
-    if not isinstance(r, dict):
+def is_copilot_login(login: str) -> bool:
+    """Whether `login` is Copilot code review's bot: exactly one of the logins GitHub gives it,
+    never any login that merely contains "copilot" (#1345)."""
+    return login in CONST_COPILOT_REVIEWER_LOGINS
+
+
+def _login_of(account: Any) -> str:
+    """The login of a REST `user` or GraphQL `author` object; empty when it names none."""
+    return str(account.get("login") or "") if isinstance(account, dict) else ""
+
+
+def is_copilot_review(review: Any) -> bool:
+    """Whether a review record is Copilot's: its REST `user` or GraphQL `author` is Copilot's."""
+    if not isinstance(review, dict):
         return False
-    author = str(r.get("author", {}).get("login", "")).lower()
-    user = str(r.get("user", {}).get("login", "")).lower()
-    return "copilot" in author or "copilot" in user
+    authors = (review.get(key) for key in CONST_GITHUB_REVIEW_AUTHOR_KEYS)
+    return any(is_copilot_login(_login_of(author)) for author in authors)
 
 
 def _is_copilot_changes_recommended(body: str) -> bool:
@@ -298,7 +313,7 @@ def _extract_latest_copilot_review(
     reviews: list[dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, bool, str, str]:
     """Extract latest Copilot review and determine requested changes status."""
-    copilot_reviews = [r for r in reviews if _is_copilot_review_dict(r)]
+    copilot_reviews = [r for r in reviews if is_copilot_review(r)]
     copilot_reviews.sort(key=lambda r: str(r.get("submittedAt") or r.get("submitted_at") or ""))
     latest_review = copilot_reviews[-1] if copilot_reviews else None
     has_changes, latest_state, last_time = _check_review_changes_requested(latest_review)
@@ -546,7 +561,7 @@ def _extract_latest_reviews_by_user(
     """Map each reviewer to their latest review state and target commit ID."""
     latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
-        if not isinstance(r, dict) or _is_copilot_review_dict(r):
+        if not isinstance(r, dict) or is_copilot_review(r):
             continue
         user = str(
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")

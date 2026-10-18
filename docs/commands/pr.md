@@ -331,6 +331,29 @@ devops pr hardening-report [OPTIONS]
 
 ---
 
+## `devops pr copilot-pass`
+
+**Request one Copilot review pass on the release pull request while its passes, every Copilot review submitted and one still running, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request is refused, since Copilot reviews only the release pull request.**
+
+```bash
+devops pr copilot-pass [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Release pull request number; the current branch's pull request when omitted. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops pr threads`
 
 ```bash

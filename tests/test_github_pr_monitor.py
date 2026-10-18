@@ -1256,10 +1256,26 @@ def test_a_timeline_page_that_is_no_list_leaves_the_copilot_state_unread(
         pytest.param(
             [
                 {"event": "copilot_work_started"},
-                {"event": "reviewed", "author": "copilot-swe-reviewer"},
+                {"event": "reviewed", "user": {"login": "copilot-pull-request-reviewer[bot]"}},
             ],
             (False, "reviewed"),
             id="copilot-review-ends-the-work",
+        ),
+        pytest.param(
+            [
+                {"event": "copilot_work_started"},
+                {"event": "reviewed", "author": "copilot-pull-request-reviewer"},
+            ],
+            (False, "reviewed"),
+            id="copilot-graphql-login-ends-the-work",
+        ),
+        pytest.param(
+            [
+                {"event": "copilot_work_started"},
+                {"event": "reviewed", "user": {"login": "copilot-fan"}},
+            ],
+            (True, "copilot_work_started"),
+            id="a-person-named-after-copilot-leaves-copilot-working",
         ),
         pytest.param(
             ["not an event", {"event": "copilot_work_started"}],
@@ -1302,3 +1318,28 @@ def test_a_failed_reviews_read_is_reported_with_no_reviews(github_api: GitHubApi
     github_api.route("GET", _REVIEWS, github_json({"message": "Bad Gateway"}, status=502))
     reviews = _fetch_raw_reviews("octo", "repo", 168)
     assert (list(reviews), "HTTP 502" in reviews.error) == ([], True)
+
+
+def test_a_review_by_a_user_whose_login_contains_copilot_is_not_copilots(
+    github_api: GitHubApiFake,
+) -> None:
+    """Only Copilot's own logins make a review Copilot's (#1345): a person named copilot-fan who
+    recommends changes and approves is a person reviewing, so Copilot is idle and the approval
+    counts."""
+    from devops_cli.github.pr_monitor import _detect_copilot_status, _resolve_review_decision
+
+    reviews = [
+        {
+            "user": {"login": "copilot-fan", "type": "User"},
+            "state": "APPROVED",
+            "commit_id": "7316135",
+            "body": "### Changes recommended\n\nRename this.",
+            "submitted_at": "2026-10-18T10:00:00Z",
+        }
+    ]
+    github_api.route("GET", _TIMELINE_168, github_json([]))
+    status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews)
+    assert (status.state, _resolve_review_decision(reviews, head_sha="7316135")) == (
+        "idle",
+        "APPROVED",
+    )

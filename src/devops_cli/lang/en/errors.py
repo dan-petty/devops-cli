@@ -298,6 +298,7 @@ class PRErrorMessages:
         "✗ Remote CI checks failed on PR #{number} ({failed_count} failing check(s))."
     )
     unresolved_threads: str = "✗ PR #{number} has {count} unresolved review discussion thread(s)."
+    invalid_target_repo: str = "Target repository must be in OWNER/REPO format."
 
 
 @dataclass(frozen=True)

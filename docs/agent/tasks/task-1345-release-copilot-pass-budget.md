@@ -1,0 +1,47 @@
+# Task: A Release Pull Request Gets a Set Number of Copilot Passes, and Later Review Threads Become Follow-Up Issues (#1345)
+
+**Issue**: [#1345](https://github.com/dan-petty/devops-cli/issues/1345)
+**Scope**: scope/github, scope/release
+**Feasibility**: The installed gh 2.102.0, the version `Dockerfile` pins, documents in `gh pr edit --help`: "Add or re-request reviewers by their login. Use "@copilot" to request review from Copilot." Its source (`pkg/cmd/pr/edit/edit.go`, `pkg/cmd/pr/shared/params.go`) replaces `@copilot` with `CopilotReviewerLogin`, `copilot-pull-request-reviewer` (`api/queries_repo.go:1143`), sends it as a bot login of the `requestReviewsByLogin` mutation and keeps the reviewers already requested; gh offers a reviewer as Copilot only when its GraphQL `__typename` is `Bot` and its login is exactly that one (`api/queries_pr_review.go:640`). GitHub's REST reference for "List reviews for a pull request" gives each review a required `user`, a Simple User whose `login` and `type` are required, and GitHub's Copilot code review guide names the bot `copilot-pull-request-reviewer[bot]` for a REST review request, its REST login. The plan's references were rechecked at 7607f0f: `RoadmapConfig` (`src/devops_cli/roadmap/config.py:38`), `_is_release_pr` (`src/devops_cli/commands/pr.py:1479`), `devops pr edit` (`:765`, no reviewer option), `_is_copilot_review_dict` (`src/devops_cli/github/pr_monitor.py:264`), `is_review_ready` (`:131-140`), `_detect_copilot_status` (`:367`), `_fetch_raw_reviews` (`:470`, on `GitHubSession.paginate()` since #983 PR 4), `get_pr_monitoring_status` (`:586`), `RELEASE_CYCLE.md` Step 3 (`:199-210`), ADR 0004's decision (line 3) and `docs/SDLC.md:294`, `:299`, `:302`; `CONST_ROADMAP_CONFIG_PATH` sits at `src/devops_cli/config/constants.py:2766`, not `:2265`. `_build_changes_status` (`pr_monitor.py:338`, #216) already reports Copilot's changes-recommended state as completed once no thread is unresolved, which is why PR 1 adds no spent-budget gate to the monitor (see Description).
+
+## Description
+
+A release pull request gets `release_copilot_passes` Copilot passes, read from `.github/roadmap.toml` on the default branch, and once they are spent the stop rule in `RELEASE_CYCLE.md` Step 3 decides which remaining comments block the release. It is delivered as two pull requests, in the order of the plan on the issue.
+
+**The budget, `devops pr copilot-pass` and the stop rule (PR 1).**
+
+- **Budget.** `RoadmapConfig.release_copilot_passes` (`ge=1`) defaults to `DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES`, 2, and `.github/roadmap.toml` lists the key, commented, with the other defaults. A value below 1 or a misspelt key fails, naming the key.
+- **Identity.** A review is Copilot's only when its author's login is exactly one of `CONST_COPILOT_REVIEWER_LOGINS`: `copilot-pull-request-reviewer[bot]` (REST) or `copilot-pull-request-reviewer` (GraphQL). `is_copilot_login` and `is_copilot_review` (`src/devops_cli/github/pr_monitor.py`) replace `_is_copilot_review_dict`, which matched "copilot" anywhere in a login, and the timeline's `reviewed` events use the same check. A person whose login contains "copilot" is now a person: their approval counts toward the review decision, and their review neither sets Copilot's state nor ends a pass Copilot is running.
+- **Counting and requesting.** `src/devops_cli/github/copilot_budget.py` counts a pull request's passes (`CopilotPasses`: each Copilot review submitted, whoever asked for it, and one still running, which `_detect_copilot_status` reads from the timeline) against the budget. `request_copilot_pass` reads the pull request, refuses any but the release pull request, reads the budget, the reviews and the timeline, refuses once the passes are spent, and only then runs `gh pr edit <n> --add-reviewer @copilot --repo <owner/repo>` through `run_gh`. Nothing is stored, so each release pull request starts with the whole budget. A refusal raises `CopilotPassRefusedError` (`COPILOT_PASS_REFUSED`, details bounded), having requested nothing. Reviews or a timeline that can't be read raise the read error, since the passes are then unknown.
+- **Command.** `devops pr copilot-pass [<number>] [--repo OWNER/REPO] [--dry-run]` prints `Requested Copilot pass N of M on PR #<n>.`, or the refusal and exits 1: `Copilot budget spent: N of M passes on PR #<n>, ...` once the passes are spent. Without a number it acts on the current branch's pull request. `--dry-run`, or an exported dry run, makes no request and lists the reads and the request a real run would make, each under its condition (#412). The command is excluded from the MCP tools, since a person requests passes.
+- **One path.** `rg -n '@copilot' src` finds only `copilot_budget.py` and `CONST_GH_COPILOT_REVIEWER`. `devops release` requests no pass, and `devops pr edit` has no reviewer option.
+- **Release pull request.** `_is_release_pr` and the branch helpers it reads (`_same_repository`, `_branch_ref`, `_default_branch`) move from `src/devops_cli/commands/pr.py` to `src/devops_cli/github/pr_branches.py` as `is_release_pr`, `same_repository`, `branch_ref` and `default_branch`, so the budget module, below the commands layer, refuses exactly what grounding exempts.
+- **Policy.** `RELEASE_CYCLE.md` Step 3 states the budget, the command and the stop rule: once the budget is spent, a remaining Copilot comment blocks the release only if it is a regression the release introduces, and every other one becomes a follow-up issue whose thread is replied to and resolved. ADR 0004's decision and `docs/SDLC.md` say a re-review of the release pull request goes through `devops pr copilot-pass` within the budget.
+- **The monitor's gate is unchanged.** The plan also had a spent budget lift Copilot's changes-recommended state in `devops pr monitor`. It is not added: `_build_changes_status` already reports that state as completed once no thread is unresolved, and while a thread is unresolved the thread blocks on its own. Filing or fixing the remaining threads and resolving them clears Copilot's state with no further pass, so the change would alter only the monitor's message and its early exit, never whether it passes.
+
+**Review threads as follow-up issues (PR 2).**
+
+- `devops pr threads file-issues <pr>` with `--confirm`, `--dry-run` and `--keep`, the step of the stop rule that files the remaining threads: PR 2 of #1345, which also adds `changelog.d/1345.md`.
+
+## Acceptance Criteria
+
+- [x] `.github/roadmap.toml` can set `release_copilot_passes`; the default is 2, and a value below 1 fails, naming the key (`tests/test_roadmap_config.py`).
+- [x] `devops pr copilot-pass` requests a pass on the release pull request only while its submitted and running Copilot passes are below the budget; otherwise it requests nothing, says "N of N" and exits 1, and it refuses any other pull request (`tests/test_github_copilot_budget.py`).
+- [x] Only reviews by the two exact Copilot logins count (`test_a_user_whose_login_contains_copilot_does_not_count`, `test_a_review_counts_by_copilots_rest_or_graphql_login_and_by_no_other`, `test_a_review_by_a_user_whose_login_contains_copilot_is_not_copilots`).
+- [x] No other code path requests a Copilot review: `rg -n '@copilot' src` finds only the budget module and its constant.
+- [x] On the release pull request, `devops pr monitor` does not wait on Copilot's changes-recommended state once its threads are resolved, and still waits on a running pass, unresolved threads and a person's requested changes: the behaviour #216 gave it (`test_detect_copilot_status_completed_when_zero_unresolved_threads`, `test_pr_monitor_status_not_ready_copilot_working`, `test_pr_monitor_status_not_ready_unresolved_threads`, `test_pr_monitor_status_not_ready_changes_requested`).
+- [x] `RELEASE_CYCLE.md` Step 3 states the stop rule, and ADR 0004 and `docs/SDLC.md` say re-reviews go through `devops pr copilot-pass`.
+- [x] The tests run offline over canned GitHub payloads, with no gh started.
+- `devops pr threads file-issues <pr> --confirm` turns every unresolved thread not named by `--keep` into a follow-up issue, replies and resolves, and its default mode and `--dry-run` write nothing: PR 2 of #1345.
+- `changelog.d/1345.md` records the change: added by PR 2 of #1345, which closes the item.
+- Pending a person: on the v0.2.37 release pull request, `uv run devops pr copilot-pass <pr>` requests a pass that Copilot submits, and once two passes are on it, `uv run devops pr copilot-pass <pr>` prints `Copilot budget spent: 2 of 2 passes` and exits 1.
+
+## Deliverables
+
+- [x] `release_copilot_passes` in `RoadmapConfig`, `DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES`, and the commented key in `.github/roadmap.toml`.
+- [x] `CONST_COPILOT_REVIEWER_LOGINS`, `CONST_GH_COPILOT_REVIEWER` and `CONST_COPILOT_PASS_REFUSED_ERROR_CODE` in `src/devops_cli/config/constants.py`; `CopilotPassRefusedError` in `src/devops_cli/exceptions/git.py`.
+- [x] `src/devops_cli/github/copilot_budget.py` and `src/devops_cli/github/pr_branches.py`.
+- [x] Exact Copilot identity in `src/devops_cli/github/pr_monitor.py`.
+- [x] `devops pr copilot-pass` in `src/devops_cli/commands/pr.py`, with its help and messages in `src/devops_cli/lang/en/`, and the regenerated command docs.
+- [x] The stop rule in `RELEASE_CYCLE.md`, and the policy text in ADR 0004 and `docs/SDLC.md`.
+- `devops pr threads file-issues`: PR 2 of #1345.

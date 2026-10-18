@@ -560,6 +560,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("gh", "pr", "check-readiness"),
         ("gh", "pr", "checks"),
         ("gh", "pr", "close"),
+        ("gh", "pr", "copilot-pass"),
         ("gh", "pr", "create"),
         ("gh", "pr", "diff"),
         ("gh", "pr", "edit"),
@@ -617,6 +618,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("mcp", "serve"),
         ("mcp", "tools"),
         ("pipeline",),
+        ("pr", "copilot-pass"),
         ("pr", "create"),
         ("pr", "hardening-report"),
         ("pr", "threads", "resolve-all"),
@@ -1557,6 +1559,21 @@ CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GITHUB_SCOPE_ERROR_CODE: Final[str] = "GITHUB_SCOPE_MISSING"
 CONST_GITHUB_NOT_FOUND_ERROR_CODE: Final[str] = "GITHUB_NOT_FOUND"
 CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
+# Copilot code review's bot, as GitHub names it (#1345): `copilot-pull-request-reviewer[bot]` in a
+# REST payload, the login GitHub's Copilot documentation requests its review with through the REST
+# API, and `copilot-pull-request-reviewer` in GraphQL, gh's `CopilotReviewerLogin` (gh 2.102.0,
+# api/queries_repo.go). A review is Copilot's only when its author's login is exactly one of them.
+CONST_COPILOT_REVIEWER_LOGINS: Final[frozenset[str]] = frozenset(
+    {"copilot-pull-request-reviewer[bot]", "copilot-pull-request-reviewer"}
+)
+# The keys a review record names its author under: `user` in a REST review, `author` in a
+# GraphQL one.
+CONST_GITHUB_REVIEW_AUTHOR_KEYS: Final[tuple[str, ...]] = ("user", "author")
+# The reviewer `gh pr edit --add-reviewer` requests a Copilot review with (gh 2.102.0).
+CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
+# A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
+# request, or once the release pull request's Copilot budget is spent (#1345).
+CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, the margin

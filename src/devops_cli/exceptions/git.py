@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_COPILOT_PASS_REFUSED_ERROR_CODE,
     CONST_ERROR_CODE_GIT,
     CONST_EXIT_FAILURE,
     CONST_GITHUB_NOT_FOUND_ERROR_CODE,
@@ -216,6 +217,23 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
             operation=operation,
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
+        )
+
+
+class CopilotPassRefusedError(GitHubOperationError):
+    """Raised when `devops pr copilot-pass` refuses to request a Copilot pass.
+
+    It refuses on any pull request but the release pull request, and once the release pull
+    request's Copilot budget is spent. Each detail is bounded to `CONST_MAX_ERROR_DETAIL_LENGTH`
+    characters (#1345).
+    """
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message,
+            operation="copilot_pass",
+            error_code=CONST_COPILOT_PASS_REFUSED_ERROR_CODE,
+            details={key: _bounded_detail(value) for key, value in (details or {}).items()},
         )
 
 
