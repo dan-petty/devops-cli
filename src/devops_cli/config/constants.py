@@ -4573,3 +4573,6 @@ CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
     "unverified-version-or-package",
     "invalid-python-code-block",
 )
+CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
+CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
+CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
