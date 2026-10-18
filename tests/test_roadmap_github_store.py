@@ -1191,6 +1191,43 @@ def test_a_failed_read_raises_the_class_the_gh_classifier_names(
     assert (type(raised.value), raised.value.details["exit_code"]) == (error, 1)
 
 
+_PARTIAL_GRAPHQL_ANSWER = (
+    '{{"data": {{"repository": {{"issues": {{"nodes": [{{"number": 705, "title": "{title}"}}]}}}}}},'
+    ' "errors": [{{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}]}}'
+)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "correct secondary-limit backoff and retry-after handling in run_gh",
+        "verify read:project scope",
+        "HTTP 401 Bad credentials",
+        "not logged in",
+        "unknown owner type",
+    ],
+)
+def test_a_failed_read_classifies_gh_s_stderr_never_the_titles_on_stdout(title: str) -> None:
+    """gh copies GitHub's partial answer, item titles included, to stdout and writes only
+    `gh: <message>` to stderr; a title that reads like a rate limit, a scope or a refused login
+    is GitHub's data, so the read fails as a failed read (#983). `RecordedGh` writes one text to
+    both streams, so this runner writes each its own."""
+
+    def gh(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        body = _PARTIAL_GRAPHQL_ANSWER.format(title=title)
+        return subprocess.CompletedProcess(
+            args, 1, body, "gh: Resource not accessible by integration"
+        )
+
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=gh)
+    with pytest.raises(GitHubOperationError) as raised:
+        store.releases()
+    assert (type(raised.value), "Could not read milestones" in raised.value.message) == (
+        GitHubOperationError,
+        True,
+    )
+
+
 def test_malformed_json_raises() -> None:
     store, _ = board_store({"milestones?state=all": '[{"number": 1, "title": '})
     with pytest.raises(GitHubOperationError, match="malformed milestones"):

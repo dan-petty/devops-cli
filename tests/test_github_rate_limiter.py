@@ -419,10 +419,19 @@ def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ]
         res = run_gh(["api", "issues"], max_retries=2)
-        assert res.returncode == 0
-        assert res.stdout == '[{"id": 1}]'
-        assert mock_sub.call_count == 2
-        mock_sleep.assert_called()
+    waits = [recorded.args[0] for recorded in mock_sleep.call_args_list]
+    # Pacing also sleeps on every attempt; the backoff is the wait of at least the secondary floor.
+    assert (
+        res.returncode,
+        res.stdout,
+        mock_sub.call_count,
+        max(waits) >= limiter.secondary_rate_wait,
+    ) == (
+        0,
+        '[{"id": 1}]',
+        2,
+        True,
+    )
 
 
 def test_run_gh_check_raises_called_process_error() -> None:
@@ -998,40 +1007,98 @@ def test_rate_limiter_throttle_persistence_across_instances(tmp_path: Path) -> N
 
 
 def test_the_rate_limit_check_reads_every_rate_limit_row_of_the_gh_output_table() -> None:
-    """A rate limit is what the gh classifier calls one (#983): the secondary rows and gh
-    project's owner lookup count, and a refused login or a missing scope does not."""
+    """A rate limit is what the gh classifier's rate-limit rows call one (#983): the secondary
+    rows count. gh project's owner lookup, a refused login, a missing scope and text gh echoes
+    from the request, such as a `fix/...-retry-after` branch, do not."""
     limiter = GitHubRateLimiter()
     assert [
         limiter.is_rate_limit_error(said)
         for said in (
             "You have exceeded a secondary rate limit. Please wait a few minutes.",
             "gh: Please retry your request again later. (HTTP 403)",
-            "unknown owner type",
+            "HTTP 403: You have exceeded a secondary rate limit. Please retry after 120 seconds.",
             "API rate limit exceeded for user ID 12345",
+            "unknown owner type",
             "gh: Bad credentials (HTTP 401)",
             "error: your authentication token is missing required scopes [read:project]",
+            "HTTP 404: Not Found "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2F705-retry-after-handling)",
+            "pull request create failed: GraphQL: No commits between main and "
+            "fix/705-retry-after-handling (createPullRequest)",
             "repository not found",
             "",
         )
-    ] == [True, True, True, True, False, False, False, False]
+    ] == [True, True, True, True, False, False, False, False, False, False, False]
 
 
 def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """gh's first answer names a secondary rate limit in words only the secondary rows hold:
-    `run_gh` waits and sends the command again (#983)."""
-    monkeypatch.setattr(get_github_rate_limiter(), "min_interval", 0.01)
+    `run_gh` waits at least the secondary floor and sends the command again (#983)."""
+    limiter = get_github_rate_limiter()
+    monkeypatch.setattr(limiter, "min_interval", 0.01)
     refused = subprocess.CompletedProcess(
         ["gh", "api", "issues"], 1, "", "gh: Please retry your request again later. (HTTP 403)"
     )
     answered = subprocess.CompletedProcess(["gh", "api", "issues"], 0, "[]", "")
     with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]),
+        patch(
+            "devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]
+        ) as run,
         patch("time.sleep") as sleep,
     ):
         res = run_gh(["api", "issues"], max_retries=2)
-    assert (res.returncode, sleep.called) == (0, True)
+    waits = [recorded.args[0] for recorded in sleep.call_args_list]
+    assert (res.returncode, run.call_count, max(waits) >= limiter.secondary_rate_wait) == (
+        0,
+        2,
+        True,
+    )
+
+
+_PARTIAL_GRAPHQL_ANSWER = (
+    '{{"data": {{"repository": {{"issues": {{"nodes": [{{"number": 705, "title": "{title}"}}]}}}}}},'
+    ' "errors": [{{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}]}}'
+)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        pytest.param("docs: what to do when the API rate limit exceeded", id="rate-limit-row"),
+        pytest.param("unknown owner type", id="owner-lookup-phrase"),
+    ],
+)
+def test_run_gh_backs_off_on_gh_s_stderr_never_on_github_s_answer_on_stdout(
+    monkeypatch: pytest.MonkeyPatch, title: str
+) -> None:
+    """A failed `gh api graphql` copies GitHub's partial answer, issue titles included, to
+    stdout and writes only `gh: <message>` to stderr. A title that reads like a rate limit is
+    GitHub's data, not gh's failure: the command is sent once, with no backoff (#983)."""
+    limiter = get_github_rate_limiter()
+    monkeypatch.setattr(limiter, "min_interval", 0.01)
+    failed = subprocess.CompletedProcess(
+        ["gh", "api", "graphql"],
+        1,
+        _PARTIAL_GRAPHQL_ANSWER.format(title=title),
+        "gh: Resource not accessible by integration",
+    )
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed) as run,
+        patch("time.sleep") as sleep,
+    ):
+        res = run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"], max_retries=2)
+    waits = [recorded.args[0] for recorded in sleep.call_args_list]
+    assert (
+        res.returncode,
+        run.call_count,
+        max(waits, default=0.0) < limiter.secondary_rate_wait,
+    ) == (
+        1,
+        1,
+        True,
+    )
 
 
 def test_each_identity_keeps_its_own_quota_and_response_cache(
@@ -1588,16 +1655,22 @@ _REAL_RUN = subprocess.run
 
 
 class _GhAtTheReset:
-    """gh faked at the process edge: `gh api rate_limit` answers `resources`, or exits with the
-    status and stderr of `refusal`, and any other gh command answers `[]`. Every gh argv is
-    recorded, from any thread. A command that is not gh, such as the `uname -p` the tracer runs on
-    first use, runs for real, so no test depends on which test warmed that cache."""
+    """gh faked at the process edge: `gh api rate_limit` answers `resources`, exits with the
+    status and stderr of `refusal`, or with `times_out` runs past its timeout, and any other gh
+    command answers `[]`. Every gh argv is recorded, from any thread. A command that is not gh,
+    such as the `uname -p` the tracer runs on first use, runs for real, so no test depends on
+    which test warmed that cache."""
 
     def __init__(
-        self, resources: dict[str, Any], *, refusal: tuple[int, str] | None = None
+        self,
+        resources: dict[str, Any],
+        *,
+        refusal: tuple[int, str] | None = None,
+        times_out: bool = False,
     ) -> None:
         self.resources = resources
         self.refusal = refusal
+        self.times_out = times_out
         self.argvs: list[list[str]] = []
         self._lock = threading.Lock()
 
@@ -1608,6 +1681,8 @@ class _GhAtTheReset:
             self.argvs.append(list(cmd[1:]))
         if cmd[1:] != _RATE_LIMIT:
             return subprocess.CompletedProcess(cmd, 0, "[]", "")
+        if self.times_out:
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
         if self.refusal is not None:
             return subprocess.CompletedProcess(cmd, self.refusal[0], "", self.refusal[1])
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"resources": self.resources}), "")
@@ -1767,19 +1842,20 @@ def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
         ),
         pytest.param(
             (1, "gh: API rate limit exceeded for user ID 1. (HTTP 403)"),
-            GitHubUnreadError,
+            GitHubRateLimitError,
             403,
             id="rate-limited",
         ),
         pytest.param((1, ""), GitHubUnreadError, None, id="silent"),
     ],
 )
-def test_a_refused_refresh_is_unauthenticated_for_a_refused_login_and_unread_otherwise(
+def test_a_failed_refresh_raises_the_class_the_gh_classifier_names_or_unread(
     refusal: tuple[int, str], error: type[GitHubOperationError], status: int | None
 ) -> None:
-    """GitHub refusing gh's token (HTTP 401) or gh exiting 4 ("requires authentication") raises
-    the unauthenticated error; any other failed refresh leaves the quota unread. Each carries
-    gh's exit status and the status gh wrote, as ints, and the command never runs."""
+    """A failed refresh raises the class the gh classifier names: GitHub refusing gh's token
+    (HTTP 401) or gh exiting 4 ("requires authentication") the unauthenticated error, a rate
+    limit the rate-limit error; a failure it names no class for leaves the quota unread. Each
+    carries gh's exit status and the status gh wrote, as ints, and the command never runs."""
     gh = _GhAtTheReset({}, refusal=refusal)
     with (
         _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
@@ -1794,6 +1870,43 @@ def test_a_refused_refresh_is_unauthenticated_for_a_refused_login_and_unread_oth
         details["operation"],
         gh.commands(),
     ) == (error, status, refusal[0], "refresh_quota", [])
+
+
+def test_a_refresh_that_times_out_leaves_the_quota_unread() -> None:
+    """`gh api rate_limit` running past its timeout raises the unread error naming the
+    timeout, not a raw `TimeoutExpired`, and the command never runs."""
+    gh = _GhAtTheReset({}, times_out=True)
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    assert (
+        type(raised.value),
+        raised.value.details["operation"],
+        "gh api rate_limit timed out after" in raised.value.message,
+        gh.refreshes(),
+        gh.commands(),
+    ) == (GitHubUnreadError, "refresh_quota", True, 1, [])
+
+
+def test_an_empty_refresh_answer_leaves_the_quota_unread() -> None:
+    """`gh api rate_limit` exiting 0 with nothing on stdout raises the unread error, so a
+    caller that stops on a rate limit, such as intake, does not stop on it, and the command
+    never runs."""
+    gh = _GhAtTheReset({}, refusal=(0, ""))
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    assert (
+        type(raised.value),
+        raised.value.message,
+        raised.value.details["operation"],
+        gh.refreshes(),
+        gh.commands(),
+    ) == (GitHubUnreadError, "GitHub rate_limit API returned empty output", "refresh_quota", 1, [])
 
 
 def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> None:

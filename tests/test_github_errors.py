@@ -3,8 +3,10 @@
 Every HTTP case goes through the session over the fake GitHub API, so gidgethub raises what it
 raises for GitHub's answer and the session's retries run first. No HTTP case reads a response's
 message: the 403 whose message says "rate limit" without the headers that mean one is a plain
-failure. A failed gh command has only its exit status and its text, so it is classified from gh's
-exit status and the gh-output table in `config/constants.py`, the one place gh's text is matched.
+failure. A failed gh command has only its exit status and its stderr, so it is classified from
+gh's exit status and the gh-output table in `config/constants.py`, matched against what gh wrote
+to stderr, never GitHub's answer on stdout. The table is the one place gh's failures are
+classified by its text; the modules its comment names still match gh's text of their own.
 """
 
 from __future__ import annotations
@@ -301,6 +303,8 @@ _GH_FAILURES: dict[tuple[str, int], type[GitHubOperationError] | None] = {
         "To request it, run:  gh auth refresh -s read:project",
         1,
     ): GitHubScopeError,
+    # gh project's owner lookup dropped its error: no rate-limit row, a rate limit of its own.
+    ("unknown owner type", 1): GitHubRateLimitError,
     ("gh: Not Found (HTTP 404)", 1): None,
     ("gh: Validation Failed (HTTP 422)", 1): None,
     ("gh: Server Error (HTTP 500)", 1): None,
@@ -324,6 +328,39 @@ def test_a_gh_failure_is_classified_by_its_exit_status_and_the_gh_output_table()
         for output, exit_code in table
     }
     assert classified == table
+
+
+@pytest.mark.parametrize(
+    ("said", "error"),
+    [
+        pytest.param(
+            "HTTP 404: Not Found "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2F705-retry-after-handling)",
+            None,
+            id="branch-in-the-url",
+        ),
+        pytest.param(
+            "pull request create failed: GraphQL: No commits between main and "
+            "fix/705-retry-after-handling (createPullRequest)",
+            None,
+            id="branch-in-the-message",
+        ),
+        pytest.param(
+            "HTTP 401: Bad credentials "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2Fretry-after)",
+            GitHubUnauthenticatedError,
+            id="401-whose-url-names-retry-after",
+        ),
+    ],
+)
+def test_text_gh_echoes_from_the_request_names_no_rate_limit(
+    said: str, error: type[GitHubOperationError] | None
+) -> None:
+    """gh echoes the request's URL and GraphQL echoes ref names, such as a `fix/...-retry-after`
+    branch; gh never writes "retry-after" for a failure, so that text is no rate limit."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    assert _class_of(classify_gh_failure(said, exit_code=1)) is error
 
 
 @pytest.mark.parametrize(

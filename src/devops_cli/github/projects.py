@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GH_PROJECT_SCOPE,
     CONST_PROJECT_TEMPLATE_PATH,
     CONST_URL_GITHUB_API_BASE,
 )
@@ -33,7 +34,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
 from devops_cli.github.error_classifier import (
     classify_gh_failure,
     is_gh_owner_lookup_failure,
@@ -161,14 +162,15 @@ def load_project_template(template_path: Path | None = None) -> ProjectTemplate:
 
 
 def _gh_output(proc: subprocess.CompletedProcess[str]) -> str:
-    """What a gh command wrote, its stderr then its stdout."""
-    return f"{proc.stderr or ''} {proc.stdout or ''}".strip()
+    """What a failed gh command reported: gh writes a failure to stderr. Its stdout holds
+    GitHub's answer, possibly partial data with item titles, and is never classified."""
+    return (proc.stderr or "").strip()
 
 
 def verify_project_auth_scopes() -> None:
-    """Verify that gh can list projects: a missing `project` scope, a rate limit or no accepted
-    login raises the class the gh classifier names, and any other failure is left to the
-    command that follows."""
+    """Verify that gh can list projects: a rate limit or no accepted login raises the class the
+    gh classifier names, a missing scope asks for the `project` scope board sync needs, and any
+    other failure is left to the command that follows."""
     proc = run_gh(
         [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
         check=False,
@@ -178,6 +180,14 @@ def verify_project_auth_scopes() -> None:
     refused = classify_gh_failure(
         _gh_output(proc), exit_code=proc.returncode, operation="verify_project_auth_scopes"
     )
+    if isinstance(refused, GitHubScopeError):
+        raise GitHubScopeError(
+            f"The GitHub token lacks the `{CONST_GH_PROJECT_SCOPE}` scope that board sync needs "
+            f"({refused.details['output']}); run `gh auth refresh -s {CONST_GH_PROJECT_SCOPE}`, "
+            "which includes read:project",
+            operation="verify_project_auth_scopes",
+            details=refused.details,
+        ) from refused
     if refused is not None:
         raise refused
 
@@ -577,12 +587,14 @@ def _project_login(owner: str) -> str:
 
 def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
     """The error a read of `what` that exited non-zero raises: the class the gh classifier
-    names, else a failed read of `what`."""
+    names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
+    nothing to stderr."""
     err_output = _gh_output(proc)
+    said = err_output or (proc.stdout or "").strip()
     return classify_gh_failure(
         err_output, exit_code=proc.returncode, operation=operation
     ) or GitHubOperationError(
-        f"Failed to read {what} (exit {proc.returncode}): {err_output[:256]}",
+        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
         operation=operation,
         details={"read": what[:256]},
     )

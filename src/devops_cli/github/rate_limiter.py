@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
+    DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS,
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
@@ -57,7 +58,6 @@ from devops_cli.core.process import github_token, is_local_gh_command, run_subpr
 from devops_cli.exceptions.git import (
     GitHubOperationError,
     GitHubRateLimitError,
-    GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
 from devops_cli.github.error_classifier import (
@@ -664,18 +664,19 @@ _REFRESH_OPERATION = "refresh_quota"
 
 
 def _refresh_failure(proc: subprocess.CompletedProcess[str]) -> GitHubOperationError:
-    """The error of a failed `gh api rate_limit`: `GitHubUnauthenticatedError` when GitHub
-    refused gh's login or gh had none, else `GitHubUnreadError`, as no quota could be read.
+    """The error of a failed `gh api rate_limit`: the class the gh classifier names, such as
+    `GitHubUnauthenticatedError` when GitHub refused gh's login or gh had none, or
+    `GitHubRateLimitError`, which stops a caller such as intake as a refused write would; else
+    `GitHubUnreadError`, as no quota could be read.
 
     gh writes the failure to stderr and GitHub's error body to stdout, so stderr alone is read.
     """
     stderr = proc.stderr or ""
-    refused = classify_gh_failure(stderr, exit_code=proc.returncode, operation=_REFRESH_OPERATION)
-    if isinstance(refused, GitHubUnauthenticatedError):
-        return refused
     details = gh_failure_details(stderr, exit_code=proc.returncode)
     said = details["output"] or f"Process exited with code {proc.returncode}"
-    return GitHubUnreadError(
+    return classify_gh_failure(
+        stderr, exit_code=proc.returncode, operation=_REFRESH_OPERATION
+    ) or GitHubUnreadError(
         f"Failed to refresh rate limits from GitHub API: {said}",
         operation=_REFRESH_OPERATION,
         details=details,
@@ -948,16 +949,27 @@ class GitHubRateLimiter:
         """Read GitHub's /rate_limit answer into the stored quotas.
 
         Returns the reset GitHub reported for each resource the answer gave both `remaining` and
-        `reset`. When gh fails, GitHub refusing gh's login raises `GitHubUnauthenticatedError`
-        and any other failure, or an empty answer, `GitHubUnreadError`; a malformed answer
+        `reset`. When gh fails, it raises the class the gh classifier names, such as
+        `GitHubUnauthenticatedError` for a refused login or `GitHubRateLimitError`, and
+        `GitHubUnreadError` for any other failure, a run past
+        `DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS` or an empty answer. A malformed answer
         raises GitHubRateLimitError, so the underlying cause can be identified.
         """
-        proc = run_subprocess(
-            [CONST_GH_CLI, "api", "rate_limit"],
-            check=False,
-            quiet=True,
-            timeout=10.0,
-        )
+        timeout = DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS
+        try:
+            proc = run_subprocess(
+                [CONST_GH_CLI, "api", "rate_limit"],
+                check=False,
+                quiet=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitHubUnreadError(
+                "Failed to refresh rate limits from GitHub API: gh api rate_limit timed out after "
+                f"{timeout:g} seconds",
+                operation=_REFRESH_OPERATION,
+                details={"timeout_seconds": timeout},
+            ) from exc
         if proc.returncode != 0:
             raise _refresh_failure(proc)
         if not proc.stdout:
@@ -1663,9 +1675,14 @@ def _handle_attempt_backoff(
     max_retries: int,
     target_resource: str,
 ) -> bool:
-    """Evaluate and sleep backoff if rate limited, returning True if backoff performed."""
+    """Evaluate and sleep backoff if rate limited, returning True if backoff performed.
+
+    Whether gh was rate-limited is read from its stderr alone, where gh writes a failure; its
+    stdout holds GitHub's answer, which may carry item titles. The wait also reads stdout, for
+    the Retry-After header `gh api -i` prints there.
+    """
     combined_err = (proc.stderr or "") + " " + (proc.stdout or "")
-    if not limiter.is_rate_limit_error(combined_err) or attempt >= max_retries:
+    if not limiter.is_rate_limit_error(proc.stderr or "") or attempt >= max_retries:
         return False
 
     backoff = limiter.calculate_backoff_delay(

@@ -12,11 +12,14 @@ words its messages for people, and the status and headers are what its REST docu
 specifies. Every error carries the request's path, at most `CONST_MAX_ERROR_DETAIL_LENGTH`
 characters, and an HTTP failure its status as an int, so a caller can treat a 422 as it needs to.
 
-A failed gh command has no exception to read, only its exit status and what it wrote, so
-`classify_gh_failure` reads those against the gh-output table in `config/constants.py`, the one
-place gh's text is matched: a rate limit, a missing scope, or no login GitHub accepts, which
-gh's exit status 4 ("requires authentication") also means. The status gh names in its text is
-carried as an int, like an HTTP failure's.
+A failed gh command has no exception to read, only its exit status and what it wrote to stderr,
+so `classify_gh_failure` reads those against the gh-output table in `config/constants.py`, the
+one place gh's failures are classified by its text: a rate limit, a missing scope, an owner gh
+project could not look up, or no login GitHub accepts, which gh's exit status 4 ("requires
+authentication") also means. gh writes every failure to stderr; its stdout holds GitHub's
+answer, which for a failed GraphQL read may carry partial data such as item titles, so stdout is
+never classified. The status gh names on stderr is carried as an int, like an HTTP failure's. A
+few modules outside this one still match gh's text of their own; the table's comment names them.
 """
 
 from __future__ import annotations
@@ -288,21 +291,22 @@ def _gh_says(output: str, phrases: tuple[str, ...]) -> bool:
 
 
 def is_gh_rate_limited(output: str) -> bool:
-    """Whether what gh wrote names a primary or secondary rate limit."""
+    """Whether what gh wrote to stderr names a primary or secondary rate limit."""
     return _gh_says(
         output, CONST_GITHUB_RATE_LIMIT_PATTERNS + CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS
     )
 
 
 def is_gh_owner_lookup_failure(output: str) -> bool:
-    """Whether gh project could not look up the owner it was given, and dropped why."""
+    """Whether gh project wrote to stderr that it could not look up the owner it was given,
+    dropping why."""
     return _gh_says(output, (CONST_GH_UNKNOWN_OWNER_TYPE,))
 
 
 def gh_http_status(output: str) -> int | None:
-    """The HTTP status gh names in what it wrote, or None when it names none."""
+    """The HTTP status gh names in what it wrote to stderr, or None when it names none."""
     found = CONST_GH_HTTP_STATUS_RE.search(output)
-    return None if found is None else int(found.group(1))
+    return None if found is None else int(found.group("status"))
 
 
 def gh_failure_details(output: str, *, exit_code: int | None) -> dict[str, Any]:
@@ -338,6 +342,15 @@ def _gh_rate_limit_error(failure: _GhFailure) -> GitHubOperationError:
     )
 
 
+def _gh_owner_lookup_error(failure: _GhFailure) -> GitHubOperationError:
+    return GitHubRateLimitError(
+        f"gh could not look up the board owner and did not say why ({failure.reason()}); a spent "
+        "GraphQL quota is one cause, which `devops gh rate-limit` shows",
+        operation=failure.operation,
+        details=failure.details(),
+    )
+
+
 def _gh_scope_error(failure: _GhFailure) -> GitHubOperationError:
     return GitHubScopeError(
         f"The GitHub token lacks a scope a gh command needs ({failure.reason()}); add it with "
@@ -362,10 +375,13 @@ def _gh_requires_authentication(failure: _GhFailure) -> bool:
 
 _GhClassifier = Callable[[_GhFailure], GitHubOperationError]
 
-# In order: gh's documented exit status first, then its text, where a rate limit wins.
+# In order: gh's documented exit status first, then its text, where a rate limit wins. An owner
+# lookup that gh dropped the cause of is classified as a rate limit, but is no rate-limit row, so
+# `run_gh` never backs off on it.
 _GH_CLASSES: Final[tuple[tuple[Callable[[_GhFailure], bool], _GhClassifier], ...]] = (
     (_gh_requires_authentication, _gh_unauthenticated_error),
     (lambda failure: is_gh_rate_limited(failure.output), _gh_rate_limit_error),
+    (lambda failure: is_gh_owner_lookup_failure(failure.output), _gh_owner_lookup_error),
     (lambda failure: _gh_says(failure.output, CONST_GITHUB_SCOPE_PATTERNS), _gh_scope_error),
     (
         lambda failure: _gh_says(failure.output, CONST_GITHUB_UNAUTHENTICATED_PATTERNS),
@@ -377,8 +393,9 @@ _GH_CLASSES: Final[tuple[tuple[Callable[[_GhFailure], bool], _GhClassifier], ...
 def classify_gh_failure(
     output: str, *, exit_code: int | None = None, operation: str = _GH_OPERATION
 ) -> GitHubOperationError | None:
-    """The project's error for a gh command that exited `exit_code` writing `output`: a rate
-    limit, a missing scope or no accepted login, read from the exit status and the gh-output
-    table; or None when neither names one, so the caller reports the failure as its own."""
+    """The project's error for a gh command that exited `exit_code` writing `output` to stderr:
+    a rate limit, an owner gh could not look up, a missing scope or no accepted login, read from
+    the exit status and the gh-output table; or None when neither names one, so the caller
+    reports the failure as its own. `output` is gh's stderr, never GitHub's answer on stdout."""
     failure = _GhFailure(output, exit_code, operation)
     return next((build(failure) for matches, build in _GH_CLASSES if matches(failure)), None)

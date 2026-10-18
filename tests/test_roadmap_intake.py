@@ -41,6 +41,8 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
@@ -702,12 +704,17 @@ def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
             operation="roadmap.write",
             details={CONST_GRAPHQL_REFUSAL_RESET_KEY: NOW.isoformat()},
         ),
+        GitHubUnauthenticatedError(
+            "gh has no GitHub login that GitHub accepts", operation="refresh_quota"
+        ),
     ],
+    ids=["rate-limit", "budget", "token-refused"],
 )
 def test_a_rate_limit_or_budget_refusal_stops_the_round_with_no_further_writes(
-    roadmap: Roadmap, refusal: GitHubRateLimitError
+    roadmap: Roadmap, refusal: GitHubOperationError
 ) -> None:
-    """Every later write would be refused too, so the round stops at the first (#1400)."""
+    """Every later write would be refused too, so the round stops at the first (#1400): a rate
+    limit, a GraphQL budget refusal or a token GitHub refuses (#983)."""
     first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
     tried: list[int] = []
 
@@ -716,9 +723,73 @@ def test_a_rate_limit_or_budget_refusal_stops_the_round_with_no_further_writes(
         raise refusal
 
     with patch.object(roadmap.store, "add_item", side_effect=refuse):
-        with pytest.raises(GitHubRateLimitError):
+        with pytest.raises(type(refusal)):
             roadmap.run(FakeModel())
     assert (tried, roadmap.store.item(second), _labels(roadmap, second)) == ([first], None, ())
+
+
+def test_a_quota_that_could_not_be_read_skips_the_candidate_and_writes_the_next(
+    roadmap: Roadmap,
+) -> None:
+    """An unread quota may be an outage that passes before the next candidate, so it skips the
+    candidate, names it, and writes the next (#983)."""
+    first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
+    add_item = roadmap.store.add_item
+
+    def unread_first(number: int) -> object:
+        if number == first:
+            raise GitHubUnreadError(
+                "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
+                operation="refresh_quota",
+            )
+        return add_item(number)
+
+    with patch.object(roadmap.store, "add_item", side_effect=unread_first):
+        with pytest.raises(RoadmapIntakeError) as raised:
+            roadmap.run(FakeModel())
+    assert (raised.value.failed_items, roadmap.store.item(second) is not None) == ((first,), True)
+
+
+@pytest.mark.parametrize(
+    ("refused", "error"),
+    [
+        pytest.param("gh: Bad credentials (HTTP 401)", GitHubUnauthenticatedError, id="401"),
+        pytest.param(
+            "gh: You have exceeded a secondary rate limit. (HTTP 403)",
+            GitHubRateLimitError,
+            id="rate-limited",
+        ),
+    ],
+)
+def test_a_quota_refresh_github_refuses_stops_the_round_after_one_refresh(
+    roadmap: Roadmap, refused: str, error: type[GitHubOperationError]
+) -> None:
+    """Each write goes through the real `run_gh`, whose ledger has no quota yet, and `gh api
+    rate_limit` is refused: a refused token or a rate limit stops the round at the first
+    candidate, so the refresh runs once (#983)."""
+    from devops_cli.github import rate_limiter
+
+    _, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
+
+    def write_through_gh(number: int) -> None:
+        rate_limiter.run_gh(["api", "--method", "POST", f"repos/{REPO}/issues/{number}/labels"])
+
+    refusal = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", refused)
+    with (
+        patch.object(roadmap.store, "add_item", side_effect=write_through_gh),
+        patch.object(rate_limiter, "run_subprocess", return_value=refusal) as gh,
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("time.sleep"),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        roadmap.run(FakeModel())
+    assert (
+        type(raised.value),
+        [call.args[0] for call in gh.call_args_list],
+        roadmap.store.item(second),
+    ) == (error, [["gh", "api", "rate_limit"]], None)
 
 
 def test_a_person_put_on_the_board_without_a_priority_gets_only_its_empty_fields(
@@ -1030,6 +1101,39 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
         len(fake_model.requests),
         board.store.job_writes() == before,
     ) == (True, True, True, True, True, 1, True)
+
+
+def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
+    board: Roadmap, fake_model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-10-18: `gh api rate_limit` ran past its timeout while intake read the board and
+    then its GraphQL spend, and `devops roadmap intake --plan` ended in a `TimeoutExpired`
+    traceback. The board read and the spend go through the real `run_gh` here, with gh faked:
+    the plan names the timed-out refresh and exits 1, and the spend is reported as unread
+    (#983)."""
+    from devops_cli.github import rate_limiter
+
+    board.issue("feat: previewed")
+    github = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=1)
+    monkeypatch.setattr(board.store, "items", github.items)
+    monkeypatch.setattr(board.store, "graphql_spend", github.graphql_spend)
+    timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
+    with (
+        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+    ):
+        result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "Could not plan intake: Failed to refresh rate limits from GitHub API: gh api rate_limit "
+        "timed out after 10 seconds" in output,
+        "Traceback" in result.output,
+        fake_model.requests,
+    ) == (1, SystemExit, True, False, [])
 
 
 def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(

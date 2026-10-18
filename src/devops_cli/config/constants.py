@@ -1019,32 +1019,32 @@ CONST_GITHUB_HTTP_PREFIX = "http://github.com/"
 CONST_GITHUB_HTTPS_PREFIX = "https://github.com/"
 CONST_GITHUB_REPO_SUFFIX = ".git"
 # ── What a failed gh command wrote (#983) ─────────────────────────────────────
-# gh reports a failure only as text and an exit status, so this table is the one place gh's text
-# is matched, lower-cased, and only `devops_cli.github.error_classifier` reads it. An HTTP answer
-# the session receives is classified by its status and headers instead.
+# gh reports a failure only as text on stderr and an exit status. This table, matched
+# lower-cased against gh's stderr and read only by `devops_cli.github.error_classifier`, is the
+# one place gh's failures are classified by its text. stdout holds GitHub's answer, which for a
+# failed GraphQL read may carry partial data such as item titles, and is never matched.
+# `_is_branch_unprotected_error` (github/branch_protection.py), `create_repository_issue`
+# (github/issues.py), `_report_create_failure` (commands/pr.py) and `extract_retry_after`
+# (github/rate_limiter.py) still match gh's text of their own. An HTTP answer the session
+# receives is classified by its status and headers instead.
 #
-# gh project's owner lookup (`OwnerIDAndType`, gh 2.102.0) returns this for any failed lookup
-# that is not a "not found" for both a user and an organization, dropping the lookup's own error;
-# a spent GraphQL quota is the usual one, so it is read as a rate limit, and a project command
-# that wrote it is sent once more as `--owner @me`.
+# gh project's owner lookup (`OwnerIDAndType`, gh 2.102.0) writes this for any failed owner
+# lookup that is not a "not found" for both a user and an organization (a 401, a 403, a 5xx, a
+# network error or a rate limit), and drops the cause. `run_gh` does not retry it, and
+# `_run_project_cli` resends the command as `--owner @me` at once. A lookup that is not recovered
+# is classified as a rate limit, as the board lookup read it before #983.
 CONST_GH_UNKNOWN_OWNER_TYPE: Final[str] = "unknown owner type"
-# A primary or secondary rate limit.
+# A primary or secondary rate limit, in GitHub's words as gh writes them.
 CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "rate limit exceeded",
     "rate limit already exceeded",
     "secondary rate limit",
-    "abuse-rate-limit",
     "too many requests",
     "http 429",
     "wait a few minutes before you try again",
-    "retry-after",
-    "retry after",
-    "graphql_rate_limit",
-    CONST_GH_UNKNOWN_OWNER_TYPE,
 )
 CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "secondary rate limit",
-    "abuse-rate-limit",
     "wait a few minutes before you try again",
     "please retry your request again later",
     "exceeded a secondary rate limit",
@@ -1054,7 +1054,6 @@ CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
 # ... scope") and the wordings of the project scope.
 CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "missing required scopes",
-    "insufficient_scopes",
     "this api operation needs the",
     "read:project",
     "scope 'project'",
@@ -1074,9 +1073,11 @@ CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
 )
 # gh's exit status for a command that requires authentication (`gh help exit-codes`).
 CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
-# The HTTP status gh names: `gh api` writes `<message> (HTTP <status>)` or `HTTP <status>`, and
-# its other commands go-gh's `HTTP <status>: <message> (<url>)`.
-CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (\d{3})\b")
+# The HTTP status gh names on stderr: `gh api` writes `<message> (HTTP <status>)` or
+# `HTTP <status>`, and its other commands go-gh's `HTTP <status>: <message> (<url>)`.
+CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
+# The scope gh project's commands need to create and edit boards; it includes read:project.
+CONST_GH_PROJECT_SCOPE: Final[str] = "project"
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
@@ -3523,9 +3524,6 @@ CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
 CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
-# `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
-# when the response carries no message.
-CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
 
 # ── Cluster-Native Service Addressing ────────────────────────────────────────
 # A k8s:// URL names a Service rather than a host and port, so the same configuration

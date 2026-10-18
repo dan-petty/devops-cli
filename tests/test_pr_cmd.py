@@ -1759,16 +1759,30 @@ class TestPrCommands:
             assert "GitHub GraphQL rate limit exceeded" in result.output
 
     @pytest.mark.parametrize(
-        "said",
+        ("said", "details"),
         [
-            pytest.param("gh: Too Many Requests (HTTP 429)", id="429"),
-            pytest.param("gh: Please retry your request again later. (HTTP 403)", id="secondary"),
+            pytest.param(
+                "gh: Too Many Requests (HTTP 429)", "gh: Too Many Requests (HTTP 429)", id="429"
+            ),
+            pytest.param(
+                "gh: Please retry your request again later. (HTTP 403)",
+                "gh: Please retry your request again later. (HTTP 403)",
+                id="secondary",
+            ),
+            pytest.param(
+                "GraphQL: API rate limit already exceeded for user ID 1.",
+                "GraphQL: API rate limit already exceeded for user ID 1",
+                id="ends-with-a-period",
+            ),
         ],
     )
     def test_ready_names_a_rate_limit_only_the_gh_table_names(
-        self, runner: CliRunner, said: str
+        self, runner: CliRunner, said: str, details: str
     ) -> None:
-        """A rate limit gh writes without the words "rate limit" is still named one (#983)."""
+        """A rate limit gh writes without the words "rate limit" is still named one (#983). The
+        message is one paragraph: `print_error` wraps softly at the 250 columns the tests set, so
+        a line break would come from the message itself, and gh's own closing period is not
+        doubled."""
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
@@ -1781,10 +1795,11 @@ class TestPrCommands:
             ),
         ):
             result = runner.invoke(app, ["ready", "184"])
-        assert (result.exit_code, "GitHub GraphQL rate limit exceeded" in result.output) == (
-            1,
-            True,
-        )
+        assert (
+            result.exit_code,
+            f"GitHub GraphQL rate limit exceeded. Details: {details}. Note:" in result.output,
+            result.output.count("\n"),
+        ) == (1, True, 1)
 
     def test_ready_pr_success(self, runner: CliRunner) -> None:
         """devops pr ready marks draft PR as ready."""

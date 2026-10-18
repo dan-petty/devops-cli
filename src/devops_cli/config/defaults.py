@@ -793,6 +793,9 @@ DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
+# How long `gh api rate_limit` may run when the ledger refreshes a quota; past it the quota is
+# left unread (#983).
+DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
 # A roadmap poll reads the pull requests and the GitHub Releases this many at a time: at 100 a

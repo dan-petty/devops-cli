@@ -132,6 +132,7 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
@@ -1445,15 +1446,16 @@ def apply_intake(
     refine: Callable[[RoadmapStore, int], Any] | None = None,
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time. A candidate whose write fails is
-    skipped and named in `failed`, and the others are still written (#1443). A rate limit or a
-    GraphQL budget refusal stops the round, since every later write would be refused too."""
+    skipped and named in `failed`, and the others are still written (#1443). A rate limit, a
+    GraphQL budget refusal or a token GitHub refuses stops the round, since every later write
+    would be refused too (#983)."""
     refine_hook = refine or refine_item
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
         try:
             written.append(_apply_decision(store, decision, refine_hook))
-        except GitHubRateLimitError:
+        except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
         except GitHubOperationError as exc:
             failed.append(_failed_placement(decision.subject, exc))

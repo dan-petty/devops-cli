@@ -833,7 +833,7 @@ def sync_views(
         else:
             print_warning(f"Could not sync views: {res.get('status', 'Project not found')}")
     except Exception as exc:
-        print_warning(f"Views sync skipped or failed: {exc}")
+        print_warning(f"Views sync skipped or failed: {exc}", safe=True)
 
     _display_issues_saved_views(target_repo)
 

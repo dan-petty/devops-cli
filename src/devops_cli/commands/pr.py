@@ -22,7 +22,6 @@ from devops_cli.config.constants import (
     CONST_CHANGELOG_FRAGMENT_NAME_RE,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CI_WORKFLOW_FILE,
-    CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
     CONST_GH_COMPARE_COMMITS_PER_PAGE,
     CONST_GH_COMPARE_FILES_CAP,
@@ -60,7 +59,7 @@ from devops_cli.github.defect_classifier import (
     audit_pr_hardening,
     classify_defect_pr,
 )
-from devops_cli.github.error_classifier import is_gh_rate_limited
+from devops_cli.github.error_classifier import gh_http_status, is_gh_rate_limited
 from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
@@ -988,9 +987,10 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
 
     clean_err = mask_secrets(stderr_text.strip()[:256])
     if is_gh_rate_limited(stderr_text):
+        # gh's rate-limit messages end with a period of their own.
         print_error(
             f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded. "
-            f"Details: {clean_err}. "
+            f"Details: {clean_err.removesuffix('.')}. "
             "Note: GitHub REST API PATCH /pulls does NOT support converting drafts. "
             "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI.",
             safe=True,
@@ -1683,8 +1683,7 @@ def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) ->
     )
     if res.returncode == 0:
         return True
-    status = CONST_GH_API_HTTP_STATUS_RE.search(res.stderr or "")
-    if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+    if gh_http_status(res.stderr or "") == HTTPStatus.NOT_FOUND:
         return False
     raise GitHubOperationError(_gh_failure(res))
 

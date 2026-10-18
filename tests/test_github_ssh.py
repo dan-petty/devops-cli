@@ -154,9 +154,6 @@ _SCOPE_SUGGESTION = (
     [
         pytest.param((0, "{}", ""), None, None, id="added"),
         pytest.param(
-            (1, _KEY_IN_USE, "gh: Validation Failed (HTTP 422)"), None, None, id="registered"
-        ),
-        pytest.param(
             (1, "", _SCOPE_SUGGESTION),
             "GitHub CLI auth is missing required scopes",
             GitHubScopeError,
@@ -185,9 +182,8 @@ def test_gh_add_key_reads_gh_s_failure_through_the_classifier(
     message: str | None,
     cause: type[Exception] | None,
 ) -> None:
-    """A key gh adds, or one GitHub answers 422 for (already registered), is done. A missing
-    scope asks for the scopes, and any other failure raises gh's text; a failure the gh
-    classifier names is the raised error's cause (#983)."""
+    """A key gh adds is done. A missing scope asks for the scopes, and any other failure raises
+    gh's text; a failure the gh classifier names is the raised error's cause (#983)."""
     added = subprocess.CompletedProcess(["gh", "api"], *answer)
     monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: added)
     if message is None:
@@ -196,6 +192,72 @@ def test_gh_add_key_reads_gh_s_failure_through_the_classifier(
     with pytest.raises(SSHRegistrationError, match=re.escape(message)) as raised:
         _gh_add_key("/user/keys", _KEY, "Title")
     assert type(raised.value.__cause__) is (type(None) if cause is None else cause)
+
+
+_KEY_INVALID = json.dumps(
+    {
+        "message": "Validation Failed",
+        "errors": [
+            {
+                "resource": "PublicKey",
+                "code": "custom",
+                "field": "key",
+                "message": "key is invalid. You must supply a key in OpenSSH public key format",
+            }
+        ],
+    }
+)
+
+
+class _KeysGh:
+    """gh for the key endpoints: the POST gets GitHub's 422 with `body` on stdout, as gh api
+    writes it, and the key listing gets `listing`, an exit status and stdout."""
+
+    def __init__(self, body: str, listing: tuple[int, str]) -> None:
+        self.body, self.listing = body, listing
+
+    def __call__(self, args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if "--method" in args:
+            return subprocess.CompletedProcess(
+                args, 1, self.body, "gh: Validation Failed (HTTP 422)"
+            )
+        return subprocess.CompletedProcess(args, self.listing[0], self.listing[1], "")
+
+
+@pytest.mark.parametrize(
+    ("body", "listing", "message"),
+    [
+        pytest.param(
+            _KEY_INVALID,
+            (0, "[]"),
+            "key is invalid. You must supply a key in OpenSSH public key format",
+            id="invalid-key",
+        ),
+        pytest.param(_KEY_IN_USE, (0, "[]"), "key is already in use", id="in-use-elsewhere"),
+        pytest.param(_KEY_IN_USE, (0, json.dumps([{"key": _KEY}])), None, id="listed"),
+        pytest.param(_KEY_INVALID, (1, ""), None, id="listing-unread"),
+    ],
+)
+def test_a_422_means_registered_only_when_the_key_is_listed_or_the_list_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch, body: str, listing: tuple[int, str], message: str | None
+) -> None:
+    """GitHub answers 422 for a key it already holds, but also for a key it rejects as invalid
+    and for one in use on another account. The keys are listed again: a listed key, or a list
+    that can't be read, is registered; a list read without it raises gh's text with GitHub's
+    reason (#983)."""
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", _KeysGh(body, listing))
+    if message is None:
+        _gh_add_key("/user/keys", _KEY, "Title")
+        return
+    with pytest.raises(SSHRegistrationError) as raised:
+        _gh_add_key("/user/keys", _KEY, "Title")
+    assert (
+        "gh: Validation Failed (HTTP 422)" in str(raised.value),
+        message in str(raised.value),
+    ) == (
+        True,
+        True,
+    )
 
 
 def test_gh_add_key_reports_a_gh_that_could_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
