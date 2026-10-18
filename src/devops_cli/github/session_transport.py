@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import weakref
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import CancelledError
 from contextlib import ExitStack
 from functools import partial
@@ -60,6 +60,7 @@ from devops_cli.github.error_classifier import (
     is_server_error,
     refused_retry,
     retry_after_seconds,
+    unlisted_page,
     unread_after_close,
 )
 from devops_cli.github.rate_limiter import (
@@ -243,10 +244,34 @@ class SessionGitHubAPI(GitHubAPI):
 
     async def send(self, method: str, path: str, *, accept: str | None, body: Any) -> Any:
         """One REST request's decoded answer: JSON as Python values, any other body as text."""
+        answer, _ = await self._exchange(method, path, path, accept=accept, body=body)
+        return answer
+
+    async def page(
+        self, endpoint: str, url: str, *, number: int, iterable_key: str | None
+    ) -> tuple[list[Any], str | None]:
+        """Page `number` of the listing at `endpoint`, read from `url`: its items, and the URL of
+        the next page, which an empty page or one without `rel="next"` has none of."""
+        answer, more = await self._exchange("GET", endpoint, url, page=number)
+        items = listed_items(answer, path=endpoint, page=number, iterable_key=iterable_key)
+        return items, (more if items else None)
+
+    async def _exchange(
+        self,
+        method: str,
+        path: str,
+        url: str,
+        *,
+        accept: str | None = None,
+        body: Any = None,
+        page: int | None = None,
+    ) -> tuple[Any, str | None]:
+        """One request to `url`, on behalf of `path` (and its `page`): the decoded answer and the
+        `rel="next"` link GitHub sent with it, or the error the classifier names."""
         try:
-            answer, _, _ = await self._make_request(
+            answer, more, _ = await self._make_request(
                 method,
-                path.translate(_LITERAL_PATH),
+                url.translate(_LITERAL_PATH),
                 None,
                 b"" if body is None else body,
                 accept or sansio.accept_format(),
@@ -254,8 +279,22 @@ class SessionGitHubAPI(GitHubAPI):
         except DevOpsCLIError:
             raise
         except (HTTPException, *_UNREAD) as error:
-            raise classify_http_error(error, method=method, path=path) from error
-        return answer
+            raise classify_http_error(error, method=method, path=path, page=page) from error
+        return answer, more
+
+
+def listed_items(answer: Any, *, path: str, page: int, iterable_key: str | None) -> list[Any]:
+    """The items on one page of a listing: the page itself when it is a JSON array, or the array
+    it holds under `iterable_key` (`check_runs`, `workflow_runs`, `items`). Anything else, such
+    as an HTML page, an error object or a missing body, raises `GitHubUnreadError`, so a string's
+    characters or an object's keys are never read as items (#1034)."""
+    if iterable_key is None:
+        items = answer
+    else:
+        items = answer.get(iterable_key) if isinstance(answer, dict) else None
+    if not isinstance(items, list):
+        raise unlisted_page(answer, path=path, page=page, iterable_key=iterable_key)
+    return items
 
 
 class RestTransport:
@@ -281,10 +320,24 @@ class RestTransport:
 
         A request the transport's close stopped raises `GitHubUnreadError`.
         """
+        return self._call(
+            method, path, partial(self._api.send, method, path, accept=accept, body=body)
+        )
+
+    def page(
+        self, endpoint: str, url: str, *, number: int, iterable_key: str | None = None
+    ) -> tuple[list[Any], str | None]:
+        """Read one page of the listing at `endpoint` on the portal's loop: its items and the
+        next page's URL, or None after the last page."""
+        read = partial(self._api.page, endpoint, url, number=number, iterable_key=iterable_key)
+        result: tuple[list[Any], str | None] = self._call("GET", endpoint, read)
+        return result
+
+    def _call(self, method: str, path: str, request: Callable[[], Awaitable[Any]]) -> Any:
+        """Run `request` on the portal's loop and wait for it; a request the transport's close
+        stopped raises `GitHubUnreadError`."""
         try:
-            return self._portal.call(
-                partial(self._api.send, method, path, accept=accept, body=body)
-            )
+            return self._portal.call(request)
         except DevOpsCLIError:
             raise
         except (RuntimeError, CancelledError) as error:
