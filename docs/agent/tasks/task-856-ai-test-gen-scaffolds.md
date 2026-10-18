@@ -1,7 +1,6 @@
 # Task: Emit Failing Scaffolds in `devops ai test-gen` (#856)
 
 **Issue**: [#856](https://github.com/dan-petty/devops-cli/issues/856)
-**Status**: Done
 **Feasibility**: Verified against `src/devops_cli/ai/test_gen.py`, `src/devops_cli/commands/ai.py:2013-2060`, and `src/devops_cli/ai/mcp/server.py:1307-1314`; confirmed `synthesize_unit_tests` previously emitted presence-only `assert hasattr(...)` and `assert ... is not None` assertions while reporting `Synthesized N unit test(s)`.
 
 ## Summary

@@ -1,9 +1,6 @@
 # Task: A Native deploy-stack Applies the Grafana Dashboards Again (#1297)
 
 **Issue**: [#1297](https://github.com/dan-petty/devops-cli/issues/1297)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

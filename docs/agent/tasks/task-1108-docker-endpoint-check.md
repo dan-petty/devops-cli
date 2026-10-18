@@ -1,9 +1,6 @@
 # Task: Docker Endpoint Check Covers the Endpoint the SDK Dials (#1108)
 
 **Issue**: [#1108](https://github.com/dan-petty/devops-cli/issues/1108)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: scope/security
 
 ## Description

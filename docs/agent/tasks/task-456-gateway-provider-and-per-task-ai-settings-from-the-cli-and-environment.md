@@ -1,9 +1,6 @@
 # Task 456: Gateway Provider and Per-Task AI Settings From the CLI and Environment
 
 **Issue**: [#456](https://github.com/dan-petty/devops-cli/issues/456)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/config`, `priority/p2-medium`
 
 ---

@@ -1,9 +1,6 @@
 # Task 510: Text Output Functions Run Only When They Take the Text Alone
 
 **Issue**: [#510](https://github.com/dan-petty/devops-cli/issues/510)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/ai`, `priority/p1-high`
 
 ---

@@ -1,9 +1,6 @@
 # Task: One fail-closed release path: cut branch from remote release tip, uv.lock bump, draft flag, required label and milestone (#982)
 
 **Issue**: [#982](https://github.com/dan-petty/devops-cli/issues/982)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/release, priority/p1-high
 
 ## Description

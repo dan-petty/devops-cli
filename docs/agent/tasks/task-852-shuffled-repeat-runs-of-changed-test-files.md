@@ -1,9 +1,6 @@
 # Task: Shuffled repeat runs of a pull request's changed test files (#852)
 
 **Issue**: [#852](https://github.com/dan-petty/devops-cli/issues/852)
-**Status**: Done
-**Milestone**: `v0.2.32`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `scope/ci`, `priority/p2-medium`
 
 ## Description

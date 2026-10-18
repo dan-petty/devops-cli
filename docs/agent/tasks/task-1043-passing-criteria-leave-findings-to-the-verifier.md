@@ -1,9 +1,6 @@
 # Task: Passing Criteria Leave a Finding for the Verifier Instead of Verifying It, and Running the Cited Test Counts as Evidence (#1043)
 
 **Issue**: [#1043](https://github.com/dan-petty/devops-cli/issues/1043)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

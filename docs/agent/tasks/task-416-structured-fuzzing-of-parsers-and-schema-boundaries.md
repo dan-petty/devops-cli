@@ -1,9 +1,6 @@
 # Task 416: Structured Fuzzing of Parsers and Schema Boundaries
 
 **Issue**: [#416](https://github.com/dan-petty/devops-cli/issues/416)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`
 **Feasibility**: Verified against real parser implementations in the codebase: Hypothesis 6.168.3 is installed (`pyproject.toml:84`), `security/sarif.py` lines 238, 474, 508, `core/cleanup.py` lines 76-88, `ci/cache.py` lines 164-185, `argo/gitops.py` lines 228-233, and `ai/review_schema.py` line 1519. Parsers run in microseconds; property tests execute well within the 1-second suite budget.
 

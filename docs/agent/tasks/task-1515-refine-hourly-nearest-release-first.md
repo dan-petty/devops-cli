@@ -1,9 +1,6 @@
 # Task: Refine runs every hour and readies the new items of every planned release, nearest first, before that release starts (#1515)
 
 **Issue**: [#1515](https://github.com/dan-petty/devops-cli/issues/1515)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/roadmap
 **Feasibility**: Checked on #1470's branch (88fab9d, on release/v0.2.33). The due table's `interval` and `first_run_due` already drive close, metrics and intake (`_is_interval_due`), so the refine row needs only those two fields. `select_candidates` read only the next planned release (`_find_next_planned_release`) and capped the backlog with `DEFAULT_ROADMAP_RELEASE_CAP`, and `plan_refine` never read `config.release_cap`. A real refine round that leaves items New, followed by a second round, sends no model request on this branch (the AC5 test below); before #1470 every such item was re-selected and gained another design section, which an hourly cadence would have repeated every hour.
 

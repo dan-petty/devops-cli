@@ -1,9 +1,6 @@
 # Task: devops ci Quality Gate Finishes Within Five Minutes (#748)
 
 **Issue**: [#748](https://github.com/dan-petty/devops-cli/issues/748)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/ci
 
 ## Description

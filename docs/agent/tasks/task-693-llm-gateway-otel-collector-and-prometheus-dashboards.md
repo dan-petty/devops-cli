@@ -1,9 +1,6 @@
 # Task: LLM Gateway, OTel Collector and Prometheus Dashboards over Metrics the Cluster Collects (#693)
 
 **Issue**: [#693](https://github.com/dan-petty/devops-cli/issues/693)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 
 ## Description

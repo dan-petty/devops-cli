@@ -1,9 +1,6 @@
 # Task: Record the Roadmap Planning Glossary and GitHub-Source ADR (#746)
 
 **Issue**: [#746](https://github.com/dan-petty/devops-cli/issues/746)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p1-high
 **Scope**: scope/docs
 
 ## Description

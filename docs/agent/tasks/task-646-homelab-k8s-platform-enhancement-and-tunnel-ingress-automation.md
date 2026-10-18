@@ -1,9 +1,6 @@
 # Task 646: Homelab Kubernetes Platform Enhancements, Cloudflare Tunnel GitOps, Ingress Automation & AI Triage
 
 **Issue**: [#646](https://github.com/dan-petty/devops-cli/issues/646)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/k8s`, `priority/p1-high`
 
 ---

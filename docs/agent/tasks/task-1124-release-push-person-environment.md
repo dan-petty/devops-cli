@@ -1,9 +1,6 @@
 # Task: Release pushes run git with the person's environment, so the configured credential helper answers instead of "could not read Username" (#1124)
 
 **Issue**: [#1124](https://github.com/dan-petty/devops-cli/issues/1124)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/release, priority/p1-high
 
 ## Description

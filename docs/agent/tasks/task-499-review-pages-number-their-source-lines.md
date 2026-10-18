@@ -1,9 +1,6 @@
 # Task 499: Review Pages Number Their Source Lines
 
 **Issue**: [#499](https://github.com/dan-petty/devops-cli/issues/499)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

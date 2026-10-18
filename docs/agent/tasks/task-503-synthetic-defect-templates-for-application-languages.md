@@ -1,9 +1,6 @@
 # Task 503: Synthetic Defect Templates for Application Languages
 
 **Issue**: [#503](https://github.com/dan-petty/devops-cli/issues/503)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

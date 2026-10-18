@@ -1,9 +1,6 @@
 # Task: Reviews Run Nothing From, and Take No Conventions From, the Tree Under Review (#946)
 
 **Issue**: [#946](https://github.com/dan-petty/devops-cli/issues/946)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

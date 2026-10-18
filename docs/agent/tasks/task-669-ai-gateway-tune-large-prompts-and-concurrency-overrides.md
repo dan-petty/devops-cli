@@ -1,9 +1,6 @@
 # Task 669: Gateway Tune Large Prompts, Weight Overrides and Concurrency Settings
 
 **Issue**: [#669](https://github.com/dan-petty/devops-cli/issues/669)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/ai`, `priority/p2-medium`
 
 ---

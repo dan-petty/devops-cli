@@ -1,9 +1,6 @@
 # Task 703: Board-Owned Project Status, Declared Field Sources and Truthful Project Sync
 
 **Issue**: [#703](https://github.com/dan-petty/devops-cli/issues/703)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/github`, `priority/p0-critical`
 
 ---

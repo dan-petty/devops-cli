@@ -1,9 +1,6 @@
 # Task: Gateway requests stay within the backend slot count in every command (#1354)
 
 **Issue**: [#1354](https://github.com/dan-petty/devops-cli/issues/1354)
-**Status**: Done
-**Milestone**: v0.2.37
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/review
 **Feasibility**: Verified against the code at 3dd7fa6. `execute_multi_persona_review` (`src/devops_cli/ai/review/pipeline.py`) sized its file pool at `max(DEFAULT_GATEWAY_REVIEW_CONCURRENCY, len(ollama_urls) * ollama_max_parallel)` in gateway mode and honoured any explicit `--concurrency`. Each file runs its personas through `MultiAgentPipeline.run_parallel` (`src/devops_cli/ai/agents/pipeline.py`, up to 8 threads). Every gateway chat call reaches `_openai_compat_messages` or `_openai_compat_stream` (`src/devops_cli/ai/client/openai.py`) through the provider dispatch in `src/devops_cli/ai/client/unified.py`, so one limiter there covers persona calls, group analysis, roadmap intake and the `devops ai` chat commands. Only the `gateway` provider sends chat calls to the gateway: with `ai.gateway_enabled` and another provider, `_api_base` and the provider dispatch send chat to that provider, and only embeddings go to the gateway (`src/devops_cli/ai/rag/embeddings.py`). The new tests were run against the base source (3dd7fa6 with this change's tests); what they got there is under Red Then Green.
 

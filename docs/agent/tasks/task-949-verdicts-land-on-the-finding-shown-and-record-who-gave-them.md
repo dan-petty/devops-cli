@@ -1,9 +1,6 @@
 # Task: Verdicts Land on the Finding Shown, Record Who Gave Them, and Machine-Invalidated Candidates Can Be Overturned (#949)
 
 **Issue**: [#949](https://github.com/dan-petty/devops-cli/issues/949)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

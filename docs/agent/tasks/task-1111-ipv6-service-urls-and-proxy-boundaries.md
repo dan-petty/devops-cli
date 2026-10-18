@@ -1,9 +1,6 @@
 # Task: Service URLs bracket IPv6 hosts; k8s:// addresses reach only their Service (#1111)
 
 **Issue**: [#1111](https://github.com/dan-petty/devops-cli/issues/1111)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 
 ## Description

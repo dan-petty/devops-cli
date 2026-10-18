@@ -1,9 +1,6 @@
 # Task: Grafana K8s Monitoring Missing Metrics, SRE Service Dashboard and OTel Loki Exporter (#922)
 
 **Issue**: [#922](https://github.com/dan-petty/devops-cli/issues/922)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

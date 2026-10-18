@@ -1,9 +1,6 @@
 # Task: The Prometheus Server Scrapes Only Itself and the OTel Collector, and k8s-monitoring Discovers Every Other Target (#1130)
 
 **Issue**: [#1130](https://github.com/dan-petty/devops-cli/issues/1130)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: scope/k8s, scope/telemetry
 **Feasibility**: Confirmed against the live cluster read-only on 2026-10-09 (kubectl get, Prometheus queries through Grafana): the API-server job held 59,700 of 99,544 head series, 1,375 series lacked a cluster label (all from the self-scrape), and every Argo CD app was Synced; the chart values read at origin/release/v0.2.33 still enabled the four extra scrape jobs this change removes.
 

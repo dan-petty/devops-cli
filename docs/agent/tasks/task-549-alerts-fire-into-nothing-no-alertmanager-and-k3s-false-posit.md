@@ -1,9 +1,6 @@
 # Task 549: Alerts Fire Into Nothing: No Alertmanager, and k3s False Positives
 
 **Issue**: [#549](https://github.com/dan-petty/devops-cli/issues/549)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/k8s
 
 ## Description

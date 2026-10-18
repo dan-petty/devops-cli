@@ -1,9 +1,6 @@
 # Task: Refactor GPU Matrix, Eliminate vLLM References and Extract Static JSON Asset (#1223)
 
 **Issue**: [#1223](https://github.com/dan-petty/devops-cli/issues/1223)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

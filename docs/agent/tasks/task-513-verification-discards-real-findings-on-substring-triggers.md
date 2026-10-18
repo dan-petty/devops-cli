@@ -1,9 +1,6 @@
 # Task 513: Verification Discards Real Findings on Substring Triggers and Malformed Verdicts
 
 **Issue**: [#513](https://github.com/dan-petty/devops-cli/issues/513)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/bug`, `scope/review`, `priority/p0-critical`
 
 ---

@@ -1,9 +1,6 @@
 # Task 792: SDK MeterProvider Delta Aggregation, Exponential Histograms & Prometheus Client Exposition
 
 **Issue**: [#792](https://github.com/dan-petty/devops-cli/issues/792)
-**Status**: Done
-**Milestone**: `v0.2.36`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/telemetry`, `priority/p2-medium`
 **Feasibility**: Verified that `opentelemetry-sdk` 1.38.0 (`MeterProvider`, `InMemoryMetricReader`, `AggregationTemporality.DELTA`, `View`, and `ExponentialBucketHistogramAggregation`) and `prometheus-client` 0.26.0 (`CollectorRegistry`, `Counter`, `Gauge`, `Histogram`, `GaugeMetricFamily`, `CounterMetricFamily`, `generate_latest`, `CONTENT_TYPE_LATEST`, and `text_string_to_metric_families`) satisfy all metric aggregation, exposition, and parsing requirements while keeping `opentelemetry.sdk` lazily loaded outside `--help`.
 

@@ -1,9 +1,6 @@
 # Task: Response-Cache Hits Are Counted as Cached Requests (#816)
 
 **Issue**: [#816](https://github.com/dan-petty/devops-cli/issues/816)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/telemetry
 
 ## Description

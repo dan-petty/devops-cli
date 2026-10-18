@@ -1,9 +1,6 @@
 # Task: Docker and Sandbox Output Prints Registry, Build and Scraped Text As Written (#955)
 
 **Issue**: [#955](https://github.com/dan-petty/devops-cli/issues/955)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p3-low
 **Scope**: scope/cli
 
 ## Description

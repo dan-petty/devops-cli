@@ -1,9 +1,6 @@
 # Task 592: bubblewrap Confinement for Criteria Commands and One Sandbox Policy
 
 **Issue**: [#592](https://github.com/dan-petty/devops-cli/issues/592)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

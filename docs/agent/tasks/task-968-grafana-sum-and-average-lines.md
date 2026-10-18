@@ -1,9 +1,6 @@
 # Task: Grafana Service & Cluster Workload Graphs Sum & Average Lines (#968)
 
 **Issue**: [#968](https://github.com/dan-petty/devops-cli/issues/968)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/telemetry, scope/k8s
 
 ## Description

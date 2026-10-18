@@ -1,9 +1,6 @@
 # Task: The DevSecOps Persona Reports Misconfiguration and Error-Handling Defects Again, Scored Against a Fixed Recall Set (#1015)
 
 **Issue**: [#1015](https://github.com/dan-petty/devops-cli/issues/1015)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/review
 
 ## Description

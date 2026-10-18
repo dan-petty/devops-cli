@@ -1,9 +1,6 @@
 # Task: Remove the Code, Config and Policies Left Over from the Removed vLLM Deployments (#820)
 
 **Issue**: [#820](https://github.com/dan-petty/devops-cli/issues/820)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/k8s
 **Feasibility**: Feasible - Confirmed through code and manifest search that vLLM deployments and profiles were removed in #734, leaving dead settings, routes, scale commands, and network policies.
 

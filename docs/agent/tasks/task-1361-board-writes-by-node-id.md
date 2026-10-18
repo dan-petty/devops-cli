@@ -1,9 +1,6 @@
 # Task: Board writes go to the card by node id and read only that card (#1361)
 
 **Issue**: [#1361](https://github.com/dan-petty/devops-cli/issues/1361)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, priority/p1-high
 
 ## Description

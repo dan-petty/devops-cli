@@ -1,10 +1,7 @@
 # Task 794: Tunnel Sync and URL Setup Route and Setting Preservation
 
 **Issue**: [#794](https://github.com/dan-petty/devops-cli/issues/794)
-**Status**: Done
 **Feasibility**: Verified Cloudflare API v4 tunnel configurations endpoint schema, warp-routing and originRequest field structures, and Kubernetes ingress service discovery matching patterns against live schema definitions.
-**Milestone**: `v0.2.34`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p1-high`
 
 ---

@@ -1,9 +1,6 @@
 # Task 755: Argo CD Keeps the Homelab Cluster at the Declared State
 
 **Issue**: [#755](https://github.com/dan-petty/devops-cli/issues/755)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/k8s
 
 > **Superseded in part by #1261 and #1486.** The git sources track `main` (#1261), and the cut's `targetRevision` rewrite and `devops release check`'s check are gone (#1486); `tests/test_k8s_argocd_apps.py` holds them on `main`.

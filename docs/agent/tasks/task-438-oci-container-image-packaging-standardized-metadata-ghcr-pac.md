@@ -1,9 +1,6 @@
 # Task 438: OCI Container Image Packaging, Standardized Metadata & GHCR Package Integration
 
 **Issue**: [#438](https://github.com/dan-petty/devops-cli/issues/438)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 **Feasibility**: Verified against local Docker engine multi-arch compilation, `.github/workflows/release.yml` GitHub Actions schema, and `devops devcontainer validate` CLI command.
 

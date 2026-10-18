@@ -1,9 +1,6 @@
 # Task: Review Workflow Tests Start No Logfire Token Check (#965)
 
 **Issue**: [#965](https://github.com/dan-petty/devops-cli/issues/965)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: type/bug, priority/p2-medium, scope/ci
 
 ## Description

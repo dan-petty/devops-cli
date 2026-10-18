@@ -1,9 +1,6 @@
 # Task: An Interrupted RAG Index Resumes Every File Whose Chunks Were Not All Stored (#1296)
 
 **Issue**: [#1296](https://github.com/dan-petty/devops-cli/issues/1296)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

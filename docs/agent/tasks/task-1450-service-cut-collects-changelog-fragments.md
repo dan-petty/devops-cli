@@ -1,9 +1,6 @@
 # Task: The Service's cut commit collects the changelog fragments into the version's CHANGELOG.md section (#1450)
 
 **Issue**: [#1450](https://github.com/dan-petty/devops-cli/issues/1450)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p0-critical
 **Scope**: type/bug, scope/release
 **Feasibility**: Confirmed on origin: the v0.2.32 cut commit (`git show --stat` on `origin/release/v0.2.32`'s tip) changed `docs/ROADMAP.md`, `pyproject.toml` and `uv.lock` and no `CHANGELOG.md`, and #1474 and #1517 collected the fragments by hand. The collection itself already existed for the local `devops release prepare` (`_plan_fragment_collection`, `_write_version_changelog`). The contents API's raw media type and its 1 MB limit for JSON content are GitHub's documented REST behaviour.
 

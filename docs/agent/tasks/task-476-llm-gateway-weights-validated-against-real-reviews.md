@@ -1,9 +1,6 @@
 # Task 476: LLM Gateway Weights Validated Against Real Reviews
 
 **Issue**: [#476](https://github.com/dan-petty/devops-cli/issues/476)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `priority/p2-medium`
 
 ---

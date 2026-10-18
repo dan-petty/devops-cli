@@ -1,9 +1,6 @@
 # Task: Current Release Admission, Cap, Descoping and Stall Rules (`devops roadmap reprioritize`) (#740)
 
 **Issue**: [#740](https://github.com/dan-petty/devops-cli/issues/740)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 > **Superseded in part by #1514.** A start still fills to `release_cap` but trims only above `release_cap + release_slots`, and the cap descope and the size check use that limit; `test_with_twelve_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_one` is now `test_with_sixteen_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_one`, `test_with_twelve_started_items_a_critical_fix_joins_and_the_release_holds_thirteen` is now `test_with_sixteen_started_items_a_critical_fix_joins_and_the_release_holds_seventeen`, `test_with_eleven_started_items_and_an_admitted_fix_a_second_fix_joins_without_descoping` is now `test_with_fifteen_started_items_and_an_admitted_fix_a_second_fix_joins_without_descoping` (15 started items and two fixes, 17), `test_with_ten_items_a_critical_fix_descopes_nothing` is now `test_a_critical_fix_that_joins_a_release_within_its_limit_descopes_nothing`, `test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_cap` is now `test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_its_limit`, and `test_the_first_run_records_the_admitted_set_and_a_second_run_writes_nothing` holds 17 items, over the limit.

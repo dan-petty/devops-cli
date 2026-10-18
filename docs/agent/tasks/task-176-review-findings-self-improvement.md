@@ -1,9 +1,6 @@
 # Task 176: Remediate DevSecOps Review Findings & Enhance Review Self-Improvement Loop
 
 **Issue**: [#176](https://github.com/dan-petty/devops-cli/issues/176)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/review`
 
 ---

@@ -1,9 +1,6 @@
 # Task 516: Static Scan Reports a Clean Result When Its Scanners Are Not Installed
 
 **Issue**: [#516](https://github.com/dan-petty/devops-cli/issues/516)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/review`, `priority/p2-medium`
 
 ---

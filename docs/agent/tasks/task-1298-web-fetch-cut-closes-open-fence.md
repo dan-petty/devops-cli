@@ -1,9 +1,6 @@
 # Task: A web_fetch budget cut inside a code block closes the fence before the truncation note and boundary tag (#1298)
 
 **Issue**: [#1298](https://github.com/dan-petty/devops-cli/issues/1298)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/ai
 
 ## Description

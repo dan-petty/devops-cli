@@ -1,9 +1,6 @@
 # Task 564: Review, Findings and AI Spend Metrics Reach Prometheus
 
 **Issue**: [#564](https://github.com/dan-petty/devops-cli/issues/564)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/telemetry`, `priority/p2-medium`
 
 ---

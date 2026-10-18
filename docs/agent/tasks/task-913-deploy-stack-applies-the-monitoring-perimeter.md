@@ -1,9 +1,6 @@
 # Task: deploy-stack Applies the Monitoring Namespace Perimeter (#913)
 
 **Issue**: [#913](https://github.com/dan-petty/devops-cli/issues/913)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

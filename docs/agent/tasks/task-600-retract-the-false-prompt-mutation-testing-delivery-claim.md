@@ -1,9 +1,6 @@
 # Task 600: Retract the False "Prompt Mutation Testing" Delivery Claim
 
 **Issue**: [#600](https://github.com/dan-petty/devops-cli/issues/600)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/ai`, `priority/p0-critical`
 
 ---

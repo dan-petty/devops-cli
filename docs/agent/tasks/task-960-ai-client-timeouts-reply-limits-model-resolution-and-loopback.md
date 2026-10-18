@@ -1,9 +1,6 @@
 # Task: AI Client Timeouts, Reply Size Limits, Model-Resolution Errors, Dead Round-Robin State and the Loopback Policy (#960)
 
 **Issue**: [#960](https://github.com/dan-petty/devops-cli/issues/960)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p3-low
 **Scope**: scope/ai
 
 ## Description

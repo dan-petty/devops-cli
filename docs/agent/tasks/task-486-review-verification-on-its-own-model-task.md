@@ -1,9 +1,6 @@
 # Task 486: Review Verification on Its Own Model Task
 
 **Issue**: [#486](https://github.com/dan-petty/devops-cli/issues/486)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 
 ---

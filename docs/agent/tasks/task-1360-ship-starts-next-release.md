@@ -1,9 +1,6 @@
 # Task: A shipped release starts the next one without a person (#1360)
 
 **Issue**: [#1360](https://github.com/dan-petty/devops-cli/issues/1360)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/roadmap
 
 ## Description

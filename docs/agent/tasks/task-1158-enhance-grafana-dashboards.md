@@ -1,9 +1,6 @@
 # Task 1158: Enhance Grafana Dashboards for AI Spend, CLI Telemetry, GPUs, and SRE Services
 
 **Issue**: [#1158](https://github.com/dan-petty/devops-cli/issues/1158)
-**Status**: Done
-**Milestone**: `v0.2.26`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/telemetry`, `scope/k8s`
 
 ---

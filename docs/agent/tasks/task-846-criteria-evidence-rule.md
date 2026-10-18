@@ -1,9 +1,6 @@
 # Task: Criteria Settle a Verdict Only on Evidence About the Cited Code, and the Verifier Judges the Claim, Not the Pipeline's State (#846)
 
 **Issue**: [#846](https://github.com/dan-petty/devops-cli/issues/846)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

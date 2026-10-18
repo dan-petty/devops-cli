@@ -1,9 +1,6 @@
 # Task: Local LLM Hardware Spend Tracking & Cluster Gateway Recognition (#930)
 
 **Issue**: [#930](https://github.com/dan-petty/devops-cli/issues/930)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai, scope/telemetry
 
 ## Description

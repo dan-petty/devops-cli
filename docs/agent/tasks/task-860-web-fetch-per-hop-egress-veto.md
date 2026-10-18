@@ -1,9 +1,6 @@
 # Task: `web_fetch` Vetoes Every Redirect Hop Before It Is Sent (#860)
 
 **Issue**: [#860](https://github.com/dan-petty/devops-cli/issues/860)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/ai
 
 ## Description

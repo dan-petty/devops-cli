@@ -1,9 +1,6 @@
 # Task: The Model Verifier, the Hallucination Catalog and the Model-Claim Guards Are Deleted, and Person-Recorded Verdicts Become Suppressions (#1150)
 
 **Issue**: [#1150](https://github.com/dan-petty/devops-cli/issues/1150)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: scope/review
 **Feasibility**: Checked against the code at b5ea6ff and the #1137 loop measurements the issue cites (S11 and the loop runs S12-S21: 0 of 94 VERIFIED rows strictly valid, 47 of 125 valid tool candidate-runs dropped, guards keeping false rows 153 of 200 against valid ones 49 of 90). `git grep` over `src` listed every importer of the deleted modules: `ai/prompt_eval.py`, `ai/review/__init__.py`, `adjudication.py`, `classification.py`, `pipeline.py`, `review_environment.py`, `runner.py`, `stages/__init__.py`, `ai/spend/stage.py`, `commands/pr.py` and `commands/review.py`; each keeps working without a model verdict, and only `review score` and the feedback export needed something the deleted code wrote (the cited code, kept in `ai/review/cited_code.py`).
 

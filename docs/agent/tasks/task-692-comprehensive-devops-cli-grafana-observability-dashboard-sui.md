@@ -1,9 +1,6 @@
 # Task: devops-cli Dashboards Chart the Metrics the CLI Sends and the Grafana Sidecar Provisions Them (#692)
 
 **Issue**: [#692](https://github.com/dan-petty/devops-cli/issues/692)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p2-medium
 **Scope**: scope/cli
 
 ## Description

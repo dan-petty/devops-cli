@@ -1,9 +1,6 @@
 # Task 434: False-Positive Rate Tracking Across Runs
 
 **Issue**: [#434](https://github.com/dan-petty/devops-cli/issues/434)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

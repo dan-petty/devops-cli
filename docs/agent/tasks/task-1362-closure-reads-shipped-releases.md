@@ -1,9 +1,6 @@
 # Task: Closure closes the items delivered into a release whose milestone has already closed (#1362)
 
 **Issue**: [#1362](https://github.com/dan-petty/devops-cli/issues/1362)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/release
 
 ## Description

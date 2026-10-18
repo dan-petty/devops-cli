@@ -1,7 +1,6 @@
 # Task: Traces Are Stored in Tempo on a Volume, Linked to Logs and Profiles (#1135)
 
 **Issue**: [#1135](https://github.com/dan-petty/devops-cli/issues/1135)
-**Status**: Done
 **Feasibility**: Verified against `grafana-community/tempo` `3.1.0` Helm chart (`helm template` and `helm show values`), `grafana/k8s-monitoring` `4.0.1` `integrations.tempo` values, and a live `docker.io/grafana/tempo:3.1.0` container (`POST /v1/traces` and `GET /api/v2/traces/{trace_id}` JSON fixture capture).
 
 ## Overview

@@ -1,9 +1,6 @@
 # Task 720: Record Active Personas Accurately in Review Session Findings and Candidates
 
 **Issue**: [#720](https://github.com/dan-petty/devops-cli/issues/720)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/review`, `type/bug`, `priority/p2-medium`
 
 ---

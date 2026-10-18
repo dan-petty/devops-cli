@@ -1,9 +1,6 @@
 # Task: Service mode for devops serve with github webhook verification and per-repo queue (#752)
 
 **Issue**: [#752](https://github.com/dan-petty/devops-cli/issues/752)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/cli, priority/p1-high
 
 ## Description

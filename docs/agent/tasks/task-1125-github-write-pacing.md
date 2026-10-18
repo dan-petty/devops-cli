@@ -1,9 +1,6 @@
 # Task: GitHub write pacing decided from the request gh sends (#1125)
 
 **Issue**: [#1125](https://github.com/dan-petty/devops-cli/issues/1125)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, priority/p1-high
 
 ## Description

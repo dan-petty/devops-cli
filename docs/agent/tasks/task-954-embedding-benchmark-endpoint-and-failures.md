@@ -1,9 +1,6 @@
 # Task: The Embedding Benchmark Takes No Endpoint From an MCP Client and Counts Failed Embeddings as Failures (#954)
 
 **Issue**: [#954](https://github.com/dan-petty/devops-cli/issues/954)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/ai
 
 ## Description

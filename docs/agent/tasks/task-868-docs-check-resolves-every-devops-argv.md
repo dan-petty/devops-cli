@@ -1,9 +1,6 @@
 # Task: Docs Check Resolves Every devops Argv in src (#868)
 
 **Issue**: [#868](https://github.com/dan-petty/devops-cli/issues/868)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description

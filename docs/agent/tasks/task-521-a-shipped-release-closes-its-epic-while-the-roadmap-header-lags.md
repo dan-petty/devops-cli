@@ -1,9 +1,6 @@
 # Task 521: A Shipped Release Closes Its Epic While the Roadmap Header Lags
 
 **Issue**: [#521](https://github.com/dan-petty/devops-cli/issues/521)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/release`, `priority/p2-medium`
 
 ---

@@ -1,9 +1,6 @@
 # Task: Agent Toolset Instructions, Deferred-Tool Context, the Sampling-Model Stub, Harness Memory and Shell Process Groups (#958)
 
 **Issue**: [#958](https://github.com/dan-petty/devops-cli/issues/958)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p3-low
 **Scope**: scope/ai
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 530: Remove the Review Stage Modules the Pipeline Never Calls
 
 **Issue**: [#530](https://github.com/dan-petty/devops-cli/issues/530)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/refactor`, `scope/review`, `priority/p2-medium`
 
 ---

@@ -1,9 +1,6 @@
 # Task 411: Output Format Adoption Across the Command Surface
 
 **Issue**: [#411](https://github.com/dan-petty/devops-cli/issues/411)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`
 **Feasibility**: Verified against Click/Typer command tree introspection across all entrypoints in _COMMAND_SPECS: confirmed all 144 value commands declare --format and route structured serialization through emit_serialized and resolve_format.
 

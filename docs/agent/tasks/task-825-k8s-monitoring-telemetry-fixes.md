@@ -1,9 +1,6 @@
 # Task 825: Kubernetes Monitoring Telemetry Integration & Dashboard Metric Fixes
 
 **Issue**: [#825](https://github.com/dan-petty/devops-cli/issues/825)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/k8s`, `scope/telemetry`, `priority/p1-high`
 
 ---

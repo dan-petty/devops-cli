@@ -1,9 +1,6 @@
 # Task: Pinned Invariants Survive Memory Summarization, Lead Every System Prompt and Recur on a Cadence (#985)
 
 **Issue**: [#985](https://github.com/dan-petty/devops-cli/issues/985)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/ai
 
 ## Description

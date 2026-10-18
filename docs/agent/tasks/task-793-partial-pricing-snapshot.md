@@ -1,9 +1,6 @@
 # Task: Fix Partial Pricing Snapshot Merge and Expiry (#793)
 
 **Issue**: [#793](https://github.com/dan-petty/devops-cli/issues/793)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 **Feasibility**: Passed
 

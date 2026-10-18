@@ -1,7 +1,6 @@
 # Task 844: Fail-to-Pass Check Proving a Fix's Tests Fail on Its Base
 
 **Issue**: [#844](https://github.com/dan-petty/devops-cli/issues/844)
-**Status**: Done
 **Feasibility**: Verified against `src/devops_cli/commands/ci.py`, `src/devops_cli/github/defect_classifier.py`, `pyproject.toml`, and git history (`5768cd9` vs `36b2bee`) that replaying changed `tests/**/test_*.py` files against a materialised merge-base tree with `tests/` overlaid reproduces 16 failed and 24 passed in `tests/test_ai_fixer.py` and classifies defect PRs via `is_defect_pr`.
 
 ## Deliverables

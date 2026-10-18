@@ -1,9 +1,6 @@
 # Task: SELF_IMPROVEMENT, AGENTS.md and the Knowledge Base Describe the Review Loop as It Runs (#952)
 
 **Issue**: [#952](https://github.com/dan-petty/devops-cli/issues/952)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/review
 
 ## Description

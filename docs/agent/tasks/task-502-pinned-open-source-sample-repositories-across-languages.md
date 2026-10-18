@@ -1,9 +1,6 @@
 # Task 502: Pinned Open-Source Sample Repositories Across Languages
 
 **Issue**: [#502](https://github.com/dan-petty/devops-cli/issues/502)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

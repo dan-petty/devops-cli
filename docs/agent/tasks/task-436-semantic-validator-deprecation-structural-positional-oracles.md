@@ -1,9 +1,6 @@
 # Task 436: Semantic Validator Deprecation & Structural Positional Oracles
 
 **Issue**: [#436](https://github.com/dan-petty/devops-cli/issues/436)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

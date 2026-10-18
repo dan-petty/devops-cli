@@ -1,9 +1,6 @@
 # Task: CLI Start-Up Imports No Telemetry When Disabled (#858)
 
 **Issue**: [#858](https://github.com/dan-petty/devops-cli/issues/858)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description

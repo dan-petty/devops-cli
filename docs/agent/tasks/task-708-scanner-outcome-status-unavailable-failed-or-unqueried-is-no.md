@@ -1,9 +1,6 @@
 # Task 708: Scanner Outcome Status Unavailable, Failed or Unqueried Is Not Clean
 
 **Issue**: [#708](https://github.com/dan-petty/devops-cli/issues/708)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
 
 ---

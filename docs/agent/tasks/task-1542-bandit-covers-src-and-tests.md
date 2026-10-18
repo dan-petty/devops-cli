@@ -1,9 +1,6 @@
 # Task: Bandit covers src and tests at medium severity through one config the gate and the code-scanning upload share, and the test findings are fixed (#1542)
 
 **Issue**: [#1542](https://github.com/dan-petty/devops-cli/issues/1542)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: unset on the issue; the owner asked for it in v0.2.33 (2026-10-10) to fix release pull request #1537's `bandit` check
 **Scope**: type/bug, scope/security, scope/ci
 **Feasibility**: Checked at release/v0.2.33 (5c5df79) with bandit 1.9.4. The gate ran `uv run bandit -r src -ll` (`src/devops_cli/commands/ci.py:455`), so `tests/` was never scanned. The code-scanning upload #419 added (`.github/workflows/ci.yml:54-60`) ran `devops scan report`, whose Bandit command scanned the whole checkout with `--ignore-nosec`. A full scan found 69 Medium or High findings in `tests/` (52 B108, 12 B104, 4 B103, 1 B102) and none in `src/` with `# nosec` honoured. Bandit 1.9.4 reads targets and `recursive` from a `.bandit` INI file, but it crashes on a `level` line there and its `[tool.bandit]` table has no targets or severity, so the threshold stays a command-line option (`--severity-level`) taken from the existing `DEFAULT_BANDIT_SEVERITY` constant.
 

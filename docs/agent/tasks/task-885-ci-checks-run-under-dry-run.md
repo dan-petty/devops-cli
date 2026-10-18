@@ -1,9 +1,6 @@
 # Task: devops ci Checks Run for Real Under the Gate (#885)
 
 **Issue**: [#885](https://github.com/dan-petty/devops-cli/issues/885)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ci
 
 ## Description

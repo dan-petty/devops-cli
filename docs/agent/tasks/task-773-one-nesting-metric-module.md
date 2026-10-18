@@ -1,9 +1,6 @@
 # Task: One nesting metric module shared by the pre-commit hook and the scanner (#773)
 
 **Issue**: [#773](https://github.com/dan-petty/devops-cli/issues/773)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p2-medium
 **Scope**: type/refactor, scope/ci
 
 ## Description

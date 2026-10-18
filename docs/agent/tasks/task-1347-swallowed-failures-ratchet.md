@@ -1,9 +1,6 @@
 # Task: Swallowed Failures Ratchet (#1347)
 
 **Issue**: [#1347](https://github.com/dan-petty/devops-cli/issues/1347)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: type/test, scope/cli, priority/p1-high
 **Feasibility**: Verified ruff JSON output for BLE001, S110, S112 and AST check for unread check=False process calls against real src/ tree.
 

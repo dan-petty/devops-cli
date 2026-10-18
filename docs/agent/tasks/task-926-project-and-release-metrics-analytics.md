@@ -1,9 +1,6 @@
 # Task: Project and Release Metrics Analytics & Grafana Dashboard (#926)
 
 **Issue**: [#926](https://github.com/dan-petty/devops-cli/issues/926)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 ## Description

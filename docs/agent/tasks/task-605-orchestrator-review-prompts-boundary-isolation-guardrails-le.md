@@ -1,9 +1,6 @@
 # Task 605: Orchestrator Review Prompts Boundary Isolation, Guardrails, Legible Empty Replies
 
 **Issue**: [#605](https://github.com/dan-petty/devops-cli/issues/605)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/review`, `priority/p0-critical`
 
 ---

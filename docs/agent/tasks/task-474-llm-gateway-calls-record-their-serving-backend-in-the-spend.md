@@ -1,9 +1,6 @@
 # Task 474: LLM Gateway Calls Record Their Serving Backend in the Spend Ledger
 
 **Issue**: [#474](https://github.com/dan-petty/devops-cli/issues/474)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 
 ---

@@ -1,9 +1,6 @@
 # Task: Finish Reasons and Stream Completeness for Model Replies (#599)
 
 **Issue**: [#599](https://github.com/dan-petty/devops-cli/issues/599)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

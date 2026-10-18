@@ -1,9 +1,6 @@
 # Task 612: Worktree Gate Resolution Keeps repos/ Clones on the Workspace and Checks Stale Worktrees
 
 **Issue**: [#612](https://github.com/dan-petty/devops-cli/issues/612)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/cli`, `priority/p1-high`
 
 ---

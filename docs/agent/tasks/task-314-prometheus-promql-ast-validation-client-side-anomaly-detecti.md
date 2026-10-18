@@ -1,9 +1,6 @@
 # Task 314: Prometheus PromQL AST Validation, Client-Side Anomaly Detection & Alertmanager Engine Research
 
 **Issue**: [#314](https://github.com/dan-petty/devops-cli/issues/314)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p1-high`
 
 ---

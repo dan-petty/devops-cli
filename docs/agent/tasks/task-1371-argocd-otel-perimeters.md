@@ -1,9 +1,6 @@
 # Task: Argo CD and OTel Perimeters Ingress Hardening and Deploy-Stack Integration (#1371)
 
 **Issue**: [#1371](https://github.com/dan-petty/devops-cli/issues/1371)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s, scope/security
 
 ## Description

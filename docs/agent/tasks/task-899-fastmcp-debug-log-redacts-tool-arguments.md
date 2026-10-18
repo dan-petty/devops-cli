@@ -1,9 +1,6 @@
 # Task: FastMCP's Debug Log of Tool Calls Never Records Argument Values (#899)
 
 **Issue**: [#899](https://github.com/dan-petty/devops-cli/issues/899)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p2-medium
 **Scope**: scope/mcp
 
 ## Description

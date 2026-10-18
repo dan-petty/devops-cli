@@ -1,9 +1,6 @@
 # Task: One GitHub session per identity (#767, Part A)
 
 **Issue**: [#767](https://github.com/dan-petty/devops-cli/issues/767)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/refactor, scope/github, priority/p1-high
 
 ## Description

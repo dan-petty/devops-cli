@@ -1,9 +1,6 @@
 # Task: Finding Admission, Anchors, and Evidence-First Review Spine (#871)
 
 **Issue**: [#871](https://github.com/dan-petty/devops-cli/issues/871)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p0-critical
 **Scope**: scope/review
 
 ## Description

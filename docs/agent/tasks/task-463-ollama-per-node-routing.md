@@ -1,9 +1,6 @@
 # Task 463: One Gateway Deployment per Ollama Node
 
 **Issue**: [#463](https://github.com/dan-petty/devops-cli/issues/463)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/k8s`, `scope/ai`, `priority/p2-medium`
 
 ---

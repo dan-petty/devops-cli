@@ -1,9 +1,6 @@
 # Task: Every Ollama Tier Keeps One Model Loaded and Serves One Request at a Time (#1061)
 
 **Issue**: [#1061](https://github.com/dan-petty/devops-cli/issues/1061)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

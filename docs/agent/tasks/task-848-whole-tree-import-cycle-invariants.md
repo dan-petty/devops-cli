@@ -1,7 +1,6 @@
 # Task #848: Whole-Tree Import-Cycle and Interface-Layer Invariants
 
 **Issue**: [#848](https://github.com/dan-petty/devops-cli/issues/848)
-**Status**: Done
 **Feasibility**: Confirmed against Python 3.14 stdlib `ast` and `graphlib.TopologicalSorter` and the live `src/devops_cli` source tree. Walking module-level, non-`TYPE_CHECKING` imports with submodule-first `from pkg import name` resolution yields an acyclic graph over the entire package tree (`TopologicalSorter(graph.edges).prepare()`), and relocating `_load_local_contracts` to `devops_cli.ai.rag.library_store`, release-cut domain helpers to `devops_cli.release.cut`, and `service_job`'s store opener to `devops_cli.roadmap.config.open_roadmap` eliminates all imports of `devops_cli.commands` outside `devops_cli.commands.*` and `devops_cli.main`.
 
 ## Summary

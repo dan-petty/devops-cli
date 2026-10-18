@@ -1,9 +1,6 @@
 # Task 509: Audit Every Mechanism That Discards or Invents Findings, With a Regression Harness
 
 **Issue**: [#509](https://github.com/dan-petty/devops-cli/issues/509)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/bug`, `scope/review`, `priority/p0-critical`
 
 ---

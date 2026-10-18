@@ -1,9 +1,6 @@
 # Task: PR Readiness Requires an Issue-Linked, Completed Task File (#704)
 
 **Issue**: [#704](https://github.com/dan-petty/devops-cli/issues/704)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/github
 
 ## Description

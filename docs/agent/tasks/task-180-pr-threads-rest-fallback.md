@@ -1,9 +1,6 @@
 # Task 180: REST API Fallback & Rate Limit Handling for PR Review Threads
 
 **Issue**: [#180](https://github.com/dan-petty/devops-cli/issues/180) / [#189](https://github.com/dan-petty/devops-cli/issues/189)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/github`
 
 ---

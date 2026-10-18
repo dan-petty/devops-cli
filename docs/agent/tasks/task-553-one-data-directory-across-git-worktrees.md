@@ -1,9 +1,6 @@
 # Task 553: One Data Directory Across Git Worktrees
 
 **Issue**: [#553](https://github.com/dan-petty/devops-cli/issues/553)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/config`, `priority/p1-high`
 
 ---

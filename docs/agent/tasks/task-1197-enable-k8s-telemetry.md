@@ -1,9 +1,6 @@
 # Task: Enable Telemetry for Roadmap-Service and Kubernetes Services (#1197)
 
 **Issue**: [#1197](https://github.com/dan-petty/devops-cli/issues/1197)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/k8s, scope/telemetry
 
 ## Description

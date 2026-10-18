@@ -1,9 +1,6 @@
 # Task 498: Finding Locations Keep Paths With `+`, `@`, `~` or `%`
 
 **Issue**: [#498](https://github.com/dan-petty/devops-cli/issues/498)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/review`, `priority/p2-medium`
 
 ---

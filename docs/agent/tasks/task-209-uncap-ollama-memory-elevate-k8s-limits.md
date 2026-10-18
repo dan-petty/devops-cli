@@ -1,9 +1,6 @@
 # Task 209: Uncap Ollama Memory Limits & Elevate K8s Resource Thresholds
 
 **Issue**: [#209](https://github.com/dan-petty/devops-cli/issues/209)
-**Status**: Done
-**Milestone**: `v0.2.18`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`
 
 ---

@@ -1,9 +1,6 @@
 # Task: MCP Tools Refuse Coerced Arguments Before They Run, With Prescriptive Errors That Never Echo Values (#862)
 
 **Issue**: [#862](https://github.com/dan-petty/devops-cli/issues/862)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/mcp
 
 ## Description

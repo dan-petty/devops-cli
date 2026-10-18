@@ -1,9 +1,6 @@
 # Task 788: Location Parsing Keeps Placeholder, Preserving Review Finding
 
 **Issue**: [#788](https://github.com/dan-petty/devops-cli/issues/788)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/review`, `priority/p2-medium`
 **Feasibility**: Verified against real system: confirmed in security/bandit.py:74 and security/semgrep.py:202-209 that scanner findings carry absolute paths that leak into findings.json and review.md. Tested that relativizing paths against scan root/worktree ensures clean relative locations and descriptions.
 

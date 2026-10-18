@@ -1,9 +1,6 @@
 # Task 841: AGENTS.md Fits a Context Budget and Claude Code Loads It
 
 **Issue**: [#841](https://github.com/dan-petty/devops-cli/issues/841)  
-**Status**: Done  
-**Milestone**: `v0.2.34`  
-**Priority**: `priority/p2-medium`  
 **Scope**: `type/docs`, `scope/ai`, `priority/p2-medium`  
 **Feasibility**: Verified that `AGENTS.md` was 116,655 characters (26,283 tokens), exceeding typical context budgets and inflating prompts across AI coding sessions, `RepoContext` system prompts, and review persona prompts. Replacing verbose procedural prose with concise principles, pointing to existing documentation (`docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`, `docs/TESTING.md`), pointing to existing automated checks (`devops ci`, `ruff`, `code_metrics`), and adding `@AGENTS.md` to `CLAUDE.md` establishes an authoritative, memory-friendly context surface.
 

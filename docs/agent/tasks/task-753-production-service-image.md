@@ -1,9 +1,6 @@
 # Task: Production Service Image for Scheduled Jobs and Webhook Handlers (#753)
 
 **Issue**: [#753](https://github.com/dan-petty/devops-cli/issues/753)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, priority/p1-high, scope/release
 
 ## Description

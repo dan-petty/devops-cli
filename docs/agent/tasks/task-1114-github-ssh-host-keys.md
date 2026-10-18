@@ -1,9 +1,6 @@
 # Task: GitHub clones trust GitHub's published host keys through OpenSSH (#1114)
 
 **Issue**: [#1114](https://github.com/dan-petty/devops-cli/issues/1114)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: scope/security
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 349: Review Feedback Loop Calibration & Verified Session Finding Remediation
 
 **Issue**: [#349](https://github.com/dan-petty/devops-cli/issues/349)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/fix`, `scope/ai`, `priority/p1-high`
 
 ---

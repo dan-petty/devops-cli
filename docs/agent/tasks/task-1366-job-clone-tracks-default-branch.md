@@ -1,9 +1,6 @@
 # Task: The job clone tracks the release branch while origin has it, and the default branch otherwise (#1366)
 
 **Issue**: [#1366](https://github.com/dan-petty/devops-cli/issues/1366)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, scope/release
 
 ## Description

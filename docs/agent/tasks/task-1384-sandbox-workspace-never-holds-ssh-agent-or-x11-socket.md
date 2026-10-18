@@ -1,9 +1,6 @@
 # Task 1384: A Sandbox Workspace Never Holds the User's SSH Agent or X11 Socket
 
 **Issue**: [#1384](https://github.com/dan-petty/devops-cli/issues/1384)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: type/security, scope/security
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: The Generated Docs Mask Only Credentials and Show Off Switches, and Docs Name Only Things That Exist (#956)
 
 **Issue**: [#956](https://github.com/dan-petty/devops-cli/issues/956)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/cli
 
 ## Description

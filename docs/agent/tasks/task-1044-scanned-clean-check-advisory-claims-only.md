@@ -1,9 +1,6 @@
 # Task: The Scanned-Clean Check Invalidates Only Claims About a Dependency's Own Advisories (#1044)
 
 **Issue**: [#1044](https://github.com/dan-petty/devops-cli/issues/1044)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

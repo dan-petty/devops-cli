@@ -1,9 +1,6 @@
 # Task: Plan the Architecture Review's Deepening Candidates and Defects (#782)
 
 **Issue**: [#782](https://github.com/dan-petty/devops-cli/issues/782)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p1-high
 **Scope**: scope/docs
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Dynamically Generate DevOps ConfigMap from Active Config and Gitignore (#1231)
 
 **Issue**: [#1231](https://github.com/dan-petty/devops-cli/issues/1231)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 
 ## Description

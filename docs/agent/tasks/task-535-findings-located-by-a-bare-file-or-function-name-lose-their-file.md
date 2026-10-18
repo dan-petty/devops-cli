@@ -1,9 +1,6 @@
 # Task 535: Findings Located by a Bare File or Function Name Lose Their File
 
 **Issue**: [#535](https://github.com/dan-petty/devops-cli/issues/535)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

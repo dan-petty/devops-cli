@@ -1,7 +1,6 @@
 # Task: Fail Closed on Review Thread Read Errors in PR Readiness (#797)
 
 **Issue**: [#797](https://github.com/dan-petty/devops-cli/issues/797)
-**Status**: Done
 **Feasibility**: Verified against `src/devops_cli/commands/pr.py:1822-1830` and `src/devops_cli/commands/ai_runs.py:448-451,693-700`; confirmed `list_pr_review_threads` failures previously warned and continued with `unresolved = []`.
 
 ## Summary

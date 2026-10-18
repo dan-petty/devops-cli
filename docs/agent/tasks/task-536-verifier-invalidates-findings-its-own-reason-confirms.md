@@ -1,9 +1,6 @@
 # Task 536: Verifier Invalidates Findings Its Own Reason Confirms
 
 **Issue**: [#536](https://github.com/dan-petty/devops-cli/issues/536)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

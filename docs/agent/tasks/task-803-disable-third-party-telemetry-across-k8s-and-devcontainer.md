@@ -1,9 +1,6 @@
 # Task 803: Disable Third-Party Telemetry Across K8s Stack and DevContainer
 
 **Issue**: [#803](https://github.com/dan-petty/devops-cli/issues/803)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/infra`, `type/security`, `scope/k8s`, `priority/p2-medium`
 
 ---

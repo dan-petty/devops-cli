@@ -1,9 +1,6 @@
 # Task 111: Automated GitOps Drift Detection & Webhook Synchronization
 
 **Issue**: [#111](https://github.com/dan-petty/devops-cli/issues/111)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`
 
 ---

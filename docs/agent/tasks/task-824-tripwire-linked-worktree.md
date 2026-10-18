@@ -1,9 +1,6 @@
 # Task: The Workspace Tripwire Fails `devops ci` From Every Linked Worktree (#824)
 
 **Issue**: [#824](https://github.com/dan-petty/devops-cli/issues/824)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/ci
 
 ## Description

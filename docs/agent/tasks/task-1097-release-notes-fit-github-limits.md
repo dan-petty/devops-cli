@@ -1,9 +1,6 @@
 # Task: Release Notes Fit GitHub's Release and Pull Request Body Limits (#1097)
 
 **Issue**: [#1097](https://github.com/dan-petty/devops-cli/issues/1097)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p0-critical
 **Scope**: scope/release
 
 ## Description

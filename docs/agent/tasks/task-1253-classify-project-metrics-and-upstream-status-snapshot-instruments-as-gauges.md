@@ -1,9 +1,6 @@
 # Task: Classify Project Metrics and Upstream Status Snapshot Instruments as Gauges (#1253)
 
 **Issue**: [#1253](https://github.com/dan-petty/devops-cli/issues/1253)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/telemetry
 
 ## Description

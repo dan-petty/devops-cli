@@ -1,9 +1,6 @@
 # Task: CI Gate Cache Certifies Only the Tree It Checked (#838)
 
 **Issue**: [#838](https://github.com/dan-petty/devops-cli/issues/838)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ci
 
 ## Description

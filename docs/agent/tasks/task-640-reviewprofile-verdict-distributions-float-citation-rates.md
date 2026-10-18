@@ -1,9 +1,6 @@
 # Task 640: ReviewProfile Verdict Distributions Schema Rejects Float Citation Rates
 
 **Issue**: [#640](https://github.com/dan-petty/devops-cli/issues/640)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

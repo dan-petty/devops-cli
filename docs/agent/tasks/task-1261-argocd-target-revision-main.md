@@ -1,9 +1,6 @@
 # Task 1261: Argo CD Git-Source TargetRevision Tracks Main While Service Image Pin Tracks Release
 
 **Issue**: [#1261](https://github.com/dan-petty/devops-cli/issues/1261)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/k8s
 
 > **Superseded in part by #1486.** It removed the cut's `targetRevision` rewrite and `devops release check`'s check, and the service-image pin; `tests/test_k8s_argocd_apps.py` holds the git sources on `main`.

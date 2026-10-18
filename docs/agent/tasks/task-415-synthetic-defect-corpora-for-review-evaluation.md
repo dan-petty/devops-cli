@@ -1,9 +1,6 @@
 # Task 415: Synthetic Defect Corpora for Review Evaluation
 
 **Issue**: [#415](https://github.com/dan-petty/devops-cli/issues/415)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
 ---

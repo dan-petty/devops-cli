@@ -1,9 +1,6 @@
 # Task: Argo Ignores the Namespace, and Workspace, Devcontainer, Port-Forward, TLS, Drift-Report and Label State Handling (#961)
 
 **Issue**: [#961](https://github.com/dan-petty/devops-cli/issues/961)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/cli
 
 ## Description

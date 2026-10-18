@@ -1,9 +1,6 @@
 # Task: Expose Pyroscope UI Endpoints, Port-Forwarding, and Grafana Dashboards (#977)
 
 **Issue**: [#977](https://github.com/dan-petty/devops-cli/issues/977)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/k8s, scope/telemetry
 
 ## Description

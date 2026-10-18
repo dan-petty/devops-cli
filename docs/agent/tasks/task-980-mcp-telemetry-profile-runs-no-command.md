@@ -1,9 +1,6 @@
 # Task: The MCP Profile Tool Runs Nothing, and `devops telemetry profile` Runs Only devops-cli (#980)
 
 **Issue**: [#980](https://github.com/dan-petty/devops-cli/issues/980)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/mcp
 
 ## Description

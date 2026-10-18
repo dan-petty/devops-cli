@@ -1,9 +1,6 @@
 # Task: Test Worker Startup and Collection Optimization (#1338)
 
 **Issue**: [#1338](https://github.com/dan-petty/devops-cli/issues/1338)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/test, priority/p2-medium, scope/ci
 
 ## Description
