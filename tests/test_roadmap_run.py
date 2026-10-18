@@ -1216,7 +1216,7 @@ def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
     }
 
     assert (
-        isinstance(due, tuple),
+        isinstance(due, str),
         items_before == items_after,
         cards_before == cards_after,
         comments_before == comments_after,

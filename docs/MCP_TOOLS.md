@@ -6,167 +6,163 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | `readOnlyHint` | Description |
 |---|---|---|
-| [`ai_ast_graph`](#ai-ast-graph) | `true` | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
-| [`ai_ast_parse`](#ai-ast-parse) | `true` | Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query. |
-| [`ai_backend_probe`](#ai-backend-probe) | `true` | Directly probe health, latency, and registered models of an inference backend. |
-| [`ai_chaos_model`](#ai-chaos-model) | `false` | Execute model dependency chaos fault injection and verify automated fallback recovery. |
-| [`ai_constellation_status`](#ai-constellation-status) | `true` | Show the constellation flag: state, reason and recorded fallback route. |
-| [`ai_diagram`](#ai-diagram) | `true` | Generate visual Mermaid architecture or threat modeling diagram. |
-| [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests. |
+| [`ai_ast_graph`](#ai-ast-graph) | `true` | Synthesize whole-repository symbol dependency and reference graph. |
+| [`ai_ast_parse`](#ai-ast-parse) | `true` | Parse source file concrete syntax tree and extract structural symbols. |
+| [`ai_benchmark`](#ai-benchmark) | `true` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
+| [`ai_chaos_model`](#ai-chaos-model) | `false` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
+| [`ai_constellation`](#ai-constellation) | `true` | Show the constellation flag: state, reason and recorded fallback route. |
+| [`ai_cost_report`](#ai-cost-report) | `true` | Generate detailed spend and token report across backend services and servers. |
+| [`ai_diagram`](#ai-diagram) | `true` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
+| [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
 | [`ai_gateway_failover`](#ai-gateway-failover) | `false` | Trigger or test circuit-breaker failover of a virtual model to secondary backends. |
+| [`ai_gateway_probe_backend`](#ai-gateway-probe-backend) | `true` | Directly probe health and latency of an inference backend. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | `true` | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | `true` | Probe LLM Gateway health, latency, and circuit breaker metrics. |
-| [`ai_harness_status`](#ai-harness-status) | `true` | Inspect the AI agent harness slots as configured: provider, model, skills and tools. |
-| [`ai_ingest_library`](#ai-ingest-library) | `false` | Introspect an installed Python package and extract its public API contract into the data directory's libraries/. |
-| [`ai_inspect_symbol`](#ai-inspect-symbol) | `true` | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
-| [`ai_pack_context`](#ai-pack-context) | `true` | Pack and prune source code context to fit token budget while preserving signatures and types. |
-| [`ai_prewarm_models`](#ai-prewarm-models) | `false` | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
-| [`ai_query_library`](#ai-query-library) | `true` | Search library contracts and documentation via semantic search or exact symbol lookup. |
+| [`ai_harness_offload`](#ai-harness-offload) | `true` | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
+| [`ai_harness_status`](#ai-harness-status) | `true` | Display the harness slots as configured; nothing here checks a model is reachable. |
+| [`ai_ingest_library`](#ai-ingest-library) | `false` | Introspect an installed Python package and extract its public API contract. |
+| [`ai_ingest_query_library`](#ai-ingest-query-library) | `true` | Search library contracts and documentation via semantic search or exact symbol lookup. |
+| [`ai_pack_context`](#ai-pack-context) | `true` | Pack and prune source code context to fit token budget while preserving signatures. |
+| [`ai_prewarm`](#ai-prewarm) | `false` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
 | [`ai_quiesce`](#ai-quiesce) | `false` | Set the constellation quiesce flag with a reason; it stops nothing. |
+| [`ai_rag_drift`](#ai-rag-drift) | `false` | Detect staleness and drift between the working tree and the Qdrant vector index. |
+| [`ai_rag_index`](#ai-rag-index) | `false` | Scan and index workspace code and documentation into Qdrant vector database. |
+| [`ai_rag_query`](#ai-rag-query) | `true` | Perform semantic search across indexed workspace code and documentation. |
 | [`ai_read`](#ai-read) | `true` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
-| [`ai_repomap`](#ai-repomap) | `true` | Generate a compact whole-repository AST symbol map for AI context. |
+| [`ai_repomap`](#ai-repomap) | `true` | Generate compact whole-repository AST symbol and relationship map. |
 | [`ai_resume`](#ai-resume) | `false` | Clear the constellation quiesce or failover flag. |
-| [`ai_spend_report`](#ai-spend-report) | `true` | Report approximate AI spend per backend service, model, or provider over time. |
-| [`ai_subagent_offload`](#ai-subagent-offload) | `true` | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
-| [`ai_test_gen`](#ai-test-gen) | `true` | Generate failing pytest unit test scaffolds for a target Python file. |
-| [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
-| [`argo_list`](#argo-list) | `true` | List ArgoCD applications. |
-| [`argo_rollout_analyze`](#argo-rollout-analyze) | `false` | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
-| [`argo_status`](#argo-status) | `true` | Check ArgoCD application health and sync status. |
-| [`benchmark_embeddings`](#benchmark-embeddings) | `true` | Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers. |
-| [`branches_list`](#branches-list) | `true` | List git branches across repositories with tracking status and stale detection. |
-| [`ci_run`](#ci-run) | `true` | Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation. |
-| [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
-| [`config_output`](#config-output) | `true` | Output environment variables available for configuration (text or json). |
-| [`config_show`](#config-show) | `true` | Display configuration settings with masked secret tokens. |
-| [`docker_sandbox`](#docker-sandbox) | `false` | Execute command inside an isolated Docker container sandbox. |
+| [`ai_test_gen`](#ai-test-gen) | `true` | Generate failing pytest unit test scaffolds for functions or source files. |
+| [`argo_cd_apps_list`](#argo-cd-apps-list) | `true` | List all ArgoCD applications. |
+| [`argo_cd_apps_status`](#argo-cd-apps-status) | `true` | Show sync and health status for an ArgoCD application. |
+| [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency. |
+| [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
+| [`branches_list`](#branches-list) | `true` | List branches across all repos. |
+| [`ci`](#ci) | `true` | Run tests, linting, formatting, and type-checks. |
+| [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited. |
+| [`config_output`](#config-output) | `true` | Output environment variables available for devops-cli configuration. |
+| [`config_show`](#config-show) | `true` | Print all configuration values, masking secrets. |
+| [`docker_images`](#docker-images) | `true` | List local Docker images. |
+| [`docker_sandbox`](#docker-sandbox) | `false` | Execute workload inside an isolated, disposable Docker container sandbox. |
 | [`docker_sign`](#docker-sign) | `false` | Sign a container image using Sigstore Cosign (keyless or keyed). |
-| [`docker_stats`](#docker-stats) | `true` | List local Docker images and display container information. |
 | [`docker_verify`](#docker-verify) | `true` | Verify container image signature or attestation using Sigstore Cosign. |
-| [`docs_compact`](#docs-compact) | `false` | Compact historical release series documentation (v0.2.x -> v0.3.x). |
-| [`gh_issue_create`](#gh-issue-create) | `false` | Create a new GitHub issue linking milestone and taxonomy labels. |
-| [`gh_issue_edit`](#gh-issue-edit) | `false` | Edit an existing GitHub issue title, body, state, or milestone. |
-| [`gh_issue_list`](#gh-issue-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
-| [`gh_issue_status`](#gh-issue-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
-| [`gh_issue_triage`](#gh-issue-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those awaiting intake. |
-| [`gh_label_list`](#gh-label-list) | `true` | List declarative repository labels and descriptions. |
-| [`gh_label_sync`](#gh-label-sync) | `false` | Synchronize repository labels against .github/labels.yml schema. |
-| [`gh_milestone_close`](#gh-milestone-close) | `false` | Close the release milestone of a version, with or without its v. |
-| [`gh_milestone_edit`](#gh-milestone-edit) | `false` | Edit a release milestone's title, description, state, or due date; others stay as they are. |
-| [`gh_milestone_list`](#gh-milestone-list) | `true` | List repository milestones and progress rates. |
+| [`docs_compact`](#docs-compact) | `false` | Compact historical documentation for completed release series. |
+| [`gh_issues_create`](#gh-issues-create) | `false` | Create a new issue linking milestone and taxonomy labels. |
+| [`gh_issues_edit`](#gh-issues-edit) | `false` | Edit an existing issue title, body, state, milestone, or taxonomy labels. |
+| [`gh_issues_list`](#gh-issues-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issues_status`](#gh-issues-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
+| [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake. |
+| [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
+| [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels against the declarative YAML schema. |
+| [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the release milestone of a version, with or without its v. |
+| [`gh_milestones_edit`](#gh-milestones-edit) | `false` | Edit a release milestone's title, description, state, or due date; fields left out stay as they are. |
+| [`gh_milestones_list`](#gh-milestones-list) | `true` | List repository milestones and track issue completion rates. |
 | [`gh_pages_build`](#gh-pages-build) | `false` | Trigger a new deployment build for GitHub Pages. |
-| [`gh_pages_status`](#gh-pages-status) | `true` | Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement. |
+| [`gh_pages_status`](#gh-pages-status) | `true` | Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement. |
 | [`gh_pages_verify`](#gh-pages-verify) | `true` | Verify local repository readiness for GitHub Pages publishing. |
-| [`gh_project_audit`](#gh-project-audit) | `true` | Audit project board health and alignment against standardized template. |
+| [`gh_project_audit`](#gh-project-audit) | `true` | Audit the project board's views against the template. |
 | [`gh_project_list`](#gh-project-list) | `true` | List available GitHub Projects v2 boards for user or organization. |
-| [`gh_project_reconcile`](#gh-project-reconcile) | `false` | Reconcile Status and Priority on the cards already on the project board, listing each change and its source.  `mode="plan"`, the default, reads the board and the repository and lists the changes without making them. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` makes the changes. A run that stops early says how many planned changes remain and fails with exit status 1. Reconcile adds no card. |
-| [`gh_project_status`](#gh-project-status) | `true` | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | `false` | Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.  Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull request's progress shows on its issue's card. `dry_run`, the default, makes no request. |
-| [`gh_rate_limit`](#gh-rate-limit) | `true` | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
-| [`gh_run_view`](#gh-run-view) | `true` | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
-| [`gh_runs_list`](#gh-runs-list) | `true` | List recent GitHub Actions CI/CD workflow runs. |
-| [`gh_view_spec`](#gh-view-spec) | `true` | Return JSON specification for GitHub Projects v2 views. |
-| [`gh_views_audit`](#gh-views-audit) | `true` | Audit remote project views against standardized view template specifications. |
-| [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
-| [`grafana_dashboards`](#grafana-dashboards) | `true` | List Grafana dashboards, optionally filtered by search query. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | `false` | Reconcile Status and Priority on the cards already on the board, listing each change and its source; the board owns Status, and reconcile never writes Milestone, Value or Effort or adds a card. A planned value the board's field has no option for is refused before any write. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1. Running it again continues from there: after the reset when the quota stopped it, and once the cause is fixed when a write failed. |
+| [`gh_project_status`](#gh-project-status) | `true` | Inspect the declarative GitHub Projects v2 template structure and views. |
+| [`gh_project_sync`](#gh-project-sync) | `false` | Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early. |
+| [`gh_rate_limit`](#gh-rate-limit) | `true` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+| [`gh_runs_list`](#gh-runs-list) | `true` | List recent workflow runs for the repository or branch. |
+| [`gh_runs_view`](#gh-runs-view) | `true` | View details and failure logs of a specific workflow run. |
+| [`gh_views_audit`](#gh-views-audit) | `true` | Audit remote project views against standardized template specifications. |
+| [`gh_views_spec`](#gh-views-spec) | `true` | Output JSON schema specification for all configured project views. |
+| [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized views with the remote GitHub Projects v2 board. |
+| [`grafana_dashboards_list`](#grafana-dashboards-list) | `true` | List all dashboards. |
 | [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
-| [`k8s_audit`](#k8s-audit) | `true` | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
-| [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
-| [`k8s_chaos`](#k8s-chaos) | `false` | Inject or validate Kubernetes chaos engineering experiments and cluster resilience. |
-| [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret in a target namespace. |
-| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
-| [`k8s_diff_helm`](#k8s-diff-helm) | `true` | Compare local Helm values or charts against deployed cluster releases. |
-| [`k8s_doctor`](#k8s-doctor) | `true` | Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.  Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with status 2, so the output begins with `Command exited with status 2:` followed by the JSON report. Status 1 indicates the cluster could not be read or an API call failed. |
-| [`k8s_enable_tls`](#k8s-enable-tls) | `false` | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
-| [`k8s_lint`](#k8s-lint) | `true` | Lint Kubernetes manifests against security best practices and deprecated APIs. |
-| [`k8s_logs_query`](#k8s-logs-query) | `true` | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
-| [`k8s_logs_tail`](#k8s-logs-tail) | `true` | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
-| [`k8s_pods`](#k8s-pods) | `true` | List the pods of a Kubernetes namespace, or of every namespace when it is empty. |
-| [`k8s_security_stream`](#k8s-security-stream) | `true` | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
-| [`k8s_status`](#k8s-status) | `true` | Display pod status across infrastructure namespaces. |
-| [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
+| [`k8s_audit`](#k8s-audit) | `true` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
+| [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
+| [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
+| [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
+| [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
+| [`k8s_diff_helm`](#k8s-diff-helm) | `true` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
+| [`k8s_doctor`](#k8s-doctor) | `true` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
+| [`k8s_enable_tls`](#k8s-enable-tls) | `false` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
+| [`k8s_lint`](#k8s-lint) | `true` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
+| [`k8s_logs`](#k8s-logs) | `true` | Stream pod logs or execute LogQL queries across cluster log streams. |
+| [`k8s_pods`](#k8s-pods) | `true` | List running pods with health status, restart counts, and age. |
+| [`k8s_security_stream`](#k8s-security-stream) | `true` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
+| [`k8s_status`](#k8s-status) | `true` | Show node and pod summary for the current context. |
+| [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
-| [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
-| [`pr_checks`](#pr-checks) | `true` | Inspect detailed status of GitHub Actions CI checks for a pull request. |
-| [`pr_close`](#pr-close) | `false` | Close a pull request with optional comment and remote branch deletion. |
-| [`pr_diff`](#pr-diff) | `true` | View the unified git diff for a pull request. |
-| [`pr_edit`](#pr-edit) | `false` | Edit an existing pull request title, body, base branch, or milestone. |
-| [`pr_list`](#pr-list) | `true` | List GitHub pull requests with review approval state and CI check summaries. |
-| [`pr_monitor`](#pr-monitor) | `true` | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
-| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review and optionally begin monitoring. |
-| [`pr_thread_reply`](#pr-thread-reply) | `false` | Post an in-thread reply directly to a pull request review discussion thread. |
-| [`pr_thread_resolve`](#pr-thread-resolve) | `false` | Programmatically mark a pull request review discussion thread as resolved. |
-| [`pr_threads_list`](#pr-threads-list) | `true` | List review discussion threads, file locations, and comments on a pull request. |
-| [`pr_update_branch`](#pr-update-branch) | `false` | Update a pull request branch with latest commits from its base branch. |
-| [`prometheus_query`](#prometheus-query) | `true` | Execute PromQL instant query against Prometheus endpoint. |
-| [`rag_drift`](#rag-drift) | `false` | Detect staleness and drift between the working tree and the Qdrant vector index. |
-| [`rag_index`](#rag-index) | `false` | Index workspace files into Qdrant vector database for semantic retrieval. |
-| [`rag_search`](#rag-search) | `true` | Perform semantic vector search across indexed workspace codebase and architecture docs. |
-| [`release_status`](#release-status) | `true` | Check devops-cli release status, version consistency, tags, and docs state. |
-| [`repos_list`](#repos-list) | `true` | List local workspace repositories and active git branches. |
-| [`repos_status`](#repos-status) | `true` | Display uncommitted changes and branch drift across workspace repositories. |
-| [`repos_sync`](#repos-sync) | `false` | Fetch and pull tracking branches across workspace repositories. |
-| [`review_branch`](#review-branch) | `true` | Run an AI code review on git branch diff against base branch. |
-| [`review_export_feedback`](#review-export-feedback) | `false` | Append review verdicts the feedback dataset does not hold yet to the JSONL dataset. |
-| [`review_findings`](#review-findings) | `true` | List a session's findings, filtered by status, each with the number `review verify` takes. |
-| [`review_path`](#review-path) | `true` | Run an AI code review on local files matching pattern using specified persona. |
-| [`review_pr`](#review-pr) | `false` | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
-| [`review_stats`](#review-stats) | `true` | View accuracy metrics and false-positive rates per reviewer persona. |
-| [`roadmap_close`](#roadmap-close) | `true` | Preview closure: each delivered item it would close, with its comment, first in each closed release that still holds an open issue and then in the current release, and the current release's cut it would make or what holds it.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left once its store has sent a GraphQL request; `mode="dry-run"` makes no request and returns the requests a run makes. A person or the service runs `devops roadmap close --confirm`. |
-| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and placement, with the agent filing quota for an agent's new candidate (`title` with `body`, and `source`, the link it came from, which `borrow_reason` needs).  `mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing, and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so the tool reads no file of the caller's choosing. |
-| [`roadmap_migrate`](#roadmap-migrate) | `true` | Preview the one-time move of the roadmap's source to GitHub: its plan and report.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
-| [`roadmap_refine`](#roadmap-refine) | `true` | Run a dry run of item refinement: returns the refinement plan without making any writes.  It never accepts a confirm argument, ensuring it is strictly read-only. When the model call fails for an item, the tool fails, and its error still carries the plan naming that item. |
-| [`roadmap_render`](#roadmap-render) | `false` | Render docs/ROADMAP.md from GitHub's issues, milestones and board.  `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` writes the file. |
-| [`roadmap_reprioritize`](#roadmap-reprioritize) | `false` | Hold the current release to its admission rule, size limit and stall window, and start the next release once it ships; prints each change with its reason.  `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the changes. |
-| [`roadmap_run`](#roadmap-run) | `true` | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
-| [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated workload container sandbox with security containment and port allocation. |
+| [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch) and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its body closes exactly one issue, and it adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt. |
+| [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
+| [`pr_close`](#pr-close) | `false` | Close a pull request. |
+| [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
+| [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
+| [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
+| [`pr_monitor`](#pr-monitor) | `true` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
+| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review. |
+| [`pr_threads_list`](#pr-threads-list) | `true` | List PR review discussion threads, file locations, and comments. |
+| [`pr_threads_reply`](#pr-threads-reply) | `false` | Post an in-thread reply to a PR review discussion thread. |
+| [`pr_threads_resolve`](#pr-threads-resolve) | `false` | Programmatically mark one or more PR review discussion threads as resolved. |
+| [`pr_update`](#pr-update) | `false` | Update pull request branch with latest commits from its base branch. |
+| [`prometheus_query`](#prometheus-query) | `true` | Execute an instant PromQL query. |
+| [`release_status`](#release-status) | `true` | Display current release status, versions, tags, changelog, and docs state. |
+| [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
+| [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
+| [`review_branch`](#review-branch) | `true` | Review a git branch diff with one or all AI personas. |
+| [`review_export_feedback`](#review-export-feedback) | `false` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.  Each session's findings.json and candidates.json are read, and only the findings whose verdict the dataset does not hold yet are appended. An export that finds none leaves the dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset changes no prompt and no later review. |
+| [`review_findings`](#review-findings) | `true` | Inspect structured findings for a review session.  Each finding keeps its number, its place in findings.json, whatever filter the list applies, and `devops review verify --index` takes that number. With `--candidates` the list is candidates.json: every finding the review raised, the ones verification invalidated included, numbered for `devops review verify --candidate`. |
+| [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
+| [`review_pr`](#review-pr) | `false` | Review a GitHub pull request with one or all AI personas. |
+| [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
+| [`roadmap_close`](#roadmap-close) | `true` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm. |
+| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+| [`roadmap_migrate`](#roadmap-migrate) | `true` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
+| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
+| [`roadmap_render`](#roadmap-render) | `false` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
+| [`roadmap_reprioritize`](#roadmap-reprioritize) | `false` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm. |
+| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+| [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
 | [`sandbox_exec`](#sandbox-exec) | `false` | Execute a command inside an active sandbox container. |
-| [`sandbox_network_policy`](#sandbox-network-policy) | `true` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.  Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP. `allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318, in the sandbox_namespace, public_whitelist and local_whitelist modes. |
+| [`sandbox_network_policy`](#sandbox-network-policy) | `true` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | [`sandbox_status`](#sandbox-status) | `true` | Inspect status of deployed sandbox containers. |
-| [`sandbox_stop`](#sandbox-stop) | `false` | Gracefully stop and remove a sandbox container. |
-| [`scan_aibom`](#scan-aibom) | `true` | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
-| [`scan_checkov`](#scan-checkov) | `true` | Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov. |
-| [`scan_complexity`](#scan-complexity) | `true` | Inspect Python codebase for cyclomatic complexity and excessive indentation depth. |
+| [`sandbox_stop`](#sandbox-stop) | `false` | Gracefully stop and tear down a sandbox container. |
+| [`scan_aibom`](#scan-aibom) | `true` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
+| [`scan_complexity`](#scan-complexity) | `true` | Run AST-based cyclomatic complexity and indentation depth analysis. |
 | [`scan_fix`](#scan-fix) | `false` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
-| [`scan_gitleaks`](#scan-gitleaks) | `true` | Scan git repository or directory for hardcoded secrets, tokens, and private keys. |
-| [`scan_sbom`](#scan-sbom) | `true` | Generate CycloneDX or SPDX Software Bill of Materials for target workspace. |
-| [`scan_semgrep`](#scan-semgrep) | `true` | Perform AST-based static code security analysis and rule enforcement via Semgrep. |
-| [`scan_trivy`](#scan-trivy) | `true` | Run container, filesystem, or repository vulnerability scanning via Trivy. |
+| [`scan_iac`](#scan-iac) | `true` | Run Checkov IaC static policy and security compliance scan. |
+| [`scan_sast`](#scan-sast) | `true` | Run static application security testing (SAST) via Semgrep. |
+| [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
+| [`scan_secrets`](#scan-secrets) | `true` | Run Gitleaks secret pre-filter scan across workspace or targets. |
+| [`scan_trivy`](#scan-trivy) | `true` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 | [`scan_uv_audit`](#scan-uv-audit) | `true` | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | `true` | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | `true` | Query the OSV.dev vulnerability database for package CVE intelligence. |
-| [`ssh_audit`](#ssh-audit) | `true` | Audit SSH key expiration dates and key file permissions. |
-| [`ssh_status`](#ssh-status) | `true` | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
-| [`telemetry_logfire_status`](#telemetry-logfire-status) | `true` | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | `true` | Show the span waterfall Tempo recorded for a trace ID; the tool runs no command. |
-| [`telemetry_status`](#telemetry-status) | `true` | Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings. |
-| [`telemetry_test_span`](#telemetry-test-span) | `false` | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
-| [`tf_apply`](#tf-apply) | `false` | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
-| [`tf_cost_estimate`](#tf-cost-estimate) | `true` | Estimate cloud infrastructure cost with Infracost FinOps engine. |
-| [`tf_notify_plan`](#tf-notify-plan) | `true` | Format structured OpenTofu/Terraform plan summary for PR comments. |
-| [`tf_output`](#tf-output) | `true` | Retrieve OpenTofu / Terraform outputs from state. |
-| [`tf_plan`](#tf-plan) | `true` | Generate and inspect an OpenTofu / Terraform execution plan. |
-| [`tls_generate_ca`](#tls-generate-ca) | `false` | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
-| [`tls_generate_cert`](#tls-generate-cert) | `false` | Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA. |
-| [`tls_inspect_cert`](#tls-inspect-cert) | `true` | Inspect and display metadata, validity, SANs, and expiration of a TLS certificate. |
-| [`valkey_flush`](#valkey-flush) | `false` | Flush and purge keys from current or all Valkey databases. |
-| [`valkey_get`](#valkey-get) | `true` | Retrieve string value stored at Valkey key. |
-| [`valkey_info`](#valkey-info) | `true` | Inspect Valkey server configuration, memory allocation, and operational metrics. |
-| [`valkey_ping`](#valkey-ping) | `true` | Test connection and measure latency to the workstation Valkey server. |
-| [`valkey_set`](#valkey-set) | `false` | Set string value of Valkey key with optional expiration TTL in seconds. |
-| [`valkey_stats`](#valkey-stats) | `true` | Display quick diagnostic summary of Valkey server health, memory, and keys. |
-| [`vault_get`](#vault-get) | `true` | Fetch secret from HashiCorp Vault or OS Keyring fallback. |
+| [`ssh_audit`](#ssh-audit) | `true` | List all managed SSH keys with their age and rotation status. |
+| [`ssh_status`](#ssh-status) | `true` | Show the active SSH key and days until rotation. |
+| [`telemetry_logfire`](#telemetry-logfire) | `true` | Display Logfire structured observability bridge status and token metrics. |
+| [`telemetry_profile`](#telemetry-profile) | `true` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
+| [`telemetry_status`](#telemetry-status) | `true` | Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status. |
+| [`telemetry_test`](#telemetry-test) | `false` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
+| [`tf_apply`](#tf-apply) | `false` | Create or update OpenTofu infrastructure. |
+| [`tf_cost_breakdown`](#tf-cost-breakdown) | `true` | Estimate monthly and hourly cloud infrastructure costs using Infracost. |
+| [`tf_notify_plan`](#tf-notify-plan) | `true` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
+| [`tf_output`](#tf-output) | `true` | Read an output variable from the OpenTofu state. |
+| [`tf_plan`](#tf-plan) | `true` | Generate and show an OpenTofu execution plan. |
+| [`tls_ca`](#tls-ca) | `false` | Generate a self-signed Root Certificate Authority (CA) key pair. |
+| [`tls_cert`](#tls-cert) | `false` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
+| [`tls_inspect`](#tls-inspect) | `true` | Inspect and display metadata of an X.509 certificate. |
+| [`valkey_flush`](#valkey-flush) | `false` | Flush and purge keys from current or all databases. |
+| [`valkey_get`](#valkey-get) | `true` | Retrieve string value stored at key. |
+| [`valkey_info`](#valkey-info) | `true` | Inspect server configuration, memory allocation, and operational metrics. |
+| [`valkey_ping`](#valkey-ping) | `true` | Test connection and measure round-trip latency to the Valkey server. |
+| [`valkey_set`](#valkey-set) | `false` | Set string value of key with optional expiration TTL. |
+| [`valkey_stats`](#valkey-stats) | `true` | Display quick diagnostic summary of server health, memory, and keys. |
+| [`vault_get`](#vault-get) | `true` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.  The keyring answers only with no usable token, when Vault has no value at the path, or when Vault is unreachable; never after Vault rejects the token. The output names the source. |
 | [`vault_set`](#vault-set) | `false` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
-| [`vault_status`](#vault-status) | `true` | Check HashiCorp Vault cluster health and sealing status. |
-| [`vault_sync`](#vault-sync) | `false` | Synchronize secrets from HashiCorp Vault into the local OS Keyring. |
-| [`workspace_list`](#workspace-list) | `true` | Show the active VS Code workspace file and configured repository directories. |
+| [`vault_status`](#vault-status) | `true` | Inspect HashiCorp Vault cluster health and initialization status.  The health endpoint needs no token, and none is sent. The Token row names where the token other commands would use comes from, and why a stored token is not used for this address. |
+| [`vault_sync`](#vault-sync) | `false` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.  Reads Vault alone. A path with no secret fails, and a field named like the entry that holds the `devops vault login` token is never written. |
 
 ---
 
 ### `ai_ast_graph`
 
-Synthesize whole-repository code symbol and reference graph across polyglot languages.
+Synthesize whole-repository symbol dependency and reference graph.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -174,12 +170,15 @@ Synthesize whole-repository code symbol and reference graph across polyglot lang
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_dir` | `string` | No | `.` | - |
-| `max_files` | `integer` | No | `50` | - |
+| `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
+| `max_files` | `integer` | No | `100` | Maximum source files to include. |
+| `output_path` | `string` | No | - | Destination file path for output report or artifacts. |
+| `fmt` | `string` | No | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_ast_parse`
 
-Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query.
+Parse source file concrete syntax tree and extract structural symbols.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -187,12 +186,14 @@ Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `file_path` | `string` | Yes | - | - |
-| `query` | `string` | No | `` | - |
+| `file_path` | `string` | Yes | - | Parse source file concrete syntax tree and extract structural symbols. |
+| `query` | `string` | No | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `ai_backend_probe`
+### `ai_benchmark`
 
-Directly probe health, latency, and registered models of an inference backend.
+Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -200,12 +201,22 @@ Directly probe health, latency, and registered models of an inference backend.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `backend` | `string` | Yes | - | - |
-| `backend_url` | `string` | No | `` | - |
+| `models` | `string` | No | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). A model@url runs on that server, which gets the AI key only when it is the configured api_base_url, gateway_url or provider API. |
+| `servers` | `string` | No | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
+| `provider` | `string` | No | - | AI or cloud provider. |
+| `benchmark_type` | `string` | No | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
+| `tasks_filter` | `string` | No | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
+| `concurrency` | `integer` | No | `4` | Number of concurrent model server workers (default: automatic per model count). |
+| `output` | `string` | No | - | Destination path for output report or artifacts. |
+| `format_type` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `explain` | `boolean` | No | `False` | Explain benchmark metrics, terminology, and mathematical formulas. |
+| `document` | `string` | No | - | Path to large test document for in-memory tokenization and section retrieval. |
+| `samples` | `integer` | No | `5` | Number of random sections to sample for retrieval evaluation. |
 
 ### `ai_chaos_model`
 
-Execute model dependency chaos fault injection and verify automated fallback recovery.
+Model dependency chaos engineering suite simulating provider faults and validating local failovers.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -213,11 +224,18 @@ Execute model dependency chaos fault injection and verify automated fallback rec
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `mode` | `string` | No | `all` | - |
-| `fallback_model` | `string` | No | `qwen2.5-coder:7b` | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `mode` | `string` | No | `all` | Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all). |
+| `latency_ms` | `integer` | No | `500` | Synthetic network latency to inject in milliseconds. |
+| `error_rate` | `number` | No | `1.0` | Probability of fault injection between 0.0 and 1.0. |
+| `primary_provider` | `string` | No | `openai` | AI or cloud provider. |
+| `primary_model` | `string` | No | `gpt-4o` | AI model identifier. |
+| `fallback_provider` | `string` | No | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `fallback_model` | `string` | No | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `prompt` | `string` | No | `def test_health(): return True` | Prompt text or workload payload to evaluate. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `ai_constellation_status`
+### `ai_constellation`
 
 Show the constellation flag: state, reason and recorded fallback route.
 
@@ -225,9 +243,9 @@ Show the constellation flag: state, reason and recorded fallback route.
 
 *No parameters required.*
 
-### `ai_diagram`
+### `ai_cost_report`
 
-Generate visual Mermaid architecture or threat modeling diagram.
+Generate detailed spend and token report across backend services and servers.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -235,12 +253,32 @@ Generate visual Mermaid architecture or threat modeling diagram.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `diagram_type` | `string` | No | `arch` | - |
-| `target_dir` | `string` | No | `.` | - |
+| `by` | `string` | No | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `days` | `integer` | No | - | Filter usage to the last N days (default: all lifetime). |
+| `reference_model` | `string` | No | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `hardware_cost` | `number` | No | - | Hardware purchase cost in USD to track pay-off against. |
+| `format_opt` | `string` | No | `table` | Output format: table, json, yaml, prometheus. |
+| `json_flag` | `boolean` | No | `False` | First-class alias for --format json. |
+
+### `ai_diagram`
+
+Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `diagram_type` | `string` | No | `arch` | Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model. |
+| `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_failover`
 
-Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests.
+Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -248,9 +286,10 @@ Record a fallback route in the constellation flag; ai_gateway_failover reroutes 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_provider` | `string` | No | `ollama` | - |
-| `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `target_provider` | `string` | No | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `target_model` | `string` | No | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_gateway_failover`
 
@@ -262,9 +301,22 @@ Trigger or test circuit-breaker failover of a virtual model to secondary backend
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `virtual_model` | `string` | Yes | - | - |
-| `simulate` | `boolean` | No | `True` | - |
-| `force` | `boolean` | No | `False` | - |
+| `virtual_model` | `string` | Yes | - | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). |
+| `simulate` | `boolean` | No | `True` | Simulate failover without altering active routing table. |
+| `force` | `boolean` | No | `False` | Bypass model capability tier minimum checks during failover. |
+
+### `ai_gateway_probe_backend`
+
+Directly probe health and latency of an inference backend.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `backend` | `string` | Yes | - | Backend to probe (e.g. ollama). |
+| `backend_url` | `string` | No | - | Optional backend base URL override. |
 
 ### `ai_gateway_routes`
 
@@ -276,8 +328,8 @@ List registered virtual models and target backend inference instances.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `gateway_url` | `string` | No | `` | - |
-| `provider` | `string` | No | `` | - |
+| `gateway_url` | `string` | No | - | Optional gateway base URL override. |
+| `provider` | `string` | No | - | Gateway provider: litellm or portkey. |
 
 ### `ai_gateway_status`
 
@@ -289,20 +341,40 @@ Probe LLM Gateway health, latency, and circuit breaker metrics.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `gateway_url` | `string` | No | `` | - |
-| `provider` | `string` | No | `` | - |
+| `gateway_url` | `string` | No | - | Optional gateway base URL override. |
+| `provider` | `string` | No | - | Gateway provider: litellm or portkey. |
+
+### `ai_harness_offload`
+
+Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `.` | Path to repository or source directory. |
+| `symbol` | `string` | No | - | Symbol name (class or function) to inspect or search. |
+| `pattern` | `string` | No | - | File glob pattern to scout. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_harness_status`
 
-Inspect the AI agent harness slots as configured: provider, model, skills and tools.
+Display the harness slots as configured; nothing here checks a model is reachable.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 
 ### `ai_ingest_library`
 
-Introspect an installed Python package and extract its public API contract into the data directory's libraries/.
+Introspect an installed Python package and extract its public API contract.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -310,54 +382,11 @@ Introspect an installed Python package and extract its public API contract into 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `package` | `string` | Yes | - | - |
-| `max_depth` | `integer` | No | `1` | - |
+| `package_name` | `string` | Yes | - | Introspect an installed Python package and extract its public API contract. |
+| `max_depth` | `integer` | No | `1` | Maximum module recursion depth for package introspection. |
+| `output_dir` | `string` | No | - | Directory path for generated output files. |
 
-### `ai_inspect_symbol`
-
-Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `symbol` | `string` | Yes | - | - |
-| `package` | `string` | No | `` | - |
-
-### `ai_pack_context`
-
-Pack and prune source code context to fit token budget while preserving signatures and types.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `file_path` | `string` | Yes | - | - |
-| `referenced` | `string` | No | `` | - |
-| `max_tokens` | `integer` | No | `1500` | - |
-| `strip_private` | `boolean` | No | `True` | - |
-| `skeletonize` | `boolean` | No | `True` | - |
-
-### `ai_prewarm_models`
-
-Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `model` | `string` | No | `` | - |
-| `keep_alive` | `string` | No | `1h` | - |
-| `evict` | `boolean` | No | `False` | - |
-| `all_nodes` | `boolean` | No | `True` | - |
-
-### `ai_query_library`
+### `ai_ingest_query_library`
 
 Search library contracts and documentation via semantic search or exact symbol lookup.
 
@@ -367,10 +396,47 @@ Search library contracts and documentation via semantic search or exact symbol l
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | `string` | Yes | - | - |
-| `package` | `string` | No | `` | - |
-| `exact` | `boolean` | No | `False` | - |
-| `top_k` | `integer` | No | `5` | - |
+| `query` | `string` | Yes | - | Search library contracts and documentation via semantic search or exact symbol lookup. |
+| `package` | `string` | No | - | Filter by package distribution name. |
+| `exact` | `boolean` | No | `False` | Perform exact qualified symbol lookup instead of semantic vector search. |
+| `top_k` | `integer` | No | `5` | Maximum number of items to return or display. |
+| `contracts_dir` | `string` | No | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
+
+### `ai_pack_context`
+
+Pack and prune source code context to fit token budget while preserving signatures.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_path` | `string` | Yes | - | Path to source code file to pack and prune. |
+| `referenced` | `string` | No | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
+| `max_tokens` | `integer` | No | `1500` | Maximum token budget for packed context output. |
+| `strip_private` | `boolean` | No | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `skeletonize` | `boolean` | No | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `ai_prewarm`
+
+Prewarm local models into GPU VRAM or evict idle models across cluster nodes.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `string` | No | - | Model name to prewarm or evict (defaults to configured AI model). |
+| `keep_alive` | `string` | No | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
+| `all_nodes` | `boolean` | No | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `evict` | `boolean` | No | `False` | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
+| `url` | `string` | No | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output results as structured JSON. |
 
 ### `ai_quiesce`
 
@@ -382,8 +448,64 @@ Set the constellation quiesce flag with a reason; it stops nothing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reason` | `string` | No | `Operator requested emergency quiesce` | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `reason` | `string` | No | `Operator requested emergency quiesce` | Reason recorded with the constellation quiesce flag. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `ai_rag_drift`
+
+Detect staleness and drift between the working tree and the Qdrant vector index.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | No | `.` | Directory or file to index into vector store. |
+| `auto_sync` | `boolean` | No | `False` | Automatically re-index stale and newly added files. |
+| `fail_on_drift` | `boolean` | No | `False` | Exit with code 1 if index drift or git commit divergence is detected. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `ai_rag_index`
+
+Scan and index workspace code and documentation into Qdrant vector database.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | No | `.` | Directory or file to index into vector store. |
+| `project` | `string` | No | - | Project / repository name override. |
+| `force` | `boolean` | No | `False` | Force execution ignoring non-blocking warnings. |
+| `include_kb` | `boolean` | No | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `collection` | `string` | No | - | Target collection override. |
+| `explain` | `boolean` | No | `False` | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `ai_rag_query`
+
+Perform semantic search across indexed workspace code and documentation.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | Natural language query or code search term. |
+| `project` | `string` | No | - | Project / repository name override. |
+| `language` | `string` | No | - | Filter or target specific programming language. |
+| `category` | `string` | No | - | Filter by category (code, docs, topics, tasks). |
+| `top_k` | `integer` | No | `5` | Number of results to return. |
+| `min_score` | `number` | No | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `collection` | `string` | No | - | Target collection override. |
+| `file_filter` | `string` | No | - | Filter by filepath glob pattern. |
+| `explain` | `boolean` | No | `False` | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_read`
 
@@ -395,16 +517,19 @@ Inspect and read source code across 3 multi-scale focal zoom levels (Topology, S
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_path` | `string` | Yes | - | - |
-| `inspect` | `boolean` | No | `True` | - |
-| `level` | `integer` | No | `1` | - |
-| `lines` | `string` | No | `` | - |
-| `symbol` | `string` | No | `` | - |
-| `format` | `string` | No | `markdown` | - |
+| `target_path` | `string` | Yes | - | Target file path to read or inspect. |
+| `inspect` | `boolean` | No | `False` | Enable multi-scale semantic outline and inspection scanner. |
+| `level` | `integer` | No | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `lines` | `string` | No | - | Line range for Level 2 focal window (e.g. '40:80'). |
+| `symbol` | `string` | No | - | Target symbol name to inspect or focus on. |
+| `format` | `string` | No | `markdown` | Output format: 'text', 'markdown', or 'json'. |
+| `repo` | `string` | No | - | Repository or workspace root directory. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_repomap`
 
-Generate a compact whole-repository AST symbol map for AI context.
+Generate compact whole-repository AST symbol and relationship map.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -412,7 +537,13 @@ Generate a compact whole-repository AST symbol map for AI context.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_dir` | `string` | No | `.` | - |
+| `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
+| `max_files` | `integer` | No | `100` | Maximum source files to include. |
+| `include_tests` | `boolean` | No | `False` | Include test modules in symbol map. |
+| `multilingual` | `boolean` | No | `False` | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_resume`
 
@@ -424,40 +555,12 @@ Clear the constellation quiesce or failover flag.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dry_run` | `boolean` | No | `False` | - |
-
-### `ai_spend_report`
-
-Report approximate AI spend per backend service, model, or provider over time.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `days` | `integer` | No | - | - |
-| `group_by` | `string` | No | `server` | - |
-| `reference_model` | `string` | No | - | - |
-| `hardware_cost` | `number` | No | - | - |
-
-### `ai_subagent_offload`
-
-Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | `.` | - |
-| `symbol` | `string` | No | - | - |
-| `pattern` | `string` | No | - | - |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_test_gen`
 
-Generate failing pytest unit test scaffolds for a target Python file.
+Generate failing pytest unit test scaffolds for functions or source files.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -465,11 +568,43 @@ Generate failing pytest unit test scaffolds for a target Python file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_file` | `string` | Yes | - | - |
+| `target_file` | `string` | Yes | - | Target source file to generate unit test scaffolds for. |
+| `function_name` | `string` | No | - | Specific function to generate a test scaffold for. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `argo_cd_apps_list`
+
+List all ArgoCD applications.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `watch` | `boolean` | No | `False` | Watch application status changes live. |
+| `interval` | `number` | No | `3.0` | Auto-refresh polling interval in seconds. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `argo_cd_apps_status`
+
+Show sync and health status for an ArgoCD application.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | `string` | Yes | - | Application name. |
+| `watch` | `boolean` | No | `False` | Watch application status changes live. |
+| `interval` | `number` | No | `3.0` | Auto-refresh polling interval in seconds. |
 
 ### `argo_fleet_sync`
 
-Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency.
+Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -477,22 +612,18 @@ Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `app_name` | `string` | Yes | - | - |
-| `clusters` | `string` | No | `dev,staging,prod` | - |
-| `fleet` | `string` | No | `default-fleet` | - |
-| `concurrency` | `integer` | No | `3` | - |
+| `app_name` | `string` | Yes | - | Application name. |
+| `clusters` | `string` | No | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `fleet_name` | `string` | No | `default-fleet` | Fleet identifier group name |
+| `concurrency` | `integer` | No | `3` | Maximum concurrent cluster synchronization workers |
+| `prune` | `boolean` | No | `False` | Allow deletion of resources omitted from the source repository. |
+| `force` | `boolean` | No | `False` | Force execution ignoring non-blocking warnings. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `argo_list`
+### `argo_rollouts_analyze`
 
-List ArgoCD applications.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
-
-### `argo_rollout_analyze`
-
-Analyze progressive rollout metric gates and trigger automated rollback on threshold violation.
+Evaluate metric rollback gates and trigger automated rollback on threshold violation.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -500,40 +631,16 @@ Analyze progressive rollout metric gates and trigger automated rollback on thres
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `rollout_name` | `string` | Yes | - | - |
-| `namespace` | `string` | No | `default` | - |
-| `error_rate_threshold` | `number` | No | `1.0` | - |
-| `auto_abort` | `boolean` | No | `True` | - |
-
-### `argo_status`
-
-Check ArgoCD application health and sync status.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `app` | `string` | No | `argocd` | - |
-
-### `benchmark_embeddings`
-
-Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `provider` | `string` | No | `ollama` | - |
-| `model` | `string` | No | `bge-m3` | - |
-| `samples` | `integer` | No | `10` | - |
+| `name` | `string` | Yes | - | Rollout name. |
+| `namespace` | `string` | No | `default` | Kubernetes namespace. |
+| `error_rate_threshold` | `number` | No | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
+| `auto_abort` | `boolean` | No | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `branches_list`
 
-List git branches across repositories with tracking status and stale detection.
+List branches across all repos.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -541,11 +648,12 @@ List git branches across repositories with tracking status and stale detection.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `remote` | `boolean` | No | `True` | - |
+| `base_dir` | `string` | No | - | Base repository root directory. |
+| `all_branches` | `boolean` | No | `False` | Include remote branches. |
 
-### `ci_run`
+### `ci`
 
-Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation.
+Run tests, linting, formatting, and type-checks.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -553,19 +661,17 @@ Run devops-cli complete quality gate or an individual check in check-only mode w
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `check` | `string (all, test, lint, format, typecheck, audit, security, actionlint, docs, uv-check, lockfile, outdated, devcontainer)` | No | `all` | - |
+| `fix` | `boolean` | No | `True` | Auto-fix lint/format before reporting status. |
+| `check` | `boolean` | No | `False` | Run in check-only mode without automatically applying formatting or lint fixes. |
+| `cache` | `boolean` | No | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
+| `force` | `boolean` | No | `False` | Bypass CI execution cache and force re-execution of all quality gates. |
+| `only` | `array[string]` | No | - | Run only the specified check names (comma-separated or repeated). |
+| `skip` | `array[string]` | No | - | Skip the specified check names (comma-separated or repeated). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `config_audit_keys`
 
-Audit OS Keyring health, token state, and zero-plaintext secret compliance.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
-
-### `config_output`
-
-Output environment variables available for configuration (text or json).
+Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -573,19 +679,47 @@ Output environment variables available for configuration (text or json).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `output_format` | `string` | No | `json` | - |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `config_output`
+
+Output environment variables available for devops-cli configuration.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `export` | `boolean` | No | `False` | Print environment variables as shell export statements. |
+| `json_output` | `boolean` | No | `False` | Print environment variables as JSON. |
 
 ### `config_show`
 
-Display configuration settings with masked secret tokens.
+Print all configuration values, masking secrets.
 
 **Annotations:** `readOnlyHint: true`
 
 *No parameters required.*
 
+### `docker_images`
+
+List local Docker images.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | `string` | No | - | Filter containers or images by name. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
 ### `docker_sandbox`
 
-Execute command inside an isolated Docker container sandbox.
+Execute workload inside an isolated, disposable Docker container sandbox.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -593,15 +727,18 @@ Execute command inside an isolated Docker container sandbox.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `command` | `array[string]` | Yes | - | - |
-| `image` | `string` | No | `python:3.14-slim` | - |
-| `workspace` | `string` | No | `.` | - |
-| `memory` | `string` | No | `2g` | - |
-| `network` | `string` | No | `isolated` | - |
-| `network_mode` | `string` | No | - | - |
-| `public_whitelist` | `array[string]` | No | - | - |
-| `local_whitelist` | `array[string]` | No | - | - |
-| `read_only` | `boolean` | No | `False` | - |
+| `command` | `array[string]` | Yes | - | Workload command to execute inside container sandbox |
+| `image` | `string` | No | `python:3.14-slim` | Docker container image to execute within |
+| `workspace` | `string` | No | `.` | Workspace directory to mount |
+| `memory` | `string` | No | `2g` | Memory limit (e.g. 2g, 512m) |
+| `cpus` | `number` | No | `2.0` | CPU limit |
+| `network` | `string` | No | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `network_mode` | `string` | No | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `public_whitelist` | `string` | No | - | Comma-separated public domains/IPs allowed for egress |
+| `local_whitelist` | `string` | No | - | Comma-separated local URLs/IPs allowed for egress |
+| `read_only` | `boolean` | No | `False` | Mount workspace as read-only |
+| `rootless` | `boolean` | No | `True` | Run container with host user UID/GID |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `docker_sign`
 
@@ -613,21 +750,13 @@ Sign a container image using Sigstore Cosign (keyless or keyed).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | `string` | Yes | - | - |
-| `key` | `string` | No | - | - |
-| `keyless` | `boolean` | No | `True` | - |
-| `oidc_token` | `string` | No | - | - |
-| `annotations` | `array[string]` | No | - | - |
-| `upload` | `boolean` | No | `True` | - |
-| `dry_run` | `boolean` | No | `False` | - |
-
-### `docker_stats`
-
-List local Docker images and display container information.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
+| `image` | `string` | Yes | - | Target container image reference (name:tag or digest) |
+| `key` | `string` | No | - | Path to private key or keyring:\<name\> |
+| `keyless` | `boolean` | No | `True` | Sign keylessly using OIDC/Fulcio |
+| `oidc_token` | `string` | No | - | OIDC identity token or keyring:\<name\> for keyless signing |
+| `annotation` | `array[string]` | No | - | Custom supply chain key=value annotations |
+| `upload` | `boolean` | No | `True` | Upload signature to remote registry |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `docker_verify`
 
@@ -639,18 +768,18 @@ Verify container image signature or attestation using Sigstore Cosign.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | `string` | Yes | - | - |
-| `key` | `string` | No | - | - |
-| `certificate_identity` | `string` | No | - | - |
-| `certificate_oidc_issuer` | `string` | No | - | - |
-| `attestation` | `boolean` | No | `False` | - |
-| `predicate_type` | `string` | No | - | - |
-| `insecure_ignore_tlog` | `boolean` | No | `False` | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `image` | `string` | Yes | - | Target container image reference to verify |
+| `key` | `string` | No | - | Path to public key or keyring:\<name\> |
+| `certificate_identity` | `string` | No | - | Expected signer certificate identity (SAN/email/URI) |
+| `certificate_oidc_issuer` | `string` | No | - | Expected OIDC certificate issuer URL |
+| `attestation` | `boolean` | No | `False` | Verify in-toto attestation predicate instead of signature |
+| `predicate_type` | `string` | No | - | Attestation predicate type (e.g. slsaprovenance, spdx, custom) |
+| `insecure_ignore_tlog` | `boolean` | No | `False` | Ignore Rekor transparency log verification |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `docs_compact`
 
-Compact historical release series documentation (v0.2.x -> v0.3.x).
+Compact historical documentation for completed release series.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -658,32 +787,18 @@ Compact historical release series documentation (v0.2.x -> v0.3.x).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `series` | `string` | No | `v0.2` | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `check` | `boolean` | No | `False` | - |
-| `roadmap_only` | `boolean` | No | `False` | - |
-| `release_notes_only` | `boolean` | No | `False` | - |
-| `log_only` | `boolean` | No | `False` | - |
+| `series` | `string` | No | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
+| `docs_dir` | `string` | No | - | Path to repository docs/ directory (default: docs/). |
+| `archive_dir` | `string` | No | - | Path to historical archive directory (default: docs/agent/archive/). |
+| `check` | `boolean` | No | `False` | Check if documentation compaction would make changes without modifying files. |
+| `roadmap_only` | `boolean` | No | `False` | Only compact docs/ROADMAP.md. |
+| `release_notes_only` | `boolean` | No | `False` | Only compact docs/RELEASE_NOTES.md. |
+| `log_only` | `boolean` | No | `False` | Only compact docs/LOG.md. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issue_create`
+### `gh_issues_create`
 
-Create a new GitHub issue linking milestone and taxonomy labels.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `title` | `string` | Yes | - | - |
-| `body` | `string` | No | `` | - |
-| `milestone` | `string` | No | - | - |
-| `labels` | `string` | No | - | - |
-| `repo` | `string` | No | - | - |
-
-### `gh_issue_edit`
-
-Edit an existing GitHub issue title, body, state, or milestone.
+Create a new issue linking milestone and taxonomy labels.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -691,15 +806,33 @@ Edit an existing GitHub issue title, body, state, or milestone.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `issue_number` | `integer` | Yes | - | - |
-| `title` | `string` | No | - | - |
-| `body` | `string` | No | - | - |
-| `state` | `string` | No | - | - |
-| `milestone` | `string` | No | - | - |
-| `clear_milestone` | `boolean` | No | `False` | - |
-| `repo` | `string` | No | - | - |
+| `title` | `string` | Yes | - | Issue title |
+| `body` | `string` | No | `` | Issue description |
+| `milestone` | `string` | No | - | Target milestone |
+| `label` | `array[string]` | No | - | Taxonomy label (repeatable) |
+| `repo` | `string` | No | - | Target repository |
 
-### `gh_issue_list`
+### `gh_issues_edit`
+
+Edit an existing issue title, body, state, milestone, or taxonomy labels.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `number` | `integer` | Yes | - | Issue number to edit. |
+| `title` | `string` | No | - | New issue title. |
+| `body` | `string` | No | - | New issue body text. |
+| `state` | `string` | No | - | New state (open or closed). |
+| `milestone` | `string` | No | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `clear_milestone` | `boolean` | No | `False` | Remove milestone linkage from the issue. |
+| `add_label` | `array[string]` | No | - | Taxonomy label to attach (repeatable). |
+| `remove_label` | `array[string]` | No | - | Taxonomy label to detach (repeatable). |
+| `repo` | `string` | No | - | Target repository |
+
+### `gh_issues_list`
 
 List repository issues with milestone, taxonomy labels, and status.
 
@@ -709,13 +842,13 @@ List repository issues with milestone, taxonomy labels, and status.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `state` | `string` | No | `open` | - |
-| `milestone` | `string` | No | - | - |
-| `label` | `string` | No | - | - |
-| `limit` | `integer` | No | `30` | - |
+| `repo` | `string` | No | - | Target repository |
+| `state` | `string` | No | `open` | Issue state: open, closed, all |
+| `milestone` | `string` | No | - | Filter by milestone |
+| `label` | `string` | No | - | Filter by label |
+| `limit` | `integer` | No | `30` | Max issues to return |
 
-### `gh_issue_status`
+### `gh_issues_status`
 
 Display aggregated issue counts by priority, type, and milestone.
 
@@ -725,23 +858,11 @@ Display aggregated issue counts by priority, type, and milestone.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `repo` | `string` | No | - | Target repository |
 
-### `gh_issue_triage`
+### `gh_issues_triage`
 
-Audit open issues for mandatory taxonomy labels, and report those awaiting intake.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-
-### `gh_label_list`
-
-List declarative repository labels and descriptions.
+Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -749,11 +870,23 @@ List declarative repository labels and descriptions.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `repo` | `string` | No | - | Target repository |
 
-### `gh_label_sync`
+### `gh_labels_list`
 
-Synchronize repository labels against .github/labels.yml schema.
+List all labels defined in the remote repository.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | Target repository |
+
+### `gh_labels_sync`
+
+Synchronize repository labels against the declarative YAML schema.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -761,10 +894,11 @@ Synchronize repository labels against .github/labels.yml schema.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
+| `file` | `string` | No | `.github/labels.yml` | Path to declarative labels.yml file |
+| `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Preview label reconciliation without making changes |
 
-### `gh_milestone_close`
+### `gh_milestones_close`
 
 Close the release milestone of a version, with or without its v.
 
@@ -774,12 +908,12 @@ Close the release milestone of a version, with or without its v.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `version` | `string` | Yes | - | - |
-| `repo` | `string` | No | - | - |
+| `name` | `string` | Yes | - | Release version, with or without the v (e.g. v0.2.11) |
+| `repo` | `string` | No | - | Target repository |
 
-### `gh_milestone_edit`
+### `gh_milestones_edit`
 
-Edit a release milestone's title, description, state, or due date; others stay as they are.
+Edit a release milestone's title, description, state, or due date; fields left out stay as they are.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -787,16 +921,16 @@ Edit a release milestone's title, description, state, or due date; others stay a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `version` | `string` | Yes | - | - |
-| `title` | `string` | No | - | - |
-| `description` | `string` | No | - | - |
-| `state` | `string` | No | - | - |
-| `due_on` | `string` | No | - | - |
-| `repo` | `string` | No | - | - |
+| `name` | `string` | Yes | - | Release version, with or without the v (e.g. v0.2.21) |
+| `title` | `string` | No | - | New milestone title |
+| `description` | `string` | No | - | New milestone description |
+| `state` | `string` | No | - | New state (open or closed) |
+| `due_on` | `string` | No | - | ISO due date (YYYY-MM-DD) |
+| `repo` | `string` | No | - | Target repository |
 
-### `gh_milestone_list`
+### `gh_milestones_list`
 
-List repository milestones and progress rates.
+List repository milestones and track issue completion rates.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -804,7 +938,8 @@ List repository milestones and progress rates.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `state` | `string` | No | `all` | Milestone state filter (open, closed or all) |
+| `repo` | `string` | No | - | Target repository |
 
 ### `gh_pages_build`
 
@@ -816,11 +951,11 @@ Trigger a new deployment build for GitHub Pages.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `repo` | `string` | No | - | Target repository |
 
 ### `gh_pages_status`
 
-Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement.
+Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -828,7 +963,7 @@ Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `repo` | `string` | No | - | Target repository |
 
 ### `gh_pages_verify`
 
@@ -836,11 +971,15 @@ Verify local repository readiness for GitHub Pages publishing.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `root_dir` | `string` | No | `.` | Path to project root directory |
 
 ### `gh_project_audit`
 
-Audit project board health and alignment against standardized template.
+Audit the project board's views against the template.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -848,7 +987,8 @@ Audit project board health and alignment against standardized template.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
+| `repo` | `string` | No | - | Target repository |
 
 ### `gh_project_list`
 
@@ -860,16 +1000,11 @@ List available GitHub Projects v2 boards for user or organization.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `owner` | `string` | No | - | - |
+| `owner` | `string` | No | - | Target user or organization |
 
 ### `gh_project_reconcile`
 
-Reconcile Status and Priority on the cards already on the project board, listing each change and its source.
-
-`mode="plan"`, the default, reads the board and the repository and lists the changes without
-making them. `mode="dry-run"` makes no request and returns the requests a run makes;
-`mode="write"` makes the changes. A run that stops early says how many planned changes
-remain and fails with exit status 1. Reconcile adds no card.
+Reconcile Status and Priority on the cards already on the board, listing each change and its source; the board owns Status, and reconcile never writes Milestone, Value or Effort or adds a card. A planned value the board's field has no option for is refused before any write. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1. Running it again continues from there: after the reset when the quota stopped it, and once the cause is fixed when a write failed.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -877,24 +1012,27 @@ remain and fails with exit status 1. Reconcile adds no card.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `project_number` | `integer` | No | - | - |
-| `repo` | `string` | No | - | - |
-| `mode` | `string (dry-run, plan, write)` | No | `plan` | - |
+| `project_number` | `integer` | No | - | GitHub Projects v2 board number |
+| `state` | `string` | No | `all` | Filter issue/PR states (open, closed, all) |
+| `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Make no request, reads included, and list the requests a run makes. |
+| `plan_only` | `boolean` | No | `False` | Read the board and the repository and list the changes a run makes, making none. |
 
 ### `gh_project_status`
 
-Inspect GitHub Projects v2 template configuration, fields, and view definitions.
+Inspect the declarative GitHub Projects v2 template structure and views.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `gh_project_sync`
 
-Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
-
-Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull
-request's progress shows on its issue's card. `dry_run`, the default, makes no request.
+Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -902,12 +1040,14 @@ request's progress shows on its issue's card. `dry_run`, the default, makes no r
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
+| `repo` | `string` | No | - | Target repository |
+| `dry_run` | `boolean` | No | `False` | Make no request and describe what a sync does. |
+| `reconcile_fields` | `boolean` | No | `True` | Also reconcile Status and Priority on the cards already on the board, from issue and pull request state and labels. |
 
 ### `gh_rate_limit`
 
-Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
+Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -915,25 +1055,11 @@ Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `format_type` | `string` | No | `table` | - |
-
-### `gh_run_view`
-
-View details and diagnostic failure logs of a specific GitHub Actions workflow run.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `run_id` | `integer` | Yes | - | - |
-| `log_failed` | `boolean` | No | `True` | - |
-| `repo` | `string` | No | - | - |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 
 ### `gh_runs_list`
 
-List recent GitHub Actions CI/CD workflow runs.
+List recent workflow runs for the repository or branch.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -941,21 +1067,30 @@ List recent GitHub Actions CI/CD workflow runs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `limit` | `integer` | No | `10` | - |
-| `branch` | `string` | No | - | - |
-| `repo` | `string` | No | - | - |
+| `limit` | `integer` | No | `10` | Maximum number of items to return or display. |
+| `branch` | `string` | No | - | Filter by branch |
+| `repo` | `string` | No | - | Target repository |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 
-### `gh_view_spec`
+### `gh_runs_view`
 
-Return JSON specification for GitHub Projects v2 views.
+View details and failure logs of a specific workflow run.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `run_id` | `integer` | Yes | - | Workflow run database ID. |
+| `log_failed` | `boolean` | No | `False` | Display logs for failed jobs or steps in the workflow run. |
+| `full_log` | `boolean` | No | `False` | Display full execution logs for the workflow run. |
+| `job` | `string` | No | - | Filter workflow run logs to a specific job ID. |
+| `repo` | `string` | No | - | Target repository |
 
 ### `gh_views_audit`
 
-Audit remote project views against standardized view template specifications.
+Audit remote project views against standardized template specifications.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -963,11 +1098,24 @@ Audit remote project views against standardized view template specifications.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
+| `repo` | `string` | No | - | Target repository |
+
+### `gh_views_spec`
+
+Output JSON schema specification for all configured project views.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `gh_views_sync`
 
-Synchronize standardized GitHub Projects v2 views with the remote repository project.
+Synchronize standardized views with the remote GitHub Projects v2 board.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -975,11 +1123,12 @@ Synchronize standardized GitHub Projects v2 views with the remote repository pro
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | `` | - |
+| `template_file` | `string` | No | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
+| `repo` | `string` | No | - | Target repository |
 
-### `grafana_dashboards`
+### `grafana_dashboards_list`
 
-List Grafana dashboards, optionally filtered by search query.
+List all dashboards.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -987,7 +1136,7 @@ List Grafana dashboards, optionally filtered by search query.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | `string` | No | `` | - |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `hydrate_tool_domain`
 
@@ -1009,15 +1158,19 @@ Pass the domain name alone, for example `k8s`.
 
 ### `k8s_audit`
 
-Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks.
+Sanitize active K8s/Minikube cluster resource health using Derailed Popeye.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_bootstrap`
 
-Bootstrap minikube Kubernetes cluster and deploy infrastructure stack.
+Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1025,11 +1178,14 @@ Bootstrap minikube Kubernetes cluster and deploy infrastructure stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_start` | `boolean` | No | `True` | - |
+| `k8s_dir` | `string` | No | `k8s` | Directory containing Kubernetes manifests. |
+| `auto_start` | `boolean` | No | `True` | Auto-start minikube if stopped. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | all. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_chaos`
 
-Inject or validate Kubernetes chaos engineering experiments and cluster resilience.
+Run resilience and chaos experiments against Kubernetes workloads.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1037,13 +1193,17 @@ Inject or validate Kubernetes chaos engineering experiments and cluster resilien
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `experiment` | `string` | No | `pod-failure` | - |
-| `namespace` | `string` | No | `default` | - |
-| `dry_run` | `boolean` | No | `True` | - |
+| `experiment` | `string` | No | `pod-kill` | Resilience experiment name (e.g., pod-kill, latency-inject). |
+| `deployment` | `string` | No | `sample-app` | Target deployment to disrupt. |
+| `namespace` | `string` | No | `default` | Kubernetes namespace. |
+| `duration` | `integer` | No | `30` | Reconciliation monitoring window in seconds. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `k8s_create_tls_secret`
 
-Create or update a kubernetes.io/tls secret in a target namespace.
+Create or update a kubernetes.io/tls secret from certificate and private key files.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1051,14 +1211,20 @@ Create or update a kubernetes.io/tls secret in a target namespace.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `secret_name` | `string` | Yes | - | - |
-| `namespace` | `string` | No | `default` | - |
-| `cert_path` | `string` | No | `` | - |
-| `key_path` | `string` | No | `` | - |
+| `secret_name` | `string` | Yes | - | Name of the Kubernetes TLS secret to create or update. |
+| `namespace` | `string` | No | `default` | Kubernetes namespace. |
+| `cert_path` | `string` | No | `` | Path to TLS certificate file (.crt or .pem). |
+| `key_path` | `string` | No | `` | Path to TLS private key file (.key or .pem). |
+| `context` | `string` | No | - | Kubernetes cluster context name. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_deploy_stack`
 
-Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster.
+Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+
+Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
+detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
+reads them. A locked or missing keyring stops it before it applies anything.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1066,12 +1232,21 @@ Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `stack` | `string` | No | `infra` | - |
-| `context` | `string` | No | - | - |
+| `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | all. |
+| `context` | `string` | No | - | Kubernetes cluster context name. |
+| `domain` | `string` | No | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+| `wait` | `boolean` | No | `True` | Wait for Helm releases and workloads to become ready before returning. |
+| `timeout` | `string` | No | `10m` | Timeout for Helm operations when waiting. |
+| `port_forward` | `boolean` | No | `False` | Start background port-forwarding daemons for deployed services. |
+| `configure_urls` | `boolean` | No | `False` | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `push_secrets` | `boolean` | No | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
+| `argocd_revision` | `string` | No | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a release merges (Argo CD-managed clusters only). |
+| `dry_run` | `boolean` | No | `False` | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `k8s_diff_helm`
 
-Compare local Helm values or charts against deployed cluster releases.
+Preview Kubernetes manifest diffs before executing a Helm upgrade.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1079,17 +1254,15 @@ Compare local Helm values or charts against deployed cluster releases.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `release_name` | `string` | Yes | - | - |
-| `chart` | `string` | Yes | - | - |
-| `namespace` | `string` | No | `default` | - |
+| `release_name` | `string` | Yes | - | Name of deployed Helm release. |
+| `chart_path` | `string` | No | `.` | Path to local Helm chart directory or packaged archive. |
+| `namespace` | `string` | No | - | Kubernetes namespace. |
+| `values` | `array[string]` | No | - | Values YAML files to override release defaults. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_doctor`
 
-Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
-
-Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with
-status 2, so the output begins with `Command exited with status 2:` followed by the JSON report.
-Status 1 indicates the cluster could not be read or an API call failed.
+Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1097,12 +1270,14 @@ Status 1 indicates the cluster could not be read or an API call failed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `namespace` | `string` | No | - | - |
-| `context` | `string` | No | - | - |
+| `namespace` | `string` | No | - | Target specific Kubernetes namespace (default: all namespaces). |
+| `context` | `string` | No | - | Target Kubernetes cluster context (default: resolved context). |
+| `tail` | `integer` | No | `20` | Number of container log lines to tail per flagged container. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_enable_tls`
 
-Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel).
+Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1110,13 +1285,16 @@ Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm,
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `stack` | `string` | No | `all` | - |
-| `secret_name` | `string` | No | `homelab-tls` | - |
-| `context` | `string` | No | `` | - |
+| `context` | `string` | No | - | Kubernetes cluster context name. |
+| `tls_dir` | `string` | No | `` | Directory with generated TLS certificates. |
+| `secret_name` | `string` | No | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | all. |
+| `overwrite` | `boolean` | No | `False` | Overwrite existing files or resources if they exist. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_lint`
 
-Lint Kubernetes manifests against security best practices and deprecated APIs.
+Validate K8s manifests and Helm charts using Red Hat Kube-linter.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1124,26 +1302,12 @@ Lint Kubernetes manifests against security best practices and deprecated APIs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `manifest_path` | `string` | No | `.` | - |
+| `target` | `string` | No | `.` | Target K8s manifest file or directory to lint. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `k8s_logs_query`
+### `k8s_logs`
 
-Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error").
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | `string` | Yes | - | - |
-| `limit` | `integer` | No | `100` | - |
-| `since` | `string` | No | `1h` | - |
-| `namespace` | `string` | No | - | - |
-
-### `k8s_logs_tail`
-
-Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
+Stream pod logs or execute LogQL queries across cluster log streams.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1151,13 +1315,21 @@ Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | `string` | Yes | - | - |
-| `lines` | `integer` | No | `50` | - |
-| `namespace` | `string` | No | - | - |
+| `pod` | `string` | No | `` | Pod name. |
+| `query_arg` | `string` | No | - | Optional LogQL query string when using query subcommand |
+| `query` | `string` | No | - | LogQL query expression |
+| `container` | `string` | No | - | Specific container name within the pod. |
+| `namespace` | `string` | No | - | Kubernetes namespace. |
+| `follow` | `boolean` | No | `False` | Follow stream or log output in real time. |
+| `tail` | `integer` | No | `100` | Number of recent lines to display. |
+| `limit` | `integer` | No | `100` | Max lines for LogQL query |
+| `since` | `string` | No | `1h` | Time range for LogQL query |
+| `loki_url` | `string` | No | - | Loki service endpoint |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_pods`
 
-List the pods of a Kubernetes namespace, or of every namespace when it is empty.
+List running pods with health status, restart counts, and age.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1165,11 +1337,16 @@ List the pods of a Kubernetes namespace, or of every namespace when it is empty.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `namespace` | `string` | No | `default` | - |
+| `namespace` | `string` | No | - | Kubernetes namespace. |
+| `label` | `string` | No | - | Kubernetes label selector filter (e.g. app=frontend). |
+| `all_namespaces` | `boolean` | No | `False` | Query pods across all namespaces. |
+| `watch` | `boolean` | No | `False` | Continuously refresh pod list in real-time terminal display. |
+| `interval` | `number` | No | `3.0` | Auto-refresh polling interval in seconds. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_security_stream`
 
-Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes.
+Stream runtime security anomaly events from Kubernetes Falco eBPF probes.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1177,22 +1354,32 @@ Stream runtime security anomaly events and syscall alerts from Kubernetes Falco 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `namespace` | `string` | No | `falco` | - |
-| `severity` | `string` | No | - | - |
-| `tail_lines` | `integer` | No | `100` | - |
-| `simulate` | `boolean` | No | `False` | - |
+| `namespace` | `string` | No | `falco` | Kubernetes namespace. |
+| `label` | `string` | No | `app.kubernetes.io/name=falco` | Kubernetes label selector filter (e.g. app=frontend). |
+| `severity` | `string` | No | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
+| `duration` | `integer` | No | `30` | Observation streaming window duration in seconds. |
+| `tail` | `integer` | No | `100` | Number of historical log lines to stream. |
+| `follow` | `boolean` | No | `False` | Continuously stream live log output. |
+| `simulate` | `boolean` | No | `False` | Generate simulated kernel eBPF security anomalies for testing. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `output` | `string` | No | - | Export discovered alerts to JSON file |
 
 ### `k8s_status`
 
-Display pod status across infrastructure namespaces.
+Show node and pod summary for the current context.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_teardown_stack`
 
-Uninstall Kubernetes infrastructure or LLM stack and delete namespaces.
+Uninstall the k8s infrastructure / LLM stack and delete namespaces.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1200,8 +1387,10 @@ Uninstall Kubernetes infrastructure or LLM stack and delete namespaces.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `stack` | `string` | No | `infra` | - |
-| `context` | `string` | No | - | - |
+| `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | all. |
+| `context` | `string` | No | - | Kubernetes cluster context name. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_tempo_info`
 
@@ -1213,7 +1402,7 @@ Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints.
 
 ### `k8s_validate`
 
-Validate Kubernetes manifest syntax and schemas against OpenAPI specifications.
+Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1221,11 +1410,25 @@ Validate Kubernetes manifest syntax and schemas against OpenAPI specifications.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `manifest_path` | `string` | No | `.` | - |
+| `manifest_path` | `string` | No | `.` | Manifest file or directory path. |
+| `k8s_version` | `string` | No | `master` | Target Kubernetes OpenAPI version. |
+| `strict` | `boolean` | No | `True` | Disallow additional undeclared properties. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `pr_check_readiness`
 
-Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
+the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
+changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
+release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
+docs/agent/tasks/ is exempt.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1233,13 +1436,17 @@ Validate PR merge readiness: verify no unresolved review threads, no conflicts, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | No | - | - |
-| `allow_blocked_state` | `boolean` | No | `False` | - |
-| `repo` | `string` | No | - | - |
+| `number` | `integer` | No | - | PR number to verify (defaults to current branch PR) |
+| `allow_draft` | `boolean` | No | `False` | Report a draft pull request as ready; GitHub still refuses to merge one. |
+| `allow_pending_checks` | `boolean` | No | `False` | Treat checks that are still running as acceptable rather than blocking. |
+| `allow_blocked_state` | `boolean` | No | `False` | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
+| `auto_resolve` | `boolean` | No | `False` | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `allow_replied_threads` | `boolean` | No | `False` | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 
 ### `pr_checks`
 
-Inspect detailed status of GitHub Actions CI checks for a pull request.
+Check remote CI quality gate status on a pull request.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1247,11 +1454,12 @@ Inspect detailed status of GitHub Actions CI checks for a pull request.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 
 ### `pr_close`
 
-Close a pull request with optional comment and remote branch deletion.
+Close a pull request.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1259,14 +1467,14 @@ Close a pull request with optional comment and remote branch deletion.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `comment` | `string` | No | - | - |
-| `delete_branch` | `boolean` | No | `False` | - |
-| `repo` | `string` | No | - | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `comment` | `string` | No | - | Comment text to include when closing the pull request. |
+| `delete_branch` | `boolean` | No | `False` | Delete remote topic branch upon closing. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 
 ### `pr_diff`
 
-View the unified git diff for a pull request.
+View diff of a pull request.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1274,12 +1482,13 @@ View the unified git diff for a pull request.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `repo` | `string` | No | - | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `color` | `string` | No | `auto` | Whether to colorize diff (always, never, auto). |
 
 ### `pr_edit`
 
-Edit an existing pull request title, body, base branch, or milestone.
+Edit pull request base branch, title, body, or milestone.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1287,16 +1496,16 @@ Edit an existing pull request title, body, base branch, or milestone.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `title` | `string` | No | - | - |
-| `body` | `string` | No | - | - |
-| `base` | `string` | No | - | - |
-| `milestone` | `string` | No | - | - |
-| `repo` | `string` | No | - | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `base` | `string` | No | - | Change the base branch for this pull request. |
+| `title` | `string` | No | - | Set the new title. |
+| `body` | `string` | No | - | Set the new body. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `milestone` | `string` | No | - | Set the milestone for this pull request. |
 
 ### `pr_list`
 
-List GitHub pull requests with review approval state and CI check summaries.
+List pull requests with base targeting and review status.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1304,12 +1513,13 @@ List GitHub pull requests with review approval state and CI check summaries.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `limit` | `integer` | No | `10` | - |
-| `state` | `string` | No | `open` | - |
+| `state` | `string` | No | `open` | Filter by state (open, closed, merged, all). |
+| `limit` | `integer` | No | `30` | Maximum number of items to return or display. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 
 ### `pr_monitor`
 
-Monitor PR CI checks, Copilot reviews, and review threads until ready for merge.
+Monitor PR checks, Copilot review sessions, and unresolved threads until ready.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1317,14 +1527,17 @@ Monitor PR CI checks, Copilot reviews, and review threads until ready for merge.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | No | - | - |
-| `timeout` | `integer` | No | `300` | - |
-| `interval` | `integer` | No | `60` | - |
-| `settle_timeout` | `integer` | No | `60` | - |
+| `number` | `integer` | No | - | Pull request number. |
+| `interval` | `integer` | No | `60` | Polling interval in seconds between check queries. |
+| `timeout` | `integer` | No | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `settle_timeout` | `integer` | No | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `require_reviews` | `boolean` | No | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 
 ### `pr_ready`
 
-Mark a draft pull request as ready for review and optionally begin monitoring.
+Mark a draft pull request as ready for review.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1332,40 +1545,14 @@ Mark a draft pull request as ready for review and optionally begin monitoring.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `monitor` | `boolean` | No | `False` | - |
-| `force` | `boolean` | No | `False` | - |
-| `repo` | `string` | No | - | - |
-
-### `pr_thread_reply`
-
-Post an in-thread reply directly to a pull request review discussion thread.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `thread_id` | `string` | Yes | - | - |
-| `body` | `string` | Yes | - | - |
-
-### `pr_thread_resolve`
-
-Programmatically mark a pull request review discussion thread as resolved.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `thread_id` | `string` | Yes | - | - |
-| `without_reply` | `boolean` | No | `False` | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `monitor` | `boolean` | No | `False` | Automatically transition to monitoring checks and reviews after marking ready. |
+| `force` | `boolean` | No | `False` | Bypass failing check verification and force ready status |
 
 ### `pr_threads_list`
 
-List review discussion threads, file locations, and comments on a pull request.
+List PR review discussion threads, file locations, and comments.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1373,12 +1560,14 @@ List review discussion threads, file locations, and comments on a pull request.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `unresolved_only` | `boolean` | No | `True` | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `unresolved_only` | `boolean` | No | `False` | Filter to display only unresolved review discussion threads. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 
-### `pr_update_branch`
+### `pr_threads_reply`
 
-Update a pull request branch with latest commits from its base branch.
+Post an in-thread reply to a PR review discussion thread.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1386,14 +1575,43 @@ Update a pull request branch with latest commits from its base branch.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `pr_number` | `integer` | Yes | - | - |
-| `repo` | `string` | No | - | - |
-| `expected_head_sha` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `thread_id` | `string` | Yes | - | Review thread GraphQL ID (e.g. PRRT_...). |
+| `body` | `string` | Yes | - | Reply message text to append directly to the review thread. |
+
+### `pr_threads_resolve`
+
+Programmatically mark one or more PR review discussion threads as resolved.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `thread_ids` | `array[string]` | Yes | - | One or more review thread GraphQL IDs to resolve. |
+| `without_reply` | `boolean` | No | `False` | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
+
+### `pr_update`
+
+Update pull request branch with latest commits from its base branch.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `number` | `integer` | No | - | Pull request number to update (optional if --all is specified). |
+| `all_prs` | `boolean` | No | `False` | Update all open pull requests targeting the base branch. |
+| `base` | `string` | No | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `expected_head_sha` | `string` | No | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `dispatch_ci` | `boolean` | No | `False` | Dispatch the ci.yml workflow on the head branch after updating. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `prometheus_query`
 
-Execute PromQL instant query against Prometheus endpoint.
+Execute an instant PromQL query.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1401,87 +1619,54 @@ Execute PromQL instant query against Prometheus endpoint.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `promql` | `string` | No | `up` | - |
-
-### `rag_drift`
-
-Detect staleness and drift between the working tree and the Qdrant vector index.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | `string` | No | `.` | - |
-| `auto_sync` | `boolean` | No | `False` | - |
-
-### `rag_index`
-
-Index workspace files into Qdrant vector database for semantic retrieval.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | `string` | No | `.` | - |
-| `project` | `string` | No | - | - |
-| `force` | `boolean` | No | `False` | - |
-
-### `rag_search`
-
-Perform semantic vector search across indexed workspace codebase and architecture docs.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | `string` | Yes | - | - |
-| `top_k` | `integer` | No | `5` | - |
-| `min_score` | `number` | No | `0.35` | - |
-| `project` | `string` | No | - | - |
-| `language` | `string` | No | - | - |
-| `category` | `string` | No | - | - |
+| `expr` | `string` | Yes | - | PromQL expression. |
+| `at` | `string` | No | - | Evaluation timestamp for instant vector query. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `release_status`
 
-Check devops-cli release status, version consistency, tags, and docs state.
+Display current release status, versions, tags, changelog, and docs state.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `root` | `string` | No | - | Project repository root directory. |
+| `watch` | `boolean` | No | `False` | Continuously monitor release state in real-time. |
+| `interval` | `number` | No | `2.0` | Watcher auto-refresh polling interval in seconds. |
 
 ### `repos_list`
 
-List local workspace repositories and active git branches.
+List all cloned repositories.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
 
-### `repos_status`
-
-Display uncommitted changes and branch drift across workspace repositories.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `base_dir` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `repos_sync`
 
-Fetch and pull tracking branches across workspace repositories.
+Fetch (and optionally pull) all tracking branches across repos.
 
 **Annotations:** `readOnlyHint: false`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `base_dir` | `string` | No | - | - |
+| `pull` | `boolean` | No | `True` | - |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `review_branch`
 
-Run an AI code review on git branch diff against base branch.
+Review a git branch diff with one or all AI personas.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1489,13 +1674,40 @@ Run an AI code review on git branch diff against base branch.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `branch` | `string` | No | `` | - |
-| `base` | `string` | No | `main` | - |
-| `persona` | `string` | No | `devsecops` | - |
+| `branch_name` | `string` | No | - | Branch to review (default: current branch). |
+| `base` | `string` | No | `main` | Base git branch to diff against (default: main). |
+| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
+| `repo_path` | `string` | No | `.` | Repository root directory (default: current directory). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
+| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
+| `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
+| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
+| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
+| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
+| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
+| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `reporting_only` | `boolean` | No | `False` | Run report generation only. |
+| `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
+| `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
+| `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `review_export_feedback`
 
-Append review verdicts the feedback dataset does not hold yet to the JSONL dataset.
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1503,12 +1715,18 @@ Append review verdicts the feedback dataset does not hold yet to the JSONL datas
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `status` | `string` | No | `ALL` | - |
-| `output_path` | `string` | No | `` | - |
+| `output` | `string` | No | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
+| `reviews_dir` | `string` | No | - | Directory containing review sessions. |
+| `status` | `string` | No | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
 ### `review_findings`
 
-List a session's findings, filtered by status, each with the number `review verify` takes.
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1516,12 +1734,20 @@ List a session's findings, filtered by status, each with the number `review veri
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session_id` | `string` | No | `` | - |
-| `status` | `string` | No | `` | - |
+| `session` | `string` | No | - | Session ID or substring (default: latest). |
+| `session_opt` | `string` | No | - | Session ID or substring (default: latest). |
+| `status_filter` | `string` | No | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
+| `unverified` | `boolean` | No | `False` | Show unverified findings only. |
+| `invalidated` | `boolean` | No | `False` | Show INVALIDATED findings only; add --candidates to look among every finding the review raised. |
+| `verified` | `boolean` | No | `False` | Show verified findings only. |
+| `mitigated` | `boolean` | No | `False` | Filter findings by MITIGATED status |
+| `candidates` | `boolean` | No | `False` | List candidates.json: every finding the review raised, reported or not. |
+| `severities` | `array[string]` | No | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
+| `details` | `boolean` | No | `False` | Display full finding descriptions and fix recommendations. |
 
 ### `review_path`
 
-Run an AI code review on local files matching pattern using specified persona.
+Review source files directly (no git required).
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1529,13 +1755,36 @@ Run an AI code review on local files matching pattern using specified persona.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
-| `pattern` | `string` | No | `*` | - |
-| `persona` | `string` | No | `devsecops` | - |
+| `targets` | `array[string]` | No | - | File(s) or directory(ies) to review. |
+| `pattern` | `string` | No | `*` | Glob pattern for matching files. |
+| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
+| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
+| `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
+| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
+| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
+| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
+| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
+| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `reporting_only` | `boolean` | No | `False` | Run report generation only. |
+| `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
+| `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
+| `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `watch` | `boolean` | No | `False` | Continuously watch target paths for changes and re-run reviews. |
+| `debounce_ms` | `integer` | No | `500` | Debounce window in milliseconds for filesystem watcher. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `review_pr`
 
-Fetch GitHub PR diff and review using specified persona; optionally post comment.
+Review a GitHub pull request with one or all AI personas.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1543,28 +1792,47 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `number` | `integer` | Yes | - | - |
-| `post` | `boolean` | No | `False` | - |
-| `persona` | `string` | No | `devsecops` | - |
+| `number` | `integer` | Yes | - | Pull request number. |
+| `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
+| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
+| `post_comment` | `boolean` | No | `False` | Post the review as a comment on the GitHub PR. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
+| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
+| `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
+| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
+| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
+| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
+| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
+| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `reporting_only` | `boolean` | No | `False` | Run report generation only. |
+| `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
+| `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
+| `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. |
+| `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `review_stats`
 
-View accuracy metrics and false-positive rates per reviewer persona.
+Compute and display review accuracy statistics across saved sessions.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `reviews_dir` | `string` | No | - | Directory containing review sessions. |
 
 ### `roadmap_close`
 
-Preview closure: each delivered item it would close, with its comment, first in each
-closed release that still holds an open issue and then in the current release, and the
-current release's cut it would make or what holds it.
-
-It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-spent and left once its store has sent a GraphQL request; `mode="dry-run"` makes no request
-and returns the requests a run makes. A person or the service runs
-`devops roadmap close --confirm`.
+Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1572,20 +1840,16 @@ and returns the requests a run makes. A person or the service runs
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `mode` | `string (dry-run, plan)` | No | `plan` | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `root` | `string` | No | `.` | The clone the cut runs git in (default: the current directory). |
+| `confirm` | `boolean` | No | `False` | Close the issues and make the cut. Without it, close prints its plan only. |
+| `dry_run` | `boolean` | No | `False` | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `plan_only` | `boolean` | No | `False` | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
 
 ### `roadmap_intake`
 
-Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and
-placement, with the agent filing quota for an agent's new candidate (`title` with `body`,
-and `source`, the link it came from, which `borrow_reason` needs).
-
-`mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing,
-and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run
-makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so
-the tool reads no file of the caller's choosing.
+Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1593,22 +1857,22 @@ the tool reads no file of the caller's choosing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `issues` | `array[integer]` | No | - | - |
-| `title` | `string` | No | - | - |
-| `body` | `string` | No | - | - |
-| `source` | `string` | No | - | - |
-| `borrow_reason` | `string (split, follow-up)` | No | - | - |
-| `mode` | `string (dry-run, plan, confirm)` | No | `plan` | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `issue` | `array[integer]` | No | - | Only this issue (repeatable). |
+| `title` | `string` | No | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
+| `body_file` | `string` | No | - | File holding the new candidate's body. Needs --title. |
+| `borrow_reason` | `string (split, follow-up)` | No | - | Why the new candidate may open beyond the quota's allowance: a split of an item too big for one pull request, or a follow-up a reviewer or readiness check requires. Needs --source. |
+| `source` | `string` | No | - | Link the new candidate came from, such as the item it splits or the review that found it; the filed body ends with it. |
+| `filed_by` | `string (agent, person)` | No | `agent` | Who files the new candidate: an agent's is labeled source/agent and counts toward the quota; a person's never does. |
+| `limit` | `integer` | No | - | Decide at most this many candidates, the oldest first, and leave the rest for a later run. Without it, intake decides every candidate. It keeps no record of what it decided; the intake that devops roadmap run and the Service run keeps one, so a candidate it left undecided waits behind the fresh ones. |
+| `dry_run` | `boolean` | No | `False` | Make no request, to GitHub or a model: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `plan_only` | `boolean` | No | `False` | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
+| `confirm` | `boolean` | No | `False` | Plan as --plan does, then make the writes on GitHub. |
 
 ### `roadmap_migrate`
 
-Preview the one-time move of the roadmap's source to GitHub: its plan and report.
-
-It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
-person reviews the plan and runs `devops roadmap migrate --confirm`.
+Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1616,16 +1880,15 @@ person reviews the plan and runs `devops roadmap migrate --confirm`.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `mode` | `string (dry-run, plan)` | No | `plan` | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `confirm` | `boolean` | No | `False` | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
+| `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `plan_only` | `boolean` | No | `False` | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
 
 ### `roadmap_refine`
 
-Run a dry run of item refinement: returns the refinement plan without making any writes.
-
-It never accepts a confirm argument, ensuring it is strictly read-only. When the model call
-fails for an item, the tool fails, and its error still carries the plan naming that item.
+Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1633,19 +1896,17 @@ fails for an item, the tool fails, and its error still carries the plan naming t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `item` | `integer` | No | - | - |
-| `limit` | `integer` | No | - | - |
-| `source` | `string` | No | - | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `source` | `string` | No | `.` | Path to the repository checkout (defaults to current directory). |
+| `item` | `integer` | No | - | Specific issue number to refine instead of selecting by priority. |
+| `limit` | `integer` | No | `3` | Maximum number of items to refine in this run (default 3). |
+| `dry_run` | `boolean` | No | `False` | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
+| `confirm` | `boolean` | No | `False` | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
 
 ### `roadmap_render`
 
-Render docs/ROADMAP.md from GitHub's issues, milestones and board.
-
-`mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
-with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
-requests a run makes; `mode="write"` writes the file.
+Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1653,18 +1914,15 @@ requests a run makes; `mode="write"` writes the file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `mode` | `string (dry-run, plan, write)` | No | `plan` | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `output` | `string` | No | `docs/ROADMAP.md` | File render writes. |
+| `dry_run` | `boolean` | No | `False` | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `plan_only` | `boolean` | No | `False` | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
 
 ### `roadmap_reprioritize`
 
-Hold the current release to its admission rule, size limit and stall window, and start
-the next release once it ships; prints each change with its reason.
-
-`mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
-GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
-run makes; `mode="confirm"` makes the changes.
+Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1672,13 +1930,15 @@ run makes; `mode="confirm"` makes the changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `ref` | `string` | No | - | - |
-| `mode` | `string (dry-run, plan, confirm)` | No | `plan` | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `confirm` | `boolean` | No | `False` | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
+| `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `plan_only` | `boolean` | No | `False` | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
 
 ### `roadmap_run`
 
-Report the roadmap jobs that are due: runs nothing and returns the due tuple.
+Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1686,11 +1946,14 @@ Report the roadmap jobs that are due: runs nothing and returns the due tuple.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `repo` | `string` | No | - | - |
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `dry_run` | `boolean` | No | `False` | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
+| `confirm` | `boolean` | No | `False` | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
 ### `sandbox_deploy`
 
-Deploy an isolated workload container sandbox with security containment and port allocation.
+Deploy an isolated background container sandbox with security containment.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1698,18 +1961,20 @@ Deploy an isolated workload container sandbox with security containment and port
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | `string` | No | `python:3.14-slim` | - |
-| `name` | `string` | No | - | - |
-| `ports` | `array[integer]` | No | - | - |
-| `workspace` | `string` | No | `.` | - |
-| `memory` | `string` | No | `2g` | - |
-| `cpus` | `number` | No | `2.0` | - |
-| `network` | `string` | No | `isolated` | - |
-| `network_mode` | `string` | No | - | - |
-| `public_whitelist` | `array[string]` | No | - | - |
-| `local_whitelist` | `array[string]` | No | - | - |
-| `read_only` | `boolean` | No | `True` | - |
-| `command` | `array[string]` | No | - | - |
+| `command` | `array[string]` | No | - | Optional container command |
+| `image` | `string` | No | `python:3.14-slim` | Container image for the sandbox workload. |
+| `name` | `string` | No | - | Friendly identifier name for the sandbox instance. |
+| `ports` | `array[integer]` | No | - | Container port(s) to dynamically expose on available host ports. |
+| `workspace` | `string` | No | `.` | Host workspace path to mount into container /workspace. |
+| `memory` | `string` | No | `2g` | Memory limit for the container (e.g. 512m, 2g). |
+| `cpus` | `number` | No | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
+| `read_only` | `boolean` | No | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
+| `network` | `string` | No | `isolated` | Docker network mode (bridge | host | none). |
+| `network_mode` | `string` | No | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `public_whitelist` | `string` | No | - | Comma-separated public domains/IPs allowed for egress |
+| `local_whitelist` | `string` | No | - | Comma-separated local URLs/IPs allowed for egress |
+| `env` | `array[string]` | No | - | Environment variable in KEY=VALUE format. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `sandbox_exec`
 
@@ -1721,17 +1986,13 @@ Execute a command inside an active sandbox container.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `instance_id` | `string` | Yes | - | - |
-| `command` | `array[string]` | Yes | - | - |
-| `workdir` | `string` | No | - | - |
+| `instance_id` | `string` | Yes | - | Unique instance ID or name of the sandbox. |
+| `command` | `array[string]` | Yes | - | Command and arguments to execute inside sandbox |
+| `workdir` | `string` | No | - | Working directory inside the container for command execution. |
 
 ### `sandbox_network_policy`
 
 Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
-
-Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP.
-`allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318,
-in the sandbox_namespace, public_whitelist and local_whitelist modes.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1739,12 +2000,12 @@ in the sandbox_namespace, public_whitelist and local_whitelist modes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `network_mode` | `string` | No | `isolated` | - |
-| `name` | `string` | No | `app-sandbox` | - |
-| `namespace` | `string` | No | `sandbox` | - |
-| `public_whitelist` | `array[string]` | No | - | - |
-| `local_whitelist` | `array[string]` | No | - | - |
-| `allow_collector` | `boolean` | No | `False` | - |
+| `network_mode` | `string` | No | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `name` | `string` | No | `app-sandbox` | Name prefix for the NetworkPolicy resource |
+| `namespace` | `string` | No | `sandbox` | Target Kubernetes namespace |
+| `public_whitelist` | `string` | No | - | Comma-separated public destinations allowed for egress, each opening one TCP port: scheme://host:port, host:port or [v6]:port. A bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `local_whitelist` | `string` | No | - | Comma-separated local or private destinations allowed for egress, with the same forms and ports as --public-whitelist: scheme://host:port, host:port or [v6]:port; a bare host, IP or CIDR, or https, gets 443 and http 80; any other scheme needs a port. Names are resolved when the policy is generated, so regenerate it when a name's addresses change. |
+| `allow_collector` | `boolean` | No | `False` | Add one egress rule to the OTel collector's pods in the otel namespace on TCP 4317 and 4318 (sandbox_namespace, public_whitelist and local_whitelist modes) |
 
 ### `sandbox_status`
 
@@ -1756,12 +2017,13 @@ Inspect status of deployed sandbox containers.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `instance_id` | `string` | No | - | - |
-| `all_instances` | `boolean` | No | `False` | - |
+| `instance_id` | `string` | No | - | Unique instance ID or name of the sandbox. |
+| `all_instances` | `boolean` | No | `False` | Apply operation across all registered sandbox instances. |
+| `json_output` | `boolean` | No | `False` | Output details in structured JSON format. |
 
 ### `sandbox_stop`
 
-Gracefully stop and remove a sandbox container.
+Gracefully stop and tear down a sandbox container.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1769,13 +2031,14 @@ Gracefully stop and remove a sandbox container.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `instance_id` | `string` | No | - | - |
-| `all_instances` | `boolean` | No | `False` | - |
-| `timeout` | `integer` | No | `10` | - |
+| `instance_id` | `string` | No | - | Unique instance ID or name of the sandbox. |
+| `all_instances` | `boolean` | No | `False` | Apply operation across all registered sandbox instances. |
+| `timeout` | `integer` | No | `10` | Graceful stop timeout in seconds before SIGKILL. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_aibom`
 
-Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses.
+Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1783,23 +2046,14 @@ Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licens
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
-
-### `scan_checkov`
-
-Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
+| `target` | `string` | No | `.` | Target directory or model repository to analyze for AI models and AIBOM. |
+| `format_type` | `string` | No | `cyclonedx` | AIBOM format output (cyclonedx, json). |
+| `output_file` | `string` | No | - | Destination file path for generated AIBOM manifest. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_complexity`
 
-Inspect Python codebase for cyclomatic complexity and excessive indentation depth.
+Run AST-based cyclomatic complexity and indentation depth analysis.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1807,9 +2061,12 @@ Inspect Python codebase for cyclomatic complexity and excessive indentation dept
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `src` | - |
-| `max_complexity` | `integer` | No | `10` | - |
-| `max_nesting_depth` | `integer` | No | `5` | - |
+| `target` | `string` | No | `.` | Target directory or Python file to analyze for complexity. |
+| `max_complexity` | `integer` | No | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
+| `max_indent` | `integer` | No | `5` | Maximum acceptable indentation / nesting depth (default 5). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `scan_fix`
 
@@ -1821,15 +2078,16 @@ Remediate vulnerable dependencies via lockfile upgrades and optional git branch 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target_path` | `string` | No | `.` | - |
-| `package` | `string` | No | - | - |
-| `min_severity` | `string` | No | `HIGH` | - |
-| `apply` | `boolean` | No | `False` | - |
-| `create_branch` | `boolean` | No | `False` | - |
+| `target` | `string` | No | `.` | Target project directory containing lockfile or dependencies |
+| `package` | `string` | No | - | Specific vulnerable package to remediate |
+| `min_severity` | `string` | No | `HIGH` | Minimum vulnerability severity (LOW|MEDIUM|HIGH|CRITICAL) |
+| `apply` | `boolean` | No | `False` | Apply lockfile upgrades directly |
+| `create_branch` | `boolean` | No | `False` | Create a git topic branch for the remediation |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `scan_gitleaks`
+### `scan_iac`
 
-Scan git repository or directory for hardcoded secrets, tokens, and private keys.
+Run Checkov IaC static policy and security compliance scan.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1837,11 +2095,31 @@ Scan git repository or directory for hardcoded secrets, tokens, and private keys
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
+| `target` | `string` | No | `.` | Target directory or file to scan with Checkov IaC rules. |
+| `framework` | `string` | No | - | Specific IaC framework (e.g. terraform). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+
+### `scan_sast`
+
+Run static application security testing (SAST) via Semgrep.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target` | `string` | No | `.` | Target directory or file to scan with Semgrep AST rules. |
+| `config` | `string` | No | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `scan_sbom`
 
-Generate CycloneDX or SPDX Software Bill of Materials for target workspace.
+Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1849,12 +2127,14 @@ Generate CycloneDX or SPDX Software Bill of Materials for target workspace.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
-| `format` | `string` | No | `cyclonedx` | - |
+| `target` | `string` | No | `.` | Target directory, file, or repository to scan. |
+| `format_type` | `string` | No | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
+| `output_file` | `string` | No | - | Destination file path for generated SBOM document. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `scan_semgrep`
+### `scan_secrets`
 
-Perform AST-based static code security analysis and rule enforcement via Semgrep.
+Run Gitleaks secret pre-filter scan across workspace or targets.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1862,12 +2142,14 @@ Perform AST-based static code security analysis and rule enforcement via Semgrep
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
-| `config` | `string` | No | `auto` | - |
+| `target` | `string` | No | `.` | Target directory or file to scan for secrets. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `scan_trivy`
 
-Run container, filesystem, or repository vulnerability scanning via Trivy.
+Run Aqua Trivy vulnerability, secret, and misconfiguration scan.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1875,9 +2157,12 @@ Run container, filesystem, or repository vulnerability scanning via Trivy.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | - |
-| `scan_type` | `string` | No | `fs` | - |
-| `severity` | `string` | No | `HIGH,CRITICAL` | - |
+| `target` | `string` | No | `.` | Target directory, file, or repository to scan. |
+| `scan_type` | `string` | No | `fs` | Trivy scan mode: fs, image, iac, repo. |
+| `severity` | `string` | No | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `scan_uv_audit`
 
@@ -1920,31 +2205,48 @@ Query the OSV.dev vulnerability database for package CVE intelligence.
 
 ### `ssh_audit`
 
-Audit SSH key expiration dates and key file permissions.
+List all managed SSH keys with their age and rotation status.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
+| `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ssh_status`
 
-Inspect age and rotation status of managed SSH keys in ~/.ssh.
+Show the active SSH key and days until rotation.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
 
-### `telemetry_logfire_status`
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
+| `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-Check Logfire structured observability bridge status, token configuration, and recorded metrics.
+### `telemetry_logfire`
+
+Display Logfire structured observability bridge status and token metrics.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 
 ### `telemetry_profile`
 
-Show the span waterfall Tempo recorded for a trace ID; the tool runs no command.
+Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1952,19 +2254,23 @@ Show the span waterfall Tempo recorded for a trace ID; the tool runs no command.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `trace_id` | `string` | Yes | - | - |
+| `trace_id` | `string` | Yes | - | Trace ID to read from Tempo and show, instead of running a command. |
 
 ### `telemetry_status`
 
-Check OpenTelemetry collector connectivity, Tempo HTTP API URL, and active telemetry settings.
+Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
 
-### `telemetry_test_span`
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-Emit a test OpenTelemetry trace span and metric to verify collector pipeline health.
+### `telemetry_test`
+
+Emit a test OpenTelemetry trace span and metric to the configured collector.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1972,11 +2278,13 @@ Emit a test OpenTelemetry trace span and metric to verify collector pipeline hea
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | `string` | No | `mcp_test_span` | - |
+| `name` | `string` | No | `devops-cli.manual_test` | Name for test span. |
+| `logfire` | `boolean` | No | `False` | Emit test span via Logfire bridge. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `tf_apply`
 
-Apply OpenTofu / Terraform Infrastructure-as-Code changes.
+Create or update OpenTofu infrastructure.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1984,13 +2292,15 @@ Apply OpenTofu / Terraform Infrastructure-as-Code changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `var_file` | `string` | No | `` | - |
-| `auto_approve` | `boolean` | No | `False` | - |
+| `directory` | `string` | No | `.` | Target directory containing OpenTofu configuration. |
+| `var_file` | `string` | No | - | Path to variable definitions file. |
+| `plan_file` | `string` | No | - | Explicit plan file to apply. |
+| `auto_approve` | `boolean` | No | `False` | Skip interactive confirmation prompts. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `tf_cost_estimate`
+### `tf_cost_breakdown`
 
-Estimate cloud infrastructure cost with Infracost FinOps engine.
+Estimate monthly and hourly cloud infrastructure costs using Infracost.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1998,13 +2308,15 @@ Estimate cloud infrastructure cost with Infracost FinOps engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `mock` | `boolean` | No | `False` | - |
-| `max_monthly_cost` | `number` | No | - | - |
+| `directory` | `string` | No | `.` | Target directory containing OpenTofu configuration. |
+| `mock` | `boolean` | No | `False` | Use deterministic mock cost output |
+| `max_monthly_cost` | `number` | No | - | Maximum allowable monthly cost budget threshold |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `tf_notify_plan`
 
-Format structured OpenTofu/Terraform plan summary for PR comments.
+Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2012,11 +2324,15 @@ Format structured OpenTofu/Terraform plan summary for PR comments.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `plan_file` | `string` | No | `tfplan.json` | - |
+| `plan_file` | `string` | No | - | Path to raw plan output or log file. |
+| `pr_number` | `integer` | No | - | Pull Request number to post plan comment to. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |
 
 ### `tf_output`
 
-Retrieve OpenTofu / Terraform outputs from state.
+Read an output variable from the OpenTofu state.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2024,12 +2340,15 @@ Retrieve OpenTofu / Terraform outputs from state.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `json_format` | `boolean` | No | `True` | - |
+| `directory` | `string` | No | `.` | Target directory containing OpenTofu configuration. |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |
+| `raw` | `boolean` | No | `False` | Output raw string without formatting or shell escapes. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `tf_plan`
 
-Generate and inspect an OpenTofu / Terraform execution plan.
+Generate and show an OpenTofu execution plan.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2037,26 +2356,15 @@ Generate and inspect an OpenTofu / Terraform execution plan.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `var_file` | `string` | No | `` | - |
+| `directory` | `string` | No | `.` | Target directory containing OpenTofu configuration. |
+| `var_file` | `string` | No | - | Path to variable definitions file. |
+| `out` | `string` | No | - | Write generated plan to file. |
+| `destroy` | `boolean` | No | `False` | Generate a plan to destroy all resources. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `tls_generate_ca`
+### `tls_ca`
 
-Generate an X.509 Root CA key pair for local or homelab infrastructure.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `output_dir` | `string` | No | `` | - |
-| `common_name` | `string` | No | `Homelab Root CA` | - |
-| `validity_days` | `integer` | No | `3650` | - |
-
-### `tls_generate_cert`
-
-Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA.
+Generate a self-signed Root Certificate Authority (CA) key pair.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -2064,14 +2372,39 @@ Generate an X.509 TLS certificate with Subject Alternative Names signed by local
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `common_name` | `string` | No | `localhost` | - |
-| `sans` | `string` | No | `localhost,127.0.0.1,*.homelab.local` | - |
-| `output_dir` | `string` | No | `` | - |
-| `validity_days` | `integer` | No | `365` | - |
+| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
+| `common_name` | `string` | No | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.example.internal). |
+| `organization` | `string` | No | `Homelab DevOps` | Organization name. |
+| `country` | `string` | No | `US` | 2-letter country code. |
+| `validity_days` | `integer` | No | `3650` | Validity period in days. |
+| `key_size` | `integer` | No | `2048` | RSA key size in bits (2048 or 4096). |
+| `overwrite` | `boolean` | No | `False` | Overwrite existing files. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `tls_inspect_cert`
+### `tls_cert`
 
-Inspect and display metadata, validity, SANs, and expiration of a TLS certificate.
+Generate an X.509 TLS certificate signed by local CA or self-signed.
+
+**Annotations:** `readOnlyHint: false`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `common_name` | `string` | No | `homelab.local` | Common Name for the certificate (e.g. *.example.internal). |
+| `san` | `array[string]` | No | - | Subject Alternative Names (DNS names or IP addresses). |
+| `ca_cert` | `string` | No | - | Path to signing CA certificate (ca.crt). |
+| `ca_key` | `string` | No | - | Path to signing CA private key (ca.key). |
+| `output_dir` | `string` | No | `` | Directory to save certificate and key files. |
+| `validity_days` | `integer` | No | `365` | Validity period in days. |
+| `key_size` | `integer` | No | `2048` | RSA key size in bits (2048 or 4096). |
+| `organization` | `string` | No | `Homelab DevOps` | Organization name. |
+| `overwrite` | `boolean` | No | `False` | Overwrite existing files. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `tls_inspect`
+
+Inspect and display metadata of an X.509 certificate.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2079,11 +2412,11 @@ Inspect and display metadata, validity, SANs, and expiration of a TLS certificat
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `cert_path` | `string` | Yes | - | - |
+| `cert_path` | `string` | Yes | - | Path to X.509 certificate file (.crt or .pem). |
 
 ### `valkey_flush`
 
-Flush and purge keys from current or all Valkey databases.
+Flush and purge keys from current or all databases.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -2091,11 +2424,14 @@ Flush and purge keys from current or all Valkey databases.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `all_databases` | `boolean` | No | `False` | - |
+| `all_databases` | `boolean` | No | `False` | Flush all databases instead of just active one |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
 
 ### `valkey_get`
 
-Retrieve string value stored at Valkey key.
+Retrieve string value stored at key.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2103,11 +2439,13 @@ Retrieve string value stored at Valkey key.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key` | `string` | Yes | - | - |
+| `key` | `string` | Yes | - | Key to retrieve |
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
 
 ### `valkey_info`
 
-Inspect Valkey server configuration, memory allocation, and operational metrics.
+Inspect server configuration, memory allocation, and operational metrics.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2115,19 +2453,26 @@ Inspect Valkey server configuration, memory allocation, and operational metrics.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `section` | `string` | No | - | - |
+| `section` | `string` | No | - | Specific INFO section (server, memory, clients, stats) |
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
 
 ### `valkey_ping`
 
-Test connection and measure latency to the workstation Valkey server.
+Test connection and measure round-trip latency to the Valkey server.
 
 **Annotations:** `readOnlyHint: true`
 
-*No parameters required.*
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
 
 ### `valkey_set`
 
-Set string value of Valkey key with optional expiration TTL in seconds.
+Set string value of key with optional expiration TTL.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -2135,21 +2480,16 @@ Set string value of Valkey key with optional expiration TTL in seconds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key` | `string` | Yes | - | - |
-| `value` | `string` | Yes | - | - |
-| `ex` | `integer` | No | - | - |
+| `key` | `string` | Yes | - | Key name to set |
+| `value` | `string` | Yes | - | Value to associate with key |
+| `ex` | `integer` | No | - | Expiration timeout in seconds |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
 
 ### `valkey_stats`
 
-Display quick diagnostic summary of Valkey server health, memory, and keys.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
-
-### `vault_get`
-
-Fetch secret from HashiCorp Vault or OS Keyring fallback.
+Display quick diagnostic summary of server health, memory, and keys.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2157,8 +2497,26 @@ Fetch secret from HashiCorp Vault or OS Keyring fallback.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | `string` | Yes | - | - |
-| `key` | `string` | No | - | - |
+| `host` | `string` | No | - | Valkey server host |
+| `port` | `integer` | No | - | Valkey server port |
+
+### `vault_get`
+
+Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.
+
+The keyring answers only with no usable token, when Vault has no value at the path, or when
+Vault is unreachable; never after Vault rejects the token. The output names the source.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp or vault://secret/data/myapp#token) |
+| `key` | `string` | No | - | Specific secret field key to extract |
+| `show` | `boolean` | No | `False` | Display secret in plain text without masking |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_set`
 
@@ -2170,12 +2528,16 @@ Store secret key-value pairs in HashiCorp Vault KV-v2 engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | `string` | Yes | - | - |
-| `key_values` | `array[string]` | Yes | - | - |
+| `path` | `string` | Yes | - | Vault secret path (e.g. secret/data/myapp) |
+| `key_values` | `array[string]` | Yes | - | Key-value pairs to store (format: KEY=VALUE) |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_status`
 
-Check HashiCorp Vault cluster health and sealing status.
+Inspect HashiCorp Vault cluster health and initialization status.
+
+The health endpoint needs no token, and none is sent. The Token row names where the token
+other commands would use comes from, and why a stored token is not used for this address.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2183,11 +2545,15 @@ Check HashiCorp Vault cluster health and sealing status.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `vault_addr` | `string` | No | - | - |
+| `vault_addr` | `string` | No | - | Vault cluster HTTP API address |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_sync`
 
-Synchronize secrets from HashiCorp Vault into the local OS Keyring.
+Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.
+
+Reads Vault alone. A path with no secret fails, and a field named like the entry that holds
+the `devops vault login` token is never written.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -2195,13 +2561,6 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | `string` | Yes | - | - |
-| `keys` | `array[string]` | No | - | - |
-
-### `workspace_list`
-
-Show the active VS Code workspace file and configured repository directories.
-
-**Annotations:** `readOnlyHint: true`
-
-*No parameters required.*
+| `path` | `string` | Yes | - | Vault secret path to synchronize into OS Keyring |
+| `keys` | `array[string]` | No | - | Specific keys to sync (syncs all keys if omitted) |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |

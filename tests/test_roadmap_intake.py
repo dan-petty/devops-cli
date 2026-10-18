@@ -1447,7 +1447,7 @@ def _in_process(exits: list[int], body_files: list[Path]) -> Callable[..., str]:
 
 
 def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accepts(
-    board: Roadmap, fake_model: FakeModel
+    board: Roadmap, fake_model: FakeModel, tmp_path: Path
 ) -> None:
     board.issue("feat: from mcp")
     tool = asyncio.run(mcp_server.mcp.get_tool("roadmap_intake"))
@@ -1455,31 +1455,36 @@ def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accep
     exits: list[int] = []
     body_files: list[Path] = []
     before = len(board.store.job_writes())
+    temp_body = tmp_path / "body.txt"
+    temp_body.write_text("text", encoding="utf-8")
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, body_files)):
         planned = mcp_server.roadmap_intake(repo=REPO)
-        mcp_server.roadmap_intake(repo=REPO, issues=[1])
+        mcp_server.roadmap_intake(repo=REPO, issue=[1])
         mcp_server.roadmap_intake(
-            repo=REPO, title="feat: via mcp", body="text", source=PARENT, borrow_reason="split"
+            repo=REPO,
+            title="feat: via mcp",
+            body_file=temp_body,
+            source=PARENT,
+            borrow_reason="split",
         )
         previewed = len(board.store.job_writes())
-        mcp_server.roadmap_intake(repo=REPO, mode="confirm")
+        mcp_server.roadmap_intake(repo=REPO, confirm=True)
     properties = tool.parameters["properties"] if tool else {}
     assert (
         "roadmap_intake" in names,
-        properties["mode"]["default"],
-        "confirm" in properties or "body_file" in properties or "filed_by" in properties,
+        "confirm" in properties,
         "proposal call(s)" in planned,
         exits,
         previewed - before,
         len(board.store.job_writes()) > previewed,
         [path.exists() for path in body_files],
-    ) == (True, "plan", False, True, [0, 0, 0, 0], 0, True, [False])
+    ) == (True, True, True, [0, 0, 0, 0], 0, True, [True])
 
 
 def test_the_mcp_mirror_dry_run_makes_no_request(no_requests: None) -> None:
     exits: list[int] = []
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, [])):
-        output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
+        output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     assert (exits, "Dry run: no request was made" in output) == ([0], True)
 
 
@@ -1509,11 +1514,11 @@ def test_a_dry_run_through_the_entry_point_exports_no_telemetry(
 def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     no_requests: None, exports: list[str]
 ) -> None:
-    output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
+    output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     get_tracer().shutdown()
     after_dry_run = list(exports)
     with pytest.raises(ToolError):
-        mcp_server.roadmap_intake(repo=REPO, mode="plan")
+        mcp_server.roadmap_intake(repo=REPO, plan_only=True)
     get_tracer().shutdown()
     assert (
         "Dry run: no request was made" in output,

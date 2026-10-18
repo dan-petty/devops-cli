@@ -419,7 +419,7 @@ def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status() -> None:
         patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=3)),
         pytest.raises(ToolError) as stopped,
     ):
-        gh_project_reconcile(project_number=2, repo=REPO, mode="write")
+        gh_project_reconcile(project_number=2, repo=REPO)
     message = _flat(str(stopped.value))
     assert (
         message.startswith("Command exited with status 1:"),

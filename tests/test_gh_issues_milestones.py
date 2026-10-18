@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp.server import gh_issue_edit, gh_milestone_edit
+from devops_cli.ai.mcp.server import gh_issues_edit, gh_milestones_edit
 from devops_cli.commands.gh import app, milestones_app
 from devops_cli.github.issues import (
     _resolve_milestone_number,
@@ -178,7 +178,7 @@ def test_cli_gh_issues_edit() -> None:
 def test_fastmcp_gh_tools() -> None:
     """FastMCP tools execute CLI commands."""
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
-        r1 = gh_milestone_edit("v0.2.21", description="New description")
-        r2 = gh_issue_edit(issue_number=10, milestone="v0.2.21")
+        r1 = gh_milestones_edit("v0.2.21", description="New description")
+        r2 = gh_issues_edit(number=10, milestone="v0.2.21")
 
         assert (r1, r2, mock_cmd.call_count) == ("Success", "Success", 2)

@@ -77,7 +77,7 @@ async def test_create_devops_mcp_toolset() -> None:
     # Gated domains appear once hydrated, and are absent before.
     gated = {
         "k8s_pods": "k8s",
-        "docker_stats": "docker",
+        "docker_images": "docker",
         "scan_trivy": "scan",
         "vault_set": "vault",
     }
@@ -100,7 +100,7 @@ async def test_create_devops_mcp_toolset() -> None:
     assert "resource://mcp/tools" in resource_uris
 
     # Direct tool call via in-process server
-    res = await ts.direct_call_tool("config_output", {"output_format": "json"})
+    res = await ts.direct_call_tool("config_output", {"json_output": True})
     assert isinstance(res, str)
     assert "DEVOPS_CLI_CONFIG" in res or "config" in res.lower()
 

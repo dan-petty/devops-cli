@@ -254,18 +254,15 @@ def test_execute_kubectl_logql_no_matching_pods_preserves_empty() -> None:
         assert res.source == "k8s_fallback"
 
 
-def test_mcp_k8s_logs_bounds_validation() -> None:
-    """Test FastMCP tool input bound validation for limit and lines."""
+def test_mcp_k8s_logs_flag_injection_rejected() -> None:
+    """Test FastMCP k8s_logs tool flag injection rejection."""
     import pytest
 
-    from devops_cli.ai.mcp.server import k8s_logs_query, k8s_logs_tail
+    from devops_cli.ai.mcp.server import k8s_logs
     from devops_cli.exceptions import ValidationError
 
     with pytest.raises(ValidationError):
-        k8s_logs_query(query='{app="web"}', limit=0)
-
-    with pytest.raises(ValidationError):
-        k8s_logs_tail(query='{app="web"}', lines=-5)
+        k8s_logs(query="--injected-flag")
 
 
 def test_parse_duration_to_seconds() -> None:

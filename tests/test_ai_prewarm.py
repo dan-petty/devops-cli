@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.unified import LLMClient
-from devops_cli.ai.mcp.server import ai_prewarm_models
+from devops_cli.ai.mcp.server import ai_prewarm
 from devops_cli.commands.ai import _render_prewarm_results, _resolve_prewarm_urls
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
@@ -360,12 +360,12 @@ class TestCLIPrewarmCommand:
 
 
 class TestFastMCPPrewarmTool:
-    """Test suite for FastMCP ai_prewarm_models tool."""
+    """Test suite for FastMCP ai_prewarm tool."""
 
-    def test_ai_prewarm_models_tool_dispatch(self) -> None:
-        """Verify ai_prewarm_models tool invokes devops ai prewarm with safe arguments."""
+    def test_ai_prewarm_tool_dispatch(self) -> None:
+        """Verify ai_prewarm tool invokes devops ai prewarm with safe arguments."""
         with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
-            res = ai_prewarm_models(
+            res = ai_prewarm(
                 model="qwen2.5-coder:7b",
                 keep_alive="24h",
                 evict=True,
@@ -379,19 +379,21 @@ class TestFastMCPPrewarmTool:
                 "devops",
                 "ai",
                 "prewarm",
-                "--keep-alive",
-                "24h",
                 "--model",
                 "qwen2.5-coder:7b",
-                "--evict",
+                "--keep-alive",
+                "24h",
                 "--all-nodes",
+                "--evict",
+                "--format",
+                "table",
             ]
             assert called_cmd == expected_flags
 
-    def test_ai_prewarm_models_tool_flag_injection_rejected(self) -> None:
-        """Verify ai_prewarm_models rejects hyphen-prefixed model or keep-alive argument."""
+    def test_ai_prewarm_tool_flag_injection_rejected(self) -> None:
+        """Verify ai_prewarm rejects hyphen-prefixed model or keep-alive argument."""
         with pytest.raises(ValidationError):
-            ai_prewarm_models(model="--injected-flag")
+            ai_prewarm(model="--injected-flag")
 
         with pytest.raises(ValidationError):
-            ai_prewarm_models(keep_alive="--bad-duration")
+            ai_prewarm(keep_alive="--bad-duration")
