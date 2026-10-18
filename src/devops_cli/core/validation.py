@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import ipaddress
 import logging
 import re
 import socket
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import dns.exception
 import dns.name
 import httpx2
 import typer
-from pydantic_ai._ssrf import (
-    _PRIVATE_NETWORKS,
-    is_cloud_metadata_ip,
-    is_private_ip,
-)
 
 from devops_cli.config.constants import (
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
@@ -40,28 +36,83 @@ logger = logging.getLogger(__name__)
 
 PathKind = Literal["any", "dir", "file", "key"]
 
-_LINK_LOCAL_IPV4_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
-    net for net in _PRIVATE_NETWORKS if isinstance(net, ipaddress.IPv4Network) and net.is_link_local
-)
-_LINK_LOCAL_IPV6_NETWORKS: tuple[ipaddress.IPv6Network, ...] = tuple(
-    net for net in _PRIVATE_NETWORKS if isinstance(net, ipaddress.IPv6Network) and net.is_link_local
-)
-_LINK_LOCAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
-    _LINK_LOCAL_IPV4_NETWORKS + _LINK_LOCAL_IPV6_NETWORKS
-)
-# Every non-public block, with each private IPv4 block's NAT64 and IPv4-compatible images, which
-# hold the addresses the classifier decodes to that block. A range overlapping one is non-public.
-_NON_PUBLIC_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
-    *_PRIVATE_NETWORKS,
-    *(
-        ipaddress.IPv6Network(
-            (int(prefix.network_address) + int(block.network_address), 96 + block.prefixlen)
-        )
-        for prefix in map(ipaddress.IPv6Network, CONST_IPV4_EMBEDDING_IPV6_PREFIXES)
-        for block in _PRIVATE_NETWORKS
-        if isinstance(block, ipaddress.IPv4Network)
-    ),
-)
+
+@functools.cache
+def _private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    from pydantic_ai._ssrf import _PRIVATE_NETWORKS
+
+    return _PRIVATE_NETWORKS
+
+
+@functools.cache
+def _link_local_ipv4_networks() -> tuple[ipaddress.IPv4Network, ...]:
+    return tuple(
+        net
+        for net in _private_networks()
+        if isinstance(net, ipaddress.IPv4Network) and net.is_link_local
+    )
+
+
+@functools.cache
+def _link_local_ipv6_networks() -> tuple[ipaddress.IPv6Network, ...]:
+    return tuple(
+        net
+        for net in _private_networks()
+        if isinstance(net, ipaddress.IPv6Network) and net.is_link_local
+    )
+
+
+@functools.cache
+def _link_local_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    return _link_local_ipv4_networks() + _link_local_ipv6_networks()
+
+
+@functools.cache
+def _non_public_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    priv = _private_networks()
+    return (
+        *priv,
+        *(
+            ipaddress.IPv6Network(
+                (int(prefix.network_address) + int(block.network_address), 96 + block.prefixlen)
+            )
+            for prefix in map(ipaddress.IPv6Network, CONST_IPV4_EMBEDDING_IPV6_PREFIXES)
+            for block in priv
+            if isinstance(block, ipaddress.IPv4Network)
+        ),
+    )
+
+
+def is_cloud_metadata_ip(
+    ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Classify if an IP address belongs to known cloud provider instance metadata endpoints."""
+    from pydantic_ai._ssrf import is_cloud_metadata_ip as _ssrf_is_cloud_metadata_ip
+
+    return _ssrf_is_cloud_metadata_ip(str(ip))
+
+
+def is_private_ip(
+    ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Classify if an IP address belongs to RFC 1918 / non-globally routable networks."""
+    from pydantic_ai._ssrf import is_private_ip as _ssrf_is_private_ip
+
+    return _ssrf_is_private_ip(str(ip))
+
+
+def __getattr__(name: str) -> Any:
+    if name == "_LINK_LOCAL_NETWORKS":
+        return _link_local_networks()
+    if name == "_LINK_LOCAL_IPV4_NETWORKS":
+        return _link_local_ipv4_networks()
+    if name == "_LINK_LOCAL_IPV6_NETWORKS":
+        return _link_local_ipv6_networks()
+    if name == "_NON_PUBLIC_NETWORKS":
+        return _non_public_networks()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
     dns.name.from_text(n) for n in CONST_CLOUD_METADATA_DNS_HOSTNAMES
 )
@@ -105,14 +156,14 @@ def _is_cloud_metadata_net(
     if net.num_addresses == 1:
         return _is_cloud_metadata_addr(net.network_address)
     if isinstance(net, ipaddress.IPv4Network):
-        return any(net.subnet_of(ll) for ll in _LINK_LOCAL_IPV4_NETWORKS)
+        return any(net.subnet_of(ll) for ll in _link_local_ipv4_networks())
     try:
         nat64_net = ipaddress.IPv6Network("64:ff9b::a9fe:0/112")
         if net.subnet_of(nat64_net):
             return True
     except ValueError:
         pass
-    return any(net.subnet_of(ll) for ll in _LINK_LOCAL_IPV6_NETWORKS)
+    return any(net.subnet_of(ll) for ll in _link_local_ipv6_networks())
 
 
 def _check_numeric_metadata(host: str) -> bool | None:
@@ -212,7 +263,7 @@ def is_non_public_ip(
             not addr.is_global
             or is_non_public_ip(addr.network_address)
             or is_non_public_ip(addr.broadcast_address)
-            or any(addr.overlaps(net) for net in _NON_PUBLIC_NETWORKS)
+            or any(addr.overlaps(net) for net in _non_public_networks())
         )
     return not addr.is_global or is_private_ip(str(addr))
 

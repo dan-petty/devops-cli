@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai.messages import FinishReason
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
+else:
+    FinishReason = Literal["stop", "length", "content_filter", "tool_call", "error"]
 
 
 class ModelPricing(BaseModel):

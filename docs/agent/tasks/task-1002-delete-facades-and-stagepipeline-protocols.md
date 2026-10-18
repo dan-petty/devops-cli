@@ -15,8 +15,13 @@ The top-level package facades `devops_cli.ai`, `devops_cli.ai.agents`, `devops_c
 - [x] Dead modules `src/devops_cli/ai/agents/pydantic_agent.py`, `src/devops_cli/ai/pipeline_protocol.py`, and the entire `src/devops_cli/pipeline/` package are deleted along with their obsolete test suites.
 - [x] All imports in `src/` and `tests/` point directly to defining submodules.
 - [x] Suppression ceilings and swallowed failures ratchets are lowered to reflect removed suppressions.
+- [x] Lazy import optimization ensures `devops --version`, `devops --help`, and all `devops <group> --help` commands load zero heavy modules (`pydantic_ai`, `kubernetes`, `docker`, `fastmcp`, `qdrant_client`, `opentelemetry`).
+- [x] SSRF validation helpers in `devops_cli.core.validation` and `devops_cli.http.egress` lazified to prevent running commands (`devops ci`, tracer, http client) from eagerly importing `pydantic_ai`.
+- [x] Pydantic AI exception classes decoupled into `devops_cli.exceptions.ai_pydantic` and lazily re-exported in `devops_cli.exceptions.ai`.
+- [x] Pass-through package facades `devops_cli.ai.rag`, `devops_cli.ai.review`, and `devops_cli.ai.benchmark` made lazy via `__getattr__`.
+- [x] FastMCP server imports in `devops_cli.commands.mcp` made lazy inside command functions.
+- [x] Comprehensive startup import isolation tests added in `tests/test_cli_startup_imports.py`.
 - [x] `uv run devops ci` passes with 100% success.
-- Follow-up PR 2 (#1002): Startup import speed optimizations for `--version` and `--help` commands and lazy import of pydantic-ai SSRF helpers.
 - Follow-up PR 3 (#1002): Dry-run imports, import time budget invariants, and closing changelog fragment.
 
 ## Deliverables
@@ -27,3 +32,9 @@ The top-level package facades `devops_cli.ai`, `devops_cli.ai.agents`, `devops_c
 - [x] Lowered `DEFAULT_C901_SUPPRESSION_CEILING` to 49 and `src type: ignore` ceiling to 89 in `src/devops_cli/config/defaults.py`.
 - [x] Ratcheted down swallowed failures ceilings in `tests/fixtures/swallowed_failures_ceilings.json`.
 - [x] Added architectural invariant test in `tests/test_architectural_invariants.py`.
+- [x] Lazified SSRF helpers and constants in `src/devops_cli/core/validation.py` and `src/devops_cli/http/egress.py`.
+- [x] Decoupled `pydantic_ai` exceptions to `src/devops_cli/exceptions/ai_pydantic.py` with lazy re-export in `src/devops_cli/exceptions/ai.py`.
+- [x] Made `src/devops_cli/ai/rag/__init__.py`, `src/devops_cli/ai/review/__init__.py`, and `src/devops_cli/ai/benchmark/__init__.py` lazy via `__getattr__`.
+- [x] Made `src/devops_cli/ai/response_repair.py` lazy for `pydantic_ai.messages`.
+- [x] Made `src/devops_cli/commands/mcp.py` and `src/devops_cli/commands/review.py` imports lazy within command callbacks.
+- [x] Added heavy module isolation tests across `--version`, `--help`, and all 39 command groups in `tests/test_cli_startup_imports.py`.

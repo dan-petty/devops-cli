@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.main import _COMMAND_SPECS
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -208,3 +210,132 @@ print("__SDKS__" + json.dumps(result))
     found_line = next(line for line in proc.stdout.splitlines() if line.startswith("__SDKS__"))
     status = json.loads(found_line.removeprefix("__SDKS__"))
     assert (status["anthropic"], status["google.genai"], status["openai"]) == (False, False, False)
+
+
+_HEAVY_MODULES = (
+    "pydantic_ai",
+    "kubernetes",
+    "docker",
+    "fastmcp",
+    "qdrant_client",
+    "opentelemetry",
+)
+
+_ALL_HELP_ARGVS = [
+    ["--version"],
+    ["--help"],
+] + [[cmd, "--help"] for cmd in sorted(_COMMAND_SPECS.keys())]
+
+
+@pytest.mark.parametrize("argv", _ALL_HELP_ARGVS)
+def test_cli_help_imports_no_heavy_modules(argv: list[str]) -> None:
+    """Verify top-level and subcommand help dispatches import zero heavy modules."""
+    code = f"""
+import json
+import sys
+import devops_cli.entry
+
+try:
+    devops_cli.entry.main({argv!r})
+except SystemExit:
+    pass
+
+heavy = {_HEAVY_MODULES!r}
+loaded = [m for m in heavy if m in sys.modules]
+print("__HEAVY_STATUS__" + json.dumps(loaded))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(
+        line for line in proc.stdout.splitlines() if line.startswith("__HEAVY_STATUS__")
+    )
+    loaded = json.loads(found_line.removeprefix("__HEAVY_STATUS__"))
+    assert loaded == []
+
+
+def test_running_commands_import_no_heavy_modules() -> None:
+    """Verify importing devops_cli.main, commands.ci, tracer, and http loads zero heavy modules."""
+    code = f"""
+import json
+import sys
+
+import devops_cli.main
+import devops_cli.commands.ci
+from devops_cli.telemetry.tracer import get_tracer
+get_tracer()
+import devops_cli.http
+
+heavy = {_HEAVY_MODULES!r}
+loaded = [m for m in heavy if m in sys.modules]
+print("__HEAVY_STATUS__" + json.dumps(loaded))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(
+        line for line in proc.stdout.splitlines() if line.startswith("__HEAVY_STATUS__")
+    )
+    loaded = json.loads(found_line.removeprefix("__HEAVY_STATUS__"))
+    assert loaded == []
+
+
+def test_ssrf_helpers_lazy_pydantic_ai() -> None:
+    """Verify devops_cli.core.validation and devops_cli.http.egress do not eagerly import pydantic_ai."""
+    code = """
+import json
+import sys
+
+import devops_cli.core.validation
+import devops_cli.http.egress
+
+loaded = "pydantic_ai" in sys.modules
+print("__SSRF_STATUS__" + json.dumps(loaded))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(
+        line for line in proc.stdout.splitlines() if line.startswith("__SSRF_STATUS__")
+    )
+    loaded = json.loads(found_line.removeprefix("__SSRF_STATUS__"))
+    assert loaded is False
+
+
+def test_pydantic_ai_exceptions_lazy() -> None:
+    """Verify importing devops_cli.exceptions.ai does not eagerly import pydantic_ai."""
+    code = """
+import json
+import sys
+
+import devops_cli.exceptions.ai
+
+before = "pydantic_ai" in sys.modules
+_ = devops_cli.exceptions.ai.ModelRetry
+after = "pydantic_ai" in sys.modules
+print("__EXC_STATUS__" + json.dumps({"before": before, "after": after}))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(
+        line for line in proc.stdout.splitlines() if line.startswith("__EXC_STATUS__")
+    )
+    status = json.loads(found_line.removeprefix("__EXC_STATUS__"))
+    assert (status["before"], status["after"]) == (False, True)
