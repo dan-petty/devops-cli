@@ -1054,6 +1054,19 @@ CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 # names: no backend served it, so spend reports leave it out of their server counts (#816).
 CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
+# What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
+# naming the project or user, and the API version pins the REST contract the session reads.
+CONST_GITHUB_USER_AGENT: Final[str] = CONST_APP_NAME
+CONST_GITHUB_API_VERSION: Final[str] = "2022-11-28"
+CONST_GITHUB_HEADER_API_VERSION: Final[str] = "x-github-api-version"
+# The media type GitHub serves a pull request's unified diff as.
+CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
+# Response headers the session's error classifier and quota ledger read, named as GitHub's REST
+# documentation names them ("Rate limits for the REST API", "Scopes for OAuth apps").
+CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE: Final[str] = "x-ratelimit-resource"
+CONST_GITHUB_HEADER_RETRY_AFTER: Final[str] = "retry-after"
+CONST_GITHUB_HEADER_OAUTH_SCOPES: Final[str] = "x-oauth-scopes"
+CONST_GITHUB_HEADER_ACCEPTED_OAUTH_SCOPES: Final[str] = "x-accepted-oauth-scopes"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
@@ -1491,6 +1504,11 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 # Hex characters of the token's SHA-256 that name an identity's cache directory.
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
+# How the session's HTTP failures are told apart (#983): a token without a scope the endpoint
+# needs, an answer that what was asked for does not exist, and no readable answer at all.
+CONST_GITHUB_SCOPE_ERROR_CODE: Final[str] = "GITHUB_SCOPE_MISSING"
+CONST_GITHUB_NOT_FOUND_ERROR_CODE: Final[str] = "GITHUB_NOT_FOUND"
+CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, the margin

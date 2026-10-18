@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
+    from tests.github_session_fakes import GitHubApiFake
     from tests.web_fakes import StubWeb
 
 
@@ -484,6 +485,42 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.setattr(process, "_github_lookup_failure", None)
     yield PINNED_GITHUB_TOKEN
     drop_session()
+
+
+@pytest.fixture
+def github_api(monkeypatch: pytest.MonkeyPatch, pin_github_session: str) -> Iterator[GitHubApiFake]:
+    """The process's GitHub session over a fake GitHub API (`tests/github_session_fakes.py`).
+
+    `get_github_session()` returns a session for the pinned token whose client sends every request
+    to the fake, through the session's own redirect handling and origin hook. Its `core` quota is
+    fresh, so pacing never runs `gh api rate_limit`; a quota that is unknown or past its reset
+    fails the test instead of refreshing through gh. Neither the rate limiter's pauses nor the
+    retry waits take any time: the fake records them in `paced` and `waits`.
+    """
+    import time
+
+    from devops_cli.github import rate_limiter, session, session_transport
+    from tests.github_session_fakes import GitHubApiFake
+
+    def refuse_quota_refresh(_limiter: object) -> NoReturn:
+        raise AssertionError(
+            "A test over the fake GitHub API reached `gh api rate_limit`: give the resource a "
+            "quota whose reset is still ahead, built when the test runs."
+        )
+
+    api = GitHubApiFake()
+    monkeypatch.setattr(
+        rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
+    )
+    monkeypatch.setattr(rate_limiter.time, "sleep", api.paced.append)
+    monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", api.wait)
+    rate_limiter.get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    built = session.GitHubSession(pin_github_session, transport=api.transport)
+    monkeypatch.setattr(session, "_SESSION", built)
+    yield api
+    built.close()
 
 
 @functools.lru_cache(maxsize=1)

@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from http import HTTPStatus
 
-import httpx2
-
-from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
-from devops_cli.config.defaults import (
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
@@ -45,7 +40,7 @@ def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -
         client.add_user_ssh_key(title=title, key=pub_key)
 
     # Signing key (separate endpoint, not yet in PyGithub)
-    _add_signing_key(session.token, pub_key, title)
+    _add_signing_key(session, pub_key, title)
 
 
 def _register_with_gh(pub_key: str, title: str) -> bool:
@@ -145,19 +140,10 @@ def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
     raise SSHRegistrationError(result.stderr.strip() or result.stdout.strip() or "gh api failed")
 
 
-def _add_signing_key(token: str, pub_key: str, title: str) -> None:
-    """Register the key as a GitHub SSH signing key via the REST API."""
-    with httpx2.Client() as client:
-        resp = client.post(
-            f"{CONST_URL_GITHUB_API_BASE}/user/ssh_signing_keys",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            json={"title": title, "key": pub_key},
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        # 422 Unprocessable Entity means the key already exists — that's fine
-        if resp.status_code not in (201, 422):
-            resp.raise_for_status()
+def _add_signing_key(session: GitHubSession, pub_key: str, title: str) -> None:
+    """Register the key as a GitHub SSH signing key; GitHub's 422 means it already is one."""
+    try:
+        session.rest("POST", "/user/ssh_signing_keys", body={"title": title, "key": pub_key})
+    except GitHubOperationError as exc:
+        if exc.details.get("status") != HTTPStatus.UNPROCESSABLE_ENTITY:
+            raise

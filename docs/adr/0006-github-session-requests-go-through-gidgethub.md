@@ -1,0 +1,26 @@
+# The GitHub session sends its requests through gidgethub
+
+The process's GitHub session (#767) sends its own REST requests through gidgethub 6.0.0, by subclassing its httpx2 adapter, `gidgethub.httpx.GitHubAPI` (#983). gidgethub builds each request, decodes each answer, follows `Link: rel="next"` pages and keeps conditional-request caches; the project keeps only what is its own. That is pacing and charging on the identity's quota ledger, the retry rules, the origin check and the mapping onto its error classes.
+
+- **Client.** The adapter runs over one `httpx2.AsyncClient` per session, built by the egress-checked factory (`new_async_http_client` at the public level, #898). An async client is bound to the event loop it first runs on, and every caller is synchronous, so the session owns one anyio blocking portal and each request runs on its loop. `reset_github_session()` closes the client and the portal.
+- **Origin.** The client follows redirects and carries one request hook, which compares `request.url.origin` with the origin of `CONST_URL_GITHUB_API_BASE` before the first request and before every hop. A request to any other origin is refused before it is sent, so the token never leaves GitHub's API, not even for github.com.
+- **Pacing and ledger.** Each attempt waits its turn on `GitHubRateLimiter` in a worker thread, as `run_gh` waits for `gh api <path>`, and a write waits as a write. Each answer's `x-ratelimit-*` headers, read with `gidgethub.sansio.RateLimit.from_http`, update the quota of the resource `x-ratelimit-resource` names. One ledger paces gh and the session alike. gidgethub's own `rate_limit` attribute is not read.
+- **Retries.** gidgethub's `handle_rate_limit_error` hook retries a rate limit (a 403 with no quota left, a 429, or a 403 with `retry-after`) up to `DEFAULT_GH_MAX_RETRIES` times, waiting what `run_gh` would: the Retry-After, else until the quota resets, else jittered backoff from the secondary-limit floor. A 5xx is retried only for a read, from `DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS`, since GitHub may have applied a write it failed to answer. A refused connect and a refused origin are not retried.
+- **Errors.** `github/error_classifier.py` maps gidgethub's exceptions by type, status and headers, never by message text, onto `GitHubUnauthenticatedError` (401), `GitHubScopeError` (a 403 whose `x-accepted-oauth-scopes` the token holds none of), `GitHubRateLimitError`, `GitHubNotFoundError` (404) and `GitHubUnreadError` (no readable answer). Anything else is a plain `GitHubOperationError`. Each carries the status and the request path.
+- **Identity.** The requests carry `CONST_GITHUB_USER_AGENT` and `CONST_GITHUB_API_VERSION`. They never carry the login or an email.
+
+## Considered Options
+
+- **A hand-written subclass of `gidgethub.abc.GitHubAPI`** (the owner's 2026-10-08 decision): superseded. It was chosen because gidgethub's httpx adapter took an `httpx.AsyncClient`. Since 6.0.0 (2026-09-25) the adapter imports `httpx2` first, so it takes the factory's client unchanged, and subclassing it leaves `_request` as a thin wrapper rather than a transport of our own.
+- **PyGithub**: rejected as the transport. It talks to GitHub over `requests`, outside the egress-checked factory and the ledger, its pagination and retries are its own, and #891 removes it.
+- **githubkit**: rejected. It generates models and methods for the whole API, far more than the session reads, and its own retry and rate-limit handling would compete with the ledger that already paces `gh`.
+- **httpx2 alone, with our own `Link` parser, retry loop and ETag store**: rejected. That is the hand-written code this decision removes, and #1034 showed how such a page loop goes wrong.
+- **Everything through the `gh` CLI**: rejected for the session's own requests. Each call is a process, and its errors arrive as text that can only be matched by phrase. Board commands, review threads and other GraphQL calls stay on gh until an item moves them.
+
+## Consequences
+
+- `gidgethub` and its one new dependency, `uritemplate`, are pinned in `pyproject.toml` and `uv.lock`. `PyJWT[crypto]` was already locked.
+- gidgethub is async only. Every synchronous caller goes through the session's portal, and no caller creates an event loop of its own.
+- `GitHubClient.get_pr_diff` and SSH signing-key registration are session requests. Neither builds its own client or reads a `Location` header. A redirect to github.com, which the old diff code followed with the token copied onto it, is now refused.
+- Tests reach the session through `tests/github_session_fakes.py`, a fake GitHub API on `httpx2.MockTransport`, which the session's `transport=` argument puts under the real client, redirect handling and origin hook.
+- `paginate()`, the gh-output classifier and the ETag cache follow on this transport in #983's later pull requests. `graphql()` waits for the first item that moves a GraphQL call off gh.

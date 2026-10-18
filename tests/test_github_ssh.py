@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+from contextlib import nullcontext
 from unittest.mock import MagicMock
 
+import httpx2
 import pytest
 
-from devops_cli.github.session import GitHubSession
+from devops_cli.exceptions.git import GitHubScopeError, GitHubUnreadError
+from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.github.ssh import (
     SSHRegistrationError,
     _add_signing_key,
@@ -19,6 +22,7 @@ from devops_cli.github.ssh import (
     _register_with_token_api,
     register_key_on_github,
 )
+from tests.github_session_fakes import GitHubApiFake, github_json
 
 
 def test_register_key_on_github_via_gh_cli(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,9 +181,9 @@ def test_register_with_token_api(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(session.__dict__, "client", mock_client)
     signing_called = False
 
-    def mock_signing(token: str, pub: str, t: str) -> None:
+    def mock_signing(signing_session: GitHubSession, pub: str, t: str) -> None:
         nonlocal signing_called
-        signing_called = token == "FAKE-session-token"
+        signing_called = signing_session is session
 
     monkeypatch.setattr("devops_cli.github.ssh._add_signing_key", mock_signing)
     _register_with_token_api(
@@ -190,26 +194,51 @@ def test_register_with_token_api(monkeypatch: pytest.MonkeyPatch) -> None:
     assert signing_called is True
 
 
-def test_add_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _add_signing_key performs HTTP POST with httpx2."""
-    mock_resp = MagicMock(status_code=201)
-    mock_http_client = MagicMock()
-    mock_http_client.post.return_value = mock_resp
-    mock_http_client.__enter__.return_value = mock_http_client
-    mock_http_client.__exit__.return_value = None
-
-    monkeypatch.setattr("httpx2.Client", lambda: mock_http_client)
-    _add_signing_key("ghp_token", "ssh-ed25519 AAAAC3", "Title")
-    mock_http_client.post.assert_called_once()
-
-    # 422 response should not raise error
-    mock_resp_422 = MagicMock(status_code=422)
-    mock_http_client.post.return_value = mock_resp_422
-    _add_signing_key("ghp_token", "ssh-ed25519 AAAAC3", "Title")
-
-    # 500 response raises HTTPStatusError
-    mock_resp_500 = MagicMock(status_code=500)
-    mock_resp_500.raise_for_status.side_effect = RuntimeError("Server Error")
-    mock_http_client.post.return_value = mock_resp_500
-    with pytest.raises(RuntimeError, match="Server Error"):
-        _add_signing_key("ghp_token", "ssh-ed25519 AAAAC3", "Title")
+@pytest.mark.parametrize(
+    ("answer", "raised"),
+    [
+        pytest.param(github_json({"id": 1}, status=201), None, id="registered"),
+        pytest.param(
+            github_json(
+                {
+                    "message": "Validation Failed",
+                    "errors": [{"code": "custom", "field": "key", "message": "key is in use"}],
+                },
+                status=422,
+            ),
+            None,
+            id="already-registered",
+        ),
+        pytest.param(
+            github_json(
+                {"message": "Forbidden"},
+                status=403,
+                headers={
+                    "x-oauth-scopes": "repo",
+                    "x-accepted-oauth-scopes": "write:ssh_signing_key",
+                },
+            ),
+            GitHubScopeError,
+            id="missing-scope",
+        ),
+        pytest.param(
+            github_json({"message": "Server Error"}, status=500), GitHubUnreadError, id="5xx"
+        ),
+    ],
+)
+def test_add_signing_key(
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    answer: httpx2.Response,
+    raised: type[Exception] | None,
+) -> None:
+    """The signing key is one session POST; a 422 means it is already registered."""
+    github_api.route("POST", "/user/ssh_signing_keys", answer)
+    with pytest.raises(raised) if raised else nullcontext():
+        _add_signing_key(get_github_session(), "ssh-ed25519 AAAAC3", "Title")
+    sent = github_api.sent[0]
+    assert (json.loads(sent.content), sent.headers["authorization"], len(github_api.sent)) == (
+        {"title": "Title", "key": "ssh-ed25519 AAAAC3"},
+        f"token {pin_github_session}",
+        1,
+    )

@@ -70,6 +70,7 @@ dependencies = [
     "beautifulsoup4==4.15.0",
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
+    "gidgethub==6.0.0",
 ]
 
 [project.scripts]

@@ -728,6 +728,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "genai-prices" },
+    { name = "gidgethub" },
     { name = "gitpython" },
     { name = "graphql-core" },
     { name = "httpcore2" },
@@ -815,6 +816,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.142.2" },
     { name = "fastmcp", specifier = "==4.0.11" },
     { name = "genai-prices", specifier = "==0.1.9" },
+    { name = "gidgethub", specifier = "==6.0.0" },
     { name = "gitpython", specifier = "==3.2.0" },
     { name = "graphql-core", specifier = "==3.3.0" },
     { name = "httpcore2", specifier = "==2.13.1" },
@@ -1169,6 +1171,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d6/f0/4b4c7f63de6d558714d2207808080dd0988d0317a54ebcde790e4f6c1b6e/genai_prices-0.1.9.tar.gz", hash = "sha256:20ec774d32ec5d345510877fac415f2560bbfeb081bc4cd4e7ebce57a5503e8d", size = 118447, upload-time = "2026-09-25T03:47:27.569Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/e0/57d07f653813b7ea9e3a82064a2b6a112f63004530ac665e0934829473c7/genai_prices-0.1.9-py3-none-any.whl", hash = "sha256:3da8faa0a126e4df7be36696b90abe2be1fea8826bfcf45d39d91bc397fa9d1d", size = 125549, upload-time = "2026-09-25T03:47:26.483Z" },
+]
+
+[[package]]
+name = "gidgethub"
+version = "6.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "typing-extensions" },
+    { name = "uritemplate" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/0f/1038d155ffc1116161a0a21c86e78a10921a93f1e5efacab7c1153640cd1/gidgethub-6.0.0.tar.gz", hash = "sha256:4e6ef8acdb45571222ea6f7ec90ec8ca93df847391daac9502562780f1988369", size = 109668, upload-time = "2026-09-25T22:21:12.697Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/a5/9df6675c1960fe66602140522fd6ea10bf57d169c70052a272fa305d787f/gidgethub-6.0.0-py3-none-any.whl", hash = "sha256:236f53c5e1967bdf9e6963d94c0915757577332680c6f3df469648424ad91419", size = 24786, upload-time = "2026-09-25T22:21:11.216Z" },
 ]
 
 [[package]]
@@ -4069,6 +4085,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6b/5a/92ce0b3ea5481915f55da994c2c2c5f7a3c09949afde196ee89f8ab961aa/uncalled_for-0.4.0.tar.gz", hash = "sha256:335b95bd2422332ec210d518f314a16e4c640921c39fc8bf2ad095bd3538f4af", size = 56979, upload-time = "2026-08-10T14:51:46.247Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/40/97cec87c077eb3291fc7905e6633e08b7ca593c57d30238444bcb6bb3d53/uncalled_for-0.4.0-py3-none-any.whl", hash = "sha256:16c4bb3337532e4bd5569adc192285976f3ad5305402256d34c67a12b5c968bd", size = 15502, upload-time = "2026-08-10T14:51:45.068Z" },
+]
+
+[[package]]
+name = "uritemplate"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/60/f174043244c5306c9988380d2cb10009f91563fc4b31293d27e17201af56/uritemplate-4.2.0.tar.gz", hash = "sha256:480c2ed180878955863323eea31b0ede668795de182617fef9c6ca09e6ec9d0e", size = 33267, upload-time = "2025-06-02T15:12:06.318Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/99/3ae339466c9183ea5b8ae87b34c0b897eda475d2aec2307cae60e5cd4f29/uritemplate-4.2.0-py3-none-any.whl", hash = "sha256:962201ba1c4edcab02e60f9a0d3821e82dfc5d2d6662a21abd533879bdb8a686", size = 11488, upload-time = "2025-06-02T15:12:03.405Z" },
 ]
 
 [[package]]

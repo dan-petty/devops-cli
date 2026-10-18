@@ -507,6 +507,12 @@ def gh_request_resource(args: list[str]) -> str:
     return _detect_resource(_normalize_gh_args(args))
 
 
+def gh_request_is_paced(args: list[str]) -> bool:
+    """Whether `run_gh` paces a `gh` command: all but `gh api rate_limit`, which spends no quota,
+    and gh's local commands, which send no request."""
+    return not _is_rate_limit_exempt(_normalize_gh_args(args))
+
+
 def _parse_reset_epoch(reset_at: str | None) -> float | None:
     """Parse ISO resetAt string into epoch timestamp."""
     if not reset_at:
@@ -564,8 +570,8 @@ def _parse_float_safe(value: str, default: float | None = None) -> float | None:
         return default
 
 
-def _parse_retry_after_safe(value: str, default: float | None = None) -> float | None:
-    """Parse string Retry-After value safely as float seconds or HTTP-date."""
+def parse_retry_after(value: str, default: float | None = None) -> float | None:
+    """A Retry-After value as seconds: its delay-seconds, or the time until its HTTP-date."""
     seconds = _parse_float_safe(value)
     if seconds is not None:
         return seconds
@@ -595,7 +601,7 @@ def _process_header_metrics(output: str) -> dict[str, Any]:
         "x-ratelimit-limit": ("limit", _parse_int_safe),
         "x-ratelimit-used": ("used", _parse_int_safe),
         "x-ratelimit-reset": ("reset_epoch", _parse_float_safe),
-        "retry-after": ("retry_after", _parse_retry_after_safe),
+        "retry-after": ("retry_after", parse_retry_after),
     }
     for line in output.splitlines():
         parsed = _parse_header_line(line)
@@ -1249,8 +1255,22 @@ class GitHubRateLimiter:
         """Calculate backoff delay for primary, secondary, or Retry-After rate limits."""
         if not self.is_rate_limit_error(message):
             return 0.0
+        return self.retry_delay(
+            extract_retry_after(message), attempt=attempt, subcommand=subcommand
+        )
 
-        retry_after = extract_retry_after(message)
+    def retry_delay(
+        self,
+        retry_after: float | None,
+        *,
+        attempt: int = 1,
+        subcommand: str = "core",
+        floor: float | None = None,
+    ) -> float:
+        """The wait before retrying a refused request: the server's Retry-After, else until the
+        quota resets when it is spent, else jittered exponential backoff from `floor`, which is
+        `secondary_rate_wait` unless given. Raises GitHubRateLimitError for a wait longer than
+        `max_rate_limit_wait`."""
         if retry_after is not None and retry_after > 0.0:
             return _handle_retry_after_wait(retry_after, self.max_rate_limit_wait, subcommand)
 
@@ -1263,7 +1283,7 @@ class GitHubRateLimiter:
 
         return _calculate_secondary_delay(
             attempt,
-            floor=self.secondary_rate_wait,
+            floor=self.secondary_rate_wait if floor is None else floor,
             max_cap=self.secondary_max_cap,
             max_rate_limit_wait=self.max_rate_limit_wait,
             subcommand=subcommand,

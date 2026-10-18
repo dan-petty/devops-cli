@@ -3,24 +3,44 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 
 from devops_cli.ai.review import runner
 from devops_cli.commands import analyze
 from devops_cli.commands.gh import _get_github_client
 from devops_cli.commands.repos import _require_client
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_GITHUB_API_VERSION,
+    CONST_GITHUB_DIFF_MEDIA_TYPE,
+    CONST_GITHUB_USER_AGENT,
+)
 from devops_cli.core import process
-from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github import ssh
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session, reset_github_session
+from tests.github_session_fakes import (
+    API,
+    GitHubApiFake,
+    github_json,
+    github_redirect,
+    github_text,
+    quota_headers,
+)
 
 _SRC = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
 
@@ -200,3 +220,181 @@ def test_a_failed_lookup_stops_a_pygithub_caller_with_the_unauthenticated_error(
     with patch("github.Github", built), pytest.raises(GitHubOperationError):
         _ = get_github_session().client
     assert built.call_count == 0
+
+
+# ── REST transport (#983) ────────────────────────────────────────────────────────────────────────
+
+_PULL = "/repos/octo/repo/pulls/42"
+_MOVED = "https://api.github.com/repositories/1/pulls/42"
+_DIFF = "diff --git a/f b/f\n+line\n"
+
+
+def test_a_get_carries_the_token_the_api_version_and_the_user_agent(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """A REST request is sent as the session's identity, at the pinned API version."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    answer = get_github_session().rest("GET", "/user")
+    sent = github_api.sent[0].headers
+    assert (
+        answer,
+        sent["authorization"],
+        sent["x-github-api-version"],
+        sent["user-agent"],
+    ) == (
+        {"login": "octocat"},
+        f"token {pin_github_session}",
+        CONST_GITHUB_API_VERSION,
+        CONST_GITHUB_USER_AGENT,
+    )
+
+
+@pytest.mark.parametrize(
+    ("remaining", "named", "charged"),
+    [
+        pytest.param(42, "core", {"core": 42}, id="names-core"),
+        pytest.param(41, None, {"core": 41}, id="names-none-so-the-paced-one"),
+        pytest.param(7, "search", {"core": 4999, "search": 7}, id="names-another"),
+    ],
+)
+def test_a_response_charges_its_quota_to_the_resource_github_names(
+    github_api: GitHubApiFake, remaining: int, named: str | None, charged: dict[str, int]
+) -> None:
+    """The ledger takes each answer's `x-ratelimit-*` figures for the resource it names."""
+    headers = quota_headers(remaining, resource=named or "core")
+    if named is None:
+        del headers["x-ratelimit-resource"]
+    github_api.route("GET", "/user", github_json({"login": "octocat"}, headers=headers))
+    get_github_session().rest("GET", "/user")
+    limiter = get_github_rate_limiter()
+    assert {resource: limiter.get_quota(resource).remaining for resource in charged} == charged
+
+
+def test_a_post_is_paced_as_a_mutation_a_get_as_a_read_and_the_quota_read_not_at_all(
+    github_api: GitHubApiFake,
+) -> None:
+    """Every request but `GET /rate_limit` waits its turn on the ledger, a write as a write."""
+    github_api.route("POST", "/user/ssh_signing_keys", github_json({"id": 1}, status=201))
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    github_api.route("GET", "/rate_limit", github_json({"resources": {}}))
+    limiter = get_github_rate_limiter()
+    session = get_github_session()
+    with patch.object(limiter, "acquire", wraps=limiter.acquire) as acquire:
+        session.rest("POST", "/user/ssh_signing_keys", body={"title": "t", "key": "k"})
+        session.rest("GET", "/user")
+        session.rest("GET", "/rate_limit")
+    paced = [(call.kwargs["subcommand"], call.kwargs["is_mutation"]) for call in acquire.mock_calls]
+    assert (paced, json.loads(github_api.sent[0].content), len(github_api.sent)) == (
+        [("core", True), ("core", False)],
+        {"title": "t", "key": "k"},
+        3,
+    )
+
+
+def test_a_429_with_retry_after_is_retried_once_after_that_wait(github_api: GitHubApiFake) -> None:
+    """A rate-limited answer is retried after the wait GitHub asked for."""
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"message": "slow down"}, status=429, headers={"retry-after": "1"}),
+        github_json({"login": "octocat"}),
+    )
+    answer = get_github_session().rest("GET", "/user")
+    assert (answer, len(github_api.sent), github_api.waits) == ({"login": "octocat"}, 2, [1.0])
+
+
+def test_three_502s_raise_the_unread_error_after_the_retries(github_api: GitHubApiFake) -> None:
+    """A read that GitHub keeps failing is sent three times, then raises the unread error."""
+    github_api.route("GET", "/user", github_json({"message": "Bad Gateway"}, status=502))
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("GET", "/user")
+    assert (len(github_api.sent), len(github_api.waits), raised.value.details["status"]) == (
+        3,
+        2,
+        502,
+    )
+
+
+def test_a_write_that_gets_a_502_is_not_sent_again(github_api: GitHubApiFake) -> None:
+    """GitHub may have applied a write it answered with a 5xx, so the write is not repeated."""
+    github_api.route("POST", "/user/keys", github_json({"message": "Bad Gateway"}, status=502))
+    with pytest.raises(GitHubUnreadError):
+        get_github_session().rest("POST", "/user/keys", body={"title": "t", "key": "k"})
+    assert (len(github_api.sent), github_api.waits) == (1, [])
+
+
+@pytest.mark.parametrize(
+    "hops",
+    [
+        pytest.param([(_PULL, _MOVED, 301)], id="moved-repository"),
+        pytest.param([(_PULL, "/repositories/1/pulls/42", 301)], id="relative-location"),
+        pytest.param(
+            [(_PULL, "https://API.GITHUB.COM:443/repositories/1/pulls/42", 301)],
+            id="upper-case-host-and-default-port",
+        ),
+        pytest.param(
+            [
+                (_PULL, "/repositories/2/pulls/42", 301),
+                ("/repositories/2/pulls/42", _MOVED, 307),
+            ],
+            id="a-301-then-a-307",
+        ),
+    ],
+)
+def test_redirects_on_the_api_origin_are_followed_with_the_token_on_each_hop(
+    github_api: GitHubApiFake, pin_github_session: str, hops: list[tuple[str, str, int]]
+) -> None:
+    """httpx2 follows a redirect that stays on GitHub's API origin, keeping the token."""
+    for source, location, status in hops:
+        github_api.route("GET", source, github_redirect(location, status=status))
+    github_api.route("GET", _MOVED, github_text(_DIFF, media_type=CONST_GITHUB_DIFF_MEDIA_TYPE))
+    diff = get_github_session().rest("GET", _PULL, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+    carried = {(r.headers["authorization"], r.headers["accept"]) for r in github_api.sent}
+    assert (diff, carried, len(github_api.sent)) == (
+        _DIFF,
+        {(f"token {pin_github_session}", CONST_GITHUB_DIFF_MEDIA_TYPE)},
+        len(hops) + 1,
+    )
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        pytest.param("https://example.com/x", id="another-host"),
+        pytest.param("https://api.github.com@example.com/x", id="userinfo-naming-github"),
+        # A deliberate exception to the bare example.com rule for mock hosts: only a subdomain
+        # can begin with GitHub's API host name, which is the look-alike this case refuses.
+        pytest.param("https://api.github.com.example.com/x", id="look-alike-host"),
+        pytest.param("http://api.github.com/repositories/1/pulls/42", id="scheme-downgrade"),
+        pytest.param("https://github.com/octo/repo/pull/42.diff", id="github-web-host"),
+    ],
+)
+def test_a_redirect_off_the_api_origin_is_refused_before_it_is_sent(
+    github_api: GitHubApiFake, location: str
+) -> None:
+    """The origin hook stops a hop to any other origin, so the token never leaves the API."""
+    github_api.route("GET", _PULL, github_redirect(location, status=302))
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("GET", _PULL, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+    refused = httpx2.URL(location).origin
+    named = f"{refused.scheme}://{refused.host}:{refused.port}"
+    assert (github_api.requested, named in str(raised.value), github_api.waits) == (
+        [f"GET {API}{_PULL}"],
+        True,
+        [],
+    )
+
+
+def _portal_threads() -> set[threading.Thread]:
+    """The threads running an anyio blocking portal's event loop."""
+    return {thread for thread in threading.enumerate() if "-portal-" in thread.name}
+
+
+def test_reset_closes_the_sessions_client_and_portal(github_api: GitHubApiFake) -> None:
+    """`reset_github_session()` stops the event loop thread the session's requests ran on."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    before = _portal_threads()
+    get_github_session().rest("GET", "/user")
+    opened = _portal_threads() - before
+    reset_github_session()
+    assert (len(opened), [thread for thread in opened if thread.is_alive()]) == (1, [])
