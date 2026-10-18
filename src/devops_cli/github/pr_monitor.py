@@ -6,17 +6,19 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from pydantic import BaseModel, Field, model_validator
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import CONST_GH_CLI, CONST_MAX_ERROR_DETAIL_LENGTH
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import CheckBucket, classify_check_item
 from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
 
@@ -220,35 +222,6 @@ def resolve_branch_pr_number(
     return _resolve_pr_via_gh_view(target_repo, target_branch)
 
 
-def _safe_json_to_dicts(text: str) -> list[dict[str, Any]]:
-    """Convert a single JSON string or array to a list of dicts if valid."""
-    try:
-        data = json.loads(text)
-        items = data if isinstance(data, list) else [data]
-        return [item for item in items if isinstance(item, dict)]
-    except json.JSONDecodeError:
-        return []
-
-
-def _parse_ndjson_dicts(text: str) -> list[dict[str, Any]]:
-    """Parse newline-delimited JSON lines into dictionary items."""
-    results: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        line_str = line.strip()
-        if line_str:
-            results.extend(_safe_json_to_dicts(line_str))
-    return results
-
-
-def _extract_timeline_events(timeline_stdout: str) -> list[dict[str, Any]]:
-    """Extract timeline event dicts from JSON array, object, or NDJSON."""
-    stripped = timeline_stdout.strip()
-    if not stripped:
-        return []
-    top_dicts = _safe_json_to_dicts(stripped)
-    return top_dicts if top_dicts else _parse_ndjson_dicts(stripped)
-
-
 def _extract_timeline_author(evt: dict[str, Any]) -> str:
     """Extract actor or user login from timeline event dictionary."""
     actor = evt.get("actor")
@@ -279,11 +252,12 @@ def _process_single_timeline_event(
     return current_state
 
 
-def _parse_timeline_copilot_state(timeline_stdout: str) -> tuple[bool, str]:
-    """Parse timeline events to determine if Copilot is actively working."""
+def _timeline_copilot_state(events: Iterable[Any]) -> tuple[bool, str]:
+    """Whether Copilot is working, and the event that says so, from a timeline's events in order."""
     state = (False, "")
-    for evt in _extract_timeline_events(timeline_stdout):
-        state = _process_single_timeline_event(evt, state)
+    for evt in events:
+        if isinstance(evt, dict):
+            state = _process_single_timeline_event(evt, state)
     return state
 
 
@@ -342,21 +316,15 @@ def _extract_proc_error(proc: Any) -> str:
 def _query_timeline_copilot_state(
     owner: str, repo_name: str, pr_number: int
 ) -> tuple[bool, str, str]:
-    """Query issue timeline to detect active Copilot review events."""
-    cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page=100",
-    ]
-    proc = run_gh(cmd, check=False, quiet=True)
-    if proc.returncode == 0:
-        if proc.stdout.strip():
-            working, event = _parse_timeline_copilot_state(proc.stdout)
-            return working, event, ""
-        return False, "", ""
-    err = _extract_proc_error(proc)
-    return False, "", err
+    """Read every page of the pull request's issue timeline for Copilot's review events: whether
+    it is working, the event that says so, and why the timeline could not be read, if it could
+    not."""
+    timeline = f"/repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    try:
+        working, event = _timeline_copilot_state(get_github_session().paginate(timeline))
+    except GitHubOperationError as exc:
+        return False, "", str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH]
+    return working, event, ""
 
 
 def _resolve_timeline_query(owner: str, repo_name: str, pr_number: int) -> tuple[bool, str, str]:
@@ -500,21 +468,14 @@ def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, A
 
 
 def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> RawReviewsList:
-    """Fetch all review records for a PR."""
-    from devops_cli.github.client import parse_paginated_json
-
-    reviews_cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
-    ]
-    reviews_proc = run_gh(reviews_cmd, check=False, quiet=True)
-    if reviews_proc.returncode == 0:
-        items = parse_paginated_json(reviews_proc.stdout) if reviews_proc.stdout.strip() else []
-        return RawReviewsList(items, error="")
-    err = _extract_proc_error(reviews_proc)
-    return RawReviewsList([], error=err)
+    """Read every page of a PR's reviews, or none and the reason they could not be read."""
+    reviews = (
+        f"/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    )
+    try:
+        return RawReviewsList(list(get_github_session().paginate(reviews)), error="")
+    except GitHubOperationError as exc:
+        return RawReviewsList([], error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _fetch_unresolved_threads(owner: str, repo_name: str, pr_number: int) -> list[ReviewThread]:

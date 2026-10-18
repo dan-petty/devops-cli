@@ -5,18 +5,17 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from urllib.parse import parse_qs, urlsplit
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import ChangedFile, app
 from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
-from devops_cli.github.rate_limiter import get_github_rate_limiter, reset_github_rate_limiter
+from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 
 
 @pytest.fixture
@@ -50,6 +49,77 @@ def _readiness_gh(
         return replies[route] if route is not None else _gh_reply(pr_payload)
 
     return answer
+
+
+class _RoutedSession:
+    """The GitHub session readiness reads a pull request's changed files and check runs through,
+    answered from the routes of the test's `run_gh` stub (#983).
+
+    Each read is recorded in `reads`, and the stub is asked for its endpoint with an argv that
+    is plainly no gh command (`<session> GET <endpoint>`), so a reader that went back to a
+    one-page `gh api` read shows in a test as a different call. A reply holding a list is the
+    whole listing; a failed reply raises the read's failure; anything else fails closed as the
+    session does, through its own `listed_items`. A read with `run_gh` left unstubbed fails the
+    test instead of reaching a real gh.
+    """
+
+    def __init__(self, gh: Callable[..., MagicMock]) -> None:
+        self._gh = gh
+        self.reads: list[str] = []
+
+    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[object]:
+        from devops_cli.commands import pr as pr_module
+        from devops_cli.exceptions.git import GitHubOperationError
+        from devops_cli.github import rate_limiter
+        from devops_cli.github.error_classifier import classify_http_error
+        from devops_cli.github.session_transport import listed_items
+
+        if pr_module.run_gh is rate_limiter.run_gh:
+            raise AssertionError("A session read under test_pr_cmd needs run_gh stubbed")
+        self.reads.append(path)
+        reply = self._gh([_SESSION_READ, "GET", path.lstrip("/")])
+        if reply.returncode != 0:
+            raise GitHubOperationError(reply.stderr.strip())
+        try:
+            answer = json.loads(reply.stdout or "null")
+        except json.JSONDecodeError as exc:
+            raise classify_http_error(exc, method="GET", path=path, page=1) from exc
+        yield from listed_items(answer, path=path, page=1, iterable_key=iterable_key)
+
+
+# What a session read looks like among the `run_gh` stub's calls: no gh command does.
+_SESSION_READ = "<session>"
+
+
+@pytest.fixture(autouse=True)
+def routed_session(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> _RoutedSession | None:
+    """Readiness reads a pull request's changed files and check runs through the GitHub
+    session (#983). Here both are answered from the routes of whatever stands in for `run_gh`
+    in `commands.pr`, as its gh reads are, and recorded on the session, which a test can ask
+    for by name. A read with `run_gh` unstubbed fails, so no test reaches GitHub or a real gh.
+    A test over the `github_api` fake keeps the real session."""
+    if "github_api" in request.fixturenames:
+        return None
+    from devops_cli.commands import pr as pr_module
+
+    session = _RoutedSession(lambda args, **kwargs: pr_module.run_gh(args, **kwargs))
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: session)
+    monkeypatch.setattr("devops_cli.github.check_verdict.get_github_session", lambda: session)
+    return session
+
+
+def test_the_routed_session_refuses_an_unstubbed_run_gh() -> None:
+    """A session read in a test that left `run_gh` alone fails at once and starts no gh."""
+    from devops_cli.github import session as session_module
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess") as spawned,
+        pytest.raises(AssertionError, match="needs run_gh stubbed"),
+    ):
+        list(session_module.get_github_session().paginate("/repos/o/r/pulls/1/files?per_page=100"))
+    assert spawned.call_count == 0
 
 
 class TestPrCommands:
@@ -889,8 +959,11 @@ class TestPrCommands:
             assert "fix: resolve issue" in res.output
             assert "Detailed description text" in res.output
 
-    def test_pr_checks_fallback_on_gh_failure(self, runner: CliRunner) -> None:
-        """devops pr checks falls back to REST check-runs when gh pr checks fails."""
+    def test_pr_checks_fallback_on_gh_failure(
+        self, runner: CliRunner, github_api: GitHubApiFake
+    ) -> None:
+        """devops pr checks falls back to the REST check-runs listing, read through the GitHub
+        session, when gh pr checks fails."""
         mock_pr_json = json.dumps(
             {
                 "head": {"sha": "abcdef123456"},
@@ -914,6 +987,13 @@ class TestPrCommands:
                 ]
             }
         )
+        github_api.route(
+            "GET",
+            "/repos/owner/repo/commits/abcdef123456/check-runs?per_page=100",
+            httpx2.Response(
+                200, headers={"content-type": "application/json"}, content=mock_checks_json.encode()
+            ),
+        )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
@@ -922,7 +1002,6 @@ class TestPrCommands:
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
-                    MagicMock(returncode=0, stdout=mock_checks_json, stderr=""),
                 ],
             ),
         ):
@@ -1415,74 +1494,44 @@ class TestPrCommands:
             ) == (1, True, True)
 
     def test_check_readiness_fails_closed_when_second_page_check_runs_malformed(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+        self, runner: CliRunner, github_api: GitHubApiFake
     ) -> None:
-        """A check-run listing whose second page is malformed makes pr check-readiness fail closed."""
-        monkeypatch.setattr(time, "sleep", lambda _s: None)
-        from devops_cli.github.rate_limiter import run_gh as real_run_gh
-
+        """A check-run listing whose second page is malformed makes pr check-readiness fail
+        closed, naming the page, rather than judge the first page's runs alone."""
+        sha = "abcdef1234567890abcdef1234567890abcdef12"
         mock_pr = json.dumps(
             {
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
                 "base": {"ref": "release/v0.2.17"},
-                "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
+                "head": {"sha": sha},
             }
         )
-        base_router = _readiness_gh(mock_pr)
-        page1 = {
-            "total_count": 200,
-            "check_runs": [
-                {"name": f"check-{i}", "status": "completed", "conclusion": "success"}
-                for i in range(100)
-            ],
-        }
-
-        def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            cmd_str = " ".join(cmd)
-            if "rate_limit" in cmd_str:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout=json.dumps(
-                        {
-                            "resources": {
-                                "core": {
-                                    "limit": 5000,
-                                    "remaining": 4999,
-                                    "reset": int(time.time()) + 60,
-                                    "used": 1,
-                                }
-                            }
-                        }
-                    ),
-                    stderr="",
-                )
-            if "page=2" in cmd_str:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout="<html>upstream 502 Bad Gateway</html>",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=0,
-                stdout=json.dumps(page1),
-                stderr="",
-            )
-
-        def selective_gh(args: list[str], **kwargs: object) -> object:
-            if any("check-runs" in arg for arg in args):
-                with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-                    return real_run_gh(args, **kwargs)
-            return base_router(args, **kwargs)
-
+        runs = [
+            {"name": f"check-{i}", "status": "completed", "conclusion": "success"}
+            for i in range(100)
+        ]
+        second = f"/repositories/1/commits/{sha}/check-runs?per_page=100&page=2"
+        github_api.route(
+            "GET",
+            f"/repos/owner/repo/commits/{sha}/check-runs?per_page=100",
+            github_json({"total_count": 200, "check_runs": runs}, headers=next_page(second)),
+        )
+        github_api.route(
+            "GET",
+            second,
+            httpx2.Response(
+                200,
+                headers={"content-type": "text/html"},
+                content=b"<html>upstream 502 Bad Gateway</html>",
+            ),
+        )
+        github_api.route("GET", "/repos/owner/repo/pulls/187/files?per_page=100", github_json([]))
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch("devops_cli.commands.pr.run_gh", side_effect=selective_gh),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -1863,7 +1912,8 @@ def _blockers(
     gh: Callable[..., MagicMock] | None = None,
     **kwargs: object,
 ) -> list[str]:
-    """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed.
+    """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed,
+    which also answers the files read (`routed_session`).
 
     Unless `gh` answers instead, the base keeps task files and the PR changes #704's.
     """
@@ -2065,68 +2115,64 @@ def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each() -> None:
-    """The reader's argv is pinned: without `per_page=100`, `run_gh` stops after 30 files."""
+def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each(
+    routed_session: _RoutedSession,
+) -> None:
+    """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
+    gh reads the base's task directory and the closed issue. A files read sent through
+    `gh api` instead shows here as a gh call."""
     gh = _grounding_gh([_TASK_704])
     _blockers(_ready_pr(), gh=gh)
-    assert [call.args[0] for call in gh.call_args_list] == [
-        ["gh", "api", "--paginate", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+    assert (routed_session.reads, [call.args[0] for call in gh.call_args_list]) == (
+        ["/repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
         [
-            "gh",
-            "api",
-            "--silent",
-            f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            [_SESSION_READ, "GET", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+            [
+                "gh",
+                "api",
+                "--silent",
+                f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            ],
+            ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
         ],
-        ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
-    ]
+    )
 
 
-@pytest.fixture
-def full_core_quota() -> Iterator[None]:
-    """A fresh `run_gh` limiter whose core quota is known and large.
-
-    No request then reads `rate_limit`, and the pacing between requests (time to reset over
-    requests remaining) is microseconds.
-    """
-    reset_github_rate_limiter()
-    limiter = get_github_rate_limiter()
-    quota = 1_000_000
-    limiter.update_quota("core", remaining=quota, limit=quota, reset_epoch=time.time() + 60.0)
-    yield
-    reset_github_rate_limiter()
+_FILES_PAGE_2 = "/repositories/1/pulls/335/files?per_page=100&page=2"
 
 
-@pytest.mark.usefixtures("full_core_quota")
-def test_grounding_reads_every_page_of_changed_files_through_the_pager() -> None:
-    """`run_gh` pages the files itself, so the 101st file, on page 2, is read.
+def test_the_changed_files_are_read_from_every_linked_page(github_api: GitHubApiFake) -> None:
+    """The 101st file, on the second page, is read through the session.
 
-    PR #738 changed 51 files; without `per_page=100` the pager stopped after GitHub's
-    default page of 30.
+    PR #738 changed 51 files; a read stopping at GitHub's default page of 30 missed the rest.
     """
     from devops_cli.commands import pr as pr_module
 
-    pages = {"1": [_file(f"src/m{n}.py") for n in range(100)], "2": [_TASK_704]}
-    issue = {"number": 704, "milestone": {"title": "v0.2.25"}}
-
-    def subprocess_reply(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        endpoint = urlsplit(cmd[-1])
-        page = parse_qs(endpoint.query).get("page", [""])[0] if "/files" in endpoint.path else ""
-        stdout = json.dumps(pages[page]) if page in pages else ""
-        stdout = json.dumps(issue) if endpoint.path.endswith("/issues/704") else stdout
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
-
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=subprocess_reply),
-        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=([], [])),
-    ):
-        files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
-        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
-    assert (len(files), files[-1], blockers) == (
+    first = [_file(f"src/m{n}.py") for n in range(100)]
+    github_api.route("GET", f"/{_FILES_READ}", github_json(first, headers=next_page(_FILES_PAGE_2)))
+    github_api.route("GET", _FILES_PAGE_2, github_json([_TASK_704]))
+    files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
+    assert (len(files), files[-1], len(github_api.sent)) == (
         101,
         ChangedFile("docs/agent/tasks/task-704-x.md", "modified"),
-        [],
+        2,
     )
+
+
+def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github_api: GitHubApiFake) -> None:
+    """Readiness keeps a malformed second page as the read's failure, not a shorter file list."""
+    from devops_cli.commands import pr as pr_module
+
+    github_api.route(
+        "GET", f"/{_FILES_READ}", github_json([_TASK_704], headers=next_page(_FILES_PAGE_2))
+    )
+    github_api.route(
+        "GET",
+        _FILES_PAGE_2,
+        httpx2.Response(200, headers={"content-type": "text/html"}, content=b"<html></html>"),
+    )
+    read = pr_module._read_pr_files(335, "dan-petty", "devops-cli")
+    assert (read.files, "page 2" in read.error) == ([], True)
 
 
 # =============================================================================

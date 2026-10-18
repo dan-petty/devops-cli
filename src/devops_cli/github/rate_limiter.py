@@ -12,7 +12,6 @@ No initial quotas, no hardcoded default windows, default request rate, or bursti
 
 from __future__ import annotations
 
-import asyncio
 import fcntl
 import functools
 import hashlib
@@ -30,16 +29,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
-from aiolimiter import AsyncLimiter
 from ratelimit import limits, sleep_and_retry  # type: ignore[import-untyped]
 from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
-    CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
     CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
@@ -53,11 +49,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
-    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
@@ -65,7 +59,6 @@ from devops_cli.core.process import github_token, is_local_gh_command, run_subpr
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.request_classifier import (
     gh_command_words,
-    incompatible_gh_api_paginate_flag,
     is_write_gh_command,
     parse_gh_api_args,
 )
@@ -812,7 +805,6 @@ class GitHubRateLimiter:
         self._cache: dict[str, _CacheEntry] = {}
         self._next_allowed_time: dict[str, float] = {}
         self._last_mutation_epoch: float = 0.0
-        self._async_limiters: dict[str, AsyncLimiter] = {}
         self._total_requests: int = 0
         # GraphQL points the responses reported, by resource (#1125).
         self._points_charged: dict[str, int] = {}
@@ -824,13 +816,6 @@ class GitHubRateLimiter:
         if persist_path:
             self._sync_from_disk_locked()
             self.prune_expired_cache()
-
-    def get_async_limiter(self, subcommand: str = "core") -> AsyncLimiter:
-        """Retrieve or create an aiolimiter.AsyncLimiter instance for the resource."""
-        with self._lock:
-            if subcommand not in self._async_limiters:
-                self._async_limiters[subcommand] = AsyncLimiter(max_rate=60, time_period=60)
-            return self._async_limiters[subcommand]
 
     def _sync_from_disk_locked(self) -> None:
         """Synchronize in-memory quotas and global request counts with disk."""
@@ -1607,238 +1592,6 @@ def _extract_rate_limit_endpoint_response(
     return {r_name: reset for r_name, reset in resets.items() if reset is not None}
 
 
-def _extract_page_per_page(url_or_endpoint: str) -> int:
-    """Extract per_page from query string or default to DEFAULT_GH_REST_PER_PAGE."""
-    parts = urlsplit(url_or_endpoint)
-    query = parse_qs(parts.query)
-    per_page_vals = query.get("per_page")
-    if per_page_vals and per_page_vals[0].isdigit():
-        return int(per_page_vals[0])
-    return DEFAULT_GH_REST_PER_PAGE
-
-
-def _build_paginated_url(endpoint: str, page: int, per_page: int = DEFAULT_GH_REST_PER_PAGE) -> str:
-    """Append or update page and per_page query parameters in endpoint URL."""
-    parts = urlsplit(endpoint)
-    query = parse_qs(parts.query, keep_blank_values=True)
-    query["page"] = [str(page)]
-    if "per_page" not in query:
-        query["per_page"] = [str(per_page)]
-    new_query = urlencode(query, doseq=True)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
-
-
-def _find_api_endpoint_idx(args: list[str]) -> int:
-    """Find index of API endpoint path within gh api argument list."""
-    for idx, arg in enumerate(args):
-        if idx > 0 and not arg.startswith("-"):
-            return idx
-    return -1
-
-
-def _execute_single_page(
-    base_args: list[str],
-    endpoint_idx: int,
-    base_endpoint: str,
-    page: int,
-    per_page: int,
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-) -> subprocess.CompletedProcess[str]:
-    """Prepend calculated delay and execute a single page request."""
-    page_endpoint = _build_paginated_url(base_endpoint, page, per_page)
-    page_args = list(base_args)
-    page_args[endpoint_idx] = page_endpoint
-
-    limiter.acquire(subcommand=target_resource)
-    try:
-        proc = cast(
-            subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
-                [CONST_GH_CLI, *page_args],
-                cwd=cwd,
-                check=False,
-                quiet=quiet,
-                timeout=timeout,
-            ),
-        )
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(
-            args=[CONST_GH_CLI, *page_args],
-            returncode=124,
-            stdout="",
-            stderr=f"GitHub API request timed out after {timeout} seconds",
-        )
-    _post_process_run(proc, target_resource, limiter, cost=1)
-    return proc
-
-
-def _is_expected_page_shape(data: Any) -> bool:
-    """Return True if data is a list or a check-runs dict."""
-    if isinstance(data, list):
-        return True
-    return (
-        isinstance(data, dict) and "check_runs" in data and isinstance(data.get("check_runs"), list)
-    )
-
-
-def _append_paginated_data(combined_items: list[Any], data: Any, per_page: int) -> bool:
-    """Append page items and return True if more pages may exist."""
-    if isinstance(data, dict):
-        combined_items.append(data)
-        check_runs = data.get("check_runs", [])
-        total_count = data.get("total_count", 0)
-        return len(check_runs) >= per_page and len(combined_items) * per_page < total_count
-
-    if isinstance(data, list):
-        combined_items.extend(data)
-        return len(data) >= per_page
-
-    return False
-
-
-def _validate_page_payload(
-    proc: subprocess.CompletedProcess[str],
-    base_endpoint: str,
-    page: int,
-) -> tuple[Any, subprocess.CompletedProcess[str] | None]:
-    """Validate page stdout and return (data, None), or (None, error_proc) on failure."""
-    stdout_trimmed = (proc.stdout or "").strip()
-    if not stdout_trimmed:
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: empty response",
-        )
-        return None, err_proc
-
-    try:
-        data = json.loads(stdout_trimmed)
-    except (json.JSONDecodeError, ValueError) as exc:
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: malformed JSON ({exc})",
-        )
-        return None, err_proc
-
-    if not _is_expected_page_shape(data):
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: unexpected response shape",
-        )
-        return None, err_proc
-
-    return data, None
-
-
-def _fetch_all_pages(
-    args_no_paginate: list[str],
-    endpoint_idx: int,
-    base_endpoint: str,
-    per_page: int,
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-    max_pages: int,
-) -> tuple[subprocess.CompletedProcess[str] | None, list[Any], bool]:
-    """Execute pages up to max_pages and return (last_proc, combined_items, is_exhausted)."""
-    combined_items: list[Any] = []
-    page = 1
-    last_proc: subprocess.CompletedProcess[str] | None = None
-
-    while page <= max_pages:
-        proc = _execute_single_page(
-            args_no_paginate,
-            endpoint_idx,
-            base_endpoint,
-            page,
-            per_page,
-            limiter,
-            target_resource,
-            cwd,
-            quiet,
-            timeout,
-        )
-        last_proc = proc
-        if proc.returncode != 0:
-            return proc, combined_items, False
-
-        stdout_trimmed = (proc.stdout or "").strip()
-        if stdout_trimmed == "[]":
-            return last_proc, combined_items, True
-
-        data, err_proc = _validate_page_payload(proc, base_endpoint, page)
-        if err_proc is not None:
-            return err_proc, combined_items, False
-
-        if not _append_paginated_data(combined_items, data, per_page):
-            return last_proc, combined_items, True
-        page += 1
-
-    err_proc = subprocess.CompletedProcess(
-        args=last_proc.args if last_proc else [CONST_GH_CLI, *args_no_paginate],
-        returncode=1,
-        stdout="",
-        stderr=f"gh api: paginated read of '{base_endpoint}' exceeded page cap of {max_pages} pages",
-    )
-    return err_proc, combined_items, False
-
-
-def _run_gh_paginated(
-    clean_args: list[str],
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None = None,
-    quiet: bool = False,
-    timeout: float = 30.0,
-    max_pages: int = DEFAULT_GH_MAX_PAGINATED_PAGES,
-) -> subprocess.CompletedProcess[str]:
-    """Execute a paginated gh api request page-by-page with mandatory delay prepended."""
-    args_no_paginate = [a for a in clean_args if a not in ("--paginate", "--slurp")]
-    endpoint_idx = _find_api_endpoint_idx(args_no_paginate)
-    if endpoint_idx == -1:
-        return cast(
-            subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
-                [CONST_GH_CLI, *clean_args], cwd=cwd, check=False, quiet=quiet, timeout=timeout
-            ),
-        )
-
-    base_endpoint = args_no_paginate[endpoint_idx]
-    per_page = _extract_page_per_page(base_endpoint)
-    proc, items, ok = _fetch_all_pages(
-        args_no_paginate,
-        endpoint_idx,
-        base_endpoint,
-        per_page,
-        limiter,
-        target_resource,
-        cwd,
-        quiet,
-        timeout,
-        max_pages,
-    )
-    if not ok and proc is not None:
-        return proc
-
-    return subprocess.CompletedProcess(
-        args=[CONST_GH_CLI, *clean_args],
-        returncode=0,
-        stdout=json.dumps(items),
-        stderr=proc.stderr if proc else "",
-    )
-
-
 def _post_process_run(
     proc: subprocess.CompletedProcess[str],
     resource: str,
@@ -1857,88 +1610,6 @@ def _post_process_run(
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
     if proc.stderr:
         _parse_rate_limit_from_output(proc.stderr, resource, limiter)
-
-
-def _validate_paginated_api_args(
-    clean_args: list[str], full_cmd: list[str], check: bool
-) -> subprocess.CompletedProcess[str] | None:
-    """Refuse incompatible flags or GraphQL queries when --paginate is passed."""
-    if not clean_args or clean_args[0] != "api" or "--paginate" not in clean_args:
-        return None
-    api_args = clean_args[1:]
-    incompatible_flag = incompatible_gh_api_paginate_flag(api_args)
-    if incompatible_flag is not None:
-        proc = subprocess.CompletedProcess(
-            args=full_cmd,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api: cannot combine --paginate with {incompatible_flag}",
-        )
-        if check:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    parsed_api = parse_gh_api_args(api_args)
-    if parsed_api is not None and parsed_api.endpoint == CONST_GH_API_GRAPHQL_ENDPOINT:
-        proc = subprocess.CompletedProcess(
-            args=full_cmd,
-            returncode=1,
-            stdout="",
-            stderr="gh api: GraphQL queries do not support --paginate",
-        )
-        if check:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    return None
-
-
-def _handle_cached_or_paginated(
-    limiter: GitHubRateLimiter,
-    clean_args: list[str],
-    full_cmd: list[str],
-    input: str | None,
-    use_cache: bool,
-    cache_ttl: float,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-    check: bool,
-    target_resource: str,
-    is_check: bool,
-    is_mutation: bool,
-) -> subprocess.CompletedProcess[str] | None:
-    """Check cache or execute paginated API request if applicable.
-
-    Page-by-page fetching is for reads; a write with `--paginate` goes to gh once, as given.
-    """
-    cached = _check_cached_result(limiter, clean_args, input, use_cache)
-    if cached is not None:
-        return cached
-
-    if not is_check and not is_mutation and "--paginate" in clean_args:
-        invalid_paginated = _validate_paginated_api_args(clean_args, full_cmd, check)
-        if invalid_paginated is not None:
-            return invalid_paginated
-
-        proc = _run_gh_paginated(
-            clean_args,
-            limiter=limiter,
-            target_resource=target_resource,
-            cwd=cwd,
-            quiet=quiet,
-            timeout=timeout,
-        )
-        if _should_cache(clean_args, use_cache, input) and proc.returncode == 0 and proc.stdout:
-            limiter.set_cached(_build_cache_key(clean_args, input), proc.stdout, ttl=cache_ttl)
-        if check and proc.returncode != 0:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    return None
 
 
 def _execute_gh_single_attempt(
@@ -2127,23 +1798,9 @@ def run_gh(
     is_exempt = _is_rate_limit_exempt(clean_args)
     is_mutation = not is_exempt and is_write_gh_command(clean_args, input=input, cwd=valid_cwd)
 
-    early_res = _handle_cached_or_paginated(
-        limiter,
-        clean_args,
-        full_cmd,
-        input,
-        use_cache,
-        cache_ttl,
-        valid_cwd,
-        quiet,
-        timeout,
-        check,
-        target_resource,
-        is_check,
-        is_mutation,
-    )
-    if early_res is not None:
-        return early_res
+    cached = _check_cached_result(limiter, clean_args, input, use_cache)
+    if cached is not None:
+        return cached
 
     effective_cost = _calculate_effective_cost(clean_args, target_resource, cost)
 
@@ -2167,42 +1824,3 @@ def run_gh(
     )
     _raise_for_status(proc, full_cmd, check)
     return proc
-
-
-async def run_gh_async(
-    args: list[str],
-    *,
-    input: str | None = None,
-    cwd: Path | None = None,
-    check: bool = False,
-    quiet: bool = False,
-    use_cache: bool = False,
-    cache_ttl: float = DEFAULT_GH_CACHE_TTL_SECONDS,
-    timeout: float = 30.0,
-    max_retries: int = 2,
-    resource: str | None = None,
-    cost: int = 1,
-    capture_output: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Execute a GitHub CLI command asynchronously with aiolimiter token-bucket pacing."""
-    clean_args = _normalize_gh_args(args)
-    target_resource = resource or _detect_resource(clean_args)
-    limiter = get_github_rate_limiter()
-    async_limiter = limiter.get_async_limiter(target_resource)
-
-    async with async_limiter:
-        return await asyncio.to_thread(
-            run_gh,
-            args,
-            input=input,
-            cwd=cwd,
-            check=check,
-            quiet=quiet,
-            use_cache=use_cache,
-            cache_ttl=cache_ttl,
-            timeout=timeout,
-            max_retries=max_retries,
-            resource=target_resource,
-            cost=cost,
-            capture_output=capture_output,
-        )

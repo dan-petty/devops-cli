@@ -21,14 +21,15 @@ from devops_cli.github.projects import (
     reconcile_project_custom_fields,
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from tests.github_session_fakes import GitHubApiFake, github_json
 from tests.project_reconcile_fake import (
     REPO,
     ProjectGitHub,
     card,
     collapse,
     issue,
+    planned_kind,
     pull,
-    request_kind,
 )
 
 _URL = "https://github.com/owner/repo/issues/7"
@@ -157,7 +158,10 @@ def _reconcile(
     fake: ProjectGitHub, mode: str = "write", state: str = "open", limit: int = 25
 ) -> ReconcileResult:
     """Reconcile board 2 of `o/r` against `fake`, standing in for `run_gh`."""
-    with patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh):
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
+    ):
         return reconcile_project_custom_fields(
             "o", REPO, 2, mode=mode, state=state, budget=MutationBudget(limit=limit)
         )
@@ -197,6 +201,7 @@ def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> No
 
     with (
         patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=fake),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         patch.object(rate_limiter, "run_subprocess", side_effect=rate_limit),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
@@ -377,6 +382,7 @@ def test_an_unread_status_field_fails_the_run(
 
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         pytest.raises(GitHubOperationError) as failed,
     ):
         reconcile_project_custom_fields("o", REPO, 2, mode="plan")
@@ -417,7 +423,7 @@ def test_the_dry_run_lists_the_requests_a_run_sends_in_order() -> None:
     _reconcile(fake)
     planned = reconcile_dry_run("o", REPO, 2, state="open")
     assert (
-        collapse(request_kind(list(request.argv[1:])) for request in planned.requests),
+        collapse(planned_kind(request) for request in planned.requests),
         planned.mode,
     ) == (fake.kinds(), "dry-run")
 
@@ -427,13 +433,14 @@ def test_a_plan_dry_run_lists_no_write() -> None:
     assert [r for r in planned.requests if "item-edit" in r.argv] == []
 
 
-def test_the_issue_fetch_leaves_pull_requests_to_the_pulls_fetch() -> None:
+def test_the_issue_fetch_leaves_pull_requests_to_the_pulls_fetch(
+    github_api: GitHubApiFake,
+) -> None:
     """Read as issues, pull requests lack their merge state and would be reconciled twice."""
     from devops_cli.github.projects import _fetch_repository_issues
 
     listing = [{"number": 1, "html_url": "u1"}, {"number": 2, "html_url": "u2", "pull_request": {}}]
-    with patch(
-        "devops_cli.github.projects.run_gh",
-        return_value=MagicMock(returncode=0, stdout=json.dumps(listing), stderr=""),
-    ):
-        assert [it["number"] for it in _fetch_repository_issues("owner/repo")] == [1]
+    github_api.route(
+        "GET", "/repos/owner/repo/issues?state=open&per_page=100", github_json(listing)
+    )
+    assert [it["number"] for it in _fetch_repository_issues("owner/repo")] == [1]

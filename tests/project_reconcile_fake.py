@@ -3,8 +3,9 @@
 `ProjectGitHub` holds a board, as `gh project item-list` lists it, and a repository's issues and
 pull requests, as REST lists them. It answers the board's budget query and pages through
 `BoardServer`, the board's Status and Priority options through `gh project field-list`, the
-issues and pull requests a listing's `state` selects, every page of them, and records each
-`item-edit` and `item-add`. For sync it also answers the scope check's and the owner's
+issues and pull requests a listing's `state` selects as the GitHub session's `paginate` does
+(installed over `projects.get_github_session`, #983), and records each `item-edit` and
+`item-add`. For sync it also answers the scope check's and the owner's
 `gh project list`, the repository's linked boards, `gh project link` and the signed-in login.
 Any other command fails the test. It starts no `gh` and opens no socket.
 """
@@ -14,10 +15,11 @@ from __future__ import annotations
 import itertools
 import json
 import subprocess
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from devops_cli.dry_run.requests import PlannedRequest
 from tests.roadmap_board_fake import BoardServer
 
 REPO = "o/r"
@@ -95,6 +97,14 @@ class ProjectGitHub:
         """`run_gh`'s stand-in: `cmd` starts with `gh`."""
         return self(cmd)
 
+    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[dict[str, Any]]:
+        """The GitHub session's listing read (#983): the issues or pull requests the listing's
+        `state` selects, recorded as one GET of `path`. A gh listing is an unexpected call."""
+        assert iterable_key is None, f"a repository listing has no {iterable_key!r} wrapper"
+        endpoint = path.lstrip("/")
+        self.sent.append(["GET", endpoint])
+        yield from self._listing(endpoint)
+
     def __call__(self, cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         args = list(cmd[1:])
         self.sent.append(args)
@@ -120,8 +130,6 @@ class ProjectGitHub:
             return 0, ""
         if args[:2] == ["api", "user"]:
             return 0, "someone\n"
-        if args[0] == "api":
-            return 0, json.dumps(self._listing(next(a for a in args if a.startswith("repos/"))))
         raise AssertionError(f"unexpected gh call: {args}")
 
     def _fields(self) -> dict[str, Any]:
@@ -153,10 +161,7 @@ class ProjectGitHub:
 
     def _listing(self, endpoint: str) -> list[dict[str, Any]]:
         parts = urlsplit(endpoint)
-        query = parse_qs(parts.query)
-        if int(query.get("page", ["1"])[0]) > 1:
-            return []
-        state = query["state"][0]
+        state = parse_qs(parts.query)["state"][0]
         items = self.pulls if parts.path.endswith("/pulls") else self.issues
         return [item for item in items if state == "all" or item["state"] == state]
 
@@ -166,15 +171,23 @@ class ProjectGitHub:
 
 
 def request_kind(args: list[str]) -> str:
-    """A request's kind: a board query's operation, a listing's path, or the gh command."""
+    """A request's kind: a board query's operation, a listing's path, or the gh command. A
+    listing is the session's `GET repos/...`; no gh command lists."""
     joined = " ".join(args)
     operations = ("RoadmapBoardBudget", "RoadmapBoardItems")
     listing = next((a for a in args if a.startswith("repos/")), None)
     if args[:2] == ["api", "graphql"]:
         return next((op for op in operations if op in joined), "api graphql")
-    if args[0] == "api" and listing is not None:
+    if args[0] == "GET" and listing is not None:
         return urlsplit(listing).path
     return " ".join(args[:2])
+
+
+def planned_kind(request: PlannedRequest) -> str:
+    """The kind of a request a dry run lists: a gh command's, or a session GET's by its URL."""
+    if request.argv:
+        return request_kind(list(request.argv[1:]))
+    return request_kind([request.method, urlsplit(request.target).path.lstrip("/")])
 
 
 def collapse(kinds: Iterable[str]) -> list[str]:
