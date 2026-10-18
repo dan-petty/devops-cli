@@ -88,7 +88,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch) and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its body closes exactly one issue, and it adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR that closes the item, its last, adds changelog.d/\<issue\>.md.  Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch) and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut (chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files, CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of the default branch (chore/open-vX.Y.Z) only changes those files and what the default branch changed since its merge base, read with one compare request. Either head may end in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
@@ -1421,14 +1421,23 @@ Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
+One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
+judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+that closes the item, its last, adds changelog.d/\<issue\>.md.
+
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
-body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
-the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
-changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
-release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
-docs/agent/tasks/ is exempt.
+and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
+(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
+CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
+the default branch (chore/open-vX.Y.Z) only changes those files and what the default
+branch changed since its merge base, read with one compare request. Either head may end
+in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
+grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
+issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
+docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
+section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
+section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
+without docs/agent/tasks/ is exempt.
 
 **Annotations:** `readOnlyHint: true`
 
