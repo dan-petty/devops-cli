@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
 import tempfile
 from collections.abc import Iterable
@@ -45,72 +44,13 @@ from devops_cli.config.constants import (
     CONST_FULL_RUN_TRIGGER_NAMES,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
-    CONST_TEST_FILE_PREFIX,
-    CONST_TEST_SUPPORT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
+from devops_cli.core.test_selection import SuiteImports, forces_full_run, is_test_module
 
 # Bumped when the stored shape changes, so an index written by an older version is treated
 # as absent rather than misread.
 INDEX_FORMAT_VERSION = 2
-
-
-def forces_full_run(path: str) -> bool:
-    """Whether a change to `path` can alter the outcome of tests that never import it, so it
-    defeats the index and forces a full run: a fixture file, the project's dependencies or
-    interpreter, or a module under `tests/support/`, which may register a fixture (#1312)."""
-    norm = path.replace("\\", "/")
-    in_support = norm.startswith(f"{CONST_TEST_SUPPORT_DIR}/")
-    return Path(norm).name in CONST_FULL_RUN_TRIGGER_NAMES or in_support
-
-
-def _is_test_file(path: str) -> bool:
-    """Report whether a path points to an executable test module."""
-    name = Path(path).name
-    return name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(CONST_PYTHON_FILE_SUFFIX)
-
-
-def _helper_import_pattern(helper_path: str) -> re.Pattern[str]:
-    """Build a regex matching imports of a test helper module under tests/."""
-    p = Path(helper_path)
-    stem = p.stem
-    rel_parts = list(p.parts)
-    if rel_parts and rel_parts[0] == CONST_TESTS_ROOT_DIR:
-        rel_parts = rel_parts[1:]
-    rel_without_tests = ".".join(rel_parts)[: -len(p.suffix)] if rel_parts else stem
-    dotted_full = (
-        f"{CONST_TESTS_ROOT_DIR}.{rel_without_tests}"
-        if rel_without_tests
-        else f"{CONST_TESTS_ROOT_DIR}.{stem}"
-    )
-    package, _, leaf = dotted_full.rpartition(".")
-
-    patterns = [
-        rf"\b{re.escape(dotted_full)}\b",
-        rf"from\s+{re.escape(package)}\s+import\s+\(?[^)\n]*\b{re.escape(leaf)}\b",
-        rf"from\s+(?:{CONST_TESTS_ROOT_DIR}\.)?{re.escape(rel_without_tests)}\s+import\b",
-        rf"import\s+(?:{CONST_TESTS_ROOT_DIR}\.)?{re.escape(rel_without_tests)}\b",
-    ]
-    return re.compile("|".join(patterns))
-
-
-def _find_tests_importing_helper(
-    helper_path: str, repo_root: Path, test_files: Iterable[str]
-) -> set[str]:
-    """Find test modules that import or reference a helper module under tests/."""
-    if not helper_path.endswith(CONST_PYTHON_FILE_SUFFIX):
-        return set()
-    pattern = _helper_import_pattern(helper_path)
-    matching: set[str] = set()
-    for test_rel in test_files:
-        test_abs = repo_root / test_rel
-        try:
-            content = test_abs.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if pattern.search(content):
-            matching.add(test_rel)
-    return matching
 
 
 def _normalize_source_path(path: str, repo_root: Path) -> str | None:
@@ -340,20 +280,20 @@ def select_from_index(
 
     selected: set[str] = set()
     unindexed: list[str] = []
-    known_tests = set(index.test_files) | _current_test_files(repo_root)
+    imports = SuiteImports(repo_root)
 
     for raw in changed:
         path = str(raw).replace("\\", "/")
-        if forces_full_run(path):
+        if forces_full_run(path, imports):
             return IndexedSelection(
                 full_run_reason=f"{path} can change the outcome of tests that never import it"
             )
         if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
-            if _is_test_file(path):
+            if is_test_module(path):
                 if (repo_root / path).is_file():
                     selected.add(path)
             else:
-                importing = _find_tests_importing_helper(path, repo_root, known_tests)
+                importing = {str(test) for test in imports.importing_tests(Path(path))}
                 if importing:
                     selected.update(importing)
                 else:
@@ -377,13 +317,10 @@ __all__ = [
     "INDEX_FORMAT_VERSION",
     "CoverageIndex",
     "IndexedSelection",
-    "_find_tests_importing_helper",
-    "_is_test_file",
     "_normalize_source_path",
     "build_index_from_coverage",
     "compute_index_drift",
     "filter_coverage_source_hashes",
-    "forces_full_run",
     "load_index",
     "save_index",
     "select_from_index",

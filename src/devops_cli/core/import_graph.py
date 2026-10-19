@@ -1,8 +1,9 @@
 """Whole-tree AST import graph, cycle detection, and interface-layer invariants (#848).
 
 Builds module-level, non-`TYPE_CHECKING` dependency edges from parsed `ast.Module` trees using
-stdlib `ast` and `graphlib` only. `from pkg import name` resolves to the submodule (`pkg.name`)
-when `name` is a known submodule in the graph, and to the package (`pkg`) otherwise.
+stdlib `ast` and `graphlib` only, and on request the edges of imports inside functions as well,
+which the test selector follows (#1312). `from pkg import name` resolves to the submodule
+(`pkg.name`) when `name` is a known submodule in the graph, and to the package (`pkg`) otherwise.
 
 Note: String-based lazy imports (such as `importlib.import_module(...)` or lazy attribute dispatch
 tables) are invisible to the static AST import graph.
@@ -46,7 +47,7 @@ def _infer_import_root(paths: Sequence[Path], root: Path | None) -> Path:
     return candidate
 
 
-def _module_name(path: Path, import_root: Path) -> str:
+def module_name(path: Path, import_root: Path) -> str:
     """Convert a Python source path relative to `import_root` into its dotted module name."""
     parts = list(path.relative_to(import_root).with_suffix("").parts)
     if len(parts) > 1 and parts[-1] == "__init__":
@@ -54,7 +55,7 @@ def _module_name(path: Path, import_root: Path) -> str:
     return ".".join(parts)
 
 
-def _is_type_checking_guard(test: ast.expr) -> bool:
+def is_type_checking_guard(test: ast.expr) -> bool:
     """Return True when an `if` condition guards a `TYPE_CHECKING` block."""
     if isinstance(test, ast.Name):
         return test.id == "TYPE_CHECKING"
@@ -63,17 +64,20 @@ def _is_type_checking_guard(test: ast.expr) -> bool:
     return False
 
 
-def _module_level_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportFrom]:
-    """Yield every import statement outside function bodies and `TYPE_CHECKING` blocks."""
+def _runtime_imports(
+    tree: ast.Module, *, function_bodies: bool
+) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Yield every import statement outside `TYPE_CHECKING` blocks, and outside function bodies
+    unless `function_bodies`."""
     pending: list[ast.AST] = list(reversed(tree.body))
     while pending:
         node = pending.pop()
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             yield node
             continue
-        if isinstance(node, _FUNCTION_SCOPES):
+        if isinstance(node, _FUNCTION_SCOPES) and not function_bodies:
             continue
-        if isinstance(node, ast.If) and _is_type_checking_guard(node.test):
+        if isinstance(node, ast.If) and is_type_checking_guard(node.test):
             pending.extend(reversed(node.orelse))
             continue
         children = [
@@ -139,11 +143,14 @@ def _resolve_statement_targets(
     ]
 
 
-def build_import_graph(trees: Mapping[Path, ast.Module], root: Path | None = None) -> ImportGraph:
-    """Build the module-level, non-`TYPE_CHECKING` import graph across `trees`."""
+def build_import_graph(
+    trees: Mapping[Path, ast.Module], root: Path | None = None, *, function_bodies: bool = False
+) -> ImportGraph:
+    """Build the non-`TYPE_CHECKING` import graph across `trees`: the module-level imports, and
+    with `function_bodies` the imports inside functions too, which run when the function does."""
     paths = list(trees)
     import_root = _infer_import_root(paths, root)
-    modules_by_path = {path: _module_name(path, import_root) for path in paths}
+    modules_by_path = {path: module_name(path, import_root) for path in paths}
     known_modules = set(modules_by_path.values())
     edges: dict[str, set[str]] = {mod: set() for mod in known_modules}
     locations: dict[tuple[str, str], str] = {}
@@ -152,7 +159,7 @@ def build_import_graph(trees: Mapping[Path, ast.Module], root: Path | None = Non
         mod = modules_by_path[path]
         rel_posix = path.relative_to(import_root).as_posix()
         pkg_parts = path.relative_to(import_root).parent.parts
-        for stmt in _module_level_imports(tree):
+        for stmt in _runtime_imports(tree, function_bodies=function_bodies):
             for target in _resolve_statement_targets(stmt, pkg_parts, known_modules):
                 if target != mod:
                     edges[mod].add(target)
@@ -263,7 +270,7 @@ def interface_layer_violations(
 
     for path, tree in trees.items():
         rel = path.relative_to(import_root)
-        mod = _module_name(path, import_root)
+        mod = module_name(path, import_root)
         if _is_commands_import_allowed(mod):
             continue
         rel_posix = rel.as_posix()

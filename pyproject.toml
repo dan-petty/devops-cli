@@ -160,9 +160,12 @@ markers = [
 ]
 # Logfire's token check warns from a background thread, so the warning fails a test only
 # through pytest's unhandled-thread warning; both are errors so no test starts it (#965).
+# A `tests.support` module imported before the root conftest marks it for assertion rewriting
+# cannot be rewritten, and pytest only warns; as an error it fails the run (#1312).
 filterwarnings = [
     "error:Logfire API is unreachable:UserWarning",
     "error::pytest.PytestUnhandledThreadExceptionWarning",
+    "error::pytest.PytestAssertRewriteWarning",
 ]
 
 

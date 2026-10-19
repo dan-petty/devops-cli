@@ -32,7 +32,8 @@ WRITES = frozenset(
         "label_issue",
     }
 )
-RECORD, FIELD = "record", "field"
+RECORD = "record"
+FIELD = "field"
 
 
 @dataclass(frozen=True)

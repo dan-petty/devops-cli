@@ -883,7 +883,7 @@ CONST_RAG_DIR_NAME = "rag"
 CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
-# Test-only paths and environment variables that must be strictly isolated outside the project root
+# Test-only paths that must never appear in the project root; the workspace tripwire reports any
 CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "test_config.yaml",
     "test_data",
@@ -891,12 +891,6 @@ CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "gh-config",
     ".data/test_llm_cache",
     ".data/test_data",
-)
-CONST_ISOLATED_TEST_ENV_KEYS: Final[tuple[str, ...]] = (
-    "DEVOPS_CLI_CONFIG",
-    "DEVOPS_CLI_DATA_DIR",
-    "GH_CONFIG_DIR",
-    "XDG_RUNTIME_DIR",
 )
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
@@ -2307,14 +2301,15 @@ CONST_CONFTEST_FILENAME: Final[str] = "conftest.py"
 # its plugin manager registers a module's `pytest_*` attributes and nothing else, and calls such a
 # hook for every test, so a conftest binding one reaches tests outside its directory (#1312).
 CONST_PYTEST_HOOK_PREFIX: Final[str] = "pytest_"
+# The name of pytest's fixture decorator, `pytest.fixture` or `from pytest import fixture`, and of
+# the plugins' that wrap it (`pytest_asyncio.fixture`): a test module's helper that names it may
+# register a fixture, which reaches tests that never import the helper (#1312).
+CONST_PYTEST_FIXTURE_NAME: Final[str] = "fixture"
 # Files whose change can alter the outcome of tests that never import them, so a change to one
 # defeats the coverage index and forces a full `devops ci` run.
 CONST_FULL_RUN_TRIGGER_NAMES: Final[frozenset[str]] = frozenset(
     {CONST_CONFTEST_FILENAME, "pyproject.toml", "uv.lock", ".python-version"}
 )
-# The modules every test module shares (#1312). One may register a fixture that reaches tests
-# that never import it, so a change under it forces a full run, as a conftest change does.
-CONST_TEST_SUPPORT_DIR: Final[str] = f"{CONST_TESTS_ROOT_DIR}/support"
 
 # ── Mutation Testing (mutmut 3.8, `devops ci mutate`) ────────────────────────
 # How mutmut names what it mutates, a closed domain it defines (`mangle_function_name`): a

@@ -41,7 +41,7 @@ from tests.cluster_secret_fakes import (
     FakeKeyring,
     forbid_requests,
 )
-from tests.conftest import PINNED_GITHUB_TOKEN
+from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"

@@ -48,26 +48,27 @@ app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
 
 def _porcelain_path(line: str) -> str:
-    """The path a `git status --porcelain` line names: a rename's new path; empty if none."""
+    """The path a `git status --porcelain --no-renames` line names; empty if none."""
     parts = line.strip().split(maxsplit=1)
     if len(parts) != 2:
         return ""
-    return parts[1].split(" -> ")[-1].strip().strip('"')
+    return parts[1].strip().strip('"')
 
 
 def _changed_paths(repo_root: Path) -> list[str]:
     """The files changed since the branch left `main`, committed or not, as git lists them,
-    each file of an untracked directory by its own path."""
+    each file of an untracked directory by its own path, and a rename as its old path deleted
+    and its new path added, so a helper renamed away reaches what it reached (#1312)."""
     changed: set[str] = set()
     diff_proc = run_subprocess(
-        ["git", "diff", "--name-only", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
+        ["git", "diff", "--name-only", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
         check=False,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
         changed.update(diff_proc.stdout.strip().splitlines())
 
-    status = ["git", "status", "--porcelain", "--untracked-files=all"]
+    status = ["git", "status", "--porcelain", "--no-renames", "--untracked-files=all"]
     wt_proc = run_subprocess(status, cwd=repo_root, check=False)
     if wt_proc.returncode == 0 and wt_proc.stdout:
         changed.update(_porcelain_path(line) for line in wt_proc.stdout.strip().splitlines())
