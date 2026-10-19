@@ -24,8 +24,9 @@ from devops_cli.ai.review.runner import (
     _execute_review_workflow,
     _prepare_branch_content,
 )
+from tests.support.paths import REPO_ROOT
 
-_OWN_CONVENTIONS = Path(__file__).resolve().parents[1] / ".devops/review.md"
+_OWN_CONVENTIONS = REPO_ROOT / ".devops/review.md"
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +47,7 @@ def _repo(root: Path) -> Path:
     return root
 
 
-_AI_DIR = Path(__file__).resolve().parents[1] / "src/devops_cli/ai"
+_AI_DIR = REPO_ROOT / "src/devops_cli/ai"
 _SHARED_REVIEW_PROMPTS = [
     *(_AI_DIR / "tasks").glob("*review*.md"),
     *(_AI_DIR / "personas").glob("*/prompt.md"),

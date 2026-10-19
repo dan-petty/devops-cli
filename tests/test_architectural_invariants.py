@@ -72,6 +72,7 @@ from devops_cli.core.import_graph import (
     verify_acyclic_imports,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
+from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -205,7 +206,7 @@ def test_test_model_pytest_collection_disabled() -> None:
 
 def _parse_src() -> dict[Path, ast.Module]:
     """Parse every module under src/devops_cli once, for the whole-tree invariants."""
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     return {
         path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for path in sorted(src.rglob("*.py"))
@@ -283,7 +284,7 @@ def test_no_module_runs_python_in_process() -> None:
     scripts this way were deleted rather than patched (#947). Model code that has to run
     belongs in the host sandbox (bwrap) instead.
     """
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = sorted(
         {
@@ -355,7 +356,7 @@ def test_finding_is_constructed_only_by_admission() -> None:
 
     assert Finding.model_config.get("frozen") is True
 
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = _find_review_finding_callers(src, texts)
     calls_outside_admit = _find_admission_calls_outside_admit(src)
@@ -496,13 +497,25 @@ def test_task_md_is_decommissioned() -> None:
     )
 
 
+def test_the_support_paths_are_the_repository_root_and_its_test_data_directories() -> None:
+    """Every test module reads the repository root and its test data from `tests.support.paths`,
+    which finds them from the `tests` package, so a module reads the same paths at any depth
+    (#1312)."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert (
+        pyproject["project"]["name"],
+        TESTS_ROOT == REPO_ROOT / "tests",
+        FIXTURES.is_dir(),
+        GOLDEN.is_dir(),
+    ) == ("devops-cli", True, True, True)
+
+
 def test_no_stray_scripts_in_project_root() -> None:
     """Ensure no ad-hoc scratch scripts (*.py, *.sh) or stray scripts directories exist in the project root."""
-    root = Path(__file__).resolve().parents[1]
     stray_files = sorted(
-        f.name for f in root.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
+        f.name for f in REPO_ROOT.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
     )
-    assert (stray_files, (root / "scripts").exists()) == (
+    assert (stray_files, (REPO_ROOT / "scripts").exists()) == (
         [],
         False,
     )
@@ -553,11 +566,10 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     pulling a path the workflow's change detection does not watch, CI would skip the
     rebuild and publish a stale image while still reporting success.
     """
-    repo_root = Path(__file__).resolve().parents[1]
     watched = _ci_image_content_paths(
-        repo_root / ".github" / "workflows" / "ci.yml", job_name=job_name
+        REPO_ROOT / ".github" / "workflows" / "ci.yml", job_name=job_name
     )
-    sources = _dockerfile_build_context_sources(repo_root / dockerfile_rel)
+    sources = _dockerfile_build_context_sources(REPO_ROOT / dockerfile_rel)
 
     def _covered(path: str) -> bool:
         return any(path == w or path.startswith(f"{w}/") for w in watched)
@@ -608,14 +620,13 @@ def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str
 
 def test_workflows_never_mutate_runner_and_devcontainer_installs_bubblewrap() -> None:
     """CI workflows must never mutate runner environment, and bubblewrap is installed in devcontainer (#832)."""
-    repo_root = Path(__file__).resolve().parents[1]
     pattern = re.compile(r"\b(apt-get|sudo|sysctl)\b")
     mutations = [
         m
-        for path in sorted((repo_root / ".github" / "workflows").glob("*.yml"))
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
         for m in _find_workflow_runner_mutations(path, pattern)
     ]
-    dockerfile_text = (repo_root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile_text = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
     installs_bwrap = bool(re.search(r"\bbubblewrap\b", dockerfile_text))
 
     assert (mutations, installs_bwrap) == ([], True)
@@ -651,8 +662,7 @@ def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> N
     """No workflow may hold actions: write, and ci.yml must admit workflow_dispatch (#984, #1217)."""
     import yaml
 
-    repo_root = Path(__file__).resolve().parents[1]
-    workflows_dir = repo_root / ".github" / "workflows"
+    workflows_dir = REPO_ROOT / ".github" / "workflows"
 
     actions_write_jobs = {
         perm
@@ -716,8 +726,7 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
 
 def test_service_dockerfile_base_images_pinned_by_digest() -> None:
     """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt)."""
-    repo_root = Path(__file__).resolve().parents[1]
-    unpinned = _unpinned_dockerfile_images(repo_root / "Dockerfile")
+    unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
     assert unpinned == []
 
 
@@ -779,8 +788,7 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
     Neither is visible in review -- both read as correct tests -- so the Ruff rules that
     catch them are pinned here beside the scan, and dropping either rule fails this test.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = config["tool"]["ruff"]["lint"]
     unenforced = sorted(
         rule
@@ -788,7 +796,7 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
         if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
     )
 
-    assert (_blind_exception_assertions(repo_root / "tests"), unenforced) == ([], [])
+    assert (_blind_exception_assertions(REPO_ROOT / "tests"), unenforced) == ([], [])
 
 
 def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
@@ -821,8 +829,7 @@ def test_a_broad_ignore_defeats_a_broad_select() -> None:
 
 def test_suppression_lint_rules_enforced() -> None:
     """Rules that audit suppressions (PGH003, RUF100) must remain enforced by Ruff configuration."""
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = config["tool"]["ruff"]["lint"]
     unenforced = sorted(
         rule
@@ -834,8 +841,7 @@ def test_suppression_lint_rules_enforced() -> None:
 
 def test_mypy_ignore_without_code_enabled() -> None:
     """Mypy configuration must enforce ignore-without-code to reject blanket type ignores."""
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     enabled = config.get("tool", {}).get("mypy", {}).get("enable_error_code", [])
     assert "ignore-without-code" in enabled
 
@@ -1352,9 +1358,8 @@ def test_the_complexity_cap_has_no_escape() -> None:
     per-file waiver, a nested config, a file-level exemption, one of Ruff's own bracketed
     suppression comments or an ignore file would each pass it.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert _complexity_cap_escapes(pyproject, repo_root) == []
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert _complexity_cap_escapes(pyproject, REPO_ROOT) == []
 
 
 def test_c901_suppressions_stay_under_the_ceiling() -> None:
@@ -1363,8 +1368,7 @@ def test_c901_suppressions_stay_under_the_ceiling() -> None:
     Each carries a C901 marker that RUF100 reports once the function is back under the cap.
     A new marker takes the count past `DEFAULT_C901_SUPPRESSION_CEILING` and fails here.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    excess, files = _c901_suppressions_over(repo_root, DEFAULT_C901_SUPPRESSION_CEILING)
+    excess, files = _c901_suppressions_over(REPO_ROOT, DEFAULT_C901_SUPPRESSION_CEILING)
     assert (excess, files) == (0, []), (
         f"{excess} more C901 marker(s) than DEFAULT_C901_SUPPRESSION_CEILING allows, "
         f"among these files: {files}. Decompose the function the new marker sits on until "
@@ -1467,12 +1471,11 @@ def test_no_direct_data_dir_path_construction_in_src() -> None:
     """An invariant test fails on any Path built from a .data literal or from DEFAULT_DATA_DIR
     in src/ outside config/defaults.py that does not go through the helper (#1036).
     """
-    repo_root = Path(__file__).parent.parent
-    src_root = repo_root / "src"
+    src_root = REPO_ROOT / "src"
     violations = [
         v
         for py_file in sorted(src_root.rglob("*.py"))
-        for v in _file_data_path_violations(py_file, repo_root)
+        for v in _file_data_path_violations(py_file, REPO_ROOT)
     ]
     assert violations == [], (
         f"Found direct Path construction from .data literal or DEFAULT_DATA_DIR outside "
@@ -1510,7 +1513,7 @@ def _no_mutate_pragmas(root: Path) -> list[str]:
 
 def test_no_source_line_exempts_itself_from_mutation() -> None:
     """`devops ci mutate` reports what survives; a pragma under src would hide it (#853)."""
-    assert _no_mutate_pragmas(Path(__file__).resolve().parents[1]) == []
+    assert _no_mutate_pragmas(REPO_ROOT) == []
 
 
 def test_a_no_mutate_pragma_is_reported(tmp_path: Path) -> None:
@@ -1672,7 +1675,6 @@ def _suppression_ceiling_breaches(
 
 def test_suppressions_stay_under_their_ceilings() -> None:
     """Suppression comments in src/ and tests/ and waivers in pyproject.toml may not exceed ceilings (#849)."""
-    repo_root = Path(__file__).resolve().parents[1]
     assert (
         len(CONST_SUPPRESSION_KINDS),
         DEFAULT_SUPPRESSION_CEILINGS["src noqa: C901"],
@@ -1682,7 +1684,7 @@ def test_suppressions_stay_under_their_ceilings() -> None:
         DEFAULT_C901_SUPPRESSION_CEILING,
         DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
     )
-    breaches = _suppression_ceiling_breaches(repo_root)
+    breaches = _suppression_ceiling_breaches(REPO_ROOT)
     assert breaches == [], "\n".join(breaches)
 
 
@@ -1804,12 +1806,11 @@ def _collect_facade_import_violations(
 
 def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
     """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
-    repo_root = Path(__file__).resolve().parent.parent
     init_paths = [
-        repo_root / "src" / "devops_cli" / "ai" / "__init__.py",
-        repo_root / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
-        repo_root / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
-        repo_root / "src" / "devops_cli" / "github" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "github" / "__init__.py",
     ]
     failures = []
     for path in init_paths:
@@ -1821,38 +1822,37 @@ def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
             and isinstance(tree.body[0].value.value, str)
         )
         if not is_only_docstring:
-            failures.append(str(path.relative_to(repo_root)))
+            failures.append(str(path.relative_to(REPO_ROOT)))
     assert failures == []
 
 
 def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
     """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
-    repo_root = Path(__file__).resolve().parent.parent
     facade_packages = {
-        "devops_cli.ai": repo_root / "src" / "devops_cli" / "ai",
-        "devops_cli.ai.agents": repo_root / "src" / "devops_cli" / "ai" / "agents",
-        "devops_cli.ai.mcp": repo_root / "src" / "devops_cli" / "ai" / "mcp",
-        "devops_cli.github": repo_root / "src" / "devops_cli" / "github",
+        "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
+        "devops_cli.ai.agents": REPO_ROOT / "src" / "devops_cli" / "ai" / "agents",
+        "devops_cli.ai.mcp": REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp",
+        "devops_cli.github": REPO_ROOT / "src" / "devops_cli" / "github",
     }
     allowed_submodules = {
         pkg_name: _find_package_submodules(pkg_dir) for pkg_name, pkg_dir in facade_packages.items()
     }
     violations: list[str] = []
 
-    for search_dir in (repo_root / "src", repo_root / "tests"):
+    for search_dir in (REPO_ROOT / "src", REPO_ROOT / "tests"):
         for py_file in search_dir.rglob("*.py"):
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
                 violations.extend(
                     _collect_facade_import_violations(
-                        tree, allowed_submodules, str(py_file.relative_to(repo_root))
+                        tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
                     )
                 )
             except SyntaxError:
                 continue
 
     fenced_re = re.compile(r"```python\n(.*?)```", re.DOTALL)
-    kb_dir = repo_root / "src" / "devops_cli" / "ai" / "knowledge_base"
+    kb_dir = REPO_ROOT / "src" / "devops_cli" / "ai" / "knowledge_base"
     if kb_dir.is_dir():
         for md_file in kb_dir.rglob("*.md"):
             content = md_file.read_text(encoding="utf-8")
@@ -1863,7 +1863,7 @@ def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
                         _collect_facade_import_violations(
                             tree,
                             allowed_submodules,
-                            f"{md_file.relative_to(repo_root)} (block {idx + 1})",
+                            f"{md_file.relative_to(REPO_ROOT)} (block {idx + 1})",
                         )
                     )
                 except SyntaxError:

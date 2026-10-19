@@ -5,7 +5,6 @@ from __future__ import annotations
 import subprocess
 import time
 from contextlib import nullcontext
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -20,6 +19,7 @@ from devops_cli.security.sanitizer import (
     sanitize_telemetry_endpoint,
 )
 from devops_cli.security.vault_broker import VaultSecretBroker
+from tests.support.paths import REPO_ROOT
 
 
 def _eval_ssrf_target(input_str: str) -> Any:
@@ -390,7 +390,6 @@ def test_free_text_masking_speed() -> None:
 
 def test_no_forbidden_constructs_remain() -> None:
     """Verify architectural invariants: forbidden regex patterns and legacy shims are gone."""
-    repo_root = Path(__file__).resolve().parent.parent
 
     # 1. Check forbidden regexes and constructs
     cmd1 = [
@@ -409,12 +408,12 @@ def test_no_forbidden_constructs_remain() -> None:
         "src/devops_cli/exceptions/security.py",
         "src/devops_cli/security/sanitizer.py",
     ]
-    res1 = subprocess.run(cmd1, cwd=repo_root, capture_output=True, text=True)
+    res1 = subprocess.run(cmd1, cwd=REPO_ROOT, capture_output=True, text=True)
     assert (res1.returncode, res1.stdout.strip()) == (1, "")
 
     # 2. Check mask_uri_credentials(str(
     cmd2 = ["git", "grep", "-n", "mask_uri_credentials(str(", "src"]
-    res2 = subprocess.run(cmd2, cwd=repo_root, capture_output=True, text=True)
+    res2 = subprocess.run(cmd2, cwd=REPO_ROOT, capture_output=True, text=True)
     assert (res2.returncode, res2.stdout.strip()) == (1, "")
 
     # 3. Check legacy endpoint helper is removed
@@ -428,7 +427,7 @@ def test_no_forbidden_constructs_remain() -> None:
         "tests",
         ":^tests/test_url_credential_masking.py",
     ]
-    res3 = subprocess.run(cmd3, cwd=repo_root, capture_output=True, text=True)
+    res3 = subprocess.run(cmd3, cwd=REPO_ROOT, capture_output=True, text=True)
     assert (res3.returncode, res3.stdout.strip()) == (1, "")
 
     # 4. Check served_by header references: only constants.py and network.py
@@ -440,7 +439,7 @@ def test_no_forbidden_constructs_remain() -> None:
         "CONST_AI_GATEWAY_SERVED_BY_HEADER|x-litellm-model-api-base",
         "src",
     ]
-    res4 = subprocess.run(cmd4, cwd=repo_root, capture_output=True, text=True)
+    res4 = subprocess.run(cmd4, cwd=REPO_ROOT, capture_output=True, text=True)
     lines = [line.split(":")[0] for line in res4.stdout.strip().splitlines() if line]
     assert (
         res4.returncode == 0

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from pathlib import Path
 
 import pytest
 
@@ -20,11 +19,10 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CWE_DEFECT_CLASSES,
     CONST_REVIEW_DEFECT_KEYWORDS,
 )
+from tests.support.paths import FIXTURES
 
 _SESSION_CATEGORIES: list[str | None] = json.loads(
-    (
-        Path(__file__).parent / "fixtures" / "review" / "candidate-categories-20261001-224227.json"
-    ).read_text(encoding="utf-8")
+    (FIXTURES / "review" / "candidate-categories-20261001-224227.json").read_text(encoding="utf-8")
 )
 _CWE = re.compile(r"CWE-\d+")
 _CLASSES = {member.value for member in DefectClass}

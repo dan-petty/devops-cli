@@ -21,9 +21,9 @@ from devops_cli.ci.fail_to_pass import (
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 JUNIT_ONE_FAILURE = """\
 <?xml version="1.0" encoding="utf-8"?>

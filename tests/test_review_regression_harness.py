@@ -29,10 +29,9 @@ from devops_cli.ai.review_schema import (
     parse_review_response,
     reset_verification_state,
 )
+from tests.support.paths import GOLDEN
 
-_GOLDEN = json.loads(
-    (Path(__file__).parent / "golden" / "review_findings.json").read_text(encoding="utf-8")
-)
+_GOLDEN = json.loads((GOLDEN / "review_findings.json").read_text(encoding="utf-8"))
 _DISMISSED = {"INVALIDATED", "MITIGATED"}
 # A dependency given as a bare name instead of an object fails the reply's validation.
 _MALFORMED_FIELD = {"external_dependencies": ["requests"]}

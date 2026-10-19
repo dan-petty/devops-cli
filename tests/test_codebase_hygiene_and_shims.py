@@ -25,8 +25,8 @@ from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.config.settings import AITasksConfig
 from devops_cli.exceptions.base import DevOpsCLIError
+from tests.support.paths import REPO_ROOT
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 # The model verifier, the hallucination catalog, the model-claim guards and the mitigations
 # ledger, deleted with no re-exports (#1150).
 _DELETED_REVIEW_MODULES = frozenset(
@@ -242,7 +242,7 @@ def test_the_model_verifier_its_catalog_and_its_guards_are_gone() -> None:
     """No source imports the verifier, the catalog, the guards or the ledger, which no longer
     exist; the verifier prompts are gone, no MCP or agent tool records a verdict, and no flag or
     task configures a verification stage (#1150)."""
-    src = _REPO_ROOT / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     # A module imports one only in a form its text spells out: the dotted name, a `from` import
     # of its package, or a relative import. Only such modules are parsed.
     spellings = (
@@ -284,11 +284,10 @@ def test_security_module_private_functions_all_have_callers() -> None:
     Most helpers are used in their own module, so only a name that appears there once, at its
     `def`, is looked for across both trees.
     """
-    repo_root = _REPO_ROOT
     module_level_private_def = re.compile(r"^(?:async\s+)?def\s+(_[^\W_]\w*)", re.MULTILINE)
     unused_at_home = [
         (module.name, name)
-        for module in sorted((repo_root / "src/devops_cli/security").glob("*.py"))
+        for module in sorted((REPO_ROOT / "src/devops_cli/security").glob("*.py"))
         for source in [module.read_text(encoding="utf-8")]
         for identifiers in [Counter(re.findall(r"\b_\w+", source))]
         for name in module_level_private_def.findall(source)
@@ -297,7 +296,7 @@ def test_security_module_private_functions_all_have_callers() -> None:
     sources = [
         path.read_text(encoding="utf-8")
         for tree in ("src", "tests")
-        for path in (repo_root / tree).rglob("*.py")
+        for path in (REPO_ROOT / tree).rglob("*.py")
     ]
     uncalled = [
         f"{module}:{name}"

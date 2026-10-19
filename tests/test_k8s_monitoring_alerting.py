@@ -20,8 +20,9 @@ import pytest
 import yaml
 
 from devops_cli.prometheus.promql import selectors
+from tests.support.paths import REPO_ROOT
 
-K8S = Path(__file__).resolve().parents[1] / "k8s"
+K8S = REPO_ROOT / "k8s"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"

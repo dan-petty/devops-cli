@@ -19,8 +19,8 @@ from devops_cli.k8s.argocd_overrides import (
     host_patches,
     render_at_revision,
 )
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 # The configured domain has to differ from the repository's placeholder, example.com, for a
 # substitution to show; example.org is reserved for documentation by RFC 2606 like example.com.

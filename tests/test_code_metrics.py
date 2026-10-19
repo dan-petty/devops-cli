@@ -13,8 +13,7 @@ import yaml
 
 from devops_cli.config.defaults import DEFAULT_MAX_NESTING_DEPTH
 from devops_cli.core.code_metrics import breaches, main, measure_tree, nesting_depth
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from tests.support.paths import REPO_ROOT
 
 
 def _nested_ifs(levels: int) -> str:
@@ -138,7 +137,7 @@ print("__HOOK_STATUS__" + json.dumps({{"status": status, "modules": sorted(sys.m
 """
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=_PROJECT_ROOT,
+        cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
@@ -287,7 +286,7 @@ def test_complexity_is_ruffs_c901_count(source: str, name: str, complexity: int)
 
 def test_the_commit_hook_runs_this_module_at_the_default_cap() -> None:
     """The hook takes its cap as an argument, so it must stay the project's default."""
-    config = yaml.safe_load((_PROJECT_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
     hook = next(
         hook
         for repo in config["repos"]

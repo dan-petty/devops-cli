@@ -16,9 +16,9 @@ from typer.testing import CliRunner
 from devops_cli.ci.mutate import MutationTarget, select_targets, tally
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.config.constants import CONST_GITIGNORE_PATTERN_STYLE
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
-REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = "src/devops_cli/pkg/mod.py"
 PACKAGE_PATH = "src/devops_cli/pkg/__init__.py"
 UNTRACKED_PATH = "src/devops_cli/pkg/fresh.py"

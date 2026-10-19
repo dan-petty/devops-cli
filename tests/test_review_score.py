@@ -36,13 +36,14 @@ from devops_cli.review.score import (
 )
 from devops_cli.security.normalization import NormalizedFinding
 from devops_cli.security.sarif import write_sarif
+from tests.support.paths import FIXTURES
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
-FIXTURES = Path(__file__).parent / "fixtures" / "review_labels"
-LABELS = FIXTURES / "labels.json"
+REVIEW_LABELS = FIXTURES / "review_labels"
+LABELS = REVIEW_LABELS / "labels.json"
 S11, S12, S13, S18 = (
-    FIXTURES / "sessions" / name
+    REVIEW_LABELS / "sessions" / name
     for name in ("20261003-060647", "20261003-065531", "20261003-073236", "20261003-102523")
 )
 LOOP_ROWS = {
@@ -111,7 +112,7 @@ def _write_labels(
     return path
 
 
-RECALL_SET = FIXTURES.parent / "review_recall" / "recall_set.json"
+RECALL_SET = FIXTURES / "review_recall" / "recall_set.json"
 
 
 # --- (a) the label file covers every S11 and loop row -----------------------------------------

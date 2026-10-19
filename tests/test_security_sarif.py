@@ -57,6 +57,7 @@ from devops_cli.security.suppression import (
     empty_policy,
     load_policy,
 )
+from tests.support.paths import FIXTURES, GOLDEN
 
 runner = CliRunner()
 
@@ -1531,9 +1532,7 @@ def test_a_non_mapping_rule_entry_is_ignored() -> None:
 # Scanner Outcomes in SARIF
 # =============================================================================
 
-_SARIF_SCHEMA = json.loads(
-    (Path(__file__).parent / "fixtures" / "sarif-schema-2.1.0.json").read_text(encoding="utf-8")
-)
+_SARIF_SCHEMA = json.loads((FIXTURES / "sarif-schema-2.1.0.json").read_text(encoding="utf-8"))
 
 
 def _assert_valid_sarif(document: dict[str, Any]) -> None:
@@ -1685,7 +1684,7 @@ def test_the_report_command_records_why_scanners_did_not_run(tmp_path: Path) -> 
 
 def test_golden_sarif_report_matches_and_validates_against_schema() -> None:
     """Golden SARIF report conforms to OASIS SARIF 2.1.0 schema and equals to_sarif output."""
-    golden_path = Path(__file__).parent / "golden" / "sarif_report.json"
+    golden_path = GOLDEN / "sarif_report.json"
     golden_document = json.loads(golden_path.read_text(encoding="utf-8"))
     emitted_document = to_sarif(list(_PINNED_FINDINGS))
 

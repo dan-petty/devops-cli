@@ -13,8 +13,8 @@ import yaml
 from devops_cli.config import options as opt
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.config.settings import Settings
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 DEVOPS_DIR = K8S_DIR / "devops"
 

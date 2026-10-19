@@ -22,10 +22,11 @@ from devops_cli.grafana import (
     timeseries,
 )
 from devops_cli.grafana.schema import Dashboard, Datasource, GridPos, Panel, Target
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
-_REPO_DASHBOARDS = Path(__file__).resolve().parents[1] / "k8s" / "monitoring" / "dashboards"
+_REPO_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

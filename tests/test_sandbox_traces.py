@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -35,6 +34,7 @@ from devops_cli.telemetry.waterfall import (
     query_tempo_trace,
     render_waterfall_bar,
 )
+from tests.support.paths import FIXTURES
 
 runner = CliRunner()
 
@@ -108,7 +108,7 @@ def test_flatten_waterfall_tree() -> None:
 
 def test_normalize_tempo_spans() -> None:
     """Verify conversion of captured Tempo /api/v2/traces/{id} OTLP JSON into waterfall span tree."""
-    fixture_path = Path("tests/fixtures/traces/tempo-otlp-trace.json")
+    fixture_path = FIXTURES / "traces" / "tempo-otlp-trace.json"
     tempo_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
     spans = normalize_tempo_spans(tempo_payload)
     roots = build_span_waterfall_tree(spans)
@@ -164,7 +164,7 @@ def test_query_tempo_trace(monkeypatch: pytest.MonkeyPatch) -> None:
 
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     payload = json.loads(
-        Path("tests/fixtures/traces/tempo-otlp-trace.json").read_text(encoding="utf-8")
+        (FIXTURES / "traces" / "tempo-otlp-trace.json").read_text(encoding="utf-8")
     )
     scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
     recorder = record_connects(monkeypatch, [http_response(200, json.dumps(payload))])

@@ -9,7 +9,6 @@ host still needs the setting. Replies come from a stubbed `httpx2.Client.post` (
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -24,8 +23,9 @@ from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.models.ai import ChatMessage
+from tests.support.paths import REPO_ROOT
 
-EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config.example.yaml"
+EXAMPLE_CONFIG = REPO_ROOT / "config.example.yaml"
 
 
 @pytest.fixture

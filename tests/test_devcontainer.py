@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.devcontainer import app
+from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     pass
@@ -2077,8 +2078,7 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
 
     import yaml
 
-    repo_root = Path(__file__).resolve().parents[1]
-    dc_path = repo_root / ".devcontainer" / "devcontainer.json"
+    dc_path = REPO_ROOT / ".devcontainer" / "devcontainer.json"
     dc_data = json.loads(dc_path.read_text(encoding="utf-8"))
     vscode_settings = dc_data["customizations"]["vscode"]["settings"]
 
@@ -2089,7 +2089,7 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
     svc_name = (parsed.hostname or "").split(".")[0]
     svc_port = parsed.port
 
-    services_path = repo_root / "k8s" / "llm" / "profiles" / "services.yaml"
+    services_path = REPO_ROOT / "k8s" / "llm" / "profiles" / "services.yaml"
     services_docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
     services = {
         doc["metadata"]["name"]: [p["port"] for p in doc["spec"]["ports"]]
@@ -2097,7 +2097,7 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
         if doc and doc.get("kind") == "Service"
     }
 
-    gateway_cm_path = repo_root / "k8s" / "llm" / "gateway" / "configmap.yaml"
+    gateway_cm_path = REPO_ROOT / "k8s" / "llm" / "gateway" / "configmap.yaml"
     gateway_cm_docs = list(yaml.safe_load_all(gateway_cm_path.read_text(encoding="utf-8")))
     gateway_cfg = yaml.safe_load(gateway_cm_docs[0]["data"]["config.yaml"])
 

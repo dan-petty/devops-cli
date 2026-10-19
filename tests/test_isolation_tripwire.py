@@ -26,6 +26,7 @@ from tests.conftest import (
     pytest_sessionstart,
     pytest_terminal_summary,
 )
+from tests.support.paths import REPO_ROOT
 
 pytest_plugins = ("pytester",)
 
@@ -295,7 +296,6 @@ def test_tripwire_fails_when_test_writes_under_const_config_dir(
     pytester: pytest.Pytester,
 ) -> None:
     """A pytester test shows a test that writes under CONST_CONFIG_DIR failing the session with that path (#1311)."""
-    repo_root = Path(__file__).resolve().parent.parent
     pytester.makeconftest(
         "from tests.conftest import pytest_configure, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary\n"
     )
@@ -310,7 +310,7 @@ def test_mutates_config_dir():
     leak.write_text("leaked: true\\n", encoding="utf-8")
 """
     )
-    res = pytester.runpytest_subprocess("-o", f"pythonpath={repo_root}")
+    res = pytester.runpytest_subprocess("-o", f"pythonpath={REPO_ROOT}")
     stdout = res.stdout.str()
     assert (
         res.ret == pytest.ExitCode.TESTS_FAILED,
@@ -323,10 +323,9 @@ def test_tripwire_passes_when_no_leaks(
     pytester: pytest.Pytester,
 ) -> None:
     """Verify tripwire succeeds when test creates no state in devops-cli locations (#1311)."""
-    repo_root = Path(__file__).resolve().parent.parent
     pytester.makeconftest(
         "from tests.conftest import pytest_configure, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary\n"
     )
     pytester.makepyfile("def test_clean(): pass\n")
-    res = pytester.runpytest_subprocess("-o", f"pythonpath={repo_root}")
+    res = pytester.runpytest_subprocess("-o", f"pythonpath={REPO_ROOT}")
     assert res.ret == pytest.ExitCode.OK

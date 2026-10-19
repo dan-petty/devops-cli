@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.paths import FIXTURES
+
 TASKS_DIR = Path("docs/agent/tasks")
 TASK_FILES = sorted(TASKS_DIR.glob("task-*.md"))
-_BASELINE_FILE = Path(__file__).parent / "fixtures" / "task_files_baseline.txt"
+_BASELINE_FILE = FIXTURES / "task_files_baseline.txt"
 _BASELINE_TASK_FILES = frozenset(_BASELINE_FILE.read_text(encoding="utf-8").splitlines())
 # A fenced code block, from its opening fence through a closing fence of the same character at
 # least as long, or through the end of the file when it is never closed (CommonMark 4.5).

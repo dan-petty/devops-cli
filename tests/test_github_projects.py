@@ -22,6 +22,7 @@ from devops_cli.github.projects import (
 )
 from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
+from tests.support.paths import REPO_ROOT
 
 
 def test_load_project_template() -> None:
@@ -1054,14 +1055,10 @@ def test_mutation_budget_lifecycle() -> None:
 
 def test_the_board_template_follows_adr_0001() -> None:
     """Status is New, Ready, In Progress, In Review, Done and Blocked; Category and the Milestone text field are gone (#739)."""
-    from pathlib import Path
-
     from devops_cli.config.constants import CONST_FINDING_DETAIL_HEADER_FIELDS
     from devops_cli.github.projects import load_project_template
 
-    template = load_project_template(
-        Path(__file__).parents[1] / ".github" / "project-template.json"
-    )
+    template = load_project_template(REPO_ROOT / ".github" / "project-template.json")
     fields = {field.name: field for field in template.fields}
     assert (
         [option.name for option in fields["Status"].options],

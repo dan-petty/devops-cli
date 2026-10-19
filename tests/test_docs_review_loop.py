@@ -22,9 +22,9 @@ from devops_cli.core.command_resolver import (
 )
 from devops_cli.telemetry.instruments import INSTRUMENTS
 from tests.markdown_examples import code_snippets, devops_commands, shell_words
+from tests.support.paths import REPO_ROOT
 
-_ROOT = Path(__file__).resolve().parents[1]
-_SELF_IMPROVEMENT = _ROOT / "docs" / "SELF_IMPROVEMENT.md"
+_SELF_IMPROVEMENT = REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"
 # The documents that are not checked, each for a reason:
 # - docs/agent/: task files record each item as it was delivered, and no other item edits them;
 # - docs/ROADMAP.md: rendered from GitHub at the cut (ADR 0001);
@@ -41,12 +41,16 @@ _UNCHECKED = (
 def _documents() -> list[Path]:
     """AGENTS.md, the hand-written pages under docs/, and the knowledge base."""
     pages = [
-        *sorted((_ROOT / "docs").rglob("*.md")),
-        *sorted((_ROOT / "src/devops_cli/ai/knowledge_base").rglob("*.md")),
+        *sorted((REPO_ROOT / "docs").rglob("*.md")),
+        *sorted((REPO_ROOT / "src/devops_cli/ai/knowledge_base").rglob("*.md")),
     ]
     return [
-        _ROOT / "AGENTS.md",
-        *(p for p in pages if not any(p.relative_to(_ROOT).is_relative_to(u) for u in _UNCHECKED)),
+        REPO_ROOT / "AGENTS.md",
+        *(
+            p
+            for p in pages
+            if not any(p.relative_to(REPO_ROOT).is_relative_to(u) for u in _UNCHECKED)
+        ),
     ]
 
 

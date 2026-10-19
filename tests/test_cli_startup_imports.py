@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -18,8 +17,7 @@ from devops_cli.config.constants import (
     CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS,
 )
 from devops_cli.main import _COMMAND_SPECS
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from tests.support.paths import REPO_ROOT
 
 
 def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -31,7 +29,7 @@ def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]
         if k.startswith("DEVOPS_CLI_TELEMETRY__"):
             env.pop(k, None)
 
-    src_dir = str(_PROJECT_ROOT / "src")
+    src_dir = str(REPO_ROOT / "src")
     existing_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{src_dir}:{existing_pythonpath}" if existing_pythonpath else src_dir
 
@@ -89,7 +87,7 @@ print("__TELEMETRY_STATUS__" + json.dumps(result))
 
 def test_entry_toggle_ast_invariants() -> None:
     """Verify PYDANTIC_DISABLE_PLUGINS is assigned unconditionally at module level before devops_cli imports."""
-    entry_file = _PROJECT_ROOT / "src" / "devops_cli" / "entry.py"
+    entry_file = REPO_ROOT / "src" / "devops_cli" / "entry.py"
     tree = ast.parse(entry_file.read_text(encoding="utf-8"), filename=str(entry_file))
 
     toggle_lineno: int | None = None
@@ -377,7 +375,7 @@ def _measure_importtime(
     Uses an flock to serialize measurements across parallel test workers and takes the best of
     runs (minimum cumulative time) to eliminate transient CPU/scheduling jitter.
     """
-    lock_file = _PROJECT_ROOT / ".data" / "importtime.lock"
+    lock_file = REPO_ROOT / ".data" / "importtime.lock"
     lock_file.parent.mkdir(parents=True, exist_ok=True)
 
     best_main: float | None = None
