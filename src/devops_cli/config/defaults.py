@@ -706,7 +706,7 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 49
+DEFAULT_C901_SUPPRESSION_CEILING: int = 47
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
 DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in

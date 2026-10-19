@@ -1192,9 +1192,9 @@ def _normalize_repo_rel_path(path: Path | str, root: Path) -> str:
 
 def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
     """Check if any trigger files are in the changed path set."""
-    from devops_cli.core.coverage_index import _FULL_RUN_TRIGGERS
+    from devops_cli.core.coverage_index import forces_full_run
 
-    triggers = [p for p in sorted(all_paths) if Path(p).name in _FULL_RUN_TRIGGERS]
+    triggers = [p for p in sorted(all_paths) if forces_full_run(p)]
     if not triggers:
         return True
     first_trigger = triggers[0]

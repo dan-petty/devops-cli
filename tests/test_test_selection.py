@@ -146,6 +146,32 @@ def test_missing_tests_tree_yields_no_targets(tmp_path: Path) -> None:
     )
 
 
+def test_a_top_level_module_selects_no_mirror_directory(project: Path) -> None:
+    """`tests/` still holds every unmoved test module, so a module directly in `devops_cli`
+    has no mirror directory: the tests beside it there are not its tests (#1312)."""
+    (project / "src" / "devops_cli" / "settings.py").write_text("X = 1\n", encoding="utf-8")
+    selection = select_tests_for_sources(["src/devops_cli/settings.py"], project)
+    assert (selection.pytest_targets(), selection.unmapped_sources) == (
+        [],
+        ["src/devops_cli/settings.py"],
+    )
+
+
+def test_a_package_init_selects_its_own_mirror_directory(project: Path) -> None:
+    """`devops_cli/security/__init__.py` mirrors to `tests/security/`, and selects the test
+    modules directly in it, not those of its subdirectories, beside the tests that import the
+    package (#1312)."""
+    mirror = project / "tests" / "security"
+    (mirror / "scanners").mkdir(parents=True)
+    (mirror / "test_policy.py").write_text("def test_policy() -> None: ...\n", encoding="utf-8")
+    (mirror / "scanners" / "test_trivy.py").write_text("X = 1\n", encoding="utf-8")
+    selection = select_tests_for_sources(["src/devops_cli/security/__init__.py"], project)
+    assert selection.pytest_targets() == [
+        "tests/security/test_policy.py",
+        "tests/test_credential_flow.py",
+    ]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. CLI behaviour
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,6 +455,55 @@ def test_cli_test_trigger_file_conftest_forces_full_run(
         "tests/conftest.py" in res_with_idx.output,
         res_no_fb.exit_code,
         "tests/conftest.py" in res_no_fb.output,
+    ) == (0, [], True, 0, [], True, 1, True)
+
+
+def test_cli_test_support_module_forces_full_run(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A module under tests/support/ forces the full suite with or without an index, as a
+    conftest does, because a fixture it registers reaches tests that never import it; with
+    --no-fallback it fails naming the file (#1312)."""
+    (project / "tests" / "support").mkdir()
+    (project / "tests" / "support" / "paths.py").write_text("ROOT = None\n", encoding="utf-8")
+    (project / "tests" / "test_paths.py").write_text(
+        "from tests.support.paths import ROOT\n", encoding="utf-8"
+    )
+    (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
+
+    index_path = resolve_coverage_index_path(project)
+    index = CoverageIndex(
+        covering_tests={"src/a.py": ["tests/test_a.py"]},
+        source_hashes={"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
+        built_at=100.0,
+    )
+
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+    monkeypatch.setattr(
+        "devops_cli.ci.cache.compute_worktree_blob_hashes",
+        lambda root=Path("."): {"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
+    )
+
+    res_no_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    targets_no_idx = [arg for arg in called[0] if arg.startswith("tests/")]
+
+    save_index(index, index_path)
+    res_with_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    targets_with_idx = [arg for arg in called[1] if arg.startswith("tests/")]
+
+    res_no_fb = runner.invoke(ci_app, ["test", "tests/support/paths.py", "--no-fallback"])
+
+    assert (
+        res_no_idx.exit_code,
+        targets_no_idx,
+        "tests/support/paths.py" in res_no_idx.output,
+        res_with_idx.exit_code,
+        targets_with_idx,
+        "tests/support/paths.py" in res_with_idx.output,
+        res_no_fb.exit_code,
+        "tests/support/paths.py" in res_no_fb.output,
     ) == (0, [], True, 0, [], True, 1, True)
 
 

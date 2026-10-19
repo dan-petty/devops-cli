@@ -2,52 +2,141 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.test_cmd import (
-    app as app_cli,
-)
-from devops_cli.commands.test_cmd import (
-    find_changed_test_files,
-)
+from devops_cli.commands.test_cmd import app as app_cli
 
 runner = CliRunner()
 
+# A project on `main`: a source tree with a nested subpackage, a flat test tree beside a nested
+# one that mirrors the subpackage, the root and a nested conftest, and a support module.
+_PROJECT = {
+    "src/devops_cli/__init__.py": "",
+    "src/devops_cli/orphan.py": "ORPHAN = 1\n",
+    "src/devops_cli/ai/__init__.py": "",
+    "src/devops_cli/ai/review/__init__.py": "",
+    "src/devops_cli/ai/review/pipeline.py": "STAGES = 1\n",
+    "src/devops_cli/commands/__init__.py": "",
+    "src/devops_cli/commands/scan.py": "SCAN = 1\n",
+    "tests/__init__.py": "",
+    "tests/conftest.py": "",
+    "tests/support/__init__.py": "",
+    "tests/support/paths.py": "ROOT = None\n",
+    "tests/test_scan.py": "def test_scan() -> None: ...\n",
+    "tests/test_scanner.py": "def test_scanner() -> None: ...\n",
+    "tests/test_reports.py": "from devops_cli.commands.scan import SCAN\n",
+    "tests/test_old.py": "def test_old() -> None: ...\n",
+    "tests/ai/__init__.py": "",
+    "tests/ai/conftest.py": "",
+    "tests/ai/review/__init__.py": "",
+    "tests/ai/review/test_a.py": "def test_a() -> None: ...\n",
+    "tests/ai/review/test_b.py": "def test_b() -> None: ...\n",
+    "tests/ai/review/stages/__init__.py": "",
+    "tests/ai/review/stages/test_c.py": "def test_c() -> None: ...\n",
+}
 
-def test_find_changed_test_files(tmp_path: Path) -> None:
-    """Map changed files to matching test files."""
-    tests_dir = tmp_path / "tests"
-    tests_dir.mkdir(parents=True)
-    (tests_dir / "test_scan.py").write_text("# test scan", encoding="utf-8")
-    (tests_dir / "test_release.py").write_text("# test release", encoding="utf-8")
 
-    mock_proc_diff = MagicMock(returncode=0, stdout="src/devops_cli/commands/scan.py\n")
-    mock_proc_wt = MagicMock(returncode=0, stdout="")
+@pytest.fixture
+def project(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The project committed on `main`, checked out on a topic branch, as the working directory."""
+    root = tmp_path / "project"
+    for relative, text in _PROJECT.items():
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(text, encoding="utf-8")
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    git(root, "checkout", "-q", "-b", "topic")
+    monkeypatch.chdir(root)
+    return root
 
-    with patch(
-        "devops_cli.commands.test_cmd.run_subprocess", side_effect=[mock_proc_diff, mock_proc_wt]
-    ):
-        found = find_changed_test_files(tmp_path)
-        assert len(found) == 1
-        assert found[0].name == "test_scan.py"
 
-    # Test porcelain rename output (old -> new)
-    mock_proc_diff_empty = MagicMock(returncode=0, stdout="")
-    mock_proc_wt_rename = MagicMock(
-        returncode=0,
-        stdout="R  src/devops_cli/old_scan.py -> src/devops_cli/commands/scan.py\n",
+def _commit(root: Path, git: Callable[..., None], *changed: str) -> None:
+    """Change each of `changed` on the topic branch and commit it."""
+    for relative in changed:
+        path = root / relative
+        path.write_text(path.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+    git(root, "commit", "-q", "-am", "change")
+
+
+def _changed_run() -> tuple[list[str], str]:
+    """The pytest targets `devops test run --changed --dry-run` names, and what it printed."""
+    result = runner.invoke(app_cli, ["run", "--changed", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    response = json.loads(result.output.split("Command response:\n")[1])
+    return response["details"]["targets"], result.output
+
+
+def test_a_changed_nested_test_module_is_selected(project: Path, git: Callable[..., None]) -> None:
+    _commit(project, git, "tests/ai/review/stages/test_c.py")
+    assert _changed_run()[0] == ["tests/ai/review/stages/test_c.py"]
+
+
+def test_a_changed_source_module_selects_the_test_modules_directly_in_its_mirror_directory(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """`devops_cli.ai.review.pipeline` mirrors to `tests/ai/review/`: its test modules run, and
+    those of its subdirectories do not."""
+    _commit(project, git, "src/devops_cli/ai/review/pipeline.py")
+    assert _changed_run()[0] == ["tests/ai/review/test_a.py", "tests/ai/review/test_b.py"]
+
+
+def test_a_flat_tree_maps_a_source_module_by_its_name_and_its_importers(
+    project: Path, git: Callable[..., None]
+) -> None:
+    _commit(project, git, "src/devops_cli/commands/scan.py")
+    assert _changed_run()[0] == ["tests/test_reports.py", "tests/test_scan.py"]
+
+
+def test_a_changed_conftest_selects_its_directory(project: Path, git: Callable[..., None]) -> None:
+    """A fixture reaches every test beside and below its conftest, none of which imports it."""
+    _commit(project, git, "tests/ai/conftest.py")
+    assert _changed_run()[0] == ["tests/ai"]
+
+
+def test_a_changed_support_module_selects_the_whole_suite(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """A support module may reach any test, through a fixture it registers."""
+    _commit(project, git, "tests/support/paths.py")
+    assert _changed_run()[0] == ["tests"]
+
+
+def test_a_renamed_source_module_selects_by_its_new_path(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """A staged `git mv` is read from `git status --porcelain`, by the path it moves to."""
+    git(project, "mv", "src/devops_cli/commands/scan.py", "src/devops_cli/commands/scanner.py")
+    assert _changed_run()[0] == ["tests/test_scanner.py"]
+
+
+def test_a_deleted_test_module_is_not_passed_to_pytest(
+    project: Path, git: Callable[..., None]
+) -> None:
+    git(project, "rm", "-q", "tests/test_old.py")
+    _commit(project, git, "tests/test_scan.py")
+    assert _changed_run()[0] == ["tests/test_scan.py"]
+
+
+def test_an_unmapped_source_is_named_and_the_mapped_tests_run(
+    project: Path, git: Callable[..., None]
+) -> None:
+    _commit(project, git, "src/devops_cli/commands/scan.py", "src/devops_cli/orphan.py")
+    targets, output = _changed_run()
+    assert (targets, "No test module covers src/devops_cli/orphan.py" in output) == (
+        ["tests/test_reports.py", "tests/test_scan.py"],
+        True,
     )
-    with patch(
-        "devops_cli.commands.test_cmd.run_subprocess",
-        side_effect=[mock_proc_diff_empty, mock_proc_wt_rename],
-    ):
-        found_rename = find_changed_test_files(tmp_path)
-        assert len(found_rename) == 1
-        assert found_rename[0].name == "test_scan.py"
+
+
+def test_no_change_runs_the_whole_suite(project: Path) -> None:
+    assert _changed_run()[0] == ["tests"]
 
 
 def test_test_run_dry_run() -> None:
@@ -72,39 +161,6 @@ def test_test_run_execution() -> None:
     with patch("devops_cli.commands.test_cmd.run_subprocess", return_value=mock_fail):
         res_fail = runner.invoke(app_cli, ["run", "tests/test_scan.py"])
         assert res_fail.exit_code == 1
-
-
-def test_test_run_changed_flag(tmp_path: Path) -> None:
-    """Verify devops test run --changed with both detected and empty modifications."""
-    tests_dir = tmp_path / "tests"
-    tests_dir.mkdir(parents=True)
-    test_f = tests_dir / "test_foo.py"
-    test_f.write_text("# foo test", encoding="utf-8")
-
-    # 1. Direct test file changed
-    mock_proc_diff = MagicMock(returncode=0, stdout="tests/test_foo.py\nREADME.md\n")
-    mock_proc_wt = MagicMock(returncode=0, stdout="")
-    with (
-        patch("devops_cli.commands.test_cmd.find_worktree_root", return_value=tmp_path),
-        patch(
-            "devops_cli.commands.test_cmd.run_subprocess",
-            side_effect=[mock_proc_diff, mock_proc_wt, MagicMock(returncode=0)],
-        ),
-    ):
-        res = runner.invoke(app_cli, ["run", "--changed"])
-        assert res.exit_code == 0
-
-    # 2. No changes detected
-    mock_empty = MagicMock(returncode=0, stdout="")
-    with (
-        patch("devops_cli.commands.test_cmd.find_worktree_root", return_value=tmp_path),
-        patch(
-            "devops_cli.commands.test_cmd.run_subprocess",
-            side_effect=[mock_empty, mock_empty, MagicMock(returncode=0)],
-        ),
-    ):
-        res_no_chg = runner.invoke(app_cli, ["run", "--changed"])
-        assert res_no_chg.exit_code == 0
 
 
 def test_test_load_missing_k6_and_failure(tmp_path: Path) -> None:

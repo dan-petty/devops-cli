@@ -2287,6 +2287,16 @@ CONST_TESTS_ROOT_DIR: Final[str] = "tests"
 CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
 CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
+# A pytest fixture file: a change to one reaches every test beside and below it.
+CONST_CONFTEST_FILENAME: Final[str] = "conftest.py"
+# Files whose change can alter the outcome of tests that never import them, so a change to one
+# defeats the coverage index and forces a full `devops ci` run.
+CONST_FULL_RUN_TRIGGER_NAMES: Final[frozenset[str]] = frozenset(
+    {CONST_CONFTEST_FILENAME, "pyproject.toml", "uv.lock", ".python-version"}
+)
+# The modules every test module shares (#1312). One may register a fixture that reaches tests
+# that never import it, so a change under it forces a full run, as a conftest change does.
+CONST_TEST_SUPPORT_DIR: Final[str] = f"{CONST_TESTS_ROOT_DIR}/support"
 
 # ── Mutation Testing (mutmut 3.8, `devops ci mutate`) ────────────────────────
 # How mutmut names what it mutates, a closed domain it defines (`mangle_function_name`): a

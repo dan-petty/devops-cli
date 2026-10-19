@@ -16,9 +16,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_CONFTEST_FILENAME,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
+    CONST_TEST_SUPPORT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.core.coverage_index import _find_tests_importing_helper
@@ -96,6 +98,31 @@ def _reference_pattern(module_path: str) -> re.Pattern[str]:
     return re.compile("|".join(alternatives))
 
 
+def _mirror_tests(source: Path, module_path: str, tests_root: Path) -> set[Path]:
+    """The test modules directly in the directory under the tests root that mirrors the
+    module's package: `devops_cli/ai/review/pipeline.py` and `devops_cli/ai/review/__init__.py`
+    both mirror to `tests/ai/review/`, not its subdirectories. A module directly in the top-level
+    package has none, since the tests root still holds every test module not yet moved."""
+    package = module_path.split(".")[1:]
+    if source.name != f"__init__{CONST_PYTHON_FILE_SUFFIX}":
+        package = package[:-1]
+    directory = tests_root.joinpath(*package)
+    if not package or not directory.is_dir():
+        return set()
+    return set(directory.glob(f"{CONST_TEST_FILE_PREFIX}*{CONST_PYTHON_FILE_SUFFIX}"))
+
+
+def _fixture_reach(rel_tests_path: Path) -> Path | None:
+    """The tests a change to a file under the tests root reaches without being imported: the
+    whole suite for a module under `tests/support/`, which may register a fixture, and its own
+    directory for a conftest; None for any other file."""
+    if rel_tests_path.as_posix().startswith(f"{CONST_TEST_SUPPORT_DIR}/"):
+        return Path(CONST_TESTS_ROOT_DIR)
+    if rel_tests_path.name == CONST_CONFTEST_FILENAME:
+        return rel_tests_path.parent
+    return None
+
+
 def _iter_test_files(tests_root: Path) -> list[Path]:
     """List every test module under the tests root."""
     if not tests_root.is_dir():
@@ -121,12 +148,16 @@ def _handle_test_tree_entry(
     """Handle a candidate path located under the tests/ directory."""
     display = str(candidate)
     name = rel_tests_path.name
-    if name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(CONST_PYTHON_FILE_SUFFIX):
-        selection.passthrough_files.append(rel_tests_path)
+    is_test_module = name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(
+        CONST_PYTHON_FILE_SUFFIX
+    )
+    direct = _fixture_reach(rel_tests_path) or (rel_tests_path if is_test_module else None)
+    if direct is not None:
+        selection.passthrough_files.append(direct)
         selection.source_selectors[display] = "direct"
         return set()
     selection.source_selectors[display] = "text-based selector"
-    if name == "conftest.py" or not name.endswith(CONST_PYTHON_FILE_SUFFIX):
+    if not name.endswith(CONST_PYTHON_FILE_SUFFIX):
         selection.unmapped_sources.append(display)
         return set()
     known_tests = [str(p.relative_to(root)) for p in all_tests]
@@ -143,8 +174,10 @@ def select_tests_for_sources(
 ) -> TestSelection:
     """Select the test modules covering a set of changed files.
 
-    Paths already inside the tests tree pass straight through. Source modules are matched
-    both by naming convention and by which tests import them, and the union is run.
+    Paths already inside the tests tree pass straight through, except that a conftest selects
+    its directory and a module under `tests/support/` the whole suite. Source modules are
+    matched by naming convention, by which tests import them and by the test modules directly in
+    the directory that mirrors their package, and the union is run.
     """
     root = (repo_root or Path.cwd()).resolve()
     tests_root = root / CONST_TESTS_ROOT_DIR
@@ -183,6 +216,7 @@ def select_tests_for_sources(
             path for path in all_tests if path.name in _convention_candidates(module_path)
         }
         matched = conventional | _referencing_tests(module_path, all_tests, contents)
+        matched |= _mirror_tests(absolute, module_path, tests_root)
 
         display = str(candidate)
         selection.source_selectors[display] = "text-based selector"

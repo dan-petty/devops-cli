@@ -42,9 +42,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_FULL_RUN_TRIGGER_NAMES,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
+    CONST_TEST_SUPPORT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
 
@@ -52,9 +54,14 @@ from devops_cli.config.constants import (
 # as absent rather than misread.
 INDEX_FORMAT_VERSION = 2
 
-# Changing any of these can alter the outcome of tests that never import the changed
-# module, so they defeat the index entirely and force a full run.
-_FULL_RUN_TRIGGERS = ("conftest.py", "pyproject.toml", "uv.lock", ".python-version")
+
+def forces_full_run(path: str) -> bool:
+    """Whether a change to `path` can alter the outcome of tests that never import it, so it
+    defeats the index and forces a full run: a fixture file, the project's dependencies or
+    interpreter, or a module under `tests/support/`, which may register a fixture (#1312)."""
+    norm = path.replace("\\", "/")
+    in_support = norm.startswith(f"{CONST_TEST_SUPPORT_DIR}/")
+    return Path(norm).name in CONST_FULL_RUN_TRIGGER_NAMES or in_support
 
 
 def _is_test_file(path: str) -> bool:
@@ -158,7 +165,7 @@ def filter_coverage_source_hashes(hashes: dict[str, str]) -> dict[str, str]:
     for path, sha in hashes.items():
         norm = path.replace("\\", "/")
         name = Path(norm).name
-        if name in _FULL_RUN_TRIGGERS:
+        if name in CONST_FULL_RUN_TRIGGER_NAMES:
             filtered[norm] = sha
         elif (
             norm.startswith(f"{CONST_SOURCE_ROOT_DIR}/")
@@ -337,7 +344,7 @@ def select_from_index(
 
     for raw in changed:
         path = str(raw).replace("\\", "/")
-        if Path(path).name in _FULL_RUN_TRIGGERS:
+        if forces_full_run(path):
             return IndexedSelection(
                 full_run_reason=f"{path} can change the outcome of tests that never import it"
             )
@@ -376,6 +383,7 @@ __all__ = [
     "build_index_from_coverage",
     "compute_index_drift",
     "filter_coverage_source_hashes",
+    "forces_full_run",
     "load_index",
     "save_index",
     "select_from_index",

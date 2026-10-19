@@ -1204,6 +1204,13 @@ class TestMessages:
     load_test_success: str = "✓ Load test finished successfully ({duration}, {vus} VUs)."
     load_test_failed: str = "Load test failed with exit code {code}."
     k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
+    # `devops test run --changed` (#1312).
+    unmapped_source: str = (
+        "No test module covers {source}: no test module is named for it, imports it or sits in "
+        "the directory under tests/ that mirrors its package."
+    )
+    changed_whole_suite: str = "No changed file maps to a test module: running the whole suite."
+    changed_targets: str = "Running the {count} test target(s) the changes reach:"
 
 
 @dataclass(frozen=True)
