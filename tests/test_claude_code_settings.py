@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from tests.support.paths import REPO_ROOT
+
 _EXPECTED_DENY_RULES = (
     "Read(//**/.claude/settings.local.json)",
     "Read(~/.claude/settings.json)",
@@ -15,7 +15,7 @@ _EXPECTED_DENY_RULES = (
 
 def test_claude_code_settings_parses_and_enforces_deny_rules() -> None:
     """Verify .claude/settings.json is valid JSON and permissions.deny holds required rules."""
-    settings_path = _PROJECT_ROOT / ".claude" / "settings.json"
+    settings_path = REPO_ROOT / ".claude" / "settings.json"
     assert settings_path.is_file(), f"Missing {settings_path}"
 
     data = json.loads(settings_path.read_text(encoding="utf-8"))

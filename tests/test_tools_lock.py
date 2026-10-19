@@ -16,8 +16,9 @@ from devops_cli.tools_lock import (
     tool_install_dir,
     tools_lock_digest,
 )
+from tests.support.paths import REPO_ROOT
 
-_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+_PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # The tools the issue names; the lock may hold more as review tools arrive.
 _REQUIRED_TOOLS = {

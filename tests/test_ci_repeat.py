@@ -22,6 +22,7 @@ from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_CI_TEST_REPEAT_RUNS
 from devops_cli.lang import MESSAGES
+from tests.support.paths import REPO_ROOT
 
 pytest_plugins = ("pytester",)
 
@@ -29,7 +30,6 @@ pytest_plugins = ("pytester",)
 # keeps each CLI case to the command's own run.
 CI = typer.main.get_command(ci_module.app)
 runner = CliRunner()
-REPO_ROOT = Path(__file__).resolve().parents[1]
 UV_RUN_PYTEST = ["uv", "--preview-features", "malware-check,check-command", "run", "pytest"]
 HEAD = (0, "deadbeef" + 32 * "0" + "\n")
 

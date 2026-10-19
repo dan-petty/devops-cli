@@ -24,11 +24,11 @@ import pytest
 import yaml
 
 from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
+from tests.support.paths import FIXTURES, REPO_ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
-K8S = ROOT / "k8s"
+K8S = REPO_ROOT / "k8s"
 DASHBOARDS = K8S / "monitoring" / "dashboards"
-CAPTURES = ROOT / "tests" / "fixtures" / "metrics"
+CAPTURES = FIXTURES / "metrics"
 
 # Series Prometheus records about every scrape itself, whatever the target serves. Alloy
 # forwards all of them for the gateway and Qdrant ServiceMonitors, the DCGM integration, the

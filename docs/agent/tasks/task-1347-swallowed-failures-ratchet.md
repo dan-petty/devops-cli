@@ -5,7 +5,7 @@
 **Feasibility**: Verified ruff JSON output for BLE001, S110, S112 and AST check for unread check=False process calls against real src/ tree.
 
 ## Description
-Implements a ratchet invariant test preventing swallowed failure sites (`BLE001`, `S110`, `S112`, and unread `check=False` process calls) under `src/` from growing unnoticed. Per-file ceilings are recorded in `tests/fixtures/swallowed_failures_ceilings.json`. When a file exceeds its ceiling, the test fails naming each site (`file:line: rule`). When a file's count falls below its ceiling, the test fails with instructions and the exact command to lower the ceiling (`uv run python tests/test_swallowed_failures_ratchet.py --lower`), locking in the gain.
+Implements a ratchet invariant test preventing swallowed failure sites (`BLE001`, `S110`, `S112`, and unread `check=False` process calls) under `src/` from growing unnoticed. Per-file ceilings are recorded in `tests/fixtures/swallowed_failures_ceilings.json`. When a file exceeds its ceiling, the test fails naming each site (`file:line: rule`). When a file's count falls below its ceiling, the test fails with instructions and the exact command to lower the ceiling (`uv run python -m tests.test_swallowed_failures_ratchet --lower`, run as a module since #1312, because the ratchet reads its paths from `tests.support.paths`), locking in the gain.
 
 ## Acceptance Criteria
 - [x] A ratchet invariant counts, per file under `src/`:

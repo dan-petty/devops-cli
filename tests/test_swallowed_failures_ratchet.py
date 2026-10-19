@@ -21,11 +21,12 @@ from devops_cli.config.constants import (
     CONST_SWALLOWED_FAILURES_CHECK_ATTRS,
     CONST_SWALLOWED_FAILURES_RUFF_RULES,
 )
+from tests.support.paths import FIXTURES, REPO_ROOT
 
-CONST_CEILINGS_FIXTURE: Final[Path] = (
-    Path(__file__).resolve().parent / "fixtures" / "swallowed_failures_ceilings.json"
-)
-CONST_LOWER_COMMAND: Final[str] = "uv run python tests/test_swallowed_failures_ratchet.py --lower"
+CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
+# The module's dotted name is the same under pytest and under `python -m`, so the command follows
+# the module wherever it moves; run as a script, it could not import `tests.support` (#1312).
+CONST_LOWER_COMMAND: Final[str] = f"uv run python -m {__spec__.name} --lower"
 
 
 @dataclass(frozen=True)
@@ -331,9 +332,8 @@ def lower_ceilings(fixture_path: Path, repo_root: Path) -> dict[str, int]:
 
 def test_swallowed_failures_stay_under_or_equal_to_ceiling() -> None:
     """Ensure swallowed failure sites under src/ do not exceed their ceiling or stay under it."""
-    repo_root = Path(__file__).resolve().parents[1]
-    src_dir = repo_root / "src"
-    measured = collect_all_swallowed_failures(src_dir, repo_root)
+    src_dir = REPO_ROOT / "src"
+    measured = collect_all_swallowed_failures(src_dir, REPO_ROOT)
     ceilings = load_ceilings(CONST_CEILINGS_FIXTURE)
     over, under = evaluate_ratchet(measured, ceilings)
 
@@ -432,10 +432,8 @@ def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path
 
     assert (bool(over), bool(under)) == (False, True)
     err_msg = format_under_ceiling_error(under)
-    assert (CONST_LOWER_COMMAND in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (
-        True,
-        True,
-    )
+    lower = "uv run python -m tests.test_swallowed_failures_ratchet --lower"
+    assert (lower in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (True, True)
 
 
 def test_lower_ceilings_command_updates_fixture_and_removes_zeros(tmp_path: Path) -> None:
@@ -478,5 +476,5 @@ if __name__ == "__main__":
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
-        print(f"Usage: python {sys.argv[0]} --lower")
+        print(f"Usage: {CONST_LOWER_COMMAND}")
         sys.exit(1)

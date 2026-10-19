@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,6 +14,7 @@ from devops_cli.ai.review_schema import (
     Finding,
     VerificationCriterion,
 )
+from tests.support.paths import REPO_ROOT
 
 
 def test_command_allowlist_permits_read_only_binaries() -> None:
@@ -312,7 +312,7 @@ def test_a_find_criterion_that_runs_or_writes_is_rejected(command: str) -> None:
 @pytest.mark.parametrize("prompt", ["review.md"])
 def test_criteria_rule_in_the_prompts_offers_no_pytest_command(prompt: str) -> None:
     """The reviewer is not invited to write a pytest criterion the validator refuses (#847)."""
-    tasks = Path(__file__).resolve().parents[1] / "src" / "devops_cli" / "ai" / "tasks"
+    tasks = REPO_ROOT / "src" / "devops_cli" / "ai" / "tasks"
     rule = next(
         line
         for line in (tasks / prompt).read_text(encoding="utf-8").splitlines()

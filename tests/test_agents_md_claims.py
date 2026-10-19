@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from devops_cli.ai.instruction_generator import (
     generate_instruction_content,
@@ -11,8 +10,7 @@ from devops_cli.ai.instruction_generator import (
 )
 from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import CONST_AGENTS_MD_MAX_CHARS
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+from tests.support.paths import REPO_ROOT
 
 
 def _extract_issue_templates(agents_md_content: str) -> set[str]:
@@ -29,13 +27,13 @@ def _extract_issue_templates(agents_md_content: str) -> set[str]:
 
 def test_issue_templates_named_in_agents_md_exist() -> None:
     """Every .github/ISSUE_TEMPLATE/*.yml named in AGENTS.md must exist on disk."""
-    agents_path = _REPO_ROOT / "AGENTS.md"
+    agents_path = REPO_ROOT / "AGENTS.md"
     assert agents_path.is_file(), "AGENTS.md must exist at repo root"
 
     templates = _extract_issue_templates(agents_path.read_text(encoding="utf-8"))
     assert len(templates) > 0, "AGENTS.md must reference at least one issue template"
 
-    template_dir = _REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
+    template_dir = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
     missing = [t for t in templates if not (template_dir / t).is_file()]
     assert not missing, f"Missing issue templates referenced in AGENTS.md: {missing}"
 
@@ -47,7 +45,7 @@ def test_issue_templates_named_in_agents_md_exist() -> None:
 
 def test_personas_in_self_improvement_are_valid() -> None:
     """Every persona listed as active in docs/SELF_IMPROVEMENT.md is a Persona enum value."""
-    doc_path = _REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"
+    doc_path = REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"
     assert doc_path.is_file(), "docs/SELF_IMPROVEMENT.md must exist"
 
     content = doc_path.read_text(encoding="utf-8")
@@ -81,10 +79,10 @@ def test_personas_in_self_improvement_are_valid() -> None:
 
 def test_instruction_stubs_byte_equal_to_generator() -> None:
     """CLAUDE.md and .github/copilot-instructions.md must match generator output byte-for-byte."""
-    meta = parse_project_metadata(_REPO_ROOT)
+    meta = parse_project_metadata(REPO_ROOT)
     for target in ("CLAUDE.md", ".github/copilot-instructions.md"):
         expected = generate_instruction_content(target, meta)
-        actual = (_REPO_ROOT / target).read_text(encoding="utf-8")
+        actual = (REPO_ROOT / target).read_text(encoding="utf-8")
         assert actual == expected, f"{target} differs from generator output"
 
 
@@ -92,5 +90,5 @@ def test_agents_md_stays_within_character_budget() -> None:
     """AGENTS.md must fit within the context budget constant, which cannot exceed 40,000 chars."""
     assert (
         CONST_AGENTS_MD_MAX_CHARS <= 40_000,
-        len((_REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
+        len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
     ) == (True, True)

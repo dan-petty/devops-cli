@@ -36,8 +36,8 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 SENT_SERIES = {series for instrument in INSTRUMENTS for series in instrument.series}

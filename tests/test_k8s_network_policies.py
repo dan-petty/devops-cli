@@ -11,8 +11,8 @@ import yaml
 from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, _MANIFESTS_BY_STACK
 from tests.k8s_manifests import kustomized_objects, manifest_objects
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
 # The NetworkPolicies `devops k8s deploy-stack` does not apply: (namespace, name) to the file that

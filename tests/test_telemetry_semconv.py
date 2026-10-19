@@ -27,14 +27,10 @@ from devops_cli.telemetry.semconv import (
     render_genai_snapshot,
     weaver_package_argv,
 )
+from tests.support.paths import FIXTURES
 
 # A trimmed resolved.yaml from a real weaver 0.26.1 run; its header says how it was made.
-RESOLVED_FIXTURE = (
-    Path(__file__).parent
-    / "fixtures"
-    / "semconv"
-    / "semantic-conventions-v1.44.0-resolved-trimmed.yaml"
-)
+RESOLVED_FIXTURE = FIXTURES / "semconv" / "semantic-conventions-v1.44.0-resolved-trimmed.yaml"
 # What the reducer keeps of it: no deprecated attribute, metric or span.
 RESOLVED_FIXTURE_REDUCED = {
     "attributes": ["http.request.method", "server.address", "server.port", "url.full"],

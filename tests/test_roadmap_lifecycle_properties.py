@@ -34,7 +34,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -60,8 +59,9 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.reprioritize import Event, ReleaseState, is_due
 from devops_cli.roadmap.store import CloseReason, GitHubState, Item, ItemField, JobMark
 from tests.roadmap_faults import FIELD, RECORD, Fault, StoppingStore
+from tests.support.paths import REPO_ROOT
 
-CONTEXT = Path(__file__).resolve().parent.parent / "CONTEXT.md"
+CONTEXT = REPO_ROOT / "CONTEXT.md"
 
 OPTIONS = {
     ItemField.STATUS: ("New", "Ready", "In Progress", "In Review", "Done", "Blocked"),

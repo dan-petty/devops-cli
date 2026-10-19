@@ -30,6 +30,7 @@ from devops_cli.commands.ci import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -1199,11 +1200,7 @@ def _run_image_change_detection(repo: Path, base_ref: str) -> tuple[int, str, st
 
     import yaml
 
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-    )
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     step = next(
         s for s in workflow["jobs"]["devcontainer"]["steps"] if s.get("id") == "image_changes"
     )

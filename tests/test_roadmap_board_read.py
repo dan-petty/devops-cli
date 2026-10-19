@@ -12,7 +12,6 @@ import json
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -44,10 +43,11 @@ from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.reprioritize import plan_reprioritization
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
+from tests.support.paths import FIXTURES
 
 REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
-SCHEMA = Path(__file__).parent / "fixtures" / "roadmap" / "github-schema-board.graphql"
+SCHEMA = FIXTURES / "roadmap" / "github-schema-board.graphql"
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 # A quota far from spent and far from its reset, so `run_gh`'s pacing never waits on it.
 QUOTA = {"limit": 5000, "remaining": 5000, "used": 0, "reset": 4_000_000_000}

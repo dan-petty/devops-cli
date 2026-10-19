@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review.exporter import export_invalidated_feedback
+from tests.support.paths import REPO_ROOT
 
 
 def test_export_invalidated_feedback_empty_dir(tmp_path: Path) -> None:
@@ -255,18 +256,17 @@ def test_the_documentation_names_one_dataset_path() -> None:
 
     from devops_cli.config.defaults import DEFAULT_FEEDBACK_DATASET_PATH
 
-    root = Path(__file__).resolve().parent.parent
     # Task files and the archive record what was, not what is.
-    records = (root / "docs" / "agent" / "tasks", root / "docs" / "agent" / "archive")
+    records = (REPO_ROOT / "docs" / "agent" / "tasks", REPO_ROOT / "docs" / "agent" / "archive")
     documents = [
-        root / "AGENTS.md",
-        root / "README.md",
+        REPO_ROOT / "AGENTS.md",
+        REPO_ROOT / "README.md",
         *(
             d
-            for d in (root / "docs").rglob("*.md")
+            for d in (REPO_ROOT / "docs").rglob("*.md")
             if not any(d.is_relative_to(r) for r in records)
         ),
-        *(root / "src/devops_cli/ai/knowledge_base").rglob("*.md"),
+        *(REPO_ROOT / "src/devops_cli/ai/knowledge_base").rglob("*.md"),
     ]
     named = {
         match

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,15 +16,15 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
     VALID_STACKS,
 )
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
 
 def test_logging_stack_definitions_and_single_shipper() -> None:
     """Verify logging stack registers Loki alone and Alloy ships pod logs to Loki (#548)."""
-    repo_root = Path(__file__).resolve().parent.parent
     mon_values = yaml.safe_load(
-        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+        (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -55,8 +54,7 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
 
 def test_monitoring_network_policy_alloy_egress_rules() -> None:
     """Verify monitoring NetworkPolicy retains Alloy API discovery and Loki log shipping egress (#548)."""
-    repo_root = Path(__file__).resolve().parent.parent
-    np_path = repo_root / "k8s" / "monitoring" / "networkpolicy.yaml"
+    np_path = REPO_ROOT / "k8s" / "monitoring" / "networkpolicy.yaml"
     np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
     egress_rules = np_doc.get("spec", {}).get("egress", [])
 
@@ -238,8 +236,7 @@ def test_k8s_teardown_stack_case_insensitive() -> None:
 
 def test_logging_stack_security_and_scoping() -> None:
     """Verify DevSecOps perimeter hardening and bidirectional NetworkPolicy for logging stack (#548)."""
-    repo_root = Path(__file__).resolve().parent.parent
-    logging_dir = repo_root / "k8s" / "logging"
+    logging_dir = REPO_ROOT / "k8s" / "logging"
     np_path = logging_dir / "networkpolicy.yaml"
     assert np_path.is_file()
     np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))

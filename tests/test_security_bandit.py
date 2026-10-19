@@ -19,8 +19,8 @@ from devops_cli.config.commands import BIN_BANDIT
 from devops_cli.config.constants import CONST_BANDIT_INI_NAME
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.bandit import BanditScanner, parse_bandit_json, run_bandit_scan
+from tests.support.paths import REPO_ROOT
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 _EMPTY_BANDIT_REPORT = json.dumps({"errors": [], "results": []})
 
 
@@ -202,7 +202,7 @@ def test_the_scan_report_runs_bandit_on_this_repository_as_the_gate_does(tmp_pat
     sarif = tmp_path / "scan.sarif"
     with patch("devops_cli.security.bandit.run_subprocess", side_effect=fake_bandit):
         result = CliRunner().invoke(
-            scan_app, ["report", "--scanner", "bandit", "--sarif", str(sarif), str(_REPO_ROOT)]
+            scan_app, ["report", "--scanner", "bandit", "--sarif", str(sarif), str(REPO_ROOT)]
         )
 
     [(scan_cmd, scan_cwd)] = runs
@@ -215,13 +215,13 @@ def test_the_scan_report_runs_bandit_on_this_repository_as_the_gate_does(tmp_pat
     ) == (
         0,
         True,
-        _REPO_ROOT,
-        _what_bandit_reports(gate_cmd, _REPO_ROOT),
+        REPO_ROOT,
+        _what_bandit_reports(gate_cmd, REPO_ROOT),
     )
-    assert _what_bandit_reports(gate_cmd, _REPO_ROOT) == [
+    assert _what_bandit_reports(gate_cmd, REPO_ROOT) == [
         "-r",
         "--ini",
-        str(_REPO_ROOT / CONST_BANDIT_INI_NAME),
+        str(REPO_ROOT / CONST_BANDIT_INI_NAME),
         "--severity-level",
         "medium",
     ]
@@ -232,11 +232,11 @@ def test_the_bandit_targets_hold_every_python_file_the_repository_tracks() -> No
     are src and tests, scanned recursively, and hold every tracked Python file, so none goes
     unscanned."""
     ini = configparser.ConfigParser()
-    ini.read(_REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
+    ini.read(REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
     targets = ini["bandit"]["targets"].split(",")
     tracked = subprocess.run(
         ["git", "ls-files", "--", "*.py", "*.pyw"],
-        cwd=_REPO_ROOT,
+        cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,

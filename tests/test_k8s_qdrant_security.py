@@ -11,7 +11,6 @@ Validates:
 from __future__ import annotations
 
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -32,8 +31,8 @@ from devops_cli.config.settings import (
 )
 from devops_cli.telemetry import tracer
 from tests.cluster_secret_fakes import MACHINE_LOGIN, MACHINE_TOKEN, FakeCluster, FakeKeyring
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 _deploy_app = typer.Typer()
 _deploy_app.command()(deploy_stack)
 DEPLOY_COMMAND = typer.main.get_command(_deploy_app)

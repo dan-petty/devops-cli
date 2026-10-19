@@ -61,6 +61,7 @@ from tests.release_notes_examples import (
     synthetic_entry_title,
     synthetic_release_section,
 )
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 # A Markdown task-list item, ticked or not, under any list marker and at any indent.
@@ -1664,7 +1665,7 @@ def test_a_release_commit_stages_changelog_d_only_where_it_exists(
 
 _SECTION_HEADING = "## [0.2.25] - 2026-10-03"
 _SECTION_URL = "https://github.com/dan-petty/devops-cli/blob/v0.2.25/CHANGELOG.md#0225---2026-10-03"
-_REPO_CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+_REPO_CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 
 
 def _with_section(project: Path, body: str) -> Path:

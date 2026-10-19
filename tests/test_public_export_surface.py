@@ -21,7 +21,9 @@ import ast
 from collections import Counter
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+from tests.support.paths import REPO_ROOT
+
+SRC_ROOT = REPO_ROOT / "src" / "devops_cli"
 
 DunderAll = ast.Assign | ast.AnnAssign
 

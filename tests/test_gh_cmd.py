@@ -19,6 +19,7 @@ from devops_cli.github.projects import MutationBudget
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -508,7 +509,7 @@ def _checkout(tmp_path: Path, with_template: bool = True) -> Path:
     """A fake checkout holding the repository's project template, and a subdirectory of it."""
     (tmp_path / ".git").mkdir()
     if with_template:
-        template = Path(__file__).parents[1] / ".github" / "project-template.json"
+        template = REPO_ROOT / ".github" / "project-template.json"
         (tmp_path / ".github").mkdir()
         (tmp_path / ".github" / "project-template.json").write_text(template.read_text())
     subdirectory = tmp_path / "src" / "pkg"

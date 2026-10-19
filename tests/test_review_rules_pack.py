@@ -30,9 +30,9 @@ from devops_cli.review.rules_pack import (
     verify_rules_lock,
 )
 from devops_cli.security.semgrep import _files_command, parse_semgrep_json
+from tests.support.paths import FIXTURES, REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-RECALL_SET_PATH = REPO_ROOT / "tests" / "fixtures" / "review_recall" / "recall_set.json"
+RECALL_SET_PATH = FIXTURES / "review_recall" / "recall_set.json"
 RULE_ID = "k8s-networkpolicy-ingress-any"
 runner = CliRunner()
 
