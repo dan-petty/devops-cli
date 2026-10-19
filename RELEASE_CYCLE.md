@@ -66,8 +66,8 @@ flowchart LR
   - Centralize user-facing help messages, summaries, and error logs in [`src/devops_cli/lang/`](src/devops_cli/lang/).
 - **Dry-Run Support**: All state-modifying subcommands must support the `--dry-run` flag via `devops_cli.dry_run`.
 
-### Stage 3: Automated Testing & Mocking Standards
-- **Mocking Policy**: All unit tests must isolate external side-effects using `unittest.mock`, `pytest-mock`, or generic mock placeholders (e.g., `http://node1.example.test`). Live provider calls or hardcoded personal credentials in tests are strictly prohibited.
+### Stage 3: Automated Testing
+- **Test Conventions**: Tests follow [`docs/TESTING.md`](docs/TESTING.md), which sets what a test may double, where its file goes, how it is named and what it asserts.
 - **Parallel Test Execution**: Run tests with `pytest-xdist`:
   ```bash
   uv run pytest

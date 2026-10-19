@@ -101,10 +101,7 @@ flowchart TD
 ```
 
 #### Test Architecture & Standards
-- **Living Documentation**: Tests authoritatively document expected arguments, return schemas, error handling, and behavioral boundaries.
-- **Deterministic Mock Isolation**: External dependencies (LLM APIs, Docker daemon, Kubernetes clusters, GitHub API, network calls) must be isolated using `pytest-mock` or mock fixtures. Real credentials or live endpoints must never be queried in unit test suites.
-- **Test Collection Hygiene**: Any mock classes or helper structures defined in `src/devops_cli` must declare `__test__ = False` to prevent pytest collection warnings.
-- **Domain Exception Assertions**: Verify that all domain error paths raise strongly typed exceptions inheriting from `DevOpsCLIError`, verifying the exit code and machine-readable error code constant.
+[`docs/TESTING.md`](TESTING.md) holds the test conventions: what a test may double, where a test file goes, how a test is named and what it asserts. [ADR 0007](adr/0007-tests-double-only-process-edges.md) records why tests double only process edges.
 
 ---
 

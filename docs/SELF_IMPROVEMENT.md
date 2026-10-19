@@ -158,8 +158,8 @@ feedback loop that changes what it does once the defects are gone:
    exist, an agent works on nothing else, with minimal, surgical fixes.
 2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent turns to headroom:
    functions near the complexity cap ($7 \le M \le 10$) come down to $M \le 6$ and depth $\le 3$,
-   public interfaces get complete docstrings and type hints, and linear test assertions become
-   structural tuple comparisons (`assert (a, b) == (x, y)`).
+   public interfaces get complete docstrings and type hints, and tests are brought to the
+   conventions in [`docs/TESTING.md`](TESTING.md).
 3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
    idea becomes an issue (`devops gh issues create`), and a rule for agents goes into
    [`AGENTS.md`](../AGENTS.md). `docs/ROADMAP.md` is rendered from GitHub at the cut and never
@@ -264,7 +264,7 @@ This session evaluated `release/v0.2.23` across 669 files, producing 174 finding
 | Use of untrusted dependency `httpx2` in `tests/test_ai_served_by.py:10` (CRITICAL) | `httpx2` is an approved modern HTTP/2 client library declared in `pyproject.toml` and verified by lockfile integrity. Prohibited by `AGENTS.md`. `verify_ground_truth_hallucination` had a gap that skipped `DEPENDENCY_ECOSYSTEM` verification. |
 | Hardcoded password `<masked-password>` in `src/devops_cli/ai/run_store.py:227` (CRITICAL) | The review prompt sanitizer masked `password=password` with `<masked-password>`, which the reviewer flagged as a hardcoded credential. Line 227 contains parameter `password: str \| None`, with zero string literals. |
 | Hardcoded API key `sk-gateway` in `tests/test_ai_gateway.py:477` (HIGH) | Synthetic test mock fixture token in unit tests. `CONST_FIXTURE_CREDENTIAL_KEYWORDS` lacked API key variants. |
-| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (HIGH) | Consolidated structural tuple equality (`assert (a, b, c) == (...)`) is an intentional architectural invariant mandated by `AGENTS.md` to cap cyclomatic complexity $M \le 10$. |
+| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (HIGH) | A tuple equality (`assert (a, b, c) == (...)`) compares every element, so the assertion was correct. `AGENTS.md` then mandated such tuples to cap complexity; [`docs/TESTING.md`](TESTING.md) has since replaced that rule, because Ruff's C901 does not count asserts. |
 | Insecure default URL for LightLLM (`DEFAULT_LIGHTLLM_URL`) (HIGH) | `AGENTS.md` explicitly mandates committed templates and defaults use localhost/loopback (`http://localhost:8000/v1`) to prevent private LAN or homelab leaks. |
 | Process signal check race condition in `src/devops_cli/commands/ci.py:189` (HIGH) | Standard POSIX `os.kill(pid, 0)` is the canonical Python idiom to check process liveness without delivering a signal. |
 | Inconsistent CLI flag naming in `src/devops_cli/ai/mcp/server.py:2845` (MEDIUM) | `devops-cli` is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee. |
@@ -526,7 +526,7 @@ the work.
 
 Before altering implementation code in `src/`:
 - Formulate tests from the finding's claim and its `verification_criteria` and `invalidation_criteria`, and watch them fail.
-- Place tests in canonical submodule test files under `tests/` (e.g. `tests/test_common_tools.py`, `tests/test_validation.py`, `tests/test_http.py`). NEVER create temporary one-off test files.
+- Place each test where [`docs/TESTING.md`](TESTING.md) puts it: in the file of the behaviour it pins, never in a file named after the review, finding or session.
 - Ensure mock hostnames strictly use `example.com` (no subdomains).
 
 ### Step 4: Implement Surgical Remediation
@@ -537,7 +537,7 @@ Before altering implementation code in `src/`:
 
 ### Step 5: Verify
 
-- Run the targeted tests: `uv run pytest tests/test_<submodule>.py`.
+- Run the targeted tests: `uv run pytest <test-file>`.
 - Run the Gated CI quality gate: `uv run devops ci`.
 
 ### Step 6: Leave the Verdict to a Person and Prevent a Recurrence

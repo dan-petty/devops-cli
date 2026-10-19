@@ -66,5 +66,5 @@ uv run pytest -n auto --cov=src --cov-report=term-missing
 ## 6. Best Practices & Security Standards
 
 1. **Zero Type Errors Permitted**: All modified modules must pass `mypy --strict` with zero errors.
-2. **Defensive Test Isolation**: Unit tests must isolate external networks, LLMs, and subprocesses using `pytest-mock` or deterministic fixtures.
+2. **Test Conventions**: What devops-cli's tests may double, where they go and what they assert is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
 3. **Maintain $\ge 90\%$ Code Coverage**: Every new feature or refactor must supply corresponding unit tests to prevent coverage drops below the mandatory threshold.

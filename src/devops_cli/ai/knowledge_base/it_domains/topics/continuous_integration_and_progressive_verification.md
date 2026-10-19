@@ -68,7 +68,7 @@ gh run list --branch release/v0.2.0 -L 5
 ## 4. Best Practice Guidance
 
 1. **Never Commit Failing Code**: Ensure all local CI gates pass before committing code to feature or release branches.
-2. **Deterministic Test Isolation**: Unit tests must isolate external dependencies (network, LLM providers, subprocesses) using mocks (`unittest.mock`, `pytest-mock`).
+2. **Test Conventions**: What devops-cli's tests may double, where they go and what they assert is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
 3. **Synchronize Docs Automatically**: If `devops ci docs` detects differences, run `devops docs generate --sync-readme` to regenerate markdown reference files.
 4. **Fix Errors Systematically**: Resolve formatting and linting first, then static typing, then unit tests, and finally documentation.
 
