@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 import httpx2
 import pytest
@@ -286,55 +290,44 @@ class TestCLIPrewarmHelpers:
 class TestCLIPrewarmCommand:
     """Test suite for 'devops ai prewarm' CLI command."""
 
-    def test_cli_prewarm_success_default_args(self) -> None:
+    def test_cli_prewarm_success_default_args(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm succeeds with default configured model and urls."""
-        with patch("devops_cli.ai.client.LLMClient.preload_models") as mock_preload:
-            mock_preload.return_value = {"http://localhost:11434": True}
-            result = runner.invoke(app, ["ai", "prewarm"])
+        result = runner.invoke(app, ["ai", "prewarm"])
 
-            assert result.exit_code == 0
-            assert "prewarmed into VRAM" in result.output
-            assert "confirmed HTTP 200" in result.output
+        assert result.exit_code == 0
+        assert "prewarmed into VRAM" in result.output
+        assert "confirmed HTTP 200" in result.output
 
-    def test_cli_prewarm_evict_and_json_flag(self) -> None:
+    def test_cli_prewarm_evict_and_json_flag(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm --evict --json passes keep_alive=0 and emits structured json."""
-        with patch("devops_cli.ai.client.LLMClient.preload_models") as mock_preload:
-            mock_preload.return_value = {"http://localhost:11434": True}
-            result = runner.invoke(app, ["ai", "prewarm", "--evict", "--json"])
+        result = runner.invoke(app, ["ai", "prewarm", "--evict", "--json"])
 
-            assert result.exit_code == 0
-            payload = json.loads(result.output)
-            assert (payload["action"], payload["keep_alive"], payload["success"]) == (
-                "eviction",
-                0,
-                True,
-            )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert (payload["action"], payload["keep_alive"], payload["success"]) == (
+            "eviction",
+            0,
+            True,
+        )
 
-    def test_cli_prewarm_failure_exits_code_1(self) -> None:
+    def test_cli_prewarm_failure_exits_code_1(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm exits with code 1 when node prewarming fails."""
-        with patch("devops_cli.ai.client.LLMClient.preload_models") as mock_preload:
-            mock_preload.return_value = {"http://localhost:11434": False}
-            result = runner.invoke(app, ["ai", "prewarm"])
+        model_fake.set_preload_results({"http://localhost:11434": False})
+        result = runner.invoke(app, ["ai", "prewarm"])
 
-            assert result.exit_code == 1
-            assert "request failed or timed out" in result.output
+        assert result.exit_code == 1
+        assert "request failed or timed out" in result.output
 
-    def test_cli_prewarm_single_node_flag(self) -> None:
+    def test_cli_prewarm_single_node_flag(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm --single-node targets only primary node."""
-        with patch("devops_cli.ai.client.LLMClient.preload_models") as mock_preload:
-            mock_preload.return_value = {"http://localhost:11434": True}
-            result = runner.invoke(app, ["ai", "prewarm", "--single-node"])
+        result = runner.invoke(app, ["ai", "prewarm", "--single-node"])
 
-            assert result.exit_code == 0
-            assert mock_preload.call_args[1]["urls"] == ["http://localhost:11434"]
+        assert result.exit_code == 0
+        assert model_fake.preload_calls[-1]["urls"] == ["http://localhost:11434"]
 
-    def test_cli_prewarm_telemetry_recording(self) -> None:
+    def test_cli_prewarm_telemetry_recording(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm records OpenTelemetry span and execution metric."""
         with (
-            patch(
-                "devops_cli.ai.client.LLMClient.preload_models",
-                return_value={"http://localhost:11434": True},
-            ),
             patch("devops_cli.commands.ai.record_metric") as mock_metric,
             patch("devops_cli.commands.ai.trace_span") as mock_span,
         ):
@@ -343,13 +336,10 @@ class TestCLIPrewarmCommand:
             assert result.exit_code == 0
             assert (mock_span.called, mock_metric.called) == (True, True)
 
-    def test_cli_prewarm_telemetry_recording_failure(self) -> None:
+    def test_cli_prewarm_telemetry_recording_failure(self, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm records failure metric when node prewarm fails."""
+        model_fake.set_preload_results({"http://localhost:11434": False})
         with (
-            patch(
-                "devops_cli.ai.client.LLMClient.preload_models",
-                return_value={"http://localhost:11434": False},
-            ),
             patch("devops_cli.commands.ai.record_metric") as mock_metric,
             patch("devops_cli.commands.ai.trace_span") as mock_span,
         ):

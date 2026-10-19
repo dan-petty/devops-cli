@@ -6,7 +6,7 @@
 
 ## Description
 
-Tests double only process edges through seams (ADR 0007). The model edge is one of the four foundational process edges requiring a shared in-memory fake and a comprehensive contract suite. This item delivers the model seam across several pull requests.
+Tests double only process edges through seams (ADR 0007). The model edge is one of the four foundational process edges requiring a shared in-memory fake and a comprehensive contract suite. This item delivers the model seam across five pull requests.
 
 **Part 1: In-memory `ModelFake` and contract suite (PR #1700, merged).**
 
@@ -30,17 +30,21 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - **Routing inline constructions.** Replaced all 26 inline `LLMClient(...)` instantiations across `src/devops_cli/` with `get_llm_client(...)`.
 - **Unit tests (`tests/test_ai_client_factory.py`).** Comprehensive unit tests verifying factory defaults, task routing, explicit configurations, model overrides, key propagation, and the absence of `get_llm_client` on `config.settings`.
 
-**Part 4: Conftest fixture registration, factory seam, and test suite migration (this PR).**
+**Part 4: Conftest fixture registration, factory seam, and initial test suite migrations (PR #1705, merged).**
 
 - **The fixture (`tests/conftest.py:model_fake`).** Following the merge of #1312 PR 3, registered the `model_fake` fixture in root `conftest.py`. Installs an in-memory `ModelFake` instance into the client factory seam using `monkeypatch.setattr(factory, "_client_override", fake)`.
 - **Factory seam (`src/devops_cli/ai/client/factory.py`).** Introduced `_client_override` and `set_llm_client_override` in the client factory. When active, `get_llm_client` and `build_llm_client` immediately return the installed fake without opening sockets or initializing external providers.
 - **ModelFake enhancements (`tests/support/fakes/model.py`).** Equipped `ModelFake` with `chat_messages_stream`, `chat_structured`, and `preload_models` ducking to support structured output validation and multi-message streaming.
 - **Fixture test suite (`tests/test_model_fixture.py`).** 8 tests validating factory injection, sequential answering, pattern and error routing, synchronous token streaming, deterministic embeddings, model listing, structured completion, and direct pydantic-ai requests.
-- **Test suite migration.** Migrated `tests/test_instruction_generator.py` and `tests/test_roadmap_refine.py` to use `model_fake` instead of internal module patches on `LLMClient` or `get_llm_client`.
+- **Test suite migrations.** Migrated `tests/test_instruction_generator.py` and `tests/test_roadmap_refine.py` to use `model_fake` instead of internal module patches on `LLMClient` or `get_llm_client`.
 
-**Subsequent parts of #1001.**
+**Part 5: Final caller test migrations, egress ssrf cleanup, changelog fragment, and issue close (this PR).**
 
-- Final caller cleanups, changelog fragment `changelog.d/1001.md`, and issue close: PR 5 of #1001.
+- **Caller test migrations.** Migrated remaining test suites in `tests/test_ai_prewarm.py`, `tests/test_ai_chaos_model.py`, and `tests/test_ai_cmd.py` away from internal `LLMClient` monkeypatches to the shared `model_fake` fixture.
+- **Client ducking completion (`tests/support/fakes/model.py`).** Added `backend_info`, `_FakeConfig`, `factory_calls`, `preload_calls`, `set_preload_results`, `set_available_models`, `set_list_models_error`, and sequential answer repeating semantics to `ModelFake`.
+- **Factory call tracking (`src/devops_cli/ai/client/factory.py`).** Added dispatch to `_client_override.record_factory_call` when present to record factory parameters during test assertions.
+- **SSRF cleanup (`src/devops_cli/http/egress.py`).** Replaced direct import from `pydantic_ai._ssrf` with `from devops_cli.core.validation import is_cloud_metadata_ip`.
+- **Changelog fragment (`changelog.d/1001.md`).** Documented unified model seam, client factory consolidation, egress SSRF guards, and caller migrations under `### Changed` and `### Removed`.
 
 ## Acceptance Criteria
 
@@ -56,7 +60,7 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - [x] All inline `LLMClient(...)` constructions in `src/` are routed to `get_llm_client`.
 - [x] Conftest fixture `model_fake` registered in `tests/conftest.py` with factory seam integration.
 - [x] Migrated existing caller test suites away from internal `LLMClient` patches.
-- Changelog fragment `changelog.d/1001.md`: final PR of #1001 that closes the issue.
+- [x] Changelog fragment `changelog.d/1001.md` added.
 - Pending a person: `devops ai chat`, one `devops review path`, and `devops rag query` run against the gateway and against a local Ollama.
 
 ## Deliverables
@@ -78,5 +82,9 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - [x] `tests/test_model_fixture.py`: Comprehensive test suite for `model_fake` fixture and seam.
 - [x] `tests/test_instruction_generator.py`: Migrated test away from internal `LLMClient` patch.
 - [x] `tests/test_roadmap_refine.py`: Migrated test away from internal `get_llm_client` patch.
-- [x] `docs/agent/tasks/task-1001-one-model-seam.md`: Task tracking file for Parts 1 to 4 of #1001.
-- PR 5: Final caller cleanups, changelog fragment `changelog.d/1001.md`, and issue close.
+- [x] `tests/test_ai_prewarm.py`: Migrated tests away from internal `LLMClient` patch.
+- [x] `tests/test_ai_chaos_model.py`: Migrated tests away from internal `LLMClient` patch.
+- [x] `tests/test_ai_cmd.py`: Migrated tests away from internal `LLMClient` patches.
+- [x] `src/devops_cli/http/egress.py`: Cleaned up private SSRF import.
+- [x] `changelog.d/1001.md`: Changelog fragment for #1001.
+- [x] `docs/agent/tasks/task-1001-one-model-seam.md`: Task tracking file for #1001.

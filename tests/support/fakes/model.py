@@ -108,7 +108,18 @@ class ModelCall:
     messages: tuple[Any, ...] = ()
     model_name: str = "fake-model"
     stream: bool = False
+    max_retries: int | None = None
     timestamp: float = field(default_factory=time.monotonic, compare=False)
+
+    @property
+    def user(self) -> str:
+        """Alias for `prompt` matching chat parameter naming."""
+        return self.prompt
+
+    @property
+    def system(self) -> str:
+        """Alias for `system_prompt` matching chat parameter naming."""
+        return self.system_prompt
 
 
 @dataclass
@@ -124,6 +135,15 @@ class ModelAnswer:
 
 AnswerType = str | ModelAnswer | Exception | type[Exception]
 RoutePattern = str | re.Pattern[str] | Callable[[str], bool]
+
+
+@dataclass
+class _FakeConfig:
+    """Minimal config double for LLMClient._config compatibility (#1001)."""
+
+    provider: str = "fake"
+    model: str = "fake-model"
+    get_ollama_urls: list[str] = field(default_factory=lambda: ["http://localhost:11434"])
 
 
 class ModelFake(Model):
@@ -153,9 +173,15 @@ class ModelFake(Model):
         self._system = system
         self._available_models = list(available_models or [model_name, "test-model"])
         self._queue: list[AnswerType] = []
+        self._last_answer: AnswerType | None = None
         self._routes: list[tuple[Callable[[str], bool], AnswerType]] = []
         self.sent: list[ModelCall] = []
         self.delay: float = 0.0
+        self._preload_results: dict[str, bool] | None = None
+        self._preload_calls: list[dict[str, Any]] = []
+        self._factory_calls: list[dict[str, Any]] = []
+        self._list_models_error: Exception | None = None
+        self._config = _FakeConfig(provider=system, model=model_name)
 
     @property
     def model_name(self) -> str:
@@ -183,6 +209,11 @@ class ModelFake(Model):
         return "localhost"
 
     @property
+    def backend_info(self) -> str:
+        """Backend info string for `LLMClient` compatibility."""
+        return f"{self.backend_type} ({self.backend_host})"
+
+    @property
     def requested(self) -> list[str]:
         """The prompt text of each recorded call, in invocation order."""
         return [call.prompt for call in self.sent]
@@ -192,8 +223,40 @@ class ModelFake(Model):
         """Total number of recorded calls."""
         return len(self.sent)
 
+    @property
+    def calls(self) -> list[ModelCall]:
+        """Alias for `sent` calls list."""
+        return self.sent
+
+    @property
+    def factory_calls(self) -> list[dict[str, Any]]:
+        """List of calls made to the client factory while this fake was active."""
+        return self._factory_calls
+
+    def record_factory_call(self, **kwargs: Any) -> None:
+        """Record an invocation of get_llm_client."""
+        self._factory_calls.append(kwargs)
+
+    @property
+    def preload_calls(self) -> list[dict[str, Any]]:
+        """List of calls made to preload_models."""
+        return self._preload_calls
+
+    def set_preload_results(self, results: dict[str, bool]) -> None:
+        """Configure the mapping returned by preload_models."""
+        self._preload_results = dict(results)
+
+    def set_available_models(self, models: Sequence[str]) -> None:
+        """Set available model identifiers returned by list_models."""
+        self._available_models = list(models)
+
+    def set_list_models_error(self, err: Exception | None) -> None:
+        """Configure list_models to raise an error when called."""
+        self._list_models_error = err
+
     def answer(self, *responses: AnswerType) -> None:
         """Enqueue sequential responses; the last one repeats when the queue is exhausted."""
+        self._last_answer = None
         self._queue.extend(responses)
 
     def route(self, pattern: RoutePattern, answer: AnswerType) -> None:
@@ -209,7 +272,12 @@ class ModelFake(Model):
         """Clear recorded calls, response queue, and custom routes."""
         self.sent.clear()
         self._queue.clear()
+        self._last_answer = None
         self._routes.clear()
+        self._preload_calls.clear()
+        self._factory_calls.clear()
+        self._preload_results = None
+        self._list_models_error = None
 
     def get_context_window(self, model: str | None = None) -> int:
         """Return fake context window token limit for `LLMClient` compatibility."""
@@ -217,12 +285,47 @@ class ModelFake(Model):
 
     def list_models(self) -> list[str]:
         """Return the sequence of available models."""
+        if getattr(self, "_list_models_error", None) is not None:
+            raise self._list_models_error
         return list(self._available_models)
 
-    def preload_models(self, models: list[str] | None = None) -> dict[str, bool]:
-        """Duck OllamaClient.preload_models returning success for requested models."""
-        target_models = models or [self._model_name]
-        return {model: True for model in target_models}
+    def preload_models(
+        self,
+        model: str | Sequence[str] | None = None,
+        urls: Sequence[str] | None = None,
+        keep_alive: str | int | None = None,
+        **kwargs: Any,
+    ) -> dict[str, bool]:
+        """Duck OllamaClient.preload_models returning success or configured results."""
+        if getattr(self, "_preload_results", None) is not None:
+            self._preload_calls.append(
+                {
+                    "model": model,
+                    "urls": list(urls) if urls else None,
+                    "keep_alive": keep_alive,
+                    **kwargs,
+                }
+            )
+            return dict(self._preload_results)
+
+        if urls is not None:
+            target = list(urls)
+        elif isinstance(model, Sequence) and not isinstance(model, str):
+            target = list(model)
+        elif isinstance(model, str) and not urls:
+            target = [model]
+        else:
+            target = ["http://localhost:11434"]
+
+        self._preload_calls.append(
+            {
+                "model": model,
+                "urls": list(urls) if urls else None,
+                "keep_alive": keep_alive,
+                **kwargs,
+            }
+        )
+        return {item: True for item in target}
 
     def chat_structured(
         self,
@@ -256,16 +359,46 @@ class ModelFake(Model):
         text_list = [texts] if isinstance(texts, str) else list(texts)
         return [deterministic_embedding(item, dimension=dimension) for item in text_list]
 
-    def chat(self, system_prompt: str = "", prompt: str = "", **kwargs: Any) -> LLMResponse:
+    def chat(
+        self,
+        system_prompt: str = "",
+        prompt: str = "",
+        *,
+        system: str | None = None,
+        user: str | None = None,
+        max_retries: int | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
         """Execute a synchronous chat completion returning an `LLMResponse`."""
-        return self._dispatch_sync(prompt=prompt, system_prompt=system_prompt, messages=())
+        eff_sys = system if system is not None else system_prompt
+        eff_prompt = user if user is not None else prompt
+        return self._dispatch_sync(
+            prompt=eff_prompt,
+            system_prompt=eff_sys,
+            messages=(),
+            max_retries=max_retries,
+            **kwargs,
+        )
 
     def chat_messages(
-        self, system_prompt: str = "", messages: Sequence[Any] = (), **kwargs: Any
+        self,
+        system_prompt: str = "",
+        messages: Sequence[Any] = (),
+        *,
+        system: str | None = None,
+        max_retries: int | None = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         """Execute a chat completion over a sequence of messages."""
-        prompt, extracted_sys = _extract_prompt_and_system(messages, system_prompt=system_prompt)
-        return self._dispatch_sync(prompt=prompt, system_prompt=extracted_sys, messages=messages)
+        eff_sys = system if system is not None else system_prompt
+        prompt, extracted_sys = _extract_prompt_and_system(messages, system_prompt=eff_sys)
+        return self._dispatch_sync(
+            prompt=prompt,
+            system_prompt=extracted_sys,
+            messages=messages,
+            max_retries=max_retries,
+            **kwargs,
+        )
 
     def chat_stream(
         self, system_prompt: str = "", prompt: str = "", **kwargs: Any
@@ -360,9 +493,16 @@ class ModelFake(Model):
         prompt: str,
         system_prompt: str,
         messages: Sequence[Any],
+        max_retries: int | None = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         self._record_call(
-            prompt=prompt, system_prompt=system_prompt, messages=messages, stream=False
+            prompt=prompt,
+            system_prompt=system_prompt,
+            messages=messages,
+            stream=False,
+            max_retries=max_retries,
+            **kwargs,
         )
         answer = self._resolve_answer(prompt)
         return LLMResponse(
@@ -373,6 +513,7 @@ class ModelFake(Model):
             total_tokens=answer.input_tokens + answer.output_tokens,
             finish_reason=answer.finish_reason,
             model=self._model_name,
+            backend_info=self.backend_info,
         )
 
     def _record_call(
@@ -382,6 +523,8 @@ class ModelFake(Model):
         system_prompt: str,
         messages: Sequence[Any],
         stream: bool,
+        max_retries: int | None = None,
+        **kwargs: Any,
     ) -> None:
         self.sent.append(
             ModelCall(
@@ -390,6 +533,7 @@ class ModelFake(Model):
                 messages=tuple(messages),
                 model_name=self._model_name,
                 stream=stream,
+                max_retries=max_retries,
             )
         )
 
@@ -399,8 +543,12 @@ class ModelFake(Model):
                 return self._materialize_answer(candidate)
 
         if self._queue:
-            candidate = self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
+            candidate = self._queue.pop(0)
+            self._last_answer = candidate
             return self._materialize_answer(candidate)
+
+        if self._last_answer is not None:
+            return self._materialize_answer(self._last_answer)
 
         return ModelAnswer(content=self.default_response)
 

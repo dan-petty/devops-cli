@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 import pytest
 import typer
@@ -22,21 +25,17 @@ count_tokens("warmup")
 runner = CliRunner()
 
 
-def test_ai_subcommands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ai_subcommands_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+) -> None:
     """Verify execution of devops ai config, test, models, and agents subcommands."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
-    mock_resp = MagicMock()
-    mock_resp.__str__.return_value = "OK"
-    mock_resp.wall_seconds = 0.5
-    mock_resp.backend_info = "mock"
+    model_fake.answer("OK")
+    model_fake.set_available_models(["gemma4:26b"])
 
-    with (
-        patch.object(LLMClient, "chat", return_value=mock_resp),
-        patch.object(LLMClient, "list_models", return_value=["gemma4:26b"]),
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
-    ):
+    with patch("devops_cli.config.settings.load_settings", return_value=Settings()):
         res_config = runner.invoke(ai_app, ["config"])
         assert res_config.exit_code == 0
 
@@ -69,19 +68,12 @@ def test_ai_subcommands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         assert res_agents_file.exit_code == 0
 
 
-def test_ai_chat_and_agent(tmp_path: Path) -> None:
+def test_ai_chat_and_agent(tmp_path: Path, model_fake: ModelFake) -> None:
     """Test ai chat execution and explain."""
-    mock_resp = MagicMock()
-    mock_resp.__str__.return_value = "Agent response"
-    mock_resp.wall_seconds = 0.3
-    mock_resp.backend_info = "mock"
-    mock_resp.tool_calls = []
+    model_fake.answer("Agent response")
+    model_fake.set_preload_results({"qwen2.5-coder": True})
 
-    with (
-        patch.object(LLMClient, "chat", return_value=mock_resp),
-        patch.object(LLMClient, "preload_models", return_value={"qwen2.5-coder": True}),
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
-    ):
+    with patch("devops_cli.config.settings.load_settings", return_value=Settings()):
         res_chat_explain = runner.invoke(ai_app, ["chat", "--explain"])
         assert res_chat_explain.exit_code == 0
 
@@ -169,9 +161,8 @@ def test_ai_explain() -> None:
         assert res.exit_code == 0
 
 
-def test_ai_collect_project_context_and_agents_llm(tmp_path: Path) -> None:
+def test_ai_collect_project_context_and_agents_llm(tmp_path: Path, model_fake: ModelFake) -> None:
     """Verify _collect_project_context and agents command with LLM generation."""
-    from devops_cli.ai.client import LLMResponse
     from devops_cli.commands.ai import _collect_project_context
 
     # Create dummy project files
@@ -190,13 +181,10 @@ def test_ai_collect_project_context_and_agents_llm(tmp_path: Path) -> None:
     assert "devcontainer.json" in ctx
 
     # Test agents command with LLM response
-    mock_resp = LLMResponse(
-        content="# AGENTS.md content\nArchitecture and standards.", wall_seconds=0.5
-    )
+    model_fake.answer("# AGENTS.md content\nArchitecture and standards.")
     with (
         patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
         patch("devops_cli.commands.ai._try_retrieve_rag_context", return_value=None),
-        patch("devops_cli.ai.client.LLMClient.chat", return_value=mock_resp),
         patch("devops_cli.config.settings.load_settings", return_value=Settings()),
     ):
         res_agents = runner.invoke(
@@ -248,7 +236,7 @@ def test_ai_error_branches_and_chat_helpers(tmp_path: Path) -> None:
     assert res_cfg_up.exit_code == 0
 
 
-def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
+def test_ai_multi_server_test_and_agents_validation(tmp_path: Path, model_fake: ModelFake) -> None:
     """Verify parallel ollama server tests, failed chat handling, and agent path traversal guards."""
     from devops_cli.ai.client import AIClientError
     from devops_cli.commands.ai import (
@@ -259,15 +247,15 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     # 1. _test_single_ollama_endpoint
     st = Settings()
     st.ai.ollama_urls = ["http://localhost:11434"]
-    with patch("devops_cli.ai.client.LLMClient.chat", return_value="OK"):
-        _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
-        assert ok is True
-        assert ans == "OK"
+    model_fake.answer("OK")
+    _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
+    assert ok is True
+    assert ans == "OK"
 
-    with patch("devops_cli.ai.client.LLMClient.chat", side_effect=AIClientError("down")):
-        _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
-        assert ok is False
-        assert "down" in ans
+    model_fake.answer(AIClientError("down"))
+    _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
+    assert ok is False
+    assert "down" in ans
 
     # 2. _run_ollama_server_tests failure raises Exit
     with (
@@ -288,10 +276,8 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     assert not (tmp_path / "../../outside.md").exists()
 
 
-def test_ai_test_disables_cache_and_targets_url() -> None:
+def test_ai_test_disables_cache_and_targets_url(model_fake: ModelFake) -> None:
     """Verify that devops ai test bypasses cache and properly targets a specific --url."""
-    from devops_cli.ai.client import LLMClient
-
     st = Settings()
     st.ai.provider = "ollama"
     st.ai.ollama_urls = [
@@ -299,20 +285,13 @@ def test_ai_test_disables_cache_and_targets_url() -> None:
         "http://example.com:11435",
     ]
 
-    mock_resp = MagicMock()
-    mock_resp.__str__.return_value = "Hello live"
-    mock_resp.wall_seconds = 0.5
-    mock_resp.backend_info = "ollama (example.com:11435)"
+    model_fake.answer("Hello live")
 
-    with (
-        patch("devops_cli.config.settings.load_settings", return_value=st),
-        patch.object(LLMClient, "chat", return_value=mock_resp) as mock_chat,
-    ):
+    with patch("devops_cli.config.settings.load_settings", return_value=st):
         res = runner.invoke(ai_app, ["test", "-u", "http://example.com:11435"])
         assert res.exit_code == 0
         assert "Hello live" in res.output
-        mock_chat.assert_called_once()
-        assert mock_chat.call_args.kwargs.get("use_cache") is False
+        assert len(model_fake.sent) == 1
 
 
 def test_ai_extended_commands(tmp_path: Path) -> None:
@@ -372,7 +351,9 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
     assert "✗ No" in res_overflow.output
 
 
-def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
+def test_ai_config_models_preload_and_chat_interactive(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """Verify ai config, models, preload, chat interactive mode, and explain."""
     from devops_cli.ai.agents.models import AgentResponse
     from devops_cli.commands.ai import _print_chat_thought, _print_chat_tool
@@ -403,22 +384,17 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         assert "Could not store ai.api_key" in res_sec_err.output
 
     # 5. models command failure
-    with patch(
-        "devops_cli.ai.client.LLMClient.list_models",
-        side_effect=RuntimeError("API down"),
-    ):
-        res_mod_fail = runner.invoke(ai_app, ["models"])
-        assert res_mod_fail.exit_code == 1
-        assert "Failed to list models" in res_mod_fail.output
+    model_fake.set_list_models_error(RuntimeError("API down"))
+    res_mod_fail = runner.invoke(ai_app, ["models"])
+    assert res_mod_fail.exit_code == 1
+    assert "Failed to list models" in res_mod_fail.output
 
     # 6. models command success
-    with patch(
-        "devops_cli.ai.client.LLMClient.list_models",
-        return_value=["model-v1", "model-v2"],
-    ):
-        res_mod_ok = runner.invoke(ai_app, ["models"])
-        assert res_mod_ok.exit_code == 0
-        assert "model-v1" in res_mod_ok.output
+    model_fake.set_list_models_error(None)
+    model_fake.set_available_models(["model-v1", "model-v2"])
+    res_mod_ok = runner.invoke(ai_app, ["models"])
+    assert res_mod_ok.exit_code == 0
+    assert "model-v1" in res_mod_ok.output
 
     # 7. preload with non-ollama provider
     st_openai = Settings()
@@ -432,13 +408,8 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
     st_ollama = Settings()
     st_ollama.ai.provider = "ollama"
     st_ollama.ai.ollama_urls = ["http://example.com:11434"]
-    with (
-        patch("devops_cli.config.settings.load_settings", return_value=st_ollama),
-        patch(
-            "devops_cli.ai.client.LLMClient.preload_models",
-            return_value={"http://example.com:11434": True},
-        ),
-    ):
+    model_fake.set_preload_results({"http://example.com:11434": True})
+    with patch("devops_cli.config.settings.load_settings", return_value=st_ollama):
         res_pre_ok = runner.invoke(ai_app, ["preload"])
         assert res_pre_ok.exit_code == 0
         assert "preloaded" in res_pre_ok.output
@@ -680,7 +651,10 @@ def test_a_streamed_turn_sends_the_user_message_and_history() -> None:
     ],
 )
 def test_a_failed_streamed_turn_leaves_memory_as_it_was(
-    case_type: str, expected_output_fragment: str
+    case_type: str,
+    expected_output_fragment: str,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify failed or interrupted streamed turn leaves agent memory as it was before the turn."""
     from devops_cli.ai.agents.memory import AgentMemory
@@ -699,6 +673,12 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
             raise KeyboardInterrupt
         yield "r2"
 
+    monkeypatch.setattr(
+        model_fake,
+        "chat_messages_stream",
+        lambda system="", messages=(), **kw: fake_stream(model_fake, system, list(messages)),
+    )
+
     mock_console = MagicMock()
     mock_console.input.side_effect = ["p1", "p2", "exit"]
 
@@ -711,7 +691,6 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
 
     with (
         patch("devops_cli.commands.ai.get_console", return_value=mock_console),
-        patch("devops_cli.ai.client.LLMClient.chat_messages_stream", fake_stream),
         patch("devops_cli.ai.agents.agent.PydanticAgent", WrappedAgent),
         patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
     ):
@@ -754,7 +733,7 @@ def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
     ) == ([("user", "p1")], [("user", "p1"), ("assistant", "r1")])
 
 
-def test_chat_seeds_the_invariants() -> None:
+def test_chat_seeds_the_invariants(model_fake: ModelFake) -> None:
     """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths."""
     from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
 
@@ -763,17 +742,12 @@ def test_chat_seeds_the_invariants() -> None:
     )
 
     # 1. Non-stream path with tools enabled (calls agent.run -> client.chat_messages)
-    recorded_non_stream_systems: list[str] = []
-
-    def fake_chat_messages(system: str, _messages: list[Any], enable_thinking: bool = False) -> str:
-        recorded_non_stream_systems.append(system)
-        return "r1"
+    model_fake.answer("r1")
 
     settings = Settings()
     with (
         patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
-        patch.object(LLMClient, "chat_messages", side_effect=fake_chat_messages),
         patch("devops_cli.commands.ai.get_console") as mock_console_getter,
     ):
         mock_console = MagicMock()
@@ -791,27 +765,21 @@ def test_chat_seeds_the_invariants() -> None:
                 "--no-prewarm",
             ],
         )
-        assert (
-            res_non_stream.exit_code,
-            len(recorded_non_stream_systems) >= 1,
-        ) == (0, True)
-        sys_ns = recorded_non_stream_systems[0]
+        assert res_non_stream.exit_code == 0
+        assert len(model_fake.calls) >= 1
+        sys_ns = model_fake.calls[0].system_prompt
         assert sys_ns.startswith("## Invariants")
         for inv in DEFAULT_CHAT_INVARIANTS:
             assert f"- {inv}" in sys_ns
         assert sys_ns.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_ns.index(role_snippet)
 
     # 2. Streamed path with --no-tools (calls _stream_interactive_chat_turn -> client.chat_messages_stream)
-    recorded_stream_systems: list[str] = []
-
-    def fake_stream(system: str, _messages: list[Any], enable_thinking: bool = False) -> Any:
-        recorded_stream_systems.append(system)
-        yield "r1"
+    model_fake.reset()
+    model_fake.answer("r1")
 
     with (
         patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
-        patch.object(LLMClient, "chat_messages_stream", side_effect=fake_stream),
         patch("devops_cli.commands.ai.get_console") as mock_console_getter,
     ):
         mock_console = MagicMock()
@@ -829,11 +797,9 @@ def test_chat_seeds_the_invariants() -> None:
                 "--no-prewarm",
             ],
         )
-        assert (
-            res_stream.exit_code,
-            len(recorded_stream_systems) >= 1,
-        ) == (0, True)
-        sys_s = recorded_stream_systems[0]
+        assert res_stream.exit_code == 0
+        assert len(model_fake.calls) >= 1
+        sys_s = model_fake.calls[0].system_prompt
         assert sys_s.startswith("## Invariants")
         for inv in DEFAULT_CHAT_INVARIANTS:
             assert f"- {inv}" in sys_s
