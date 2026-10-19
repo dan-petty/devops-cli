@@ -737,6 +737,8 @@ class _Entry:
     body: str
     state: str
     item: bool = True
+    done: bool = False
+    release: str | None = None
 
     @property
     def text(self) -> str:
@@ -746,6 +748,14 @@ class _Entry:
         assert self.number is not None
         excerpt = self.body[:DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS]
         return Neighbour(number=self.number, title=self.title, state=self.state, excerpt=excerpt)
+
+
+def _is_done(issue: IssueRecord, run: _Run) -> bool:
+    """Whether `issue` is a completed/Done item on the board or in GitHub."""
+    if issue.state is GitHubState.CLOSED and issue.state_reason != CloseReason.NOT_PLANNED:
+        return True
+    card = run.board.get(issue.number)
+    return card is not None and card.status == "Done"
 
 
 def _compared(issue: IssueRecord, run: _Run, *, off_board: bool) -> bool:
@@ -762,10 +772,31 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
     """Every item, open or closed, and every issue closed as not planned; with `off_board`, for
     a new candidate, also the open agent issues off the board."""
     return [
-        _Entry(issue.number, issue.title, issue.body, issue.state.value, issue.number in run.board)
+        _Entry(
+            issue.number,
+            issue.title,
+            issue.body,
+            issue.state.value,
+            issue.number in run.board,
+            done=_is_done(issue, run),
+            release=issue.release,
+        )
         for issue in run.issues
         if _compared(issue, run, off_board=off_board)
     ]
+
+
+def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
+    """Add a regression reference to the candidate's body when it matches a Done item."""
+    ref = (
+        f"regression of #{entry.number}, shipped in {entry.release}"
+        if entry.release
+        else f"regression of #{entry.number}"
+    )
+    if ref in subject.body:
+        return subject
+    body = f"{subject.body}\n\n{ref}" if subject.body else ref
+    return replace(subject, body=body)
 
 
 def _reopened_after_duplicate(closures: Sequence[Closure]) -> bool:
@@ -1169,10 +1200,16 @@ class _Planner:
             raw = self.run.model.propose(request)
         except UnusableProposalError as exc:
             return self._skipped(subject, str(exc), ())
+        shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
         named = _named_number(raw.duplicate_of)
-        if named is not None and named in {entry.number for entry in shortlist}:
-            return self._duplicate(subject, named, _line(raw.duplicate_reason))
-        rejected = _rejected(named)
+        rejected: tuple[str, ...] = ()
+        if named is not None and named in shortlist_entries:
+            entry = shortlist_entries[named]
+            if not entry.done:
+                return self._duplicate(subject, named, _line(raw.duplicate_reason))
+            subject = _with_regression_reference(subject, entry)
+        elif named is not None:
+            rejected = _rejected(named)
         try:
             proposal = validate_proposal(raw, self.run.types, needs_type=subject.type_label is None)
         except _InvalidProposal as exc:

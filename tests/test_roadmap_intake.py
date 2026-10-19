@@ -2206,3 +2206,82 @@ def test_an_intake_of_three_placements_reads_the_board_once() -> None:
         _sent(github, 0, BOARD_ITEMS_OPERATION),
         [(github.card(n) or {}).get("priority") for n in (251, 252, 253)],
     ) == (3, 1, 3, ["P2-Medium"] * 3)
+
+
+def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(
+    roadmap: Roadmap,
+) -> None:
+    """A candidate matching only a closed completed (Done) item is filed as a new issue whose
+    body references the Done item (#1671)."""
+    done = roadmap.issue(
+        "feat: tempo trace storage",
+        body="Store traces in tempo.",
+        state=GitHubState.CLOSED,
+        state_reason=CloseReason.COMPLETED,
+        release="v0.2.35",
+        on_board=True,
+    )
+    roadmap.store.set_field(roadmap.item(done), ItemField.STATUS, "Done")
+    model = FakeModel(
+        duplicates={"fix(k8s): tempo runs under otel namespace": "feat: tempo trace storage"}
+    )
+    candidate = NewCandidate(
+        title="fix(k8s): tempo runs under otel namespace",
+        body="Tempo fails to start under restricted pod security.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert decision.outcome is Outcome.PLACE
+    applied = apply_intake(roadmap.store, plan)
+    (filed_number,) = applied.filed
+    filed_issue = next(i for i in roadmap.store.issues() if i.number == filed_number)
+    assert f"regression of #{done}, shipped in v0.2.35" in filed_issue.body
+    assert "Tempo fails to start under restricted pod security." in filed_issue.body
+
+
+def test_candidate_matching_open_item_is_folded(roadmap: Roadmap) -> None:
+    """A candidate matching an open item folds into that item as duplicate (#1671)."""
+    open_item = roadmap.issue(
+        "feat: open feature",
+        body="Feature in progress.",
+        state=GitHubState.OPEN,
+        on_board=True,
+    )
+    model = FakeModel(duplicates={"feat: open feature copy": "feat: open feature"})
+    candidate = NewCandidate(
+        title="feat: open feature copy",
+        body="Duplicate feature.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert (decision.outcome, decision.quota, decision.original) == (
+        Outcome.DUPLICATE,
+        QuotaDecision.FOLD,
+        open_item,
+    )
+    applied = apply_intake(roadmap.store, plan)
+    assert applied.filed == ()
+
+
+def test_candidate_matching_item_closed_as_not_planned_is_folded(roadmap: Roadmap) -> None:
+    """A candidate matching an item closed as not planned folds into that decision (#1671)."""
+    not_planned = roadmap.issue(
+        "feat: rejected proposal",
+        body="Rejected idea.",
+        state=GitHubState.CLOSED,
+        state_reason=CloseReason.NOT_PLANNED,
+    )
+    model = FakeModel(duplicates={"feat: rejected proposal again": "feat: rejected proposal"})
+    candidate = NewCandidate(
+        title="feat: rejected proposal again",
+        body="Same idea again.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert (decision.outcome, decision.quota, decision.original) == (
+        Outcome.DUPLICATE,
+        QuotaDecision.FOLD,
+        not_planned,
+    )
+    applied = apply_intake(roadmap.store, plan)
+    assert applied.filed == ()
