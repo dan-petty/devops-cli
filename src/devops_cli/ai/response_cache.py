@@ -94,19 +94,29 @@ def _clear_disk_cache(cdir: Path) -> int:
     return count
 
 
+def _safe_file_mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _evict_excess_disk_files(cdir: Path, max_entries: int) -> None:
     """Prune oldest disk cache files when count exceeds max_entries."""
     if not cdir.is_dir():
         return
-    disk_files = sorted(cdir.glob("llm_*.json"), key=lambda p: p.stat().st_mtime)
-    excess = len(disk_files) - max_entries
-    if excess <= 0:
-        return
-    for p in disk_files[:excess]:
-        try:
-            p.unlink()
-        except OSError:
-            pass
+    try:
+        disk_files = sorted(cdir.glob("llm_*.json"), key=_safe_file_mtime)
+        excess = len(disk_files) - max_entries
+        if excess <= 0:
+            return
+        for p in disk_files[:excess]:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _find_starting_point_candidates(

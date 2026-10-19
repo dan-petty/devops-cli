@@ -266,7 +266,9 @@ class TestSingleRetryLayerAndStatusRules:
             max_retries=4,
             allow_private_network=True,
         )
-        client = LLMClient(config)
+        reset_settings_cache()
+        reset_llm_response_cache()
+        client = LLMClient(config, cache_enabled=False)
         from devops_cli.ai.retries import create_retry_transport
         from devops_cli.http.pool import close_shared_clients
 
@@ -306,6 +308,8 @@ class TestSingleRetryLayerAndStatusRules:
             ) == (1, True, True, True, True, True)
         finally:
             close_shared_clients()
+            reset_settings_cache()
+            reset_llm_response_cache()
 
     def test_five_personas_with_one_transient_503_sees_exactly_six_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -355,7 +359,10 @@ class TestSingleRetryLayerAndStatusRules:
             max_retries=4,
             allow_private_network=True,
         )
-        client = LLMClient(config)
+        reset_settings_cache()
+        reset_tracer()
+        reset_llm_response_cache()
+        client = LLMClient(config, cache_enabled=False)
         from devops_cli.ai.retries import create_retry_transport
         from devops_cli.http.pool import close_shared_clients
 
@@ -410,6 +417,8 @@ class TestSingleRetryLayerAndStatusRules:
             ) == (6, "reviewed", None, [])
         finally:
             close_shared_clients()
+            reset_settings_cache()
+            reset_llm_response_cache()
 
 
 # How long the fake gateway below holds its first requests open for more to join them.

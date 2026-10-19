@@ -262,3 +262,29 @@ def test_a_configured_timeout_reaches_the_request(monkeypatch: pytest.MonkeyPatc
         "ok",
         [5.0],
     )
+
+
+def test_dispatch_non_transport_exception_does_not_report_cannot_connect() -> None:
+    """A non-transport exception raised during dispatch does not report 'Cannot connect' (#1609)."""
+    client = LLMClient(AIConfig(provider="openai", api_key="sk-test"), cache_enabled=False)
+
+    with patch.object(client, "_dispatch_messages", side_effect=KeyError("unexpected_key")):
+        with pytest.raises(AIClientError) as exc_info:
+            client.chat_messages(messages=[ChatMessage(role="user", content="hi")])
+
+    err_msg = str(exc_info.value)
+    assert ("Cannot connect" not in err_msg, "KeyError" in err_msg) == (True, True)
+
+
+def test_dispatch_transport_error_reports_cannot_connect() -> None:
+    """A transport exception raised during dispatch reports connection error."""
+    client = LLMClient(AIConfig(provider="openai", api_key="sk-test"), cache_enabled=False)
+
+    req = httpx2.Request("POST", "http://example.com/v1/chat/completions")
+    with patch.object(
+        client, "_dispatch_messages", side_effect=httpx2.ConnectError("boom", request=req)
+    ):
+        with pytest.raises(AIClientError) as exc_info:
+            client.chat_messages(messages=[ChatMessage(role="user", content="hi")])
+
+    assert "Cannot connect to AI provider API" in str(exc_info.value)
