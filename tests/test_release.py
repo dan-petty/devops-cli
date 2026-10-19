@@ -53,7 +53,6 @@ from devops_cli.exceptions import (
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
-from tests.conftest import PINNED_GITHUB_TOKEN, fail_the_github_lookup
 from tests.release_notes_examples import (
     SYNTHETIC_CATEGORIES,
     SYNTHETIC_ENTRY_COUNT,
@@ -61,6 +60,7 @@ from tests.release_notes_examples import (
     synthetic_entry_title,
     synthetic_release_section,
 )
+from tests.support.github_identity import PINNED_GITHUB_TOKEN, fail_the_github_lookup
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()

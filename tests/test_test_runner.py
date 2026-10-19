@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.test_cmd import _changed_paths
 from devops_cli.commands.test_cmd import app as app_cli
 
 runner = CliRunner()
@@ -18,7 +19,10 @@ _FIXTURES_ONLY = "import pytest\n\n\n@pytest.fixture\ndef stage() -> int:\n    r
 _HOOK = "\n\ndef pytest_collection_modifyitems(config, items):\n    items.reverse()\n"
 
 # A project on `main`: a source tree with a nested subpackage, a flat test tree beside a nested
-# one that mirrors the subpackage, the root and a nested conftest, and a support module.
+# one that mirrors the subpackage, the root and a nested conftest, a plain support module with
+# the test module importing it, a support module that defines a fixture, a support subpackage
+# with a module a test imports, and a test module that imports a support module by a name no
+# file has yet.
 _PROJECT = {
     "src/devops_cli/__init__.py": "",
     "src/devops_cli/orphan.py": "ORPHAN = 1\n",
@@ -31,6 +35,13 @@ _PROJECT = {
     "tests/conftest.py": "",
     "tests/support/__init__.py": "",
     "tests/support/paths.py": "ROOT = None\n",
+    "tests/support/stages.py": _FIXTURES_ONLY,
+    "tests/support/fakes/__init__.py": "",
+    "tests/support/fakes/github.py": "SESSION = None\n",
+    "tests/test_paths.py": "from tests.support.paths import ROOT\n",
+    "tests/test_stages.py": "from tests.support.stages import stage\n",
+    "tests/test_roots.py": "from tests.support.roots import ROOT\n",
+    "tests/test_fake_github.py": "from tests.support.fakes.github import SESSION\n",
     "tests/test_scan.py": "def test_scan() -> None: ...\n",
     "tests/test_scanner.py": "def test_scanner() -> None: ...\n",
     "tests/test_reports.py": "from devops_cli.commands.scan import SCAN\n",
@@ -118,20 +129,76 @@ def test_a_changed_conftest_with_a_hook_selects_the_whole_suite(
     assert _changed_run()[0] == ["tests"]
 
 
-def test_a_changed_support_module_selects_the_whole_suite(
+def test_a_changed_support_module_that_defines_a_fixture_selects_the_whole_suite(
     project: Path, git: Callable[..., None]
 ) -> None:
-    """A support module may reach any test, through a fixture it registers."""
-    _commit(project, git, "tests/support/paths.py")
+    """A support module that defines a fixture reaches any test, through the fixture its
+    registration makes every test's, not only the test module importing it (#1312)."""
+    _commit(project, git, "tests/support/stages.py")
     assert _changed_run()[0] == ["tests"]
 
 
-def test_a_renamed_source_module_selects_by_its_new_path(
+def test_a_changed_plain_support_module_selects_the_test_modules_importing_it(
     project: Path, git: Callable[..., None]
 ) -> None:
-    """A staged `git mv` is read from `git status --porcelain`, by the path it moves to."""
+    """A support module that registers nothing reaches only the test modules importing it
+    (#1312)."""
+    _commit(project, git, "tests/support/paths.py")
+    assert _changed_run()[0] == ["tests/test_paths.py"]
+
+
+@pytest.mark.parametrize("committed", [False, True], ids=["staged", "committed"])
+def test_a_renamed_support_module_selects_the_whole_suite_through_its_old_path(
+    project: Path, git: Callable[..., None], committed: bool
+) -> None:
+    """A `git mv`, staged or committed, is listed as its old path deleted and its new path
+    added, so a renamed support module reaches every test through the old path, which may have
+    registered a fixture and whose importers the move may have broken, not only the test module
+    that already imports the new name (#1312)."""
+    git(project, "mv", "tests/support/paths.py", "tests/support/roots.py")
+    if committed:
+        git(project, "commit", "-q", "-m", "rename")
+    changed = _changed_paths(project)
+    assert (
+        {"tests/support/paths.py", "tests/support/roots.py"} <= set(changed),
+        [path for path in changed if " -> " in path],
+        _changed_run()[0],
+    ) == (True, [], ["tests"])
+
+
+def test_a_changed_support_subpackage_init_selects_the_test_modules_importing_its_modules(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """A support subpackage's `__init__.py` runs before any module of the subpackage, so it
+    selects the test modules importing one; its directory, which holds no test module, is not
+    handed to pytest (#1312)."""
+    _commit(project, git, "tests/support/fakes/__init__.py")
+    assert _changed_run()[0] == ["tests/test_fake_github.py"]
+
+
+def test_a_deleted_support_module_selects_the_whole_suite(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """A deleted support module cannot be read, so whether it registered a fixture cannot be
+    known, and it selects the whole suite, not only the tests a change beside it maps to
+    (#1312)."""
+    git(project, "rm", "-q", "tests/support/paths.py")
+    _commit(project, git, "tests/test_scan.py")
+    assert _changed_run()[0] == ["tests"]
+
+
+def test_a_renamed_source_module_selects_by_its_new_path_and_its_old_one(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """A staged `git mv` is read from `git status --porcelain --no-renames` as the old path
+    deleted and the new one added: the new path selects the test module named for it, and the
+    old one those still named for it or importing it, which the move may break (#1312)."""
     git(project, "mv", "src/devops_cli/commands/scan.py", "src/devops_cli/commands/scanner.py")
-    assert _changed_run()[0] == ["tests/test_scanner.py"]
+    assert _changed_run()[0] == [
+        "tests/test_reports.py",
+        "tests/test_scan.py",
+        "tests/test_scanner.py",
+    ]
 
 
 def test_a_deleted_test_module_is_not_passed_to_pytest(

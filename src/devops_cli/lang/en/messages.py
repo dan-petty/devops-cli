@@ -1101,6 +1101,10 @@ class CIMessages:
         "test covers, so tests are selected by name and import. Run `devops ci coverage "
         "--build-index` to rebuild it."
     )
+    coverage_index_helper_removed: str = (
+        "{file} is gone since the coverage index was built: what it registered, and which tests "
+        "imported it, can no longer be read, so no test selection can cover it."
+    )
     selection_trigger_full_run: str = (
         "{file} can change the outcome of tests that never import it. "
         "Running the full test suite. Run `devops ci coverage --build-index` to update."

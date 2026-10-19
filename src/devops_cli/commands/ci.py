@@ -41,6 +41,7 @@ from devops_cli.output import print_error, print_info, print_success
 
 if TYPE_CHECKING:
     from devops_cli.ci.mutate import MutationTarget
+    from devops_cli.core.test_selection import SuiteImports
 
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
@@ -1190,14 +1191,13 @@ def _normalize_repo_rel_path(path: Path | str, root: Path) -> str:
     return p.as_posix()
 
 
-def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
+def _check_trigger_files(all_paths: set[str], fallback: bool, imports: SuiteImports) -> bool:
     """Check if any trigger files are in the changed path set."""
-    from devops_cli.core.coverage_index import forces_full_run
+    from devops_cli.core.test_selection import forces_full_run
 
-    triggers = [p for p in sorted(all_paths) if forces_full_run(p)]
-    if not triggers:
+    first_trigger = next((p for p in sorted(all_paths) if forces_full_run(p, imports)), None)
+    if first_trigger is None:
         return True
-    first_trigger = triggers[0]
     if not fallback:
         _get("print_error")(
             MESSAGES.ci.selection_trigger_refusal.format(file=first_trigger),
@@ -1211,20 +1211,18 @@ def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
 def _map_test_tree_path(
     path: str,
     root: Path,
+    imports: SuiteImports,
     selected_tests: set[str],
     mapped_sources: dict[str, list[str]],
     unmapped_sources: list[str],
     source_selectors: dict[str, str],
 ) -> None:
-    """Handle a path under the tests/ directory."""
-    from devops_cli.config.constants import (
-        CONST_PYTHON_FILE_SUFFIX,
-        CONST_TEST_FILE_PREFIX,
-        CONST_TESTS_ROOT_DIR,
-    )
-    from devops_cli.core.coverage_index import _find_tests_importing_helper, _is_test_file
+    """Handle a path under the tests/ directory: a test module runs itself, and a helper module
+    the test modules that import it, directly or through other modules (#1312)."""
+    from devops_cli.config.constants import CONST_PYTHON_FILE_SUFFIX
+    from devops_cli.core.test_selection import is_test_module
 
-    if _is_test_file(path):
+    if is_test_module(path):
         if (root / path).is_file():
             selected_tests.add(path)
             mapped_sources[path] = [path]
@@ -1235,13 +1233,7 @@ def _map_test_tree_path(
         return
 
     if path.endswith(CONST_PYTHON_FILE_SUFFIX):
-        tests_dir = root / CONST_TESTS_ROOT_DIR
-        all_test_files = [
-            p.relative_to(root).as_posix()
-            for p in tests_dir.rglob(f"{CONST_TEST_FILE_PREFIX}*{CONST_PYTHON_FILE_SUFFIX}")
-            if p.is_file()
-        ]
-        importing = _find_tests_importing_helper(path, root, all_test_files)
+        importing = [str(test) for test in imports.importing_tests(Path(path))]
         source_selectors[path] = "text-based selector"
         if importing:
             selected_tests.update(importing)
@@ -1285,6 +1277,7 @@ def _map_changed_paths(
     root: Path,
     index: Any,
     has_index: bool,
+    imports: SuiteImports,
 ) -> tuple[list[str], dict[str, list[str]], list[str], dict[str, str]]:
     """Map each candidate path under src/ or tests/ onto test targets and selectors."""
     from devops_cli.config.constants import CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR
@@ -1298,7 +1291,13 @@ def _map_changed_paths(
         path = raw_path.replace("\\", "/")
         if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
             _map_test_tree_path(
-                path, root, selected_tests, mapped_sources, unmapped_sources, source_selectors
+                path,
+                root,
+                imports,
+                selected_tests,
+                mapped_sources,
+                unmapped_sources,
+                source_selectors,
             )
         elif path.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
             _map_src_tree_path(
@@ -1333,12 +1332,15 @@ def _report_selection(
         )
 
 
-def _index_drift(index: Any, root: Path) -> list[str] | None:
-    """The files changed since the coverage index was built, to select beside the given ones,
-    or None when one of them forces a full run: the index is stale then, since that file can
-    change what any test covers, and the text selector chooses until it is rebuilt (#1312)."""
+def _index_drift(index: Any, root: Path, imports: SuiteImports) -> tuple[list[str], bool, set[str]]:
+    """The files changed since the coverage index was built; whether the index still maps them:
+    not when one of them forces a full run, since that file can change what any test covers, and
+    the text selector chooses until the index is rebuilt; and the helper modules under tests/
+    among them that are gone, deleted or renamed away, which force the full run themselves
+    (#1312)."""
     from devops_cli.ci.cache import compute_worktree_blob_hashes
-    from devops_cli.core.coverage_index import compute_index_drift, forces_full_run
+    from devops_cli.core.coverage_index import compute_index_drift
+    from devops_cli.core.test_selection import forces_full_run
     from devops_cli.output import format_duration
 
     drift_files = compute_index_drift(index, compute_worktree_blob_hashes(root))
@@ -1347,34 +1349,52 @@ def _index_drift(index: Any, root: Path) -> list[str] | None:
     _get("print_muted")(
         MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
     )
-    stale = next((path for path in drift_files if forces_full_run(path)), None)
+    removed = {path for path in drift_files if imports.is_removed_helper(Path(path))}
+    if removed:
+        _get("print_warning")(MESSAGES.ci.coverage_index_helper_removed.format(file=min(removed)))
+        return drift_files, False, removed
+    stale = next((path for path in drift_files if forces_full_run(path, imports)), None)
     if stale is None:
-        return drift_files
+        return drift_files, True, set()
     _get("print_warning")(MESSAGES.ci.coverage_index_stale.format(file=stale))
-    return None
+    return drift_files, False, set()
+
+
+def _drift_selection(
+    index: Any, root: Path, imports: SuiteImports
+) -> tuple[set[str], bool, set[str]]:
+    """The files changed since the coverage index was built to select beside the given ones,
+    none when the index is absent or stale; whether the index maps sources; and the helper
+    modules under tests/ among those files that are gone, deleted or renamed away (#1312)."""
+    if index.is_empty:
+        _get("print_muted")(MESSAGES.ci.coverage_index_missing)
+        return set(), False, set()
+    drift_files, usable, removed = _index_drift(index, root, imports)
+    return (set(drift_files) if usable else set()), usable, removed
 
 
 def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
     """Map changed files onto pytest targets using coverage index and text fallback. Only a
     trigger among the given files forces a full run; one that changed since the index was built
-    makes the index stale, and the text selector maps the given files instead."""
+    makes the index stale, and the text selector maps the given files instead. A helper module
+    under tests/ that is gone since then forces a full run too, since what it registered and
+    which tests imported it can no longer be read (#1312)."""
     from devops_cli.ci.cache import resolve_coverage_index_path
     from devops_cli.core.coverage_index import load_index
+    from devops_cli.core.test_selection import SuiteImports
 
     root = _get_project_root()
     index = load_index(resolve_coverage_index_path(root))
+    imports = SuiteImports(root)
     user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
-    drift_files = _index_drift(index, root) if not index.is_empty else None
-    if index.is_empty:
-        _get("print_muted")(MESSAGES.ci.coverage_index_missing)
-    has_index = drift_files is not None
-    all_paths = user_paths | set(drift_files or ())
+    drift, has_index, removed = _drift_selection(index, root, imports)
+    all_paths = user_paths | drift
 
-    if not _check_trigger_files(user_paths, fallback):
+    if not _check_trigger_files(user_paths | removed, fallback, imports):
         return None
 
     targets, mapped_sources, unmapped_sources, source_selectors = _map_changed_paths(
-        all_paths, root, index, has_index
+        all_paths, root, index, has_index, imports
     )
     _report_selection(mapped_sources, unmapped_sources, source_selectors)
 

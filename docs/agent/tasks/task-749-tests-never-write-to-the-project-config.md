@@ -7,7 +7,7 @@
 Tests sometimes mutated the maintainer's `config.yaml` values and wrote into the real `.data` directory. Previous isolation was partial: `isolate_data_dir` pointed `DEVOPS_CLI_DATA_DIR` at a temporary directory per-test, but `save_settings` relied on a test-only `PYTEST_CURRENT_TEST` check with hardcoded workspace paths. Settings cached before per-test fixtures ran could still resolve and write to the real files. During parallel test runs, `CHANGELOG.md` briefly disappeared and `.git/index.lock` was left behind.
 
 ## Acceptance Criteria
-- [x] A session-level tripwire snapshots `config.yaml` and git-tracked files, while explicit test path checks ensure test paths are strictly outside the project directory and forbidden test artifacts are not left behind.
+- [x] A session-level tripwire snapshots `config.yaml` and git-tracked files and reports any forbidden test artifact left behind.
 - [x] The tripwire runs once on the pytest-xdist controller process so parallel workers do not race.
 - [x] Every test receives an isolated temporary config via `DEVOPS_CLI_CONFIG` backed by `tmp_path`.
 - [x] Test-only branches and hardcoded workspace paths are removed from `save_settings`.
@@ -15,9 +15,9 @@ Tests sometimes mutated the maintainer's `config.yaml` values and wrote into the
 - [x] All 10 CI quality gates pass with 100% compliance.
 
 ## Deliverables
-- [x] Session-level workspace tripwire in `tests/conftest.py` with `pytest_sessionstart`, `pytest_sessionfinish`, and `pytest_terminal_summary`.
+- [x] Session-level workspace tripwire with `pytest_sessionstart`, `pytest_sessionfinish`, and `pytest_terminal_summary`, in `tests/support/workspace_tripwire.py` since #1312.
 - [x] Per-test `isolate_devops_cli_config` fixture in `tests/conftest.py` supplying `DEVOPS_CLI_CONFIG` via `tmp_path` and clearing settings cache.
-- [x] Per-test `verify_test_paths_isolated` fixture ensuring active test environment paths reside outside the repository.
+- The per-test `verify_test_paths_isolated` fixture, which checked that the test environment's paths lay outside the repository, was removed by #1312: it read only the paths the suite's own fixtures set, so it could not fail (#1310).
 - [x] Settings cache invalidation on `isolate_data_dir` setup and teardown.
 - [x] Cleaned up `save_settings` in `src/devops_cli/config/settings.py` removing `PYTEST_CURRENT_TEST` check.
 - [x] Comprehensive unit tests in `tests/test_isolation_tripwire.py`.

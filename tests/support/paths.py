@@ -5,6 +5,9 @@ They are found from the `tests` package, which the import system has already loc
 counts a module's parents and a module moved into a subdirectory reads the same paths. They are
 constants rather than fixtures because module-level constants and `parametrize` lists need a
 path at import, before a fixture such as pytest's `rootpath` can give one.
+
+No conftest and no module that defines a fixture or hook imports this one, so a change here runs
+only the test modules that import it rather than the whole suite.
 """
 
 from __future__ import annotations

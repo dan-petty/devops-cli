@@ -14,6 +14,8 @@ from devops_cli.commands.ci import app as ci_app
 from devops_cli.config.constants import CONST_FULL_RUN_TRIGGER_NAMES
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
+    SuiteImports,
+    forces_full_run,
     module_path_for_source,
     select_tests_for_sources,
 )
@@ -196,10 +198,146 @@ def test_a_nested_conftest_selects_the_whole_suite_when_it_binds_a_hook(
     assert targets == selected
 
 
+_FIXTURE_MODULE = (
+    "import pytest\n\n\n@pytest.fixture\ndef identity() -> str:\n    return 'nobody'\n"
+)
+_HOOK_MODULE = "def pytest_runtest_setup(item: object) -> None:\n    pass\n"
+_PLAIN_MODULE = '"""Rows that a fixture would read; the word registers nothing."""\n\nROWS = 1\n'
+_ROWS_IMPORTER = "from tests.support.rows import ROWS\n"
+_MID_IMPORTER = "from tests.support.mid import MID\n"
+_CONFTEST_IMPORTING_ROWS = (
+    "import pytest\n\n\n@pytest.fixture\ndef rows() -> int:\n"
+    "    from tests.support.rows import ROWS\n\n    return ROWS\n"
+)
+_FIXTURE_FROM_PYTEST = (
+    "from pytest import fixture\n\n\n@fixture\ndef identity() -> str:\n    return 'nobody'\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("files", "selected"),
+    [
+        pytest.param(
+            {"tests/support/rows.py": _PLAIN_MODULE, "tests/test_rows.py": _ROWS_IMPORTER},
+            ["tests/test_rows.py"],
+            id="plain-helper",
+        ),
+        pytest.param({"tests/support/rows.py": _FIXTURE_MODULE}, ["tests"], id="fixture-module"),
+        pytest.param(
+            {"tests/support/rows.py": _FIXTURE_FROM_PYTEST, "tests/test_rows.py": _ROWS_IMPORTER},
+            ["tests"],
+            id="fixture-imported-from-pytest",
+        ),
+        pytest.param({"tests/support/rows.py": _HOOK_MODULE}, ["tests"], id="hook-module"),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE,
+                "tests/support/identity.py": _ROWS_IMPORTER + _FIXTURE_MODULE,
+                "tests/test_rows.py": _ROWS_IMPORTER,
+            },
+            ["tests"],
+            id="imported-by-a-fixture-module",
+        ),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE,
+                "tests/support/mid.py": _ROWS_IMPORTER + "MID = ROWS\n",
+                "tests/support/identity.py": _MID_IMPORTER + _FIXTURE_MODULE,
+                "tests/test_rows.py": _ROWS_IMPORTER,
+            },
+            ["tests"],
+            id="imported-two-hops-from-a-fixture-module",
+        ),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE,
+                "tests/support/builders.py": _ROWS_IMPORTER,
+                "tests/test_builders.py": "from tests.support.builders import ROWS\n",
+                "tests/test_rows.py": "import tests.support.rows\n",
+            },
+            ["tests/test_builders.py", "tests/test_rows.py"],
+            id="transitive-importer",
+        ),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE + _MID_IMPORTER,
+                "tests/support/mid.py": _ROWS_IMPORTER + "MID = ROWS\n",
+                "tests/test_mid.py": _MID_IMPORTER,
+            },
+            ["tests/test_mid.py"],
+            id="import-cycle",
+        ),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE,
+                "tests/security/conftest.py": _ROWS_IMPORTER,
+                "tests/test_rows.py": _ROWS_IMPORTER,
+            },
+            ["tests"],
+            id="imported-by-a-plain-conftest",
+        ),
+        pytest.param(
+            {
+                "tests/support/rows.py": _PLAIN_MODULE,
+                "tests/security/conftest.py": _CONFTEST_IMPORTING_ROWS,
+                "tests/test_rows.py": _ROWS_IMPORTER,
+            },
+            ["tests"],
+            id="imported-inside-a-conftest-fixture",
+        ),
+        pytest.param({"tests/test_rows.py": _ROWS_IMPORTER}, ["tests"], id="deleted"),
+    ],
+)
+def test_a_support_module_reaches_every_test_by_what_it_registers_who_imports_it_or_when_unread(
+    project: Path, files: dict[str, str], selected: list[str]
+) -> None:
+    """Every submodule and subpackage of `tests.support` is registered as a plugin, so one that
+    defines a fixture or a `pytest_*` hook reaches every test, as does one that such a module or
+    a conftest imports, directly or through other modules, inside a function too; any other
+    reaches only the test modules that import it, directly or through another module, an import
+    cycle included. `ast` reads the tree, so a docstring naming a fixture registers nothing, and
+    a module it cannot read, as one deleted, reaches every test (#1312)."""
+    _write(project, files)
+    targets = select_tests_for_sources(["tests/support/rows.py"], project).pytest_targets()
+    assert targets == selected
+
+
+def _write(project: Path, files: dict[str, str]) -> None:
+    """Write each file of `files` under the project."""
+    for relative, text in files.items():
+        (project / relative).parent.mkdir(parents=True, exist_ok=True)
+        (project / relative).write_text(text, encoding="utf-8")
+
+
+def test_a_package_init_selects_the_test_modules_importing_its_modules_not_its_empty_directory(
+    project: Path,
+) -> None:
+    """Importing a module of a package runs the package's `__init__.py` first, so a change to it
+    selects the test modules that import any of its modules; the package's own directory holds no
+    test module, so it is not handed to pytest, which would collect nothing there (#1312)."""
+    _write(
+        project,
+        {
+            "tests/support/__init__.py": "",
+            "tests/support/fakes/__init__.py": "",
+            "tests/support/fakes/github.py": "SESSION = None\n",
+            "tests/test_github.py": "from tests.support.fakes.github import SESSION\n",
+        },
+    )
+    selection = select_tests_for_sources(["tests/support/fakes/__init__.py"], project)
+    assert selection.pytest_targets() == ["tests/test_github.py"]
+
+
+def test_the_tests_package_init_reaches_every_test_through_the_conftest(project: Path) -> None:
+    """The root conftest runs `tests/__init__.py` first, as its package, so a change to it forces
+    a full run (#1312)."""
+    _write(project, {"tests/__init__.py": "", "tests/conftest.py": ""})
+    assert forces_full_run("tests/__init__.py", SuiteImports(project)) is True
+
+
 @pytest.mark.parametrize(
     "trigger",
     [
-        "tests/support/paths.py",
         "tests/conftest.py",
         "conftest.py",
         "pyproject.toml",
@@ -508,23 +646,24 @@ def test_cli_test_trigger_file_conftest_forces_full_run(
     ) == (0, [], True, 0, [], True, 1, True)
 
 
-def test_cli_test_support_module_forces_full_run(
+def test_cli_test_a_support_module_that_registers_a_fixture_forces_full_run(
     monkeypatch: pytest.MonkeyPatch, project: Path
 ) -> None:
-    """A module under tests/support/ forces the full suite with or without an index, as a
-    conftest does, because a fixture it registers reaches tests that never import it; with
-    --no-fallback it fails naming the file (#1312)."""
+    """A module under tests/support/ that defines a fixture forces the full suite with or
+    without an index, as a conftest does, because the fixture it registers reaches tests that
+    never import it; with --no-fallback it fails naming the file (#1312)."""
+    support = "tests/support/identity.py"
     (project / "tests" / "support").mkdir()
-    (project / "tests" / "support" / "paths.py").write_text("ROOT = None\n", encoding="utf-8")
-    (project / "tests" / "test_paths.py").write_text(
-        "from tests.support.paths import ROOT\n", encoding="utf-8"
+    (project / support).write_text(_FIXTURE_MODULE, encoding="utf-8")
+    (project / "tests" / "test_identity.py").write_text(
+        "from tests.support.identity import identity\n", encoding="utf-8"
     )
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
 
     index_path = resolve_coverage_index_path(project)
     index = CoverageIndex(
         covering_tests={"src/a.py": ["tests/test_a.py"]},
-        source_hashes={"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
+        source_hashes={"src/a.py": "h_a", support: "h_s"},
         built_at=100.0,
     )
 
@@ -533,28 +672,55 @@ def test_cli_test_support_module_forces_full_run(
     monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
     monkeypatch.setattr(
         "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
+        lambda root=Path("."): {"src/a.py": "h_a", support: "h_s"},
     )
 
-    res_no_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    res_no_idx = runner.invoke(ci_app, ["test", support])
     targets_no_idx = [arg for arg in called[0] if arg.startswith("tests/")]
 
     save_index(index, index_path)
-    res_with_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    res_with_idx = runner.invoke(ci_app, ["test", support])
     targets_with_idx = [arg for arg in called[1] if arg.startswith("tests/")]
 
-    res_no_fb = runner.invoke(ci_app, ["test", "tests/support/paths.py", "--no-fallback"])
+    res_no_fb = runner.invoke(ci_app, ["test", support, "--no-fallback"])
 
     assert (
         res_no_idx.exit_code,
         targets_no_idx,
-        "tests/support/paths.py" in res_no_idx.output,
+        support in res_no_idx.output,
         res_with_idx.exit_code,
         targets_with_idx,
-        "tests/support/paths.py" in res_with_idx.output,
+        support in res_with_idx.output,
         res_no_fb.exit_code,
-        "tests/support/paths.py" in res_no_fb.output,
+        support in res_no_fb.output,
     ) == (0, [], True, 0, [], True, 1, True)
+
+
+def test_cli_test_a_plain_support_module_runs_the_test_modules_importing_it(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A module under tests/support/ that registers nothing runs the test modules that import
+    it, directly or through another support module, even under --no-fallback, and not the whole
+    suite (#1312)."""
+    (project / "tests" / "support").mkdir()
+    (project / "tests" / "support" / "paths.py").write_text("ROOT = None\n", encoding="utf-8")
+    (project / "tests" / "support" / "builders.py").write_text(
+        "from tests.support.paths import ROOT\n", encoding="utf-8"
+    )
+    (project / "tests" / "test_paths.py").write_text(
+        "from tests.support.paths import ROOT\n", encoding="utf-8"
+    )
+    (project / "tests" / "test_builders.py").write_text(
+        "from tests.support.builders import ROOT\n", encoding="utf-8"
+    )
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+
+    result = runner.invoke(ci_app, ["test", "tests/support/paths.py", "--no-fallback"])
+
+    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    assert (result.exit_code, targets) == (0, ["tests/test_builders.py", "tests/test_paths.py"])
 
 
 @pytest.mark.parametrize("prefix", ["", "./"])
@@ -593,14 +759,23 @@ def test_a_relative_path_loses_only_a_leading_dot_slash(
     assert _normalize_repo_rel_path(given, tmp_path) == normalized
 
 
-@pytest.mark.parametrize("trigger", ["tests/support/paths.py", "pyproject.toml"])
+@pytest.mark.parametrize(
+    ("trigger", "text"),
+    [
+        pytest.param("tests/support/identity.py", _FIXTURE_MODULE, id="tests/support/identity.py"),
+        pytest.param("pyproject.toml", None, id="pyproject.toml"),
+    ],
+)
 def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
-    monkeypatch: pytest.MonkeyPatch, project: Path, trigger: str
+    monkeypatch: pytest.MonkeyPatch, project: Path, trigger: str, text: str | None
 ) -> None:
-    """Once a support module or the project's dependencies changed and were committed, the
-    index is stale, not a reason to run the whole suite on every later run: an unrelated source
-    is selected by name and import, even under --no-fallback, and the warning names the file
-    (#1312)."""
+    """Once a support module that registers a fixture, or the project's dependencies, changed
+    and were committed, the index is stale, not a reason to run the whole suite on every later
+    run: an unrelated source is selected by name and import, even under --no-fallback, and the
+    warning names the file (#1312)."""
+    if text is not None:
+        (project / trigger).parent.mkdir(parents=True, exist_ok=True)
+        (project / trigger).write_text(text, encoding="utf-8")
     secrets = "src/devops_cli/security/secrets.py"
     index = CoverageIndex(
         covering_tests={secrets: ["tests/test_secrets.py"]},
@@ -626,6 +801,43 @@ def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
         True,
         True,
     )
+
+
+def test_cli_test_a_helper_deleted_since_the_index_was_built_forces_a_full_run(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A helper module under tests/ that the index knew and that is gone now, deleted or renamed
+    away, may have registered a fixture and leaves its importers broken, neither of which can be
+    read any more, so it forces the full suite, or a refusal naming it under --no-fallback,
+    rather than only leaving the index stale (#1312)."""
+    secrets = "src/devops_cli/security/secrets.py"
+    gone = "tests/support/gone.py"
+    index = CoverageIndex(
+        covering_tests={secrets: ["tests/test_secrets.py"]},
+        source_hashes={secrets: "h_s", gone: "h_gone"},
+        built_at=100.0,
+    )
+    save_index(index, resolve_coverage_index_path(project))
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+    monkeypatch.setattr(
+        "devops_cli.ci.cache.compute_worktree_blob_hashes", lambda root=Path("."): {secrets: "h_s"}
+    )
+
+    refused = runner.invoke(ci_app, ["test", secrets, "--no-fallback"])
+    full = runner.invoke(ci_app, ["test", secrets])
+
+    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    outputs = " ".join(" ".join(result.output.split()) for result in (refused, full))
+    assert (
+        refused.exit_code,
+        gone in refused.output,
+        full.exit_code,
+        len(called),
+        targets,
+        "selected by name and import" in outputs,
+    ) == (1, True, 0, 1, [], False)
 
 
 def test_cli_test_helper_without_index_runs_importing_tests(
