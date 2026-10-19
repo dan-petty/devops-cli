@@ -3153,7 +3153,7 @@ CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}
 )
 CONST_LOCAL_TRANSPORT_LABELS: Final[frozenset[str]] = frozenset(
-    {"direct", "local", "in-process", "internal", "none"}
+    {"local", "in-process", "internal", "none"}
 )
 
 # ── Kubernetes Informer & Service Constants ──────────────────────────────────

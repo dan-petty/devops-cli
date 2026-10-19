@@ -14,7 +14,12 @@ from pydantic_ai.usage import RequestUsage
 import devops_cli.ai.spend as spend_mod
 from devops_cli.ai import context_budget
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, RequestPriority
-from devops_cli.ai.direct import direct_model_request, direct_model_request_sync
+from devops_cli.ai.direct import (
+    direct_model_request,
+    direct_model_request_stream,
+    direct_model_request_stream_sync,
+    direct_model_request_sync,
+)
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
@@ -204,11 +209,94 @@ def test_direct_model_request_records_spend(monkeypatch: pytest.MonkeyPatch) -> 
         recorded[0]["prompt_tokens"],
         recorded[0]["completion_tokens"],
     ) == (
-        "pydantic_ai_direct",
+        "test",
         "test-model",
         40,
         60,
     )
+
+
+def test_direct_model_request_stream_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify direct_model_request_stream_sync and stream record spend upon iteration finish (#1001)."""
+    from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
+
+    recorded: list[dict[str, Any]] = []
+
+    def mock_track_spend(**kwargs: Any) -> SpendRecord:
+        recorded.append(kwargs)
+        return SpendRecord(
+            timestamp="2026-01-01T00:00:00Z",
+            provider=kwargs.get("provider", ""),
+            model=kwargs.get("model", ""),
+            server=kwargs.get("server", ""),
+            prompt_tokens=kwargs.get("prompt_tokens", 0),
+            completion_tokens=kwargs.get("completion_tokens", 0),
+            total_tokens=kwargs.get("prompt_tokens", 0) + kwargs.get("completion_tokens", 0),
+            cost_usd=0.0002,
+        )
+
+    monkeypatch.setattr(spend_mod, "track_request_spend", mock_track_spend)
+
+    from contextlib import asynccontextmanager, contextmanager
+
+    class MockStream:
+        def __init__(self) -> None:
+            self.usage = RequestUsage(input_tokens=25, output_tokens=35)
+            self.response = ModelResponse(
+                parts=[TextPart(content="Streaming chunk")],
+                finish_reason="stop",
+            )
+
+        def __iter__(self) -> Any:
+            yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="Streaming chunk"))
+
+        async def __aiter__(self) -> Any:
+            yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="Streaming chunk"))
+
+    @contextmanager
+    def mock_stream_sync(*args: Any, **kwargs: Any) -> Any:
+        yield MockStream()
+
+    @asynccontextmanager
+    async def mock_stream_async(*args: Any, **kwargs: Any) -> Any:
+        yield MockStream()
+
+    monkeypatch.setattr(
+        "devops_cli.ai.pydantic_ai_bridge.resolve_pydantic_ai_model",
+        lambda m, **kwargs: "test-model",
+    )
+    monkeypatch.setattr("devops_cli.ai.direct.model_request_stream_sync", mock_stream_sync)
+    monkeypatch.setattr("devops_cli.ai.direct.model_request_stream", mock_stream_async)
+
+    # Sync stream
+    sync_chunks = list(direct_model_request_stream_sync("Prompt", model="test-model"))
+    assert sync_chunks == ["Streaming chunk"]
+    assert len(recorded) == 1
+    assert (
+        recorded[0]["request_type"],
+        recorded[0]["provider"],
+        recorded[0]["prompt_tokens"],
+        recorded[0]["completion_tokens"],
+        recorded[0]["finish_reason"],
+    ) == ("direct_stream_sync", "test", 25, 35, "stop")
+
+    # Async stream
+    async def collect_async() -> list[str]:
+        chunks: list[str] = []
+        async for c in direct_model_request_stream("Prompt", model="test-model"):
+            chunks.append(c)
+        return chunks
+
+    async_chunks = asyncio.run(collect_async())
+    assert async_chunks == ["Streaming chunk"]
+    assert len(recorded) == 2
+    assert (
+        recorded[1]["request_type"],
+        recorded[1]["provider"],
+        recorded[1]["prompt_tokens"],
+        recorded[1]["completion_tokens"],
+        recorded[1]["finish_reason"],
+    ) == ("direct_stream_async", "test", 25, 35, "stop")
 
 
 # ── Why a reply ended, from the provider to the ledger and its observers ──────────────────────

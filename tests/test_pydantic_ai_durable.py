@@ -88,7 +88,8 @@ def test_local_durability_capability_unnamed_agent_raises() -> None:
         cap.for_agent(agent)
 
 
-def test_local_durability_capability_model_resolution() -> None:
+@pytest.mark.asyncio
+async def test_local_durability_capability_model_resolution() -> None:
     """Verify model registry lookup and resolution across durable boundaries."""
     default_model = TestModel(custom_output_text="default")
     extra_model = TestModel(custom_output_text="extra")
@@ -105,11 +106,11 @@ def test_local_durability_capability_model_resolution() -> None:
     ctx = ModelResolutionContext[Any](agent=agent, deps=None)
 
     # Resolution of registered extra model
-    resolved_extra = bound_cap.resolve_model_id_sync(cast(Any, ctx), model_id="custom_llm")
+    resolved_extra = await bound_cap.resolve_model_id(cast(Any, ctx), model_id="custom_llm")
     assert resolved_extra is extra_model
 
     # Resolution of unknown model defers
-    resolved_unknown = bound_cap.resolve_model_id_sync(cast(Any, ctx), model_id="unknown_model")
+    resolved_unknown = await bound_cap.resolve_model_id(cast(Any, ctx), model_id="unknown_model")
     assert resolved_unknown is None
 
 

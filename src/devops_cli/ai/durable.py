@@ -22,7 +22,7 @@ from pydantic_ai.durable_exec import (
     JournalCallableOperationBackend,
     RoleBasedOperationConfig,
 )
-from pydantic_ai.models import KnownModelName, Model, ModelRequestContext, ModelResolutionContext
+from pydantic_ai.models import KnownModelName, Model, ModelRequestContext
 from pydantic_ai.tools import AgentDepsT, RunContext
 
 from devops_cli.config.defaults import (
@@ -378,15 +378,6 @@ class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
     def get_durable_operation_backend(self) -> _LocalOperationBackend:
         """Return the in-process backend that runs this capability's durable operations."""
         return _LocalOperationBackend(self.name, self.default_model_id)
-
-    def resolve_model_id_sync(
-        self,
-        ctx: ModelResolutionContext[AgentDepsT],
-        *,
-        model_id: KnownModelName | str,
-    ) -> Model | None:
-        """Synchronously map a model-name string to its models= registry instance or None."""
-        return self._models_by_id.get(model_id)
 
     def save_step(
         self, kind: str, payload: dict[str, Any], *, run_id: str | None = None
