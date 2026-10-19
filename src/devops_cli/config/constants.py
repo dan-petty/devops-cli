@@ -4658,9 +4658,7 @@ CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
 CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
 CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
 
-# ── CLI Startup & Import Budgets (#1002) ──────────────────────────────────────
-CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS: Final[float] = 0.5
-CONST_STARTUP_IMPORT_BUDGET_HELP_SECONDS: Final[float] = 1.0
+# ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
 CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
     "pydantic_ai",
     "kubernetes",
