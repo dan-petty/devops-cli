@@ -7,6 +7,7 @@ import httpx2
 from devops_cli.ai.client.factory import (
     build_llm_client,
     get_llm_client,
+    set_llm_client_override,
 )
 from devops_cli.ai.client.models import (
     MAX_STREAM_BYTES,
@@ -66,5 +67,6 @@ __all__ = [
     "request_limited_json",
     "request_priority_scope",
     "reset_ollama_slots",
+    "set_llm_client_override",
     "validate_base_url",
 ]

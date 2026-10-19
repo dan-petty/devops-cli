@@ -17,8 +17,11 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 import httpx2
 import pytest
@@ -687,17 +690,17 @@ def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
     ) == (False, True)
 
 
-def test_cli_refine_dry_run_and_confirm(git_repo: Path, store: InMemoryRoadmapStore) -> None:
+def test_cli_refine_dry_run_and_confirm(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
     num = store.seed_issue("Feature to refine", body="Need refinement", on_board=True)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
 
     mock_llm = MockLLMClient()
+    model_fake.answer(mock_llm.proposal)
     runner = CliRunner()
-    with (
-        patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)),
-        patch("devops_cli.roadmap.refine.get_llm_client", return_value=mock_llm),
-    ):
+    with patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)):
         # Dry run
         res_dry = runner.invoke(
             roadmap_app,
