@@ -93,8 +93,8 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
-from tests.github_session_fakes import API, GitHubApiFake, RunnerSession, github_json
 from tests.roadmap_board_fake import GitHubFake, field_id
+from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)

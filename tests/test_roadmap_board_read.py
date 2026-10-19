@@ -40,8 +40,8 @@ from devops_cli.roadmap.board_read import (
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.reprioritize import plan_reprioritization
-from tests.github_session_fakes import RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
+from tests.support.fakes.github import RunnerSession
 from tests.support.paths import FIXTURES
 from tests.support.roadmap_board_replies import REPO, board_of, fields_reply, issues_of
 

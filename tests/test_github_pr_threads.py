@@ -35,7 +35,7 @@ from devops_cli.github.review_thread_issues import thread_issue_body
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap import store as roadmap_module
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from tests.github_session_fakes import (
+from tests.support.fakes.github import (
     API,
     GitHubApiFake,
     RunnerSession,

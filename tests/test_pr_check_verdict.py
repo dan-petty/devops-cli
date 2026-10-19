@@ -15,7 +15,7 @@ from devops_cli.github.check_verdict import (
     classify_check_item,
     fetch_pr_check_verdicts,
 )
-from tests.github_session_fakes import JSON_TYPE, GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 
 # The REST fallback reads check runs through the GitHub session (#983).
 _NO_RUNS = {"total_count": 0, "check_runs": []}

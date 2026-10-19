@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.pr import ChangedFile, app
 from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
-from tests.github_session_fakes import GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 
 @pytest.fixture

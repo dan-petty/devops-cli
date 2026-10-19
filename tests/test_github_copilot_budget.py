@@ -40,7 +40,7 @@ from tests.copilot_review_payloads import (
     review_requested,
     work_started,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 _REPO = "dan-petty/devops-cli"
 _PULL = f"repos/{_REPO}/pulls/7"

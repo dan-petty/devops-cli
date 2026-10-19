@@ -18,7 +18,7 @@ from devops_cli.github.check_verdict import (
     PRCheckItem,
     _fetch_check_runs_from_rest,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 
 @pytest.mark.parametrize(

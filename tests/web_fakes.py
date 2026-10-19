@@ -23,6 +23,8 @@ import httpx2
 from devops_cli.http.egress import AsyncVettingBackend, EgressLevel, VettingBackend, vet_addresses
 
 PUBLIC_ADDRESS = "93.184.215.14"
+# What a fake client says faked httpx2.AsyncClient, so a second fake in one test is refused.
+FAKE_OWNER_ATTRIBUTE = "fake_owner"
 
 
 def http_response(status: int, body: str = "", headers: dict[str, str] | None = None) -> bytes:
@@ -202,6 +204,22 @@ def record_connects(monkeypatch: Any, responses: Iterable[bytes]) -> ConnectReco
     monkeypatch.setattr(httpcore2.SyncBackend, "connect_tcp", recorder.connect_tcp)
     monkeypatch.setattr(httpcore2.AnyIOBackend, "connect_tcp", recorder.aconnect_tcp)
     return recorder
+
+
+def install_async_client_fake(monkeypatch: Any, fake: type[Any]) -> None:
+    """Make `fake` the `httpx2.AsyncClient` for the rest of the test.
+
+    `stub_web` and `github_api` each answer async clients from their own fake, which names itself
+    in its `FAKE_OWNER_ATTRIBUTE`, so a test that asks for both would have one silently win; the
+    second to install raises instead.
+    """
+    installed = getattr(httpx2.AsyncClient, FAKE_OWNER_ATTRIBUTE, None)
+    if installed is not None:
+        raise RuntimeError(
+            f"{getattr(fake, FAKE_OWNER_ATTRIBUTE)} and {installed} both fake httpx2.AsyncClient; "
+            "a test uses one of them"
+        )
+    monkeypatch.setattr(httpx2, "AsyncClient", fake)
 
 
 def egress_level_of(transport: Any) -> EgressLevel | None:

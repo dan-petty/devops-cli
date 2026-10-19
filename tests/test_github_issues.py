@@ -23,7 +23,7 @@ from devops_cli.github.issues import (
     get_issues_summary,
     get_repository_issues,
 )
-from tests.github_session_fakes import JSON_TYPE, GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 
 
 def test_github_issue_model() -> None:

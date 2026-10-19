@@ -1,0 +1,691 @@
+{
+  "about": "GitHub's answers to the GitHub session's own requests, recorded on 2026-10-19 through the session's transport for the contract suite in tests/test_github_contract.py (#983). Every request but GET /user was sent with the recording identity's token; GET /user was sent with the pinned fake test token. No token is kept: a request keeps its method, URL, the If-None-Match it was sent with and its JSON body. An answer keeps its status, its body decoded as text and its headers, without the headers naming the token's scopes and client and GitHub's request id, the transport's encoding headers, and the security and CORS headers GitHub sends with every answer.",
+  "recordings": {
+    "label_read_twice_around_a_missing_label": [
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/octocat/Hello-World/labels/bug",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:24 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "W/\"fbc60fb507394e61bfe123db07644f0bfbc07094f3ec0d8b24da284a62f537ac\""
+            ],
+            [
+              "last-modified",
+              "Mon, 08 May 2017 21:15:36 GMT"
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              "repo"
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4993"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792449606"
+            ],
+            [
+              "x-ratelimit-used",
+              "7"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "{\"id\":600797884,\"node_id\":\"MDU6TGFiZWw2MDA3OTc4ODQ=\",\"url\":\"https://api.github.com/repos/octocat/Hello-World/labels/bug\",\"name\":\"bug\",\"color\":\"c5def5\",\"default\":true,\"description\":null,\"archived_at\":null,\"archived_by\":null}"
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/octocat/Hello-World/labels/no-such-label",
+          "headers": {}
+        },
+        "response": {
+          "status": 404,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:25 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              "repo"
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "vary",
+              "Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4992"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792449606"
+            ],
+            [
+              "x-ratelimit-used",
+              "8"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "{\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/issues/labels#get-a-label\",\"status\":\"404\"}"
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/octocat/Hello-World/labels/bug",
+          "headers": {
+            "if-none-match": "W/\"fbc60fb507394e61bfe123db07644f0bfbc07094f3ec0d8b24da284a62f537ac\""
+          }
+        },
+        "response": {
+          "status": 304,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:25 GMT"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "last-modified",
+              "Mon, 08 May 2017 21:15:36 GMT"
+            ],
+            [
+              "etag",
+              "\"fbc60fb507394e61bfe123db07644f0bfbc07094f3ec0d8b24da284a62f537ac\""
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792449606"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4992"
+            ],
+            [
+              "x-ratelimit-used",
+              "8"
+            ]
+          ],
+          "body": ""
+        }
+      }
+    ],
+    "branches_listed_twice": [
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/octocat/Hello-World/branches?per_page=2",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:26 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "W/\"90b66b5693398898eabfa6ef90b1acd5f40193f72ecd06601ae17ffb19d547ce\""
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              ""
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "link",
+              "<https://api.github.com/repositories/1296269/branches?per_page=2&page=2>; rel=\"next\", <https://api.github.com/repositories/1296269/branches?per_page=2&page=2>; rel=\"last\""
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4904"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792448009"
+            ],
+            [
+              "x-ratelimit-used",
+              "96"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "[{\"name\":\"master\",\"commit\":{\"sha\":\"7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\",\"url\":\"https://api.github.com/repos/octocat/Hello-World/commits/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\"},\"protected\":false},{\"name\":\"octocat-patch-1\",\"commit\":{\"sha\":\"b1b3f9723831141a31a1a7252a213e216ea76e56\",\"url\":\"https://api.github.com/repos/octocat/Hello-World/commits/b1b3f9723831141a31a1a7252a213e216ea76e56\"},\"protected\":false}]"
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repositories/1296269/branches?per_page=2&page=2",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:26 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "W/\"fd6f1ea358a3e8e4aa77a5e8d275b7bea994aa766e35dc2de778c9a10c551ae3\""
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              ""
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "link",
+              "<https://api.github.com/repositories/1296269/branches?per_page=2&page=1>; rel=\"prev\", <https://api.github.com/repositories/1296269/branches?per_page=2&page=1>; rel=\"first\""
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4903"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792448009"
+            ],
+            [
+              "x-ratelimit-used",
+              "97"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "[{\"name\":\"test\",\"commit\":{\"sha\":\"b3cbd5bbd7e81436d2eee04537ea2b4c0cad4cdf\",\"url\":\"https://api.github.com/repos/octocat/Hello-World/commits/b3cbd5bbd7e81436d2eee04537ea2b4c0cad4cdf\"},\"protected\":false}]"
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repos/octocat/Hello-World/branches?per_page=2",
+          "headers": {
+            "if-none-match": "W/\"90b66b5693398898eabfa6ef90b1acd5f40193f72ecd06601ae17ffb19d547ce\""
+          }
+        },
+        "response": {
+          "status": 304,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:27 GMT"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "\"90b66b5693398898eabfa6ef90b1acd5f40193f72ecd06601ae17ffb19d547ce\""
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792448009"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4903"
+            ],
+            [
+              "x-ratelimit-used",
+              "97"
+            ]
+          ],
+          "body": ""
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/repositories/1296269/branches?per_page=2&page=2",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:27 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "W/\"fd6f1ea358a3e8e4aa77a5e8d275b7bea994aa766e35dc2de778c9a10c551ae3\""
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              ""
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "link",
+              "<https://api.github.com/repositories/1296269/branches?per_page=2&page=1>; rel=\"prev\", <https://api.github.com/repositories/1296269/branches?per_page=2&page=1>; rel=\"first\""
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4902"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792448009"
+            ],
+            [
+              "x-ratelimit-used",
+              "98"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "[{\"name\":\"test\",\"commit\":{\"sha\":\"b3cbd5bbd7e81436d2eee04537ea2b4c0cad4cdf\",\"url\":\"https://api.github.com/repos/octocat/Hello-World/commits/b3cbd5bbd7e81436d2eee04537ea2b4c0cad4cdf\"},\"protected\":false}]"
+        }
+      }
+    ],
+    "search_without_a_query": [
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/search/issues?q=",
+          "headers": {}
+        },
+        "response": {
+          "status": 422,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:29 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "cache-control",
+              "no-cache"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              "repo"
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "30"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "29"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792447889"
+            ],
+            [
+              "x-ratelimit-used",
+              "1"
+            ],
+            [
+              "x-ratelimit-resource",
+              "search"
+            ]
+          ],
+          "body": "{\"message\":\"Validation Failed\",\"errors\":[{\"resource\":\"Search\",\"field\":\"q\",\"code\":\"missing\"}],\"documentation_url\":\"https://docs.github.com/v3/search\",\"status\":\"422\"}"
+        }
+      }
+    ],
+    "markdown_rendered": [
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://api.github.com/markdown",
+          "headers": {},
+          "body": {
+            "text": "Hello **world**"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:30 GMT"
+            ],
+            [
+              "content-type",
+              "text/html;charset=utf-8"
+            ],
+            [
+              "x-commonmarker-version",
+              "0.23.12"
+            ],
+            [
+              "cache-control",
+              "private, max-age=60, s-maxage=60"
+            ],
+            [
+              "vary",
+              "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "etag",
+              "W/\"7bb8e57a96996d9dfd884fec46d34c3bc99d1c87b218cb867d59c5ef4d6e8849\""
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              ""
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4991"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792449606"
+            ],
+            [
+              "x-ratelimit-used",
+              "9"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "<p>Hello <strong>world</strong></p>\n"
+        }
+      }
+    ],
+    "markdown_in_an_unknown_mode": [
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://api.github.com/markdown",
+          "headers": {},
+          "body": {
+            "text": "Hello",
+            "mode": "no-such-mode"
+          }
+        },
+        "response": {
+          "status": 400,
+          "headers": [
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:31 GMT"
+            ],
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "x-commonmarker-version",
+              "0.23.12"
+            ],
+            [
+              "x-accepted-oauth-scopes",
+              ""
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "x-github-api-version-selected",
+              "2022-11-28"
+            ],
+            [
+              "vary",
+              "Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "x-ratelimit-limit",
+              "5000"
+            ],
+            [
+              "x-ratelimit-remaining",
+              "4990"
+            ],
+            [
+              "x-ratelimit-reset",
+              "1792449606"
+            ],
+            [
+              "x-ratelimit-used",
+              "10"
+            ],
+            [
+              "x-ratelimit-resource",
+              "core"
+            ]
+          ],
+          "body": "{\"message\":\"Invalid rendering mode\",\"documentation_url\":\"https://docs.github.com/v3/markdown/\",\"status\":\"400\"}"
+        }
+      }
+    ],
+    "user_with_a_refused_token": [
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.github.com/user",
+          "headers": {}
+        },
+        "response": {
+          "status": 401,
+          "headers": [
+            [
+              "content-type",
+              "application/json; charset=utf-8"
+            ],
+            [
+              "x-github-media-type",
+              "github.v3; format=json"
+            ],
+            [
+              "vary",
+              "Accept-Encoding, Accept, X-Requested-With"
+            ],
+            [
+              "date",
+              "Mon, 19 Oct 2026 22:10:32 GMT"
+            ]
+          ],
+          "body": "{\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}"
+        }
+      }
+    ]
+  }
+}

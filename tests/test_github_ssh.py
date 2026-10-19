@@ -29,7 +29,7 @@ from devops_cli.github.ssh import (
     _register_with_token_api,
     register_key_on_github,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 
 def test_register_key_on_github_via_gh_cli(monkeypatch: pytest.MonkeyPatch) -> None:

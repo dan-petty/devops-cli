@@ -20,7 +20,7 @@ from devops_cli.github.issues import (
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
-from tests.github_session_fakes import GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 runner = CliRunner()
 

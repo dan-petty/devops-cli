@@ -52,8 +52,8 @@ from devops_cli.roadmap.request_plan import (
     render_requests,
     reprioritize_requests,
 )
-from tests.github_session_fakes import API, RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
+from tests.support.fakes.github import API, RunnerSession
 from tests.support.roadmap_board_replies import board_of, fields_reply, issues_of
 
 REPO = "dan-petty/devops-cli"

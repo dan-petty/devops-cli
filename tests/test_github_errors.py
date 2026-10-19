@@ -33,7 +33,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
-from tests.github_session_fakes import JSON_TYPE, GitHubApiFake, github_json, quota_headers
+from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, quota_headers
 
 _PATH = "/user/keys"
 _SCOPES = {
@@ -288,7 +288,11 @@ _GH_FAILURES: dict[tuple[str, int], type[GitHubOperationError] | None] = {
         "You are not logged into any GitHub hosts. To log in, run: gh auth login",
         1,
     ): GitHubUnauthenticatedError,
-    ("error: authentication required", 1): GitHubUnauthenticatedError,
+    # `gh api` relays GitHub's 401 for a request without a token as `<message> (HTTP 401)`.
+    ("gh: Requires authentication (HTTP 401)", 1): GitHubUnauthenticatedError,
+    # A proxy that wants credentials answers 407, which Go's net/http names by its reason phrase:
+    # no GitHub login failure.
+    ('Post "https://api.github.com/graphql": Proxy Authentication Required', 1): None,
     (
         "To get started with GitHub CLI, please run:  gh auth login",
         4,
@@ -317,9 +321,9 @@ def _class_of(error: GitHubOperationError | None) -> type[GitHubOperationError] 
 
 
 def test_a_gh_failure_is_classified_by_its_exit_status_and_the_gh_output_table() -> None:
-    """Every phrase of the table, `HTTP 401`, `Bad credentials`, `not logged in`, `authentication
-    required` and gh's exit status 4 ("requires authentication", `gh help exit-codes`) map to
-    their class in any case; anything else is no class."""
+    """Every phrase of the table, `HTTP 401`, `Bad credentials`, `not logged in` and gh's exit
+    status 4 ("requires authentication", `gh help exit-codes`) map to their class in any case;
+    anything else is no class."""
     from devops_cli.github.error_classifier import classify_gh_failure
 
     table = {**_every_phrase_of_the_gh_table(), **_GH_FAILURES}
@@ -328,6 +332,36 @@ def test_a_gh_failure_is_classified_by_its_exit_status_and_the_gh_output_table()
         for output, exit_code in table
     }
     assert classified == table
+
+
+# Rows the gh-output table took from the board scope check's old phrase list, and the
+# "authentication required" row. Neither gh 2.102.0 nor go-gh 2.16.1, the version gh 2.102.0
+# builds with, writes any of them for a GitHub failure. In their sources at those tags the scope
+# wordings appear nowhere, "project scope" only in the help of gh's skill installer, and
+# "authentication required" only in the exit-codes section of gh's man page; gh's stderr holds it
+# only inside "Proxy Authentication Required", the reason phrase of a proxy's 407, which is no
+# GitHub login failure.
+_PHRASES_OF_NO_GITHUB_FAILURE: tuple[str, ...] = (
+    "scope 'project'",
+    'scope "project"',
+    "requires additional permissions",
+    "requires the 'project' scope",
+    "need the 'project' scope",
+    "project scope",
+    "authentication required",
+)
+
+
+def test_a_phrase_gh_writes_for_no_github_failure_names_no_class() -> None:
+    """The table holds only what gh writes for a GitHub failure, so other text, which a command
+    could still echo from what it was given, is no class of failure."""
+    from devops_cli.github.error_classifier import classify_gh_failure
+
+    classified = {
+        phrase: _class_of(classify_gh_failure(f"gh: {phrase}", exit_code=1))
+        for phrase in _PHRASES_OF_NO_GITHUB_FAILURE
+    }
+    assert classified == dict.fromkeys(_PHRASES_OF_NO_GITHUB_FAILURE)
 
 
 @pytest.mark.parametrize(
