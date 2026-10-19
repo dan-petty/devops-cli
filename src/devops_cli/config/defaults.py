@@ -803,6 +803,11 @@ DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
+# How many GET answers one GitHub session keeps with their ETags, in memory, for its next GET of
+# the same URL to be conditional (#983). An entry is one answer, at most a page of
+# DEFAULT_GH_REST_PER_PAGE items, so the bound is on pages held: a roadmap poll's listings and a
+# PR monitor's reads fit well inside it, and the URL read longest ago goes first.
+DEFAULT_GH_SESSION_ETAG_CACHE_SIZE: int = 64
 # A roadmap poll reads the pull requests and the GitHub Releases this many at a time: at 100 a
 # page the two pages ran to about 2 MB and 0.4 MB, and a poll needs the newest few (#1360).
 DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE: int = 20

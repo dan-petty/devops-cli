@@ -16,12 +16,23 @@ refused origin are not retried either. Every use of the ledger runs in a worker 
 lock may be held through another thread's quota refresh. What still fails is raised as the error
 `github.error_classifier` names for it.
 
+A GET is conditional (#983): gidgethub keeps each GET's answer with its ETag in the transport's
+bounded LRU store, `DEFAULT_GH_SESSION_ETAG_CACHE_SIZE` answers in memory, and sends the next GET
+of that URL with `If-None-Match`; a 304 gives back the stored answer. Each attempt, a 304 too, is
+still paced and charged by `_request`, retried by the same hook and sent through the same origin
+hook, and a stored page is still checked by `listed_items`. Every GET's answer is handed out as a
+copy, so no caller changes a stored one. GitHub's ETag covers a page's body only and its 304
+carries no `Link`, so a page whose stored answer linked no next page is read in full: a page added
+after a full last page leaves that page's ETag as it was.
+
 A transport is closed by `close()`, when it is garbage-collected, or at interpreter exit, while
-the portal's thread can still run; closing cancels the requests still in flight.
+the portal's thread can still run; closing cancels the requests still in flight and drops its
+stored answers.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import weakref
 from collections.abc import Awaitable, Callable, Mapping
@@ -35,6 +46,7 @@ import anyio
 import anyio.to_thread
 import httpx2
 from anyio.from_thread import start_blocking_portal
+from cachetools import LRUCache
 from gidgethub import HTTPException, sansio
 from gidgethub.httpx import GitHubAPI
 
@@ -52,6 +64,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RETRIES,
     DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS,
     DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_GH_SESSION_ETAG_CACHE_SIZE,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubRateLimitError, GitHubUnreadError
@@ -85,6 +98,10 @@ _UNREAD: Final = (httpx2.HTTPError, ValueError, LookupError)
 _LITERAL_PATH: Final = str.maketrans(
     {c: quote(c) for c in CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS}
 )
+
+# What gidgethub stores for a GET it may send again conditionally: the answer's ETag, its
+# Last-Modified, its decoded body, and the `rel="next"` link it carried.
+type StoredAnswer = tuple[str | None, str | None, Any, str | None]
 
 
 def _origin_text(origin: httpx2.Origin) -> str:
@@ -191,10 +208,14 @@ class SessionGitHubAPI(GitHubAPI):
     """gidgethub's httpx2 adapter, paced, charged and retried on its identity's ledger."""
 
     def __init__(self, client: httpx2.AsyncClient, token: str) -> None:
+        self._stored: LRUCache[str, StoredAnswer] = LRUCache(
+            maxsize=DEFAULT_GH_SESSION_ETAG_CACHE_SIZE
+        )
         super().__init__(
             client,
             CONST_GITHUB_USER_AGENT,
             oauth_token=token,
+            cache=self._stored,
             base_url=CONST_URL_GITHUB_API_BASE,
         )
         self._identity = token
@@ -255,7 +276,9 @@ class SessionGitHubAPI(GitHubAPI):
         self, endpoint: str, url: str, *, number: int, iterable_key: str | None
     ) -> tuple[list[Any], str | None]:
         """Page `number` of the listing at `endpoint`, read from `url`: its items, and the URL of
-        the next page, which an empty page or one without `rel="next"` has none of."""
+        the next page, which an empty page or one without `rel="next"` has none of. A page whose
+        stored answer linked no next page is read in full."""
+        self._forget_last_page(url)
         answer, more = await self._exchange("GET", endpoint, url, page=number)
         items = listed_items(answer, path=endpoint, page=number, iterable_key=iterable_key)
         return items, (more if items else None)
@@ -271,7 +294,8 @@ class SessionGitHubAPI(GitHubAPI):
         page: int | None = None,
     ) -> tuple[Any, str | None]:
         """One request to `url`, on behalf of `path` (and its `page`): the decoded answer and the
-        `rel="next"` link GitHub sent with it, or the error the classifier names."""
+        `rel="next"` link GitHub sent with it, or the error the classifier names. A GET's answer
+        is a copy of the one stored for its next conditional request."""
         try:
             answer, more, _ = await self._make_request(
                 method,
@@ -284,7 +308,16 @@ class SessionGitHubAPI(GitHubAPI):
             raise
         except (HTTPException, *_UNREAD) as error:
             raise classify_http_error(error, method=method, path=path, page=page) from error
-        return answer, more
+        return (copy.deepcopy(answer) if method == "GET" else answer), more
+
+    def _forget_last_page(self, url: str) -> None:
+        """Drop the answer stored for `url` when it linked no next page, as a last page does.
+        GitHub's ETag covers a page's body only and its 304 carries no `Link`, so that page's 304
+        could not show a next page added since."""
+        filled_url = sansio.format_url(url.translate(_LITERAL_PATH), None, base_url=self.base_url)
+        match self._stored.get(filled_url):
+            case (_, _, _, None):
+                del self._stored[filled_url]
 
 
 def listed_items(answer: Any, *, path: str, page: int, iterable_key: str | None) -> list[Any]:

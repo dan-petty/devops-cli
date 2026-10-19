@@ -8,8 +8,9 @@ directory under the cache dir, and PyGithub is built here, from the session's to
 else.
 
 `rest()` sends a REST request as the identity through gidgethub (#983, ADR 0006), paced and
-charged on the same ledger as `run_gh`, and `paginate()` reads a REST listing page by page;
-`github.session_transport` holds the client, the event loop it runs on and the retry rules, and
+charged on the same ledger as `run_gh`, and `paginate()` reads a REST listing page by page; a GET
+is conditional on the ETag of the session's last answer for its URL. `github.session_transport`
+holds the client, the event loop it runs on, the retry rules and those answers, in memory, and
 opens them on the first request.
 """
 
@@ -72,9 +73,11 @@ class GitHubSession:
 
         JSON comes back as Python values and any other body as text, as `accept` asks for; `body`
         is sent as JSON. The request waits its turn on the identity's ledger, which takes the
-        quota GitHub reports back, and follows redirects only within GitHub's API origin. A rate
-        limit, and a read that GitHub fails with a 5xx, are retried; what still fails raises the
-        `GitHubOperationError` subclass `github.error_classifier` gives it.
+        quota GitHub reports back, and follows redirects only within GitHub's API origin. A GET is
+        sent with `If-None-Match` when the session holds an answer for its URL, and a 304 gives
+        that answer back, as a copy. A rate limit, and a read that GitHub fails with a 5xx, are
+        retried; what still fails raises the `GitHubOperationError` subclass
+        `github.error_classifier` gives it.
         """
         return self._rest_transport().send(method, path, accept=accept, body=body)
 
@@ -89,7 +92,10 @@ class GitHubSession:
         `GitHubUnreadError` naming `path` and the page, and a failed page raises what `rest`
         would, so a listing never ends short without saying so (#1034). A listing still linking
         a next page after `DEFAULT_GH_MAX_PAGINATED_PAGES` pages, read when the listing runs,
-        raises `GitHubUnreadError` naming `path` and the cap instead of reading on.
+        raises `GitHubUnreadError` naming `path` and the cap instead of reading on. A page the
+        session holds an answer for is read with `If-None-Match`, and a 304 gives back its items
+        and next link; a page whose answer linked no next one is read in full, since its 304
+        could not show a page added after it.
         """
         max_pages = DEFAULT_GH_MAX_PAGINATED_PAGES
         url: str | None = path
@@ -104,9 +110,9 @@ class GitHubSession:
             number += 1
 
     def close(self) -> None:
-        """Close the session's client, cancel its requests in flight and stop the loop they ran
-        on; the next `rest` opens them again. A transport left open is closed when it is
-        garbage-collected or at interpreter exit."""
+        """Close the session's client, cancel its requests in flight, stop the loop they ran on
+        and drop the answers it kept for conditional requests; the next `rest` opens them again.
+        A transport left open is closed when it is garbage-collected or at interpreter exit."""
         with self._rest_lock:
             transport, self._rest = self._rest, None
         if transport is not None:
