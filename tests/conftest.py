@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
+
+# OpenBLAS parks an idle thread per CPU in each process that loads numpy, against pids.max.
+# pytest-randomly (`devops ci test --repeat`) loads numpy before this line, so that run keeps them.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import errno
 import functools
 import ipaddress
 import json
-import os
 import socket
 import subprocess
 import sys

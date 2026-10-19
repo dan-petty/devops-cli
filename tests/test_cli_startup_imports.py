@@ -21,6 +21,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -534,7 +535,7 @@ def test_startup_structural_budget_passes_under_cpu_load() -> None:
         for p in workers:
             try:
                 p.terminate()
-                p.wait(timeout=1.0)
+                p.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             except OSError, subprocess.TimeoutExpired:
                 p.kill()
                 p.wait()

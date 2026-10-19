@@ -11,6 +11,7 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_connection_error_hides_ollama_url() -> None:
@@ -266,7 +267,7 @@ def test_preload_models_non_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("httpx2.Client.post", fake_post)
     client.prewarm_async(on_complete=on_done)
-    assert completed_event.wait(timeout=2.0)
+    assert completed_event.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert callback_results == {"http://localhost:11434": True}
 
 

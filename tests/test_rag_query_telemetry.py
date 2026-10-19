@@ -31,6 +31,7 @@ from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, Instrument
 from devops_cli.telemetry.tracer import OTelTelemetryClient, reset_tracer
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 Emitted = list[tuple[str, float, dict[str, Any] | None]]
 
@@ -214,7 +215,7 @@ def test_the_collections_are_searched_at_once_with_the_sequential_result(
         if name == "docs":
             docs_searching.set()
             return
-        overlapped.append(docs_searching.wait(timeout=0.5))
+        overlapped.append(docs_searching.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         if not overlapped[-1]:
             raise TimeoutError("the docs search never started while the code search ran")
 
@@ -285,12 +286,13 @@ def test_a_query_waits_for_a_collection_search_that_ends_after_its_own(
     """
     monkeypatch.setattr(retriever_module, "emit", _recorder([]))
     code_answered = threading.Event()
+    docs_after_code: list[bool] = []
 
     def docs_answers_last(name: str) -> None:
         if name == "code":
             code_answered.set()
             return
-        code_answered.wait(timeout=0.5)
+        docs_after_code.append(code_answered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         time.sleep(0.05)
 
     threads_before = set(threading.enumerate())
@@ -300,9 +302,10 @@ def test_a_query_waits_for_a_collection_search_that_ends_after_its_own(
     ).search("retry policy")
     leaked = [t.name for t in threading.enumerate() if t not in threads_before]
 
-    assert (sorted(r.chunk.file_path for r in results), leaked) == (
+    assert (sorted(r.chunk.file_path for r in results), leaked, docs_after_code) == (
         ["docs/beta.md", "docs/shared.md", "src/alpha.py"],
         [],
+        [True],
     )
 
 
@@ -340,15 +343,17 @@ def test_an_interrupted_query_does_not_wait_for_the_other_searches(
     monkeypatch.setattr(retriever_module, "emit", _recorder([]))
     docs_searching, release, docs_done = threading.Event(), threading.Event(), threading.Event()
     docs_daemon: list[bool] = []
+    handoffs: dict[str, bool] = {}
 
     def code_interrupted(name: str) -> None:
         if name == "docs":
             docs_daemon.append(threading.current_thread().daemon)
             docs_searching.set()
-            release.wait(timeout=1.0)
+            # The docs search is held until the test releases it, which it records.
+            handoffs["docs released"] = release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             docs_done.set()
             return
-        docs_searching.wait(timeout=1.0)
+        handoffs["docs started"] = docs_searching.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         raise KeyboardInterrupt
 
     retriever = _retriever(
@@ -362,9 +367,13 @@ def test_an_interrupted_query_does_not_wait_for_the_other_searches(
     docs_still_searching = not docs_done.is_set()
     release.set()
     for thread in set(threading.enumerate()) - threads_before:
-        thread.join(timeout=1.0)
+        thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    assert (docs_still_searching, docs_daemon) == (True, [True])
+    assert (docs_still_searching, docs_daemon, handoffs) == (
+        True,
+        [True],
+        {"docs started": True, "docs released": True},
+    )
 
 
 def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(

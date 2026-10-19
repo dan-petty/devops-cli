@@ -38,7 +38,7 @@ async def test_token_bucket_async_acquire() -> None:
     assert limiter.try_acquire(1.0) is True
 
     t_start = time.monotonic()
-    await limiter.acquire(1.0)
+    await limiter.acquire(tokens=1.0)
     elapsed = time.monotonic() - t_start
 
     # At rate 20 tokens/sec, 1 token requires ~0.05s

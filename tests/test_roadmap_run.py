@@ -100,6 +100,7 @@ from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.github_session_fakes import API, GitHubApiFake, RunnerSession, github_json
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
@@ -2085,10 +2086,12 @@ def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_s
         f"feat: #{item}", base=RELEASE_BRANCH, body=f"Closes #{item}\n", changed_paths=("a.py",)
     )
     refining, model_answers = threading.Event(), threading.Event()
+    refine_released: list[bool] = []
 
     def refine(**_: Any) -> JobOutcome:
         refining.set()
-        model_answers.wait(timeout=5.0)
+        # Records that the test, not the bound, ended each wait on the slow model.
+        refine_released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         return JobOutcome()
 
     release_rows = tuple(
@@ -2114,13 +2117,13 @@ def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_s
         for worker in manager.workers.values():
             worker.start()
         manager.enqueue_trigger(REPO, "poll", "", "")
-        assert refining.wait(timeout=2.0)
+        assert refining.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         manager.enqueue_trigger(REPO, *CONST_ROADMAP_CLOSURE_BATCH_KEYS[0])
-        closed = release_lane.wait_active(5.0)
+        closed = release_lane.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
         delivered = seeded_store.item(item)
         _ship(seeded_store, RELEASE)
         manager.enqueue_trigger(REPO, *SHIP_HINT)
-        started = release_lane.wait_active(5.0)
+        started = release_lane.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
         current = current_release(seeded_store.releases())
         refine_still_running = model_lane.is_active()
         model_answers.set()
@@ -2131,7 +2134,8 @@ def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_s
         started,
         current is not None and current.title,
         refine_still_running,
-    ) == (True, GitHubState.CLOSED, True, "v0.2.27", True)
+        bool(refine_released) and all(refine_released),
+    ) == (True, GitHubState.CLOSED, True, "v0.2.27", True, True)
 
 
 def _schedule(tmp_path: Path) -> dict[str, str]:
