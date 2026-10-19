@@ -200,6 +200,8 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "agents" / "serviceaccount.yaml",
+        DEFAULT_K8S_DIR / "agents" / "clusterrolebinding.yaml",
     ],
 }
 

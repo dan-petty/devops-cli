@@ -1,0 +1,16 @@
+# Binds devops-agent strictly to the read-only view ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: devops-agent-view
+  labels:
+    app.kubernetes.io/name: devops-agent
+    app.kubernetes.io/part-of: devops-cli-stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: devops-agent
+    namespace: agents

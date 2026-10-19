@@ -204,11 +204,17 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
         ("", "Secret", "argocd-initial-admin-secret"),
         ("", "Secret", "argocd-redis"),
         ("", "Secret", "sh.helm.release.v1.*"),
+        ("", "Secret", "agent-grant-*"),
         ("", "PersistentVolumeClaim", ""),
         ("batch", "Job", "devops-cli-*"),
         ("argoproj.io", "AppProject", "default"),
     }
     assert expected_ignored.issubset(ignored_tuples)
+
+    destinations = {
+        (d.get("server", ""), d.get("namespace", "")) for d in homelab.get("destinations", [])
+    }
+    assert ("https://kubernetes.default.svc", "agents") in destinations
 
 
 # ── Ownership & No Duplicates ────────────────────────────────────────────────
@@ -225,6 +231,7 @@ def test_rendered_raw_objects_single_ownership() -> None:
         "devops": K8S_DIR / "overlays" / "homelab" / "devops",
         "ingress": K8S_DIR / "overlays" / "homelab" / "ingress",
         "gpu-feature-discovery": K8S_DIR / "gpu-feature-discovery",
+        "agents": K8S_DIR / "agents",
     }
 
     seen_objects: dict[tuple[str, str, str, str], str] = {}
@@ -284,6 +291,7 @@ def test_namespace_and_pvc_data_safety() -> None:
         K8S_DIR / "overlays" / "homelab" / "devops",
         K8S_DIR / "overlays" / "homelab" / "ingress",
         K8S_DIR / "gpu-feature-discovery",
+        K8S_DIR / "agents",
     ]
 
     for dir_path in raw_leaf_apps:

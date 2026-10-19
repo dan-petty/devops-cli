@@ -21,6 +21,8 @@ spec:
     - https://traefik.github.io/charts
   destinations:
     - server: https://kubernetes.default.svc
+      namespace: agents
+    - server: https://kubernetes.default.svc
       namespace: argocd
     - server: https://kubernetes.default.svc
       namespace: cloudflared
@@ -69,6 +71,9 @@ spec:
       - group: ''
         kind: Secret
         name: sh.helm.release.v1.*
+      - group: ''
+        kind: Secret
+        name: agent-grant-*
       - group: ''
         kind: PersistentVolumeClaim
       - group: batch
