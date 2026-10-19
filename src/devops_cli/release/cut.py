@@ -71,6 +71,7 @@ _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "print_warning": ("devops_cli.output", "print_warning"),
     "print_table": ("devops_cli.output", "print_table"),
     "format_code_span": ("devops_cli.output", "format_code_span"),
+    "check_argocd_gate": ("devops_cli.k8s.argocd_gate", "check_argocd_gate"),
 }
 
 
@@ -1063,6 +1064,7 @@ def cut_release(
     release_branch = f"release/v{target_ver}"
     remote_ref = f"origin/{release_branch}"
     _fetch_remote_release_tip(root, release_branch)
+    _get("check_argocd_gate")(root, ref=remote_ref)
     _checkout_cut_branch(root, cut_branch, remote_ref)
 
     if is_prepare:

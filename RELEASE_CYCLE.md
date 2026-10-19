@@ -196,6 +196,12 @@ Use the unified `--create-pr` flag (or `devops release pr`) to automate version 
 uv run devops release prepare X.Y.Z --create-pr
 ```
 
+Before branching, modifying files, or creating the release commit, the cut runs a deterministic offline gate verifying that every Argo CD application in `k8s/argocd/apps/` and `k8s/argocd/bootstrap/` targeting this repository builds at the fetched remote release tip:
+- Each path application is built with Kustomize from an exported archive of the release head (`git archive`), ensuring that uncommitted or gitignored files cannot hide broken kustomizations.
+- Template domain placeholder values (`example.com`, `$DOMAIN`, etc.) are validated: placeholders are permitted only in host fields of homelab applications (`"devops"`, `"ingress"`), and are rejected anywhere else (ConfigMaps, non-host fields, Helm value files, or non-homelab applications).
+- If any application fails to build or contains invalid placeholders, the cut stops immediately with an `ArgoCDGateError` before any files are changed, any branch is checked out, or any git/gh commands reach origin.
+
+
 ### Step 3: CI Quality Gate & PR Review Gate
 1. The opened Pull Request triggers `.github/workflows/ci.yml` which validates:
    - Python 3.14 runtime environment
