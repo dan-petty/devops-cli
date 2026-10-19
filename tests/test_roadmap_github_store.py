@@ -18,7 +18,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -1249,42 +1249,117 @@ def test_a_rate_limited_listing_raises_rate_limit_error(github_api: GitHubApiFak
         store.releases()
 
 
-def _quota(graphql_left: int) -> dict[str, Any]:
-    """`gh api rate_limit`'s answer, with `graphql_left` GraphQL points left."""
-    window = {"limit": 5000, "remaining": graphql_left, "used": 5000 - graphql_left, "reset": 1}
-    return {"resources": {"core": {**window, "remaining": 5000}, "graphql": window}}
+_SECONDARY = "gh: You have exceeded a secondary rate limit. (HTTP 403)"
+# `gh api rate_limit` would report 4,900 GraphQL points while GraphQL's own budget answers 0,
+# as #1125 measured: the store asks GraphQL.
+_REST_SAYS_POINTS_LEFT = {
+    "resources": {"graphql": {"limit": 5000, "remaining": 4900, "used": 100, "reset": 1}}
+}
 
 
 @pytest.mark.parametrize(
-    ("rate_limit", "error"),
+    ("budget", "error"),
     [
-        pytest.param(_quota(4000), GitHubOperationError, id="points-left"),
-        pytest.param(_quota(0), GitHubRateLimitError, id="quota-spent"),
-        pytest.param((1, "gh: Server Error (HTTP 502)"), GitHubRateLimitError, id="quota-unread"),
+        pytest.param(budget_reply(4000), GitHubOperationError, id="points-left"),
+        pytest.param(budget_reply(0), GitHubRateLimitError, id="quota-spent"),
+        pytest.param((1, _SECONDARY), GitHubRateLimitError, id="budget-read-rate-limited"),
+        pytest.param((1, "gh: Server Error (HTTP 502)"), GitHubRateLimitError, id="budget-unread"),
+        pytest.param(
+            (1, "gh: Bad credentials (HTTP 401)"), GitHubUnauthenticatedError, id="token-refused"
+        ),
     ],
 )
-def test_an_owner_lookup_gh_drops_is_a_rate_limit_only_when_graphqls_quota_is_spent(
-    rate_limit: Any, error: type[GitHubOperationError]
+def test_an_owner_lookup_gh_drops_is_decided_by_graphqls_own_budget(
+    budget: Any, error: type[GitHubOperationError]
 ) -> None:
     """gh project writes "unknown owner type" for any failed owner lookup, a 401, a 5xx, a SAML
-    refusal or a spent quota alike, and drops the cause. The store's `--owner <login>` commands
-    have no `@me` fallback, so it reads GraphQL's quota from `gh api rate_limit`, which spends
-    none: points left mean another cause, and only a spent or unread quota is the rate limit
-    (#983)."""
+    refusal or a rate limit alike, and drops the cause. The store's `--owner <login>` commands
+    have no `@me` fallback, so it asks GraphQL for its own budget (#983, #1125): points left
+    make a plain failure, which names them and still allows a secondary limit; a spent budget,
+    or a budget read refused for a rate limit or unread, keeps the rate limit, which stops an
+    intake round; a refused token is the unauthenticated error naming the failed command. REST's
+    `gh api rate_limit`, which can report points GraphQL has not, is never read."""
     store, runner = board_store(
         {
             "item-add": (1, "unknown owner type"),
             "issues/917": OPEN_ISSUES[1],
-            "rate_limit": rate_limit,
+            GRAPHQL_BUDGET_OPERATION: budget,
+            "rate_limit": _REST_SAYS_POINTS_LEFT,
         }
     )
     with pytest.raises(GitHubOperationError) as raised:
         store.add_item(917)
+    sent = [" ".join(args) for args, _ in runner.calls]
     assert (
         type(raised.value),
-        [args[:2] for args, _ in runner.calls][-1],
-        ("4000" in raised.value.message) == (error is GitHubOperationError),
-    ) == (error, ["api", "rate_limit"], True)
+        GRAPHQL_BUDGET_OPERATION in sent[-1],
+        any("rate_limit" in command for command in sent),
+        # A kept rate limit is the classifier's own, naming gh's "unknown owner type".
+        ("Could not add #917 to the board" if error is not GitHubRateLimitError else "unknown")
+        in raised.value.message,
+        ("4000 points left" in raised.value.message, "secondary" in raised.value.message)
+        == ((True, True) if error is GitHubOperationError else (False, False)),
+    ) == (error, True, False, True, True)
+
+
+def _owner_lookup_through_run_gh(budget: tuple[int, str, str]) -> Callable[..., Any]:
+    """gh at its process edge: the issue reads, `item-add` drops its owner lookup, and the
+    GraphQL budget read exits with `budget`'s status, stdout and stderr."""
+
+    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        command = " ".join(cmd)
+        if "item-add" in command:
+            return subprocess.CompletedProcess(cmd, 1, "", "unknown owner type")
+        if GRAPHQL_BUDGET_OPERATION in command:
+            return subprocess.CompletedProcess(cmd, *budget)
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(OPEN_ISSUES[1]), "")
+
+    return gh
+
+
+@pytest.mark.parametrize(
+    ("budget", "error"),
+    [
+        pytest.param(
+            (1, json.dumps({"message": "Server Error"}), "gh: Server Error (HTTP 502)"),
+            GitHubRateLimitError,
+            id="502",
+        ),
+        pytest.param(
+            (1, "<html>upstream</html>", "gh: HTTP 504"), GitHubRateLimitError, id="html-504"
+        ),
+        pytest.param(
+            (1, json.dumps({"message": "Bad credentials"}), "gh: Bad credentials (HTTP 401)"),
+            GitHubUnauthenticatedError,
+            id="401",
+        ),
+    ],
+)
+def test_through_run_gh_a_failed_budget_read_after_an_owner_lookup_is_classified(
+    budget: tuple[int, str, str], error: type[GitHubOperationError]
+) -> None:
+    """Through the real `run_gh` with gh's process stubbed: a budget read gh fails, with
+    GitHub's body on stdout, keeps the owner lookup's rate limit, naming gh's "unknown owner
+    type" and the write, or, for a refused token, is the unauthenticated error naming the
+    failed command; neither is replaced by an error about the read's own answer."""
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2)
+    with (
+        patch(
+            "devops_cli.github.rate_limiter._burst_protected_subprocess",
+            side_effect=_owner_lookup_through_run_gh(budget),
+        ),
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        store.add_item(917)
+    details = raised.value.details
+    assert (
+        type(raised.value),
+        details["operation"],
+        details.get("output") if error is GitHubRateLimitError else "unknown owner type",
+        ("Could not add #917 to the board" if error is not GitHubRateLimitError else "unknown")
+        in raised.value.message,
+    ) == (error, "roadmap.write", "unknown owner type", True)
 
 
 def test_a_failed_gh_read_raises_and_names_the_read() -> None:
@@ -1781,6 +1856,42 @@ def test_a_published_github_release_is_a_ship_of_the_release_its_tag_names() -> 
     assert ships == [(ChangeKind.RELEASE_SHIPPED, 0, None, SHIPPED, "v0.2.28")]
 
 
+def test_an_older_tag_published_after_the_cutoff_below_an_earlier_ship_is_a_ship(
+    github_api: GitHubApiFake,
+) -> None:
+    """The Releases listing is ordered by its tags' times, but a ship is judged by when the
+    Release was published. v0.2.28's tag and Release both came before the cutoff; v0.2.27's
+    older tag was published after it, when its release job was run again, and is listed below.
+    The whole page the read stops in is judged, so v0.2.27 ships, and the next page GitHub
+    links is never requested (#983)."""
+    first = CUTOFF - timedelta(hours=1)
+    page = [
+        github_release("v0.2.28", first, first + timedelta(minutes=1)),
+        github_release("v0.2.27", CUTOFF - timedelta(hours=2), CUTOFF + timedelta(minutes=1)),
+        *(
+            github_release(
+                f"v0.1.{n}", CUTOFF - timedelta(days=n + 1), CUTOFF - timedelta(days=n + 1)
+            )
+            for n in range(POLL_PAGE - 2)
+        ),
+    ]
+    second = f"{RELEASES_LISTING}&page=2"
+    github_api.route("GET", EVENTS_LISTING, github_json([]))
+    github_api.route("GET", PULLS_LISTING, github_json([]))
+    github_api.route("GET", RELEASES_LISTING, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json({"message": "must not be read"}, status=500))
+    github_api.route("GET", f"/{LISTING_MILESTONES}", github_json(MILESTONES))
+    store, _ = over_github()
+    changes = store.changes_since(CUTOFF)
+    assert (
+        [(change.kind, change.release) for change in changes],
+        [url for url in github_api.requested if "/releases" in url],
+    ) == (
+        [(ChangeKind.RELEASE_SHIPPED, "v0.2.27")],
+        [f"GET {API}{RELEASES_LISTING}"],
+    )
+
+
 def test_a_release_pull_request_opened_then_closed_unmerged_is_a_cut_then_an_un_cut() -> None:
     """From the morning v0.2.28 was cut, the recorded #1283 is a cut naming who opened it, and
     its merge is no un-cut. A release pull request closed unmerged is a cut then an un-cut that
@@ -1886,6 +1997,25 @@ def test_the_factory_opens_the_github_adapter_without_reading(
 ) -> None:
     store = github_roadmap_factory(REPO, board_owner="dan-petty", board_number=2)
     assert type(store) is GitHubRoadmapStore
+
+
+def test_a_store_the_factory_opens_reads_its_listings_through_the_processs_session(
+    github_roadmap_factory: Callable[..., RoadmapStore], github_api: GitHubApiFake
+) -> None:
+    """Every roadmap command opens the store through the factory, which passes no session: its
+    REST listings go through the process's GitHub session, and none through the gh runner
+    (#983)."""
+    github_api.route("GET", f"/{LISTING_MILESTONES}", github_json(MILESTONES))
+
+    def refuse(args: list[str], **_: Any) -> NoReturn:
+        raise AssertionError(f"the listing went through gh: {args}")
+
+    store = github_roadmap_factory(REPO, board_owner="dan-petty", board_number=2, runner=refuse)
+    titles = [release.title for release in store.releases()]
+    assert (titles[-1], github_api.requested) == (
+        "v0.3.5",
+        [f"GET {API}/{LISTING_MILESTONES}"],
+    )
 
 
 # ── Board shape, cards, issues and files (#739) ───────────────────────────────

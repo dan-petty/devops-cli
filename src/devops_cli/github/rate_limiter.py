@@ -825,6 +825,9 @@ class GitHubRateLimiter:
         self._total_requests: int = 0
         # GraphQL points the responses reported, by resource (#1125).
         self._points_charged: dict[str, int] = {}
+        # The requests this process paced, by resource: every gh command and every request
+        # the GitHub session sends waits its turn here, each attempt once (#983).
+        self._requests_paced: dict[str, int] = {}
         self._last_request_epoch: float = 0.0
         self._last_disk_prune_epoch: float = 0.0
         self._total_throttles: int = 0
@@ -1052,6 +1055,7 @@ class GitHubRateLimiter:
         """
         target = resource or subcommand
         with self._lock:
+            self._requests_paced[target] = self._requests_paced.get(target, 0) + 1
             if self.persist_path:
                 with _disk_quota_lock(self.persist_path):
                     sleep_duration = self._acquire_locked(
@@ -1216,6 +1220,12 @@ class GitHubRateLimiter:
         """The points the responses on `subcommand` reported they cost."""
         with self._lock:
             return self._points_charged.get(subcommand, 0)
+
+    def requests_paced(self) -> dict[str, int]:
+        """The requests this process has paced on the ledger, by resource: gh commands and the
+        GitHub session's requests alike, each attempt once, a retry included (#983)."""
+        with self._lock:
+            return dict(self._requests_paced)
 
     def decrement_quota_estimate(self, subcommand: str, cost: int = 1) -> None:
         """Pessimistically decrement quota estimate when a command lacks rate limit headers."""
@@ -1608,9 +1618,15 @@ def _post_process_run(
     is_exempt: bool = False,
     cost: int = 1,
 ) -> None:
-    """Extract rate limit metrics from response headers or payload, or record quota utilization."""
-    if is_rate_limit_check and proc.stdout:
-        _extract_rate_limit_endpoint_response(proc.stdout, limiter)
+    """Extract rate limit metrics from response headers or payload, or record quota utilization.
+
+    A rate-limit check's answer is read only when gh succeeded: a failed `gh api rate_limit`
+    has GitHub's error body on stdout, and its caller reads the failure, as
+    `_refresh_from_github` does (#983).
+    """
+    if is_rate_limit_check:
+        if proc.returncode == 0 and proc.stdout:
+            _extract_rate_limit_endpoint_response(proc.stdout, limiter)
         return
     if is_exempt:
         return

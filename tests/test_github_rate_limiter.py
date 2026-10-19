@@ -464,6 +464,33 @@ def test_run_gh_input_passed_to_subprocess() -> None:
         assert call_kwargs["input"] == '{"query": "viewer"}'
 
 
+@pytest.mark.parametrize(
+    ("stdout", "stderr"),
+    [
+        pytest.param(
+            '{"message": "Bad credentials", "status": "401"}',
+            "gh: Bad credentials (HTTP 401)",
+            id="401-body",
+        ),
+        pytest.param("<html>upstream</html>", "gh: HTTP 502", id="html-502"),
+    ],
+)
+def test_a_failed_rate_limit_read_returns_its_exit_status_without_reading_its_body(
+    stdout: str, stderr: str
+) -> None:
+    """gh writes GitHub's error body to stdout when `gh api rate_limit` fails: `run_gh` returns
+    the failed process for its caller to read, and parses no quota from the body (#983)."""
+    failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, stdout, stderr)
+    before = get_github_rate_limiter().get_quota("core")
+    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed):
+        res = run_gh(["api", "rate_limit"])
+    assert (res.returncode, res.stderr, get_github_rate_limiter().get_quota("core")) == (
+        1,
+        stderr,
+        before,
+    )
+
+
 def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
     """Verify /rate_limit endpoint response updates all resources directly without acquire sleep."""
     limiter = get_github_rate_limiter()

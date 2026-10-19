@@ -15,6 +15,8 @@ A poll reads three listings newest first and stops at the first entry older than
 reads from, requesting no later page (#1360): the issue events, the pull requests by their last
 update, for the cuts and un-cuts of release pull requests, and the GitHub Releases, for the
 ships, these two `DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE` at a time, since each entry is large.
+The GitHub Releases are ordered by their tags' times but judged by when each was published, so
+that read goes on to the end of the page it stops in, which GitHub has already sent.
 Every one is REST; the milestones are read only when a GitHub Release was published in that
 time, to find the Release its tag names.
 
@@ -98,6 +100,7 @@ from devops_cli.github.error_classifier import (
     gh_http_status,
     is_gh_owner_lookup_failure,
 )
+from devops_cli.github.owner_lookup import owner_lookup_failure
 from devops_cli.github.rate_limiter import gh_request_resource, run_gh
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
@@ -405,10 +408,6 @@ class _DefaultBranchPayload(BaseModel):
     sha: str = Field(
         validation_alias=AliasPath("data", "repository", "defaultBranchRef", "target", "oid")
     )
-
-
-class _RateLimitPayload(BaseModel):
-    graphql_remaining: int = Field(validation_alias=AliasPath("resources", "graphql", "remaining"))
 
 
 class _IsPrivatePayload(BaseModel):
@@ -785,9 +784,6 @@ _RELEASE_PULL_REQUESTS = TypeAdapter(_ReleasePullRequestsPayload)
 _ISSUE_STATUS = TypeAdapter(_IssueStatusPayload)
 _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
-_RATE_LIMIT = TypeAdapter(_RateLimitPayload)
-# `gh api rate_limit`: every quota left, which costs none of them.
-_RATE_LIMIT_ARGS = ("api", "rate_limit")
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
 _LISTED_RELEASE = TypeAdapter(_ListedReleasePayload)
@@ -2449,14 +2445,16 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _ships_since(self, cutoff: datetime) -> list[Change]:
         """A ship for each GitHub Release published at or after `cutoff` whose tag names a
-        Release. The listing, newest first, is read up to the first Release created before
-        `cutoff`; each read is judged by when it was published, and the milestones are read only
-        when one was published since."""
+        Release. The listing is ordered by its tags' times, newest first, but a ship is judged by
+        when it was published, so it is read to the end of the page holding the first Release
+        created before `cutoff`, and every Release read is judged by when it was published. The
+        milestones are read only when one was published since."""
         listed = self._listing(
             github_releases_endpoint(self._repo),
             _LISTED_RELEASE,
             "GitHub Releases",
             ends=lambda release: release.created_at < cutoff,
+            to_page_end=True,
             per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
         )
         shipped = [
@@ -2484,28 +2482,34 @@ class GitHubRoadmapStore(RoadmapStore):
         what: str,
         *,
         ends: Callable[[EntryT], bool] | None = None,
+        to_page_end: bool = False,
         per_page: int = DEFAULT_GH_REST_PER_PAGE,
     ) -> list[EntryT]:
         """Every entry of the REST listing `endpoint`, read through the GitHub session,
         `per_page` entries a page. With `ends`, the read stops at the first entry `ends` holds
         for and requests no later page: a listing read newest first ends at the first entry
-        older than the time it reads from (#1360).
+        older than the time it reads from (#1360). With `to_page_end` as well, it reads on to
+        the end of the page that entry is on, which GitHub has already sent, since every page
+        but the last is full, so a listing ordered by one time and judged by another sees that
+        whole page.
 
         The session follows each page's `Link: rel="next"` and raises on a failed page, a page
         that holds no list and a listing past its page cap, so the listing is never taken as
         whole when it is not; an entry that is not the shape `adapter` reads raises here.
         """
         listing: list[EntryT] = []
+        ended = False
         for found in self._listing_session().paginate(listing_path(endpoint, per_page)):
             entry = self._validate_entry(found, adapter, what)
             listing.append(entry)
-            if ends is not None and ends(entry):
+            ended = ended or (ends is not None and ends(entry))
+            if ended and not (to_page_end and len(listing) % per_page):
                 break
         return listing
 
     def _listing_session(self) -> ListingSession:
         """The session the REST listings are read through: the store's, else the process's."""
-        return self._session or get_github_session()
+        return get_github_session() if self._session is None else self._session
 
     def _validate_entry[EntryT](
         self, found: Any, adapter: TypeAdapter[EntryT], what: str
@@ -2559,41 +2563,16 @@ class GitHubRoadmapStore(RoadmapStore):
         stderr = proc.stderr or ""
         classified = classify_gh_failure(stderr, exit_code=proc.returncode, operation=operation)
         if classified is not None and is_gh_owner_lookup_failure(stderr):
-            return self._owner_lookup_failure(classified, action, operation)
+            # The store's `--owner <login>` commands have no `@me` fallback (#983).
+            failed = f"Could not {action} in {self._repo}"
+            return owner_lookup_failure(
+                classified, read=self._run, failed=failed, operation=operation
+            )
         return classified or GitHubOperationError(
             f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},
         )
-
-    def _owner_lookup_failure(
-        self, classified: GitHubOperationError, action: str, operation: str
-    ) -> GitHubOperationError:
-        """gh project could not look up the board's owner and dropped why, which the gh
-        classifier reads as a rate limit (#983). The store's `--owner <login>` commands have no
-        `@me` fallback, so GraphQL's quota, read from `gh api rate_limit`, which spends none,
-        tells the two apart: with points left, the cause is another, such as a refused token
-        or GitHub failing; a spent or unread quota keeps the rate limit."""
-        left = self._graphql_points_left()
-        if left is None or left <= 0:
-            return classified
-        return GitHubOperationError(
-            f"Could not {action} in {self._repo}: gh could not look up the board's owner and did "
-            f"not say why, and GraphQL has {left} points left, so the quota is not the cause; "
-            "check that the owner exists and that the token can read it",
-            operation=operation,
-            details={**classified.details, "graphql_remaining": left},
-        )
-
-    def _graphql_points_left(self) -> int | None:
-        """GraphQL's points left, as `gh api rate_limit` reports them, or None unread."""
-        proc = self._run(list(_RATE_LIMIT_ARGS))
-        if proc.returncode != 0:
-            return None
-        try:
-            return _RATE_LIMIT.validate_json(proc.stdout or "").graphql_remaining
-        except MalformedPayloadError:
-            return None
 
 
 def _change(board_field: BoardField, value: str | None) -> list[str]:

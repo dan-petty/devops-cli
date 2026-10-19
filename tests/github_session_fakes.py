@@ -163,9 +163,10 @@ class RunnerSession:
     `paginate` asks the runner with the listing's URL as its one argument, so a reply keyed by
     the listing's path answers it, the runner records the read beside the gh commands, and a
     read the store sends through gh instead is told apart. A reply holding a list is the whole
-    listing; a failed one raises the unread error; anything else fails closed through the
-    session's own `listed_items`. Paging, a failed page and the page cap are the real session's,
-    tested over `GitHubApiFake`.
+    listing; a failed one raises the class the gh classifier makes of its stderr, else the
+    unread error; anything else fails closed through the session's own `listed_items`. Paging,
+    a failed page, the page cap and the class each HTTP failure raises are the real session's,
+    and are tested only over `GitHubApiFake`.
     """
 
     def __init__(self, runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -173,12 +174,15 @@ class RunnerSession:
 
     def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[Any]:
         from devops_cli.exceptions.git import GitHubUnreadError
+        from devops_cli.github.error_classifier import classify_gh_failure
         from devops_cli.github.session_transport import listed_items
 
         reply = self._runner([f"{API}{path}"], check=False, quiet=True, use_cache=False)
         if reply.returncode != 0:
             said = (reply.stderr or reply.stdout or "").strip()[:256]
-            raise GitHubUnreadError(
+            raise classify_gh_failure(
+                reply.stderr or "", exit_code=reply.returncode
+            ) or GitHubUnreadError(
                 f"GitHub gave no readable answer to GET {path}: {said}", details={"path": path}
             )
         try:

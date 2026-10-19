@@ -13,22 +13,21 @@ candidate, says so in `repeat`. The reads end with the GraphQL budget read the r
 comes from.
 
 A `--plan` run makes the reads and the model calls, writes nothing, and reports what it spent:
-each `gh` command by the rate-limit resource it spends, as `run_gh` classifies it, and each
-embedding and proposal call, and the run ends with the GraphQL points it spent, read from
-GraphQL itself (#1125). `run_gh`'s retries are not
-counted, and a proposal call counts once though the client retries an answer that does not fit
-the schema, and an embedding call once though the client may batch it or answer from its cache.
+each GitHub request the identity's ledger paced during the run, a gh command and a request the
+GitHub session sends alike, by the rate-limit resource it spends, each attempt and so each retry
+counted (#983), and each embedding and proposal call; the run ends with the GraphQL points it
+spent, read from GraphQL itself (#1125). A proposal call counts once though the client retries an
+answer that does not fit the schema, and an embedding call once though the client may batch it
+or answer from its cache.
 """
 
 from __future__ import annotations
 
-import subprocess
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_BORROWED_LABEL,
@@ -42,9 +41,6 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake_model import IntakeModel, ModelProposal, ProposalRequest
 from devops_cli.roadmap.request_plan import StoreRequests, within
 from devops_cli.roadmap.store import CloseReason, GitHubState, IssueQuery
-
-if TYPE_CHECKING:
-    from devops_cli.roadmap.github_store import GhRunner
 
 
 class _Via(StrEnum):
@@ -297,34 +293,34 @@ class _MeteredModel:
 _RESOURCE_FIELDS = {"graphql": "graphql", "search": "search"}
 
 
+def _paced() -> dict[str, int]:
+    """The requests the process identity's ledger has paced so far, by resource."""
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    return get_github_rate_limiter().requests_paced()
+
+
 @dataclass
 class SpendMeter:
-    """Counts what a run spends: `run` is the `gh` runner the store is opened with, and `model`
-    wraps the intake model. `gh` is the runner each command goes on to, `run_gh` by default."""
+    """Counts what a run spends from the moment it is made: the GitHub requests the process
+    identity's ledger paces, where a gh command through `run_gh` and a request the GitHub
+    session sends both wait their turn (#983), by the resource they spend, and each embedding
+    and proposal call through `model`."""
 
-    gh: GhRunner | None = None
     counts: Counter[str] = field(default_factory=Counter)
-
-    def run(
-        self,
-        args: list[str],
-        *,
-        input: str | None = None,
-        check: bool = False,
-        quiet: bool = False,
-        use_cache: bool = False,
-    ) -> subprocess.CompletedProcess[str]:
-        from devops_cli.github.rate_limiter import gh_request_resource, run_gh
-
-        self.counts[_RESOURCE_FIELDS.get(gh_request_resource(args), "rest")] += 1
-        runner = self.gh or run_gh
-        return runner(args, input=input, check=check, quiet=quiet, use_cache=use_cache)
+    start: dict[str, int] = field(default_factory=_paced)
 
     def model(self, model: IntakeModel) -> IntakeModel:
         return _MeteredModel(model, self.counts)
 
     def spend(self) -> Spend:
-        return Spend(**self.counts)
+        paced = Counter(
+            {
+                _RESOURCE_FIELDS.get(resource, "rest"): count - self.start.get(resource, 0)
+                for resource, count in _paced().items()
+            }
+        )
+        return Spend(**(paced + self.counts))
 
 
 __all__ = ["Spend", "SpendMeter", "planned_requests"]

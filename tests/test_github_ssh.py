@@ -62,6 +62,21 @@ def test_register_key_on_github_via_token(
     assert called_token is True
 
 
+def test_a_refusal_on_the_token_path_is_a_registration_error(
+    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> None:
+    """With gh's login unusable but a token at hand, the session registers the key. A signing
+    key GitHub refuses with a 422 the listing does not confirm is the registration error the
+    `devops ssh` commands handle, as on the gh path, not a bare GitHub error (#983)."""
+    monkeypatch.setattr("devops_cli.github.ssh._register_with_gh", lambda pub, t: False)
+    monkeypatch.setattr(GitHubSession, "client", MagicMock(get_user_ssh_keys=lambda: []))
+    github_api.route("POST", "/user/ssh_signing_keys", _validation_failed("key is already in use"))
+    github_api.route("GET", "/user/ssh_signing_keys", github_json([]))
+    with pytest.raises(SSHRegistrationError, match="HTTP 422") as raised:
+        register_key_on_github("ssh-ed25519 AAAAC3 test@example.com", "Title")
+    assert isinstance(raised.value.__cause__, GitHubOperationError)
+
+
 def test_register_key_on_github_no_auth(
     monkeypatch: pytest.MonkeyPatch, no_github_identity: None
 ) -> None:

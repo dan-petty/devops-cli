@@ -23,7 +23,11 @@ class SSHRegistrationError(RuntimeError):
 
 
 def register_key_on_github(pub_key: str, title: str) -> None:
-    """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity."""
+    """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity.
+
+    A refusal on either path is an `SSHRegistrationError`, which the `devops ssh` commands
+    report, and on which `rotate` removes the key it generated (#983).
+    """
     if _register_with_gh(pub_key, title):
         return
     try:
@@ -32,7 +36,10 @@ def register_key_on_github(pub_key: str, title: str) -> None:
         raise SSHRegistrationError(
             "No usable GitHub auth found for key registration. Run 'gh auth login'."
         ) from exc
-    _register_with_token_api(session, pub_key, title)
+    try:
+        _register_with_token_api(session, pub_key, title)
+    except GitHubOperationError as exc:
+        raise SSHRegistrationError(str(exc)) from exc
 
 
 def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -> None:
