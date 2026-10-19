@@ -201,6 +201,13 @@ Before branching, modifying files, or creating the release commit, the cut runs 
 - Template domain placeholder values (`example.com`, `$DOMAIN`, etc.) are validated: placeholders are permitted only in host fields of homelab applications (`"devops"`, `"ingress"`), and are rejected anywhere else (ConfigMaps, non-host fields, Helm value files, or non-homelab applications).
 - If any application fails to build or contains invalid placeholders, the cut stops immediately with an `ArgoCDGateError` before any files are changed, any branch is checked out, or any git/gh commands reach origin.
 
+Immediately following the offline gate, the cut executes a live, non-blocking Argo CD diff and override report against the configured cluster:
+- If `argocd.url`, the Argo CD authentication token, or the `argocd` CLI binary is missing, a single warning is emitted and the cut proceeds without interruption.
+- When configured, each Application is diffed at the release tip SHA using `--grpc-web` (multi-source Applications use their git source position via `--source-positions`), with the authentication token passed strictly via environment variable `ARGOCD_AUTH_TOKEN` (never in `argv`).
+- Differences (exit code 1) are reported as "differs", command errors (exit code 2) are reported as "failed" with stderr truncated to `CONST_MAX_ERROR_DETAIL_LENGTH`, and neither condition halts the release cut.
+- For homelab applications (`devops`, `ingress`), any template domain placeholder host at the release tip that lacks a live `test` operation in the cluster's active patches is reported alongside the corrective stack deployment command (`devops k8s deploy-stack --stack <stack>`).
+
+
 
 ### Step 3: CI Quality Gate & PR Review Gate
 1. The opened Pull Request triggers `.github/workflows/ci.yml` which validates:
