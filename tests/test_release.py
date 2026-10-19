@@ -53,15 +53,15 @@ from devops_cli.exceptions import (
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
-from tests.release_notes_examples import (
+from tests.support.github_identity import PINNED_GITHUB_TOKEN, fail_the_github_lookup
+from tests.support.paths import REPO_ROOT
+from tests.support.release_notes_examples import (
     SYNTHETIC_CATEGORIES,
     SYNTHETIC_ENTRY_COUNT,
     synthetic_entry_detail,
     synthetic_entry_title,
     synthetic_release_section,
 )
-from tests.support.github_identity import PINNED_GITHUB_TOKEN, fail_the_github_lookup
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 # A Markdown task-list item, ticked or not, under any list marker and at any indent.

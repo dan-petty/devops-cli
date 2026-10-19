@@ -65,7 +65,7 @@ from devops_cli.roadmap.store import (
     JobMark,
 )
 from tests.roadmap_faults import FIELD, RECORD, Fault, StoppingStore
-from tests.test_telemetry_instruments import Captured
+from tests.support.telemetry_capture import Captured
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)

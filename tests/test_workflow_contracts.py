@@ -19,7 +19,7 @@ import yaml
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.tools_lock import load_tools_lock
-from tests.markdown_examples import CodeSnippet, devops_commands
+from tests.support.markdown_examples import CodeSnippet, devops_commands
 
 WORKFLOWS_DIR = Path(".github/workflows")
 RELEASE_PATH = WORKFLOWS_DIR / "release.yml"
