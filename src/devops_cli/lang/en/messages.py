@@ -1023,6 +1023,11 @@ class CIMessages:
     coverage_index_missing: str = (
         "No coverage index found. Run `devops ci coverage --build-index` to build one."
     )
+    coverage_index_stale: str = (
+        "The coverage index is stale: {file} changed since it was built and can change what any "
+        "test covers, so tests are selected by name and import. Run `devops ci coverage "
+        "--build-index` to rebuild it."
+    )
     selection_trigger_full_run: str = (
         "{file} can change the outcome of tests that never import it. "
         "Running the full test suite. Run `devops ci coverage --build-index` to update."
@@ -1206,8 +1211,7 @@ class TestMessages:
     k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
     # `devops test run --changed` (#1312).
     unmapped_source: str = (
-        "No test module covers {source}: no test module is named for it, imports it or sits in "
-        "the directory under tests/ that mirrors its package."
+        "No test module covers {source}: no test module is named for it or imports it."
     )
     changed_whole_suite: str = "No changed file maps to a test module: running the whole suite."
     changed_targets: str = "Running the {count} test target(s) the changes reach:"

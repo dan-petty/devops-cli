@@ -14,6 +14,9 @@ from devops_cli.commands.test_cmd import app as app_cli
 
 runner = CliRunner()
 
+_FIXTURES_ONLY = "import pytest\n\n\n@pytest.fixture\ndef stage() -> int:\n    return 1\n"
+_HOOK = "\n\ndef pytest_collection_modifyitems(config, items):\n    items.reverse()\n"
+
 # A project on `main`: a source tree with a nested subpackage, a flat test tree beside a nested
 # one that mirrors the subpackage, the root and a nested conftest, and a support module.
 _PROJECT = {
@@ -33,10 +36,11 @@ _PROJECT = {
     "tests/test_reports.py": "from devops_cli.commands.scan import SCAN\n",
     "tests/test_old.py": "def test_old() -> None: ...\n",
     "tests/ai/__init__.py": "",
-    "tests/ai/conftest.py": "",
+    "tests/ai/conftest.py": _FIXTURES_ONLY,
     "tests/ai/review/__init__.py": "",
     "tests/ai/review/test_a.py": "def test_a() -> None: ...\n",
     "tests/ai/review/test_b.py": "def test_b() -> None: ...\n",
+    "tests/ai/review/test_pipeline.py": "def test_pipeline() -> None: ...\n",
     "tests/ai/review/stages/__init__.py": "",
     "tests/ai/review/stages/test_c.py": "def test_c() -> None: ...\n",
 }
@@ -78,13 +82,14 @@ def test_a_changed_nested_test_module_is_selected(project: Path, git: Callable[.
     assert _changed_run()[0] == ["tests/ai/review/stages/test_c.py"]
 
 
-def test_a_changed_source_module_selects_the_test_modules_directly_in_its_mirror_directory(
+def test_a_changed_source_module_selects_the_test_module_named_for_it_not_those_beside_it(
     project: Path, git: Callable[..., None]
 ) -> None:
-    """`devops_cli.ai.review.pipeline` mirrors to `tests/ai/review/`: its test modules run, and
-    those of its subdirectories do not."""
+    """`devops_cli.ai.review.pipeline` selects `tests/ai/review/test_pipeline.py`, named for it at
+    any depth; `test_a.py` and `test_b.py` beside it neither name nor import it, so they do not
+    run (#1312)."""
     _commit(project, git, "src/devops_cli/ai/review/pipeline.py")
-    assert _changed_run()[0] == ["tests/ai/review/test_a.py", "tests/ai/review/test_b.py"]
+    assert _changed_run()[0] == ["tests/ai/review/test_pipeline.py"]
 
 
 def test_a_flat_tree_maps_a_source_module_by_its_name_and_its_importers(
@@ -94,10 +99,23 @@ def test_a_flat_tree_maps_a_source_module_by_its_name_and_its_importers(
     assert _changed_run()[0] == ["tests/test_reports.py", "tests/test_scan.py"]
 
 
-def test_a_changed_conftest_selects_its_directory(project: Path, git: Callable[..., None]) -> None:
+def test_a_changed_conftest_of_fixtures_selects_its_directory(
+    project: Path, git: Callable[..., None]
+) -> None:
     """A fixture reaches every test beside and below its conftest, none of which imports it."""
     _commit(project, git, "tests/ai/conftest.py")
     assert _changed_run()[0] == ["tests/ai"]
+
+
+def test_a_changed_conftest_with_a_hook_selects_the_whole_suite(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """pytest calls a `pytest_*` hook of every conftest for every test, so one in `tests/ai/`
+    can change the outcome of a test in any directory (#1312)."""
+    conftest = project / "tests" / "ai" / "conftest.py"
+    conftest.write_text(conftest.read_text(encoding="utf-8") + _HOOK, encoding="utf-8")
+    git(project, "commit", "-q", "-am", "hook")
+    assert _changed_run()[0] == ["tests"]
 
 
 def test_a_changed_support_module_selects_the_whole_suite(

@@ -1333,36 +1333,44 @@ def _report_selection(
         )
 
 
-def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
-    """Map changed files onto pytest targets using coverage index and text fallback."""
-    from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
-    from devops_cli.core.coverage_index import (
-        compute_index_drift,
-        load_index,
-    )
+def _index_drift(index: Any, root: Path) -> list[str] | None:
+    """The files changed since the coverage index was built, to select beside the given ones,
+    or None when one of them forces a full run: the index is stale then, since that file can
+    change what any test covers, and the text selector chooses until it is rebuilt (#1312)."""
+    from devops_cli.ci.cache import compute_worktree_blob_hashes
+    from devops_cli.core.coverage_index import compute_index_drift, forces_full_run
     from devops_cli.output import format_duration
 
+    drift_files = compute_index_drift(index, compute_worktree_blob_hashes(root))
+    age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
+    age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
+    _get("print_muted")(
+        MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
+    )
+    stale = next((path for path in drift_files if forces_full_run(path)), None)
+    if stale is None:
+        return drift_files
+    _get("print_warning")(MESSAGES.ci.coverage_index_stale.format(file=stale))
+    return None
+
+
+def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
+    """Map changed files onto pytest targets using coverage index and text fallback. Only a
+    trigger among the given files forces a full run; one that changed since the index was built
+    makes the index stale, and the text selector maps the given files instead."""
+    from devops_cli.ci.cache import resolve_coverage_index_path
+    from devops_cli.core.coverage_index import load_index
+
     root = _get_project_root()
-    index_path = resolve_coverage_index_path(root)
-    index = load_index(index_path)
-    has_index = not index.is_empty
-
+    index = load_index(resolve_coverage_index_path(root))
     user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
-    all_paths = set(user_paths)
-
-    if has_index:
-        current_hashes = compute_worktree_blob_hashes(root)
-        drift_files = compute_index_drift(index, current_hashes)
-        all_paths.update(drift_files)
-        age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
-        age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
-        _get("print_muted")(
-            MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
-        )
-    else:
+    drift_files = _index_drift(index, root) if not index.is_empty else None
+    if index.is_empty:
         _get("print_muted")(MESSAGES.ci.coverage_index_missing)
+    has_index = drift_files is not None
+    all_paths = user_paths | set(drift_files or ())
 
-    if not _check_trigger_files(all_paths, fallback):
+    if not _check_trigger_files(user_paths, fallback):
         return None
 
     targets, mapped_sources, unmapped_sources, source_selectors = _map_changed_paths(

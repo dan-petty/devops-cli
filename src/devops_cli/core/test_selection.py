@@ -10,6 +10,7 @@ whereas missing the one test that covers a change gives a false green.
 
 from __future__ import annotations
 
+import ast
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from devops_cli.config.constants import (
     CONST_CONFTEST_FILENAME,
+    CONST_PYTEST_HOOK_PREFIX,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
@@ -97,20 +99,6 @@ def _reference_pattern(module_path: str) -> re.Pattern[str]:
     return re.compile("|".join(alternatives))
 
 
-def _mirror_tests(source: Path, module_path: str, tests_root: Path) -> set[Path]:
-    """The test modules directly in the directory under the tests root that mirrors the
-    module's package: `devops_cli/ai/review/pipeline.py` and `devops_cli/ai/review/__init__.py`
-    both mirror to `tests/ai/review/`, not its subdirectories. A module directly in the top-level
-    package has none, since the tests root still holds every test module not yet moved."""
-    package = module_path.split(".")[1:]
-    if source.name != f"__init__{CONST_PYTHON_FILE_SUFFIX}":
-        package = package[:-1]
-    directory = tests_root.joinpath(*package)
-    if not package or not directory.is_dir():
-        return set()
-    return set(directory.glob(f"{CONST_TEST_FILE_PREFIX}*{CONST_PYTHON_FILE_SUFFIX}"))
-
-
 def _fixture_reach(rel_tests_path: Path) -> Path | None:
     """The tests a change to a file under the tests root reaches without being imported: its own
     directory for a conftest, whose fixtures reach every test beside and below it, and for a
@@ -122,10 +110,38 @@ def _fixture_reach(rel_tests_path: Path) -> Path | None:
     return None
 
 
+def _bound_names(tree: ast.Module) -> list[str]:
+    """Every name the module binds by a definition, an import or an assignment, at any depth,
+    `*` for a star import, whose names cannot be known; a superset of its module-level names."""
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.append(node.name)
+        elif isinstance(node, ast.alias):
+            names.append(node.asname or node.name.split(".")[0])
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.append(node.id)
+    return names
+
+
+def _binds_hook(conftest: Path) -> bool:
+    """Whether the conftest binds a name pytest reads as a hook, defined or imported, which it
+    calls for every test; true when the file cannot be read or parsed, as a deleted one cannot,
+    or star-imports, so a change errs toward the whole suite."""
+    try:
+        tree = ast.parse(conftest.read_text(encoding="utf-8"))
+    except OSError, SyntaxError, ValueError:
+        return True
+    return any(
+        name == "*" or name.startswith(CONST_PYTEST_HOOK_PREFIX) for name in _bound_names(tree)
+    )
+
+
 def _reaches_whole_suite(raw: Path, root: Path) -> bool:
     """Whether a change to `raw` reaches every test: it forces a full `devops ci test` run
-    (`forces_full_run`), unless it is a conftest below the tests root, which reaches its own
-    directory. An absolute path outside the repository reaches none."""
+    (`forces_full_run`), except that a conftest below the tests root does so only when it binds
+    a `pytest_*` hook, and otherwise reaches its own directory. An absolute path outside the
+    repository reaches none."""
     try:
         relative = raw.resolve().relative_to(root) if raw.is_absolute() else raw
     except ValueError, OSError:
@@ -136,7 +152,9 @@ def _reaches_whole_suite(raw: Path, root: Path) -> bool:
         and relative.parent != tests_root
         and relative.is_relative_to(tests_root)
     )
-    return forces_full_run(relative.as_posix()) and not nested_conftest
+    if nested_conftest:
+        return _binds_hook(root / relative)
+    return forces_full_run(relative.as_posix())
 
 
 def _iter_test_files(tests_root: Path) -> list[Path]:
@@ -190,12 +208,13 @@ def select_tests_for_sources(
 ) -> TestSelection:
     """Select the test modules covering a set of changed files.
 
-    A change that reaches every test, one that forces a full `devops ci test` run other than a
-    conftest below the tests root, selects the whole suite at once, before any test module is
-    listed or read. Paths already inside the tests tree pass straight through, except that a
-    conftest or a package's `__init__.py` selects its directory. Source modules are matched by
-    naming convention, by which tests import them and by the test modules directly in the
-    directory that mirrors their package, and the union is run.
+    A change that reaches every test selects the whole suite at once, before any test module
+    is listed or read: one that forces a full `devops ci test` run, where a conftest below the
+    tests root counts only when it binds a `pytest_*` hook. Paths already inside the tests tree
+    pass straight through, except that a conftest or a package's `__init__.py` selects its
+    directory. Source modules are matched by naming convention, at any depth, and by which tests
+    import them, and the union is run; a test module merely beside the module's own does not
+    run, since replayed over 15 commits none such ran the module (#1312).
     """
     root = (repo_root or Path.cwd()).resolve()
     candidates = [Path(raw) for raw in paths]
@@ -241,7 +260,6 @@ def select_tests_for_sources(
             path for path in all_tests if path.name in _convention_candidates(module_path)
         }
         matched = conventional | _referencing_tests(module_path, all_tests, contents)
-        matched |= _mirror_tests(absolute, module_path, tests_root)
 
         display = str(candidate)
         selection.source_selectors[display] = "text-based selector"

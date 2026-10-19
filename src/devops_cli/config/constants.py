@@ -2289,6 +2289,10 @@ CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
 CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
 # A pytest fixture file: a change to one reaches every test beside and below it.
 CONST_CONFTEST_FILENAME: Final[str] = "conftest.py"
+# The prefix of every name pytest reads from a conftest as a hook, `pytest_plugins` included:
+# its plugin manager registers a module's `pytest_*` attributes and nothing else, and calls such a
+# hook for every test, so a conftest binding one reaches tests outside its directory (#1312).
+CONST_PYTEST_HOOK_PREFIX: Final[str] = "pytest_"
 # Files whose change can alter the outcome of tests that never import them, so a change to one
 # defeats the coverage index and forces a full `devops ci` run.
 CONST_FULL_RUN_TRIGGER_NAMES: Final[frozenset[str]] = frozenset(
