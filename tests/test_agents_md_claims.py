@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+from markdown_it import MarkdownIt
+from mdit_py_plugins.anchors import anchors_plugin
 
 from devops_cli.ai.instruction_generator import (
     generate_instruction_content,
@@ -92,3 +97,119 @@ def test_agents_md_stays_within_character_budget() -> None:
         CONST_AGENTS_MD_MAX_CHARS <= 40_000,
         len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
     ) == (True, True)
+
+
+# ── The test conventions and the documents that point to them (#1308) ───────────────────────
+
+_TESTING_MD = REPO_ROOT / "docs" / "TESTING.md"
+_TESTS_ADR = REPO_ROOT / "docs" / "adr" / "0007-tests-double-only-process-edges.md"
+# The documents that each stated test rules of their own, and link docs/TESTING.md instead.
+_DOCUMENTS_POINTING_AT_TESTING_MD = (
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "RELEASE_CYCLE.md",
+    "docs/SDLC.md",
+    "docs/ROUTINE_TASKS.md",
+    "docs/SELF_IMPROVEMENT.md",
+    ".devops/review.md",
+    "src/devops_cli/ai/knowledge_base/it_domains/tools/ruff_mypy_pytest.md",
+    "src/devops_cli/ai/knowledge_base/it_domains/topics/continuous_integration_and_progressive_verification.md",
+    "src/devops_cli/ai/knowledge_base/devops_cli/libraries/ruff_mypy_pytest.md",
+)
+# CommonMark, with each heading given the id GitHub gives it, so a `#fragment` can be resolved.
+_MARKDOWN = MarkdownIt("commonmark").use(anchors_plugin, max_level=6)
+
+
+def _hrefs(document: Path) -> list[str]:
+    """The target of every link in the document, as CommonMark reads it."""
+    return [
+        str(token.attrs["href"])
+        for block in _MARKDOWN.parse(document.read_text(encoding="utf-8"))
+        for token in block.children or ()
+        if token.type == "link_open"
+    ]
+
+
+def _relative_links(document: Path) -> dict[str, tuple[Path, str]]:
+    """Each relative link in the document, with the file it names and its fragment.
+
+    A bare `#fragment` names the document itself. A link with a scheme or a host names another
+    site and is left out.
+    """
+    return {
+        href: (
+            (document.parent / unquote(parts.path)).resolve() if parts.path else document,
+            unquote(parts.fragment),
+        )
+        for href, parts in ((href, urlsplit(href)) for href in _hrefs(document))
+        if not (parts.scheme or parts.netloc)
+    }
+
+
+def _heading_ids(document: Path) -> set[str]:
+    """The id GitHub gives each heading of the Markdown document."""
+    return {
+        str(token.attrs["id"])
+        for token in _MARKDOWN.parse(document.read_text(encoding="utf-8"))
+        if token.type == "heading_open"
+    }
+
+
+def _broken_links(document: Path) -> list[str]:
+    """Each relative link in the document whose file is missing, or whose fragment names no
+    heading of the Markdown file it points at."""
+    return [
+        href
+        for href, (target, fragment) in _relative_links(document).items()
+        if not target.exists()
+        or (fragment and target.suffix == ".md" and fragment not in _heading_ids(target))
+    ]
+
+
+def test_every_document_that_stated_test_rules_links_testing_md() -> None:
+    """AGENTS.md, the contributor guides, the review conventions and the knowledge base each
+    stated test rules of their own, and several contradicted the conventions the owner decided
+    on 2026-10-07. Each links `docs/TESTING.md` in their place (#1308)."""
+    unlinked = [
+        name
+        for name in _DOCUMENTS_POINTING_AT_TESTING_MD
+        if _TESTING_MD not in {target for target, _ in _relative_links(REPO_ROOT / name).values()}
+    ]
+
+    assert unlinked == []
+
+
+def test_every_relative_link_in_the_test_conventions_and_their_pointers_resolves() -> None:
+    """A renumbered ADR or a moved document leaves no dead link in the test conventions, their
+    ADR or a document that points to them (#1308)."""
+    documents = {
+        "docs/TESTING.md": _TESTING_MD,
+        "docs/adr/0007-tests-double-only-process-edges.md": _TESTS_ADR,
+        **{name: REPO_ROOT / name for name in _DOCUMENTS_POINTING_AT_TESTING_MD},
+    }
+
+    broken = {
+        name: links
+        for name, path in documents.items()
+        if (links := _broken_links(path) if path.is_file() else ["<missing>"])
+    }
+
+    assert broken == {}
+
+
+def test_a_link_to_a_missing_file_or_heading_is_broken(tmp_path: Path) -> None:
+    """Negative control: the check reports a link to a missing file or to a missing heading, and
+    passes links to an existing heading, one with letters outside ASCII included, to the
+    document's own heading and to another site."""
+    (tmp_path / "other.md").write_text(
+        "# Other\n\n## Kept heading\n\n## Über Straße\n", encoding="utf-8"
+    )
+    document = tmp_path / "doc.md"
+    document.write_text(
+        "# Doc\n\n## Own heading\n\n"
+        "[a](other.md#kept-heading) [b](missing.md) [c](other.md#gone) [d](#own-heading) "
+        "[e](#nowhere) [f](https://example.com/missing.md) [g](other.md#über-straße)\n",
+        encoding="utf-8",
+    )
+
+    assert _broken_links(document) == ["missing.md", "other.md#gone", "#nowhere"]

@@ -28,7 +28,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 3 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en/` | No hardcoded string literals in command code |
 | **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 4 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
 | **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 5 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
-| **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run pytest tests/test_<module>.py` | Fast isolated testing of active features/fixes | Targeted tests pass |
+| **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run pytest <test-file>` | Fast isolated testing of active features/fixes | Targeted tests pass |
 | **Inner Loop (Daily / Per Edit)** | Telemetry, Log & CLI Output Review | Step 7 | `devops telemetry status` / log inspection | Inspect CLI command outputs, `.data/logs/`, metrics, and tracing spans for performance bottlenecks, misconfigurations, and warnings | Clean logs, no warnings, nominal latencies |
 | **Final Pre-Commit / Pre-PR** | Documentation & README Sync | Step 1 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`-n logical`; `devops ci` caps workers at 8) | All tests pass |
@@ -111,7 +111,7 @@ flowchart TD
      - `devops_cli.dry_run.decorator.dry_run_command` for state-mutating command dry-runs.
      - `devops_cli.security.base.BaseSecurityScanner` for security linters.
 5. **Write Tests First (Living Functional Specification)**:
-   - Create or update `tests/test_<feature>.py` to document the intended public interfaces, command-line arguments, expected return structures, edge cases, error conditions, and mocks.
+   - Write the tests that state the intended behaviour, edge cases and error conditions before the code, following [`docs/TESTING.md`](TESTING.md) for where they go, what they may double and what they assert.
 6. **Implement Feature Logic**:
    - Author clean, concise, domain-driven implementation code in `src/` specifically to satisfy the pre-written tests with zero extraneous boilerplate.
 7. **Format & Lint Target Files**:

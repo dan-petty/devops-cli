@@ -43,9 +43,9 @@ uv run pre-commit install
 ## 3. Test-First Development Cycle (Inner Loop)
 
 1. **Write Specification via Tests**:
-   Author unit and integration tests in `tests/test_<feature>.py`.
+   Write the tests first, as [`docs/TESTING.md`](docs/TESTING.md) describes, and run the file you changed:
    ```bash
-   uv run pytest tests/test_<feature>.py
+   uv run pytest <test-file>
    ```
 2. **Implement Feature Code**:
    Write concise, well-factored code in `src/devops_cli/` to satisfy the tests.
