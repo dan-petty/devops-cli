@@ -20,11 +20,10 @@ import threading
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
 from devops_cli.core.process import github_token, reset_github_token
 from devops_cli.github.error_classifier import listing_past_page_cap
-from devops_cli.github.rate_limiter import resolve_identity_cache_dir, run_gh
+from devops_cli.github.rate_limiter import resolve_identity_cache_dir
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -58,8 +57,8 @@ class GitHubSession:
     @cached_property
     def login(self) -> str:
         """The account the token belongs to, from `GET /user` the first time it is read."""
-        proc = run_gh([CONST_GH_CLI, "api", "user", "--jq", ".login"], check=True, quiet=True)
-        return proc.stdout.strip()
+        user = self.rest("GET", "/user")
+        return str(user["login"])
 
     @cached_property
     def client(self) -> GitHubClient:
