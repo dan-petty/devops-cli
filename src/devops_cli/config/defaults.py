@@ -1026,3 +1026,13 @@ DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10
 DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS: Final[int] = 16000
 DEFAULT_ANALYSIS_SAMPLING_SEED: Final[int] = 42
 DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"
+
+# ── CLI Startup Structural Import Budgets (#1687) ───────────────────────────
+# Maximum number of unique modules imported during devops --help or --version startup.
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 550
+# Maximum number of devops_cli modules imported during devops --help or --version startup.
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 75
+# Maximum number of unique modules imported during devops <command> --help startup.
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP: Final[int] = 1100
+# Maximum number of devops_cli modules imported during devops <command> --help startup.
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP: Final[int] = 250

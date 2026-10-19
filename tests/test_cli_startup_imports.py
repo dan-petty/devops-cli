@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import fcntl
 import json
 import os
 import subprocess
@@ -13,8 +12,12 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_CLI_HEAVY_MODULES,
-    CONST_STARTUP_IMPORT_BUDGET_HELP_SECONDS,
-    CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
+    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
+    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
+    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
 )
 from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
@@ -352,71 +355,62 @@ def _parse_importtime_line(line: str) -> tuple[str, float] | None:
     return mod, cum_us / 1_000_000
 
 
-def _parse_importtime_lines(stderr: str) -> tuple[float | None, list[tuple[str, float]]]:
-    all_imports: list[tuple[str, float]] = []
-    main_cum_s: float | None = None
+def _parse_importtime_lines(
+    stderr: str,
+) -> tuple[set[str], set[str], list[tuple[str, float]]]:
+    module_cum_s: dict[str, float] = {}
     for line in stderr.splitlines():
         parsed = _parse_importtime_line(line)
         if parsed is None:
             continue
         mod, cum_s = parsed
-        all_imports.append((mod, cum_s))
-        if mod == "devops_cli.main":
-            main_cum_s = cum_s
-    all_imports.sort(key=lambda item: item[1], reverse=True)
-    return main_cum_s, all_imports
+        if mod not in module_cum_s or cum_s > module_cum_s[mod]:
+            module_cum_s[mod] = cum_s
+    unique_mods = set(module_cum_s.keys())
+    devops_mods = {m for m in unique_mods if m.startswith("devops_cli")}
+    slowest = sorted(module_cum_s.items(), key=lambda item: item[1], reverse=True)
+    return unique_mods, devops_mods, slowest
 
 
-def _measure_importtime(
-    argv: list[str], runs: int = 2
-) -> tuple[float | None, list[tuple[str, float]]]:
-    """Execute devops command with -X importtime and parse stderr import durations.
+def _measure_startup_imports(
+    argv: list[str],
+) -> tuple[set[str], set[str], list[tuple[str, float]]]:
+    """Execute devops command with -X importtime and extract imported modules and timing."""
+    proc = subprocess.run(
+        [sys.executable, "-X", "importtime", "-m", "devops_cli.entry", *argv],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return _parse_importtime_lines(proc.stderr)
 
-    Uses an flock to serialize measurements across parallel test workers and takes the best of
-    runs (minimum cumulative time) to eliminate transient CPU/scheduling jitter.
-    """
-    lock_file = REPO_ROOT / ".data" / "importtime.lock"
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
 
-    best_main: float | None = None
-    best_imports: list[tuple[str, float]] = []
-    min_measured_s: float = float("inf")
-
-    with open(lock_file, "w") as lock_f:
-        fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
-        try:
-            for _ in range(runs):
-                proc = subprocess.run(
-                    [sys.executable, "-X", "importtime", "-m", "devops_cli.entry", *argv],
-                    env=_clean_subprocess_env(),
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                main_cum_s, all_imports = _parse_importtime_lines(proc.stderr)
-                key_metric = (
-                    main_cum_s
-                    if main_cum_s is not None
-                    else (all_imports[0][1] if all_imports else 0.0)
-                )
-                if key_metric < min_measured_s:
-                    min_measured_s = key_metric
-                    best_main = main_cum_s
-                    best_imports = all_imports
-        finally:
-            fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
-
-    return best_main, best_imports
+def _format_slowest_report(slowest: list[tuple[str, float]], limit: int = 10) -> str:
+    """Format the slowest imported modules as an informational diagnostic report."""
+    return "\n".join(f"  {mod}: {sec:.4f}s" for mod, sec in slowest[:limit])
 
 
 @pytest.mark.parametrize("argv", [["--version"], ["--help"]])
 def test_cli_startup_import_budget_main_and_version(argv: list[str]) -> None:
-    """Verify devops --help and --version stay within 0.5s cumulative import time for devops_cli.main."""
-    main_cum_s, all_imports = _measure_importtime(argv)
-    assert main_cum_s is not None, f"devops_cli.main was not found in -X importtime for {argv}"
-    slowest_report = [f"{m}: {s:.4f}s" for m, s in all_imports[:10]]
-    assert main_cum_s <= CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS, (
-        f"devops_cli.main import took {main_cum_s:.4f}s > {CONST_STARTUP_IMPORT_BUDGET_MAIN_SECONDS}s for {argv}. Slowest: {slowest_report}"
+    """Verify devops --help and --version stay within structural module budgets."""
+    unique_mods, devops_mods, slowest = _measure_startup_imports(argv)
+    report = _format_slowest_report(slowest)
+    print(
+        f"\nStartup import timing report for {argv} "
+        f"({len(unique_mods)} total modules, {len(devops_mods)} devops_cli modules):\n{report}"
+    )
+
+    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+    assert (
+        heavy_found,
+        len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+        len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
+    ) == ([], True, True), (
+        f"{argv} breached structural budget: heavy={heavy_found}, "
+        f"total={len(unique_mods)} (limit {DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION}), "
+        f"devops={len(devops_mods)} (limit {DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION}).\n"
+        f"Slowest imports:\n{report}"
     )
 
 
@@ -431,13 +425,86 @@ def test_cli_startup_import_budget_main_and_version(argv: list[str]) -> None:
     ],
 )
 def test_cli_startup_import_budget_command_help(argv: list[str]) -> None:
-    """Verify any devops <command> --help stays within 1.0s of import time, reporting slowest imports on failure."""
-    _, all_imports = _measure_importtime(argv)
-    slowest_s = all_imports[0][1] if all_imports else 0.0
-    slowest_report = [f"{m}: {s:.4f}s" for m, s in all_imports[:10]]
-    assert slowest_s <= CONST_STARTUP_IMPORT_BUDGET_HELP_SECONDS, (
-        f"Command help import took {slowest_s:.4f}s > {CONST_STARTUP_IMPORT_BUDGET_HELP_SECONDS}s for {argv}. Slowest: {slowest_report}"
+    """Verify any devops <command> --help stays within structural module budgets."""
+    unique_mods, devops_mods, slowest = _measure_startup_imports(argv)
+    report = _format_slowest_report(slowest)
+    print(
+        f"\nStartup import timing report for {argv} "
+        f"({len(unique_mods)} total modules, {len(devops_mods)} devops_cli modules):\n{report}"
     )
+
+    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+    assert (
+        heavy_found,
+        len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
+        len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
+    ) == ([], True, True), (
+        f"{argv} breached structural budget: heavy={heavy_found}, "
+        f"total={len(unique_mods)} (limit {DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP}), "
+        f"devops={len(devops_mods)} (limit {DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP}).\n"
+        f"Slowest imports:\n{report}"
+    )
+
+
+def test_startup_structural_budget_fails_when_extra_heavy_package_imported() -> None:
+    """Verify injecting a heavy package causes the structural import budget to fail."""
+    code = (
+        "import pydantic_ai\n"
+        "import devops_cli.entry\n"
+        "try:\n"
+        "    devops_cli.entry.main(['--help'])\n"
+        "except SystemExit:\n"
+        "    pass\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-X", "importtime", "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    unique_mods, _, _ = _parse_importtime_lines(proc.stderr)
+    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+
+    assert (
+        "pydantic_ai" in heavy_found,
+        len(unique_mods) > DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+    ) == (True, True)
+
+
+def test_startup_structural_budget_passes_under_cpu_load() -> None:
+    """Verify structural import module counts remain invariant and within budget under high CPU load."""
+    worker_count = min(os.cpu_count() or 4, 8)
+    burn_code = (
+        "import time\n"
+        "end = time.monotonic() + 3.0\n"
+        "while time.monotonic() < end:\n"
+        "    _ = sum(i * i for i in range(1000))\n"
+    )
+    workers: list[subprocess.Popen[bytes]] = []
+    try:
+        for _ in range(worker_count):
+            workers.append(
+                subprocess.Popen(
+                    [sys.executable, "-c", burn_code],
+                    start_new_session=True,
+                )
+            )
+        unique_mods, devops_mods, _ = _measure_startup_imports(["--help"])
+        heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+        assert (
+            heavy_found,
+            len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+            len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
+        ) == ([], True, True)
+    finally:
+        for p in workers:
+            try:
+                p.terminate()
+                p.wait(timeout=1.0)
+            except OSError, subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
 
 
 def test_cli_dry_run_imports_only_plan_dependencies() -> None:
