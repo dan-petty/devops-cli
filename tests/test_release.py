@@ -2158,6 +2158,65 @@ def test_a_bad_fragment_stops_the_automatic_cut_before_it_writes_or_pushes(
     ) == (True, "release/v0.2.26", tip, "", refs, [])
 
 
+def test_an_argocd_gate_failure_stops_the_cut_before_it_writes_or_pushes(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """The cut verifies every Argo CD application at origin's release tip before writing or branching (#1343).
+
+    The clone stays on its original branch with nothing checked out or changed, and neither git
+    nor gh reaches origin.
+    """
+    origin, clone = git_release_repo
+    _git_out(clone, "checkout", "-q", "release/v0.2.26")
+    app_dir = clone / "k8s" / "argocd" / "apps"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    (app_dir / "bad-app.yaml").write_text(
+        "apiVersion: argoproj.io/v1alpha1\n"
+        "kind: Application\n"
+        "metadata:\n"
+        "  name: bad-app\n"
+        "spec:\n"
+        "  source:\n"
+        "    repoURL: https://github.com/dan-petty/devops-cli\n"
+        "    path: k8s/apps/bad-app\n",
+        encoding="utf-8",
+    )
+    bad_path = clone / "k8s" / "apps" / "bad-app"
+    bad_path.mkdir(parents=True, exist_ok=True)
+    (bad_path / "kustomization.yaml").write_text(
+        "resources:\n  - nonexistent.yaml\n", encoding="utf-8"
+    )
+    _git_out(clone, "add", "-A")
+    _git_out(clone, "commit", "-q", "-m", "feat: break bad-app")
+    _git_out(clone, "push", "-q", "origin", "release/v0.2.26")
+    _git_out(clone, "checkout", "-q", "feature/my-work")
+    clone_tip = _git_out(clone, "rev-parse", "HEAD")
+    refs = _git_out(origin, "for-each-ref")
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    from devops_cli.commands.release import cut_release
+    from devops_cli.exceptions.k8s import ArgoCDGateError
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
+        pytest.raises(ArgoCDGateError) as refused,
+    ):
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True, sync_docs=False)
+
+    assert (
+        "bad-app" in refused.value.message,
+        _git_out(clone, "branch", "--show-current"),
+        _git_out(clone, "rev-parse", "HEAD"),
+        _git_out(clone, "status", "--porcelain"),
+        _git_out(origin, "for-each-ref"),
+        gh_calls,
+    ) == (True, "feature/my-work", clone_tip, "", refs, [])
+
+
 @pytest.mark.parametrize(
     "remove",
     [

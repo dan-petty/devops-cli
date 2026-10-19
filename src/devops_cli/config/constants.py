@@ -1197,6 +1197,17 @@ CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = ("devops", "ingress")
 """The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
+CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
+    "kustomization.yaml",
+    "kustomization.yml",
+    "Kustomization",
+)
+"""The standard file names Kustomize recognizes for a directory overlay."""
+CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
+    Path("k8s/argocd/apps"),
+    Path("k8s/argocd/bootstrap"),
+)
+"""Directories scanned for Argo CD Applications (#1343)."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
     "infra": ("ingress",),
     "devops": ("devops", "ingress"),

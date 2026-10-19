@@ -51,6 +51,32 @@ class KubernetesContextError(KubernetesError, ValueError):
         )
 
 
+class ArgoCDGateError(KubernetesError):
+    """Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failures: dict[str, list[str]] | None = None,
+        context: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "ARGOCD_GATE_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = dict(details or {})
+        if failures:
+            err_details["failures"] = failures
+        super().__init__(
+            message,
+            context=context,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=err_details,
+        )
+        self.failures: dict[str, list[str]] = failures or {}
+
+
 class ChaosExecutionError(KubernetesError, RuntimeError):
     """Raised when chaos engineering injection or validation fails."""
 
@@ -209,6 +235,7 @@ class VolumeReclaimError(KubernetesError, RuntimeError):
 
 
 __all__ = [
+    "ArgoCDGateError",
     "ChaosExecutionError",
     "ClusterJobError",
     "ClusterSecretPushError",

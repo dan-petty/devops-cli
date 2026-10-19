@@ -220,19 +220,19 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
 # ── Ownership & No Duplicates ────────────────────────────────────────────────
 
 
+def test_this_repository_passes_the_argocd_gate() -> None:
+    """The repository passes the offline Argo CD gate, verifying all applications at the head (#1343)."""
+    from devops_cli.k8s.argocd_gate import check_argocd_gate
+
+    built = check_argocd_gate(REPO_ROOT)
+    assert len(built) >= 23
+
+
 def test_rendered_raw_objects_single_ownership() -> None:
+    from devops_cli.k8s.argocd_gate import discover_path_applications
+
     apps = _all_applications()
-    raw_leaf_apps = {
-        "base": K8S_DIR,
-        "monitoring": K8S_DIR / "monitoring",
-        "llm": K8S_DIR / "llm",
-        "otel": K8S_DIR / "otel",
-        "logging": K8S_DIR / "logging",
-        "devops": K8S_DIR / "overlays" / "homelab" / "devops",
-        "ingress": K8S_DIR / "overlays" / "homelab" / "ingress",
-        "gpu-feature-discovery": K8S_DIR / "gpu-feature-discovery",
-        "agents": K8S_DIR / "agents",
-    }
+    raw_leaf_apps = discover_path_applications(REPO_ROOT, APPS_DIR)
 
     seen_objects: dict[tuple[str, str, str, str], str] = {}
     namespaces_declared: list[str] = []
@@ -282,17 +282,9 @@ def test_rendered_raw_objects_single_ownership() -> None:
 
 
 def test_namespace_and_pvc_data_safety() -> None:
-    raw_leaf_apps = [
-        K8S_DIR,
-        K8S_DIR / "monitoring",
-        K8S_DIR / "llm",
-        K8S_DIR / "otel",
-        K8S_DIR / "logging",
-        K8S_DIR / "overlays" / "homelab" / "devops",
-        K8S_DIR / "overlays" / "homelab" / "ingress",
-        K8S_DIR / "gpu-feature-discovery",
-        K8S_DIR / "agents",
-    ]
+    from devops_cli.k8s.argocd_gate import discover_path_applications
+
+    raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
 
     for dir_path in raw_leaf_apps:
         proc = subprocess.run(
