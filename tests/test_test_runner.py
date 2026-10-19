@@ -135,6 +135,24 @@ def test_an_unmapped_source_is_named_and_the_mapped_tests_run(
     )
 
 
+def test_an_untracked_test_package_is_selected_beside_a_committed_change(
+    project: Path, git: Callable[..., None]
+) -> None:
+    """Each file of a new test package not yet added is listed, not its directory: its test
+    module runs, and its `__init__.py` selects its own directory, as a conftest does, instead of
+    being named as a source no test module covers (#1312)."""
+    _commit(project, git, "src/devops_cli/commands/scan.py")
+    fresh = project / "tests" / "fresh"
+    fresh.mkdir()
+    (fresh / "__init__.py").write_text("", encoding="utf-8")
+    (fresh / "test_fresh.py").write_text("def test_fresh() -> None: ...\n", encoding="utf-8")
+    targets, output = _changed_run()
+    assert (targets, "No test module covers tests/fresh" in output) == (
+        ["tests/fresh", "tests/fresh/test_fresh.py", "tests/test_reports.py", "tests/test_scan.py"],
+        False,
+    )
+
+
 def test_no_change_runs_the_whole_suite(project: Path) -> None:
     assert _changed_run()[0] == ["tests"]
 

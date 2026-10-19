@@ -20,10 +20,9 @@ from devops_cli.config.constants import (
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
-    CONST_TEST_SUPPORT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
-from devops_cli.core.coverage_index import _find_tests_importing_helper
+from devops_cli.core.coverage_index import _find_tests_importing_helper, forces_full_run
 
 
 @dataclass
@@ -113,14 +112,31 @@ def _mirror_tests(source: Path, module_path: str, tests_root: Path) -> set[Path]
 
 
 def _fixture_reach(rel_tests_path: Path) -> Path | None:
-    """The tests a change to a file under the tests root reaches without being imported: the
-    whole suite for a module under `tests/support/`, which may register a fixture, and its own
-    directory for a conftest; None for any other file."""
-    if rel_tests_path.as_posix().startswith(f"{CONST_TEST_SUPPORT_DIR}/"):
-        return Path(CONST_TESTS_ROOT_DIR)
-    if rel_tests_path.name == CONST_CONFTEST_FILENAME:
+    """The tests a change to a file under the tests root reaches without being imported: its own
+    directory for a conftest, whose fixtures reach every test beside and below it, and for a
+    package's `__init__.py`, which each test module in the package runs first; None for any
+    other file."""
+    name = rel_tests_path.name
+    if name == CONST_CONFTEST_FILENAME or name == f"__init__{CONST_PYTHON_FILE_SUFFIX}":
         return rel_tests_path.parent
     return None
+
+
+def _reaches_whole_suite(raw: Path, root: Path) -> bool:
+    """Whether a change to `raw` reaches every test: it forces a full `devops ci test` run
+    (`forces_full_run`), unless it is a conftest below the tests root, which reaches its own
+    directory. An absolute path outside the repository reaches none."""
+    try:
+        relative = raw.resolve().relative_to(root) if raw.is_absolute() else raw
+    except ValueError, OSError:
+        return False
+    tests_root = Path(CONST_TESTS_ROOT_DIR)
+    nested_conftest = (
+        relative.name == CONST_CONFTEST_FILENAME
+        and relative.parent != tests_root
+        and relative.is_relative_to(tests_root)
+    )
+    return forces_full_run(relative.as_posix()) and not nested_conftest
 
 
 def _iter_test_files(tests_root: Path) -> list[Path]:
@@ -174,12 +190,22 @@ def select_tests_for_sources(
 ) -> TestSelection:
     """Select the test modules covering a set of changed files.
 
-    Paths already inside the tests tree pass straight through, except that a conftest selects
-    its directory and a module under `tests/support/` the whole suite. Source modules are
-    matched by naming convention, by which tests import them and by the test modules directly in
-    the directory that mirrors their package, and the union is run.
+    A change that reaches every test, one that forces a full `devops ci test` run other than a
+    conftest below the tests root, selects the whole suite at once, before any test module is
+    listed or read. Paths already inside the tests tree pass straight through, except that a
+    conftest or a package's `__init__.py` selects its directory. Source modules are matched by
+    naming convention, by which tests import them and by the test modules directly in the
+    directory that mirrors their package, and the union is run.
     """
     root = (repo_root or Path.cwd()).resolve()
+    candidates = [Path(raw) for raw in paths]
+    whole_suite = next((path for path in candidates if _reaches_whole_suite(path, root)), None)
+    if whole_suite is not None:
+        return TestSelection(
+            passthrough_files=[Path(CONST_TESTS_ROOT_DIR)],
+            source_selectors={str(whole_suite): "direct"},
+        )
+
     tests_root = root / CONST_TESTS_ROOT_DIR
     all_tests = _iter_test_files(tests_root)
     contents: dict[Path, str] = {}
@@ -187,8 +213,7 @@ def select_tests_for_sources(
     selection = TestSelection()
     selected: set[Path] = set()
 
-    for raw in paths:
-        candidate = Path(raw)
+    for candidate in candidates:
         absolute = candidate if candidate.is_absolute() else root / candidate
 
         # A path supplied under the tests tree

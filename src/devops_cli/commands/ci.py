@@ -1187,7 +1187,7 @@ def _normalize_repo_rel_path(path: Path | str, root: Path) -> str:
             return p.resolve().relative_to(root.resolve()).as_posix()
         except ValueError, OSError:
             return p.as_posix()
-    return p.as_posix().lstrip("./")
+    return p.as_posix()
 
 
 def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:

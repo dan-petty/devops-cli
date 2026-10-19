@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +11,7 @@ import typer
 from devops_cli.config.commands import BIN_K6, build_k6_cmd
 from devops_cli.config.constants import (
     CONST_CURRENT_DIR,
+    CONST_GIT_MAIN_BRANCH,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_TESTS_ROOT_DIR,
 )
@@ -55,22 +55,20 @@ def _porcelain_path(line: str) -> str:
     return parts[1].split(" -> ")[-1].strip().strip('"')
 
 
-def _changed_paths(repo_root: Path, base_ref: str = "main") -> list[str]:
-    """The files changed since `base_ref`, committed or not, as git lists them."""
-    clean_ref = base_ref.strip()
-    if clean_ref.startswith("-") or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", clean_ref):
-        clean_ref = "main"
-
+def _changed_paths(repo_root: Path) -> list[str]:
+    """The files changed since the branch left `main`, committed or not, as git lists them,
+    each file of an untracked directory by its own path."""
     changed: set[str] = set()
     diff_proc = run_subprocess(
-        ["git", "diff", "--name-only", f"{clean_ref}...HEAD"],
+        ["git", "diff", "--name-only", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
         check=False,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
         changed.update(diff_proc.stdout.strip().splitlines())
 
-    wt_proc = run_subprocess(["git", "status", "--porcelain"], cwd=repo_root, check=False)
+    status = ["git", "status", "--porcelain", "--untracked-files=all"]
+    wt_proc = run_subprocess(status, cwd=repo_root, check=False)
     if wt_proc.returncode == 0 and wt_proc.stdout:
         changed.update(_porcelain_path(line) for line in wt_proc.stdout.strip().splitlines())
     return sorted(path for path in changed if path)

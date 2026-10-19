@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_coverage_index_path
+from devops_cli.commands.ci import _normalize_repo_rel_path
 from devops_cli.commands.ci import app as ci_app
+from devops_cli.config.constants import CONST_FULL_RUN_TRIGGER_NAMES
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
     module_path_for_source,
@@ -170,6 +173,32 @@ def test_a_package_init_selects_its_own_mirror_directory(project: Path) -> None:
         "tests/security/test_policy.py",
         "tests/test_credential_flow.py",
     ]
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        "tests/support/paths.py",
+        "tests/conftest.py",
+        "conftest.py",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+    ],
+)
+def test_a_change_that_forces_a_full_run_selects_the_suite_without_reading_the_tests(
+    project: Path, trigger: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A change `forces_full_run` names reaches every test, so the selector returns `tests` at
+    once, listing and reading no test module for the source changed beside it (#1312)."""
+
+    def unread(self: Path, *args: object, **kwargs: object) -> NoReturn:
+        raise AssertionError(f"the selector read {self}")
+
+    for method in ("glob", "rglob", "read_text"):
+        monkeypatch.setattr(Path, method, unread)
+    selection = select_tests_for_sources(["src/devops_cli/security/secrets.py", trigger], project)
+    assert (selection.pytest_targets(), selection.unmapped_sources) == (["tests"], [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +534,42 @@ def test_cli_test_support_module_forces_full_run(
         res_no_fb.exit_code,
         "tests/support/paths.py" in res_no_fb.output,
     ) == (0, [], True, 0, [], True, 1, True)
+
+
+@pytest.mark.parametrize("prefix", ["", "./"])
+@pytest.mark.parametrize("name", sorted(CONST_FULL_RUN_TRIGGER_NAMES))
+def test_cli_test_every_trigger_name_forces_a_full_run_as_given_or_after_a_dot_slash(
+    monkeypatch: pytest.MonkeyPatch, project: Path, name: str, prefix: str
+) -> None:
+    """With no index, each trigger name refuses under --no-fallback and runs the full suite
+    under --fallback, whether or not it is given after `./`: only that prefix is dropped, so
+    `.python-version` keeps its leading dot and stays a trigger."""
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+    monkeypatch.setattr("devops_cli.core.coverage_index.load_index", lambda _: CoverageIndex())
+
+    refused = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--no-fallback"])
+    full = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--fallback"])
+
+    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    assert (refused.exit_code, name in refused.output, full.exit_code, len(called), targets) == (
+        1,
+        True,
+        0,
+        1,
+        [],
+    )
+
+
+@pytest.mark.parametrize(
+    ("given", "normalized"),
+    [("./.python-version", ".python-version"), ("../x.py", "../x.py"), ("./src/a.py", "src/a.py")],
+)
+def test_a_relative_path_loses_only_a_leading_dot_slash(
+    tmp_path: Path, given: str, normalized: str
+) -> None:
+    assert _normalize_repo_rel_path(given, tmp_path) == normalized
 
 
 def test_cli_test_trigger_file_modified_since_build_forces_full_run(
