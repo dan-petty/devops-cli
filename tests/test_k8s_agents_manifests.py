@@ -9,9 +9,9 @@ import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import _MANIFESTS_BY_STACK, DEFAULT_K8S_DIR
 from devops_cli.k8s.rbac import RbacBinding, RbacRole, audit_rbac
+from tests.support.paths import REPO_ROOT
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_K8S_DIR = _REPO_ROOT / "k8s"
+_K8S_DIR = REPO_ROOT / "k8s"
 
 
 def _load_yaml_docs(path: Path) -> list[dict[str, Any]]:

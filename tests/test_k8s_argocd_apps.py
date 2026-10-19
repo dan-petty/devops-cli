@@ -12,8 +12,8 @@ import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 ARGOCD_DIR = K8S_DIR / "argocd"
 APPS_DIR = ARGOCD_DIR / "apps"

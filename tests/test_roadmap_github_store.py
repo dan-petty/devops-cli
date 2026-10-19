@@ -17,7 +17,6 @@ import threading
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any, NoReturn
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -86,15 +85,16 @@ from tests.roadmap_board_fake import (
     budget_reply,
     gh_variables,
 )
+from tests.support.paths import FIXTURES
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
-FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
+ROADMAP_FIXTURES = FIXTURES / "roadmap"
 REPO = "dan-petty/devops-cli"
 ISSUE_URL = f"https://github.com/{REPO}/issues"
 
 
 def recorded(name: str) -> Any:
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    return json.loads((ROADMAP_FIXTURES / name).read_text(encoding="utf-8"))
 
 
 MILESTONES = recorded("milestones.json")
