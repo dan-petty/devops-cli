@@ -57,7 +57,8 @@ from devops_cli.github.pr_threads import (
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.github_store import create_issue_args, issues_endpoint, listing_page_args
+from devops_cli.roadmap.github_store import create_issue_args
+from devops_cli.roadmap.request_plan import StoreRequests, within
 from devops_cli.roadmap.store import GitHubState, IssueRecord, RoadmapStore
 
 _FENCE_MIN = 3
@@ -178,7 +179,8 @@ class _FilingRun:
 
     @cached_property
     def issues(self) -> list[IssueRecord]:
-        """Every issue the store lists, read once, to find one that already links a thread."""
+        """Every issue the store lists, read once through the GitHub session, to find one that
+        already links a thread; a page that is not a listing raises, so none is missed."""
         return self.store.issues()
 
 
@@ -320,7 +322,8 @@ def _planned(
 
 def plan_thread_issues(repo: str, pr_number: int) -> list[PlannedRequest]:
     """The requests `file_thread_issues` makes with `confirm`, in order and with no value
-    read (#412); each gh command is the argv the real run builds, with placeholders."""
+    read (#412): each gh command is the argv the real run builds, with placeholders, and the
+    issue listing the GitHub session's GET, as the store's own request plan gives it."""
     texts = MESSAGES.pr
     owner, repo_name = repo.split("/", 1)
     on_release = texts.threads_plan_release.format(number=pr_number)
@@ -330,7 +333,6 @@ def plan_thread_issues(repo: str, pr_number: int) -> list[PlannedRequest]:
     unlinked = both(unanswered, texts.threads_plan_unlinked)
     each, page = texts.threads_plan_each, texts.threads_plan_page
     details = pr_details_argv(owner, repo_name, pr_number)
-    issues = listing_page_args(issues_endpoint(repo), "<page>")
     labels = [CONST_ROADMAP_SOURCE_AGENT_LABEL]
     thread = "<thread-id>"
     return [
@@ -350,7 +352,7 @@ def plan_thread_issues(repo: str, pr_number: int) -> list[PlannedRequest]:
             texts.threads_plan_comment_page,
         ),
         _planned("GraphQL read", "viewer", viewer_args(), not_kept),
-        _planned("REST read", issues[-1], issues, unanswered, page),
+        *within(StoreRequests(repo).issues(), unanswered),
         _planned(
             "REST write",
             f"repos/{repo}/issues",

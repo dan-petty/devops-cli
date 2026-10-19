@@ -32,8 +32,17 @@ from devops_cli.github.pr_threads import (
     unresolve_pr_review_thread,
 )
 from devops_cli.github.review_thread_issues import thread_issue_body
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import IssueRecord
+from devops_cli.github.session import get_github_session
+from devops_cli.roadmap import store as roadmap_module
+from devops_cli.roadmap.github_store import GitHubRoadmapStore
+from tests.github_session_fakes import (
+    API,
+    GitHubApiFake,
+    RunnerSession,
+    github_json,
+    next_page,
+)
+from tests.support.paths import FIXTURES
 
 SAMPLE_GRAPHQL_RESPONSE = {
     "data": {
@@ -626,12 +635,23 @@ def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -
 # `createdAt`, `url`), with Copilot as the GraphQL login `copilot-pull-request-reviewer`, and
 # answers each query with only the fields it selects, as GitHub does. A GraphQL error makes gh
 # exit 1 and name it on stderr.
+#
+# Each run opens the GitHub roadmap store, as the command does. Its gh commands, the issue it
+# opens included, go to the stand-in, which answers with an issue in the shape GitHub's REST API
+# returns, from a recorded one. Its issue listing goes through the GitHub session (#983):
+# `RunnerSession` asks the stand-in for it, and the tests of paging, a bad page and the dry run
+# read it through the real session over the `github_api` fake.
 
 _REPO = "dan-petty/devops-cli"
 _PULL = 1283
 _COPILOT_GRAPHQL = "copilot-pull-request-reviewer"
 _VIEWER = "maintainer"
 _FIRST_PAGE_END = "Y3Vyc29yOnYyOpHOBUf6iA=="
+_ISSUES_LISTING = f"/repos/{_REPO}/issues?state=all&per_page=100"
+_FIRST_NEW_ISSUE = 1701
+_RECORDED_ISSUE = json.loads(
+    (FIXTURES / "roadmap" / "issues-open.json").read_text(encoding="utf-8")
+)[1]
 
 
 def _comment(
@@ -692,6 +712,35 @@ def _release_pull(head: str = "release/v0.2.37", base: str = "main") -> dict[str
     return {"number": _PULL, "state": "open", "merged": False, **sides}
 
 
+def _rest_issue(
+    number: int, title: str, body: str, *, labels: Sequence[str] = (), state: str = "open"
+) -> dict[str, Any]:
+    """An issue as GitHub's REST API lists it and answers its creation, from a recorded one."""
+    return {
+        **_RECORDED_ISSUE,
+        "url": f"https://api.github.com/repos/{_REPO}/issues/{number}",
+        "html_url": f"https://github.com/{_REPO}/issues/{number}",
+        "id": 5670191474 + number,
+        "number": number,
+        "title": title,
+        "body": body,
+        "labels": [{"name": label, "color": "ededed"} for label in labels],
+        "state": state,
+        "state_reason": None if state == "open" else "completed",
+        "milestone": None,
+    }
+
+
+def _linking(thread: dict[str, Any]) -> str:
+    """A follow-up issue's body for `thread`: it ends a line with the link to its first comment."""
+    first = thread["comments"]["nodes"][0]
+    return f"Quoted thread.\n\n{thread['path']}:{thread['line']}, {first['url']}\n"
+
+
+def _gh_reply(payload: Any) -> MagicMock:
+    return MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+
+
 def _selected(value: Any, selection: SelectionSetNode | None) -> Any:
     """`value` cut to the fields `selection` asks for, as GitHub answers a query: a field the
     query does not ask for is left out, and one the stand-in lacks fails the test."""
@@ -712,10 +761,12 @@ def _selected(value: Any, selection: SelectionSetNode | None) -> Any:
 
 
 class _ThreadsGitHub:
-    """`run_gh` answering the pull request read and the review thread GraphQL calls, recording
-    every call in `calls` and every write, in order, in `events`. `later_comments` holds the
-    comments past a thread's first page, and a reply in a thread of `failing_replies` fails as
-    GitHub's GraphQL rate limit fails it."""
+    """`run_gh` answering the pull request read, the review thread GraphQL calls and the roadmap
+    store's gh commands and issue listing, recording every call in `calls`, every write, in
+    order, in `events`, each issue it opened in `opened` and each store a run opened in
+    `stores`. The listing holds `issues` and every issue opened since; `later_comments` holds the
+    comments past a thread's first page; a reply in a thread of `failing_replies` fails as
+    GitHub's GraphQL rate limit fails it, and with `failing_issue` opening an issue fails."""
 
     def __init__(
         self,
@@ -723,21 +774,31 @@ class _ThreadsGitHub:
         events: list[tuple[Any, ...]],
         *,
         pull: dict[str, Any] | None = None,
+        issues: Sequence[dict[str, Any]] = (),
         later_comments: dict[str, list[dict[str, Any]]] | None = None,
         failing_replies: frozenset[str] = frozenset(),
+        failing_issue: bool = False,
     ) -> None:
         self.calls: list[list[str]] = []
+        self.opened: list[dict[str, Any]] = []
+        self.stores: list[str] = []
         self._threads = threads
         self._events = events
         self._pull = pull or _release_pull()
+        self._issues = list(issues)
         self._later = later_comments or {}
         self._failing = failing_replies
+        self._failing_issue = failing_issue
 
     def __call__(self, args: list[str], **_: object) -> MagicMock:
         argv = [str(arg) for arg in args]
         self.calls.append(argv)
         if argv[-1] == f"repos/{_REPO}/pulls/{_PULL}":
-            return MagicMock(returncode=0, stdout=json.dumps(self._pull), stderr="")
+            return _gh_reply(self._pull)
+        if argv == [f"{API}{_ISSUES_LISTING}"]:
+            return _gh_reply(self._issues)
+        if argv[:4] == ["api", "-X", "POST", f"repos/{_REPO}/issues"]:
+            return self._open_issue(argv[4:])
         flags = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg in ("-f", "-F")]
         fields = dict(flag.split("=", 1) for flag in flags)
         operation = next(
@@ -750,8 +811,21 @@ class _ThreadsGitHub:
             limited = "API rate limit exceeded for user ID 1."
             error = {"errors": [{"type": "RATE_LIMITED", "message": limited}]}
             return MagicMock(returncode=1, stdout=json.dumps(error), stderr=f"gh: {limited}")
-        answer = {"data": _selected(self._data(name, fields), operation.selection_set)}
-        return MagicMock(returncode=0, stdout=json.dumps(answer), stderr="")
+        return _gh_reply({"data": _selected(self._data(name, fields), operation.selection_set)})
+
+    def _open_issue(self, flags: list[str]) -> MagicMock:
+        fields = [flag.split("=", 1) for flag in flags[1::2]]
+        if self._failing_issue:
+            return MagicMock(returncode=1, stdout="", stderr="gh: Server Error (HTTP 502)")
+        title = next(value for name, value in fields if name == "title")
+        body = next(value for name, value in fields if name == "body")
+        labels = [value for name, value in fields if name == "labels[]"]
+        number = _FIRST_NEW_ISSUE + len(self.opened)
+        issue = _rest_issue(number, title, body, labels=labels)
+        self.opened.append(issue)
+        self._issues.append(issue)
+        self._events.append(("issue", number))
+        return _gh_reply(issue)
 
     def _data(self, operation: str, fields: dict[str, str]) -> dict[str, Any]:
         if operation == "GetReviewThreads":
@@ -782,28 +856,21 @@ class _ThreadsGitHub:
         raise AssertionError(f"unscripted GraphQL operation {operation!r}")
 
 
-@pytest.fixture
-def filing_events(
-    roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
-) -> list[tuple[Any, ...]]:
-    """Every write of a filing run, in order: each issue the roadmap store opens, then the
-    replies and resolves the GraphQL stand-in records."""
-    events: list[tuple[Any, ...]] = []
-    create = roadmap_store.create_issue
+def _file_issues(gh: _ThreadsGitHub, *args: str, over_github: bool = False) -> Any:
+    """Run file-issues with `gh` answering every gh command. Each roadmap store the run opens is
+    the GitHub store, its gh commands sent to `gh` and its issue listing read through
+    `RunnerSession` from `gh`, or, `over_github`, through the process's GitHub session from the
+    `github_api` fake."""
 
-    def recorded(title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
-        issue = create(title, body, labels=labels)
-        events.append(("issue", issue.number))
-        return issue
+    def open_store(repo: str, **_: Any) -> GitHubRoadmapStore:
+        gh.stores.append(repo)
+        session = get_github_session() if over_github else RunnerSession(gh)
+        return GitHubRoadmapStore(repo, runner=gh, session=session)
 
-    monkeypatch.setattr(roadmap_store, "create_issue", recorded)
-    return events
-
-
-def _file_issues(gh: _ThreadsGitHub, *args: str) -> Any:
     with (
         patch("devops_cli.github.pr_threads.run_gh", side_effect=gh),
         patch("devops_cli.github.pr_monitor.run_gh", side_effect=gh),
+        patch.object(roadmap_module, "get_roadmap_store", open_store),
     ):
         return CliRunner().invoke(
             pr_app, ["threads", "file-issues", str(_PULL), "--repo", _REPO, *args]
@@ -819,43 +886,47 @@ def _with_reply(thread: dict[str, Any], reply: dict[str, Any]) -> dict[str, Any]
     return {**thread, "comments": {**comments, "nodes": [*comments["nodes"], reply]}}
 
 
-def test_each_unresolved_thread_is_filed_then_replied_to_then_resolved(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def _labels(issue: dict[str, Any]) -> list[str]:
+    return [label["name"] for label in issue["labels"]]
+
+
+def test_each_unresolved_thread_is_filed_then_replied_to_then_resolved() -> None:
     """Each thread becomes one issue, with no milestone and labelled source/agent since Copilot
     started it, before its reply names the issue and the thread is resolved, one thread after
     the other."""
-    result = _file_issues(_ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events), "--confirm")
-    issues = roadmap_store.issues()
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events)
+    result = _file_issues(gh, "--confirm")
     assert (
         result.exit_code,
-        _writes(filing_events),
-        "Filed as #1" in filing_events[1][2],
-        "Filed as #2" in filing_events[4][2],
-        issues[0].title,
-        [(issue.labels, issue.release) for issue in issues],
+        _writes(events),
+        "Filed as #1701" in events[1][2],
+        "Filed as #1702" in events[4][2],
+        gh.opened[0]["title"],
+        [(_labels(issue), issue["milestone"]) for issue in gh.opened],
+        gh.stores,
     ) == (
         0,
         [
-            ("issue", 1),
+            ("issue", 1701),
             ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
             ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
-            ("issue", 2),
+            ("issue", 1702),
             ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
             ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
         ],
         True,
         True,
         "chore(review): follow up src/devops_cli/github/pr_monitor.py:412 from #1283",
-        [(("source/agent",), None), (("source/agent",), None)],
+        [(["source/agent"], None), (["source/agent"], None)],
+        [_REPO],
     )
 
 
-def test_an_issue_holds_the_fenced_thread_its_location_and_its_link(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
-    _file_issues(_ThreadsGitHub([_THREAD_B], filing_events), "--confirm")
-    body = roadmap_store.issues()[0].body
+def test_an_issue_holds_the_fenced_thread_its_location_and_its_link() -> None:
+    gh = _ThreadsGitHub([_THREAD_B], [])
+    _file_issues(gh, "--confirm")
+    body = gh.opened[0]["body"]
     fenced = body.split("```")[1]
     assert (
         "This loop reads the board twice." in fenced,
@@ -865,15 +936,14 @@ def test_an_issue_holds_the_fenced_thread_its_location_and_its_link(
     ) == (True, True, True, True)
 
 
-def test_a_mention_and_an_issue_reference_stay_inside_a_fence_longer_than_any_in_the_text(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_mention_and_an_issue_reference_stay_inside_a_fence_longer_than_any_in_the_text() -> None:
     """Neither `@someone` nor `#12` may notify or link from the issue, and a fence in the
     comment cannot close the one around it."""
     text = "@someone see #12 first:\n```python\nx = 1\n```"
     thread = _thread("PRRT_kwDOThbRVc5Ak1cC", "src/a.py", 3, _comment("PRRC_c", text, discussion=7))
-    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
-    before, fenced, after = roadmap_store.issues()[0].body.split("````\n", 2)
+    gh = _ThreadsGitHub([thread], [])
+    _file_issues(gh, "--confirm")
+    before, fenced, after = gh.opened[0]["body"].split("````\n", 2)
     outside = before + after
     reference = re.compile(r"#12\b")
     assert (
@@ -884,44 +954,38 @@ def test_a_mention_and_an_issue_reference_stay_inside_a_fence_longer_than_any_in
     ) == (True, True, False, False)
 
 
-def test_a_kept_thread_is_left_untouched(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_kept_thread_is_left_untouched() -> None:
     """`--keep` leaves open the thread of a regression the release fixes before it merges."""
-    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events)
     result = _file_issues(gh, "--confirm", "--keep", "PRRT_kwDOThbRVc5Ak1bB")
-    assert (result.exit_code, _writes(filing_events), len(roadmap_store.issues())) == (
+    assert (result.exit_code, _writes(events), len(gh.opened)) == (
         0,
-        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+        [
+            ("issue", 1701),
+            ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+        ],
         1,
     )
 
 
 @pytest.mark.parametrize("confirm", [(), ("--confirm",)], ids=["preview", "confirm"])
 def test_a_keep_id_that_names_no_unresolved_thread_is_refused_before_any_write(
-    roadmap_store: InMemoryRoadmapStore,
-    filing_events: list[tuple[Any, ...]],
     confirm: tuple[str, ...],
 ) -> None:
     """A mistyped `--keep` would leave the regression thread to be filed and resolved, and the
     release pull request would show no unresolved thread, so it stops the run."""
     typo = "PRRT_kwDOThbRVc5Ak1bb"
-    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events)
     result = _file_issues(gh, *confirm, "--keep", typo)
-    assert (result.exit_code, filing_events, roadmap_store.issues(), typo in result.output) == (
-        1,
-        [],
-        [],
-        True,
-    )
+    assert (result.exit_code, events, gh.opened, typo in result.output) == (1, [], [], True)
 
 
-def test_the_preview_keeps_a_kept_thread(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
-    result = _file_issues(
-        _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events), "--keep", "PRRT_kwDOThbRVc5Ak1bB"
-    )
+def test_the_preview_keeps_a_kept_thread() -> None:
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], [])
+    result = _file_issues(gh, "--keep", "PRRT_kwDOThbRVc5Ak1bB")
     assert (
         result.exit_code,
         "Kept PRRT_kwDOThbRVc5Ak1bB" in result.output,
@@ -930,58 +994,50 @@ def test_the_preview_keeps_a_kept_thread(
     ) == (0, True, False, True)
 
 
-def test_without_confirm_the_threads_are_read_and_nothing_is_written(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
-    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+def test_without_confirm_the_threads_are_read_and_nothing_is_written() -> None:
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events)
     result = _file_issues(gh)
     title = "chore(review): follow up src/devops_cli/commands/pr.py:2890 from #1283"
-    assert (result.exit_code, filing_events, roadmap_store.issues(), title in result.output) == (
-        0,
-        [],
-        [],
-        True,
-    )
+    assert (result.exit_code, events, gh.opened, title in result.output) == (0, [], [], True)
 
 
-def test_dry_run_makes_no_request_and_lists_the_requests(
-    roadmap_store: InMemoryRoadmapStore,
-    roadmap_store_repos: list[str],
-    filing_events: list[tuple[Any, ...]],
-) -> None:
-    """`--dry-run` reads nothing either (#412): it lists the reads, then the issue, reply and
-    resolve each thread would get."""
-    gh = _ThreadsGitHub([_THREAD_A], filing_events)
-    result = _file_issues(gh, "--confirm", "--dry-run")
+def test_dry_run_makes_no_request_and_lists_the_requests(github_api: GitHubApiFake) -> None:
+    """`--dry-run` reads nothing either (#412), through gh or the GitHub session: it lists the
+    reads, the issue listing as the session's GET, then the issue, reply and resolve each
+    thread would get."""
+    gh = _ThreadsGitHub([_THREAD_A], [])
+    result = _file_issues(gh, "--confirm", "--dry-run", over_github=True)
+    output = "".join(result.output.split())
     assert (
         result.exit_code,
         gh.calls,
-        roadmap_store_repos,
-        "query Viewer" in result.output,
-        "query GetThreadComments" in result.output,
-        f"repos/{_REPO}/issues?state=all" in result.output,
-        "labels[]=source/agent" in result.output,
-        "mutation AddReply" in result.output,
-        "mutation ResolveThread" in result.output,
-    ) == (0, [], [], True, True, True, True, True, True)
+        gh.stores,
+        github_api.requested,
+        "queryViewer" in output,
+        "queryGetThreadComments" in output,
+        f"GET'{API}{_ISSUES_LISTING}'" in output,
+        "labels[]=source/agent" in output,
+        "mutationAddReply" in output,
+        "mutationResolveThread" in output,
+    ) == (0, [], [], [], True, True, True, True, True, True)
 
 
-def test_a_thread_the_viewer_already_filed_is_resolved_and_not_filed_again(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_thread_the_viewer_already_filed_is_resolved_and_not_filed_again() -> None:
     """A run that stopped after the reply left the thread open; the rerun reads the marker line
     in the reply the same account wrote, and only resolves the thread, naming its issue."""
     marker = CONST_PR_THREAD_FILED_MARKER.format(issue=7)
     earlier = _comment(
         "PRRC_kwDOThbRVc6Ak1aZ", f"Filed as #7.\n\n{marker}", author=_VIEWER, discussion=8
     )
-    filed = _with_reply(_THREAD_A, earlier)
-    result = _file_issues(_ThreadsGitHub([filed, _THREAD_B], filing_events), "--confirm")
-    assert (result.exit_code, _writes(filing_events), "#7" in result.output) == (
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_with_reply(_THREAD_A, earlier), _THREAD_B], events)
+    result = _file_issues(gh, "--confirm")
+    assert (result.exit_code, _writes(events), "#7" in result.output) == (
         0,
         [
             ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
-            ("issue", 1),
+            ("issue", 1701),
             ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
             ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
         ],
@@ -989,9 +1045,7 @@ def test_a_thread_the_viewer_already_filed_is_resolved_and_not_filed_again(
     )
 
 
-def test_a_marker_reply_past_the_first_page_of_comments_is_read(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_marker_reply_past_the_first_page_of_comments_is_read() -> None:
     marker = CONST_PR_THREAD_FILED_MARKER.format(issue=7)
     earlier = _comment(
         "PRRC_kwDOThbRVc6Ak1aZ", f"Filed as #7.\n\n{marker}", author=_VIEWER, discussion=8
@@ -1003,15 +1057,13 @@ def test_a_marker_reply_past_the_first_page_of_comments_is_read(
         *_THREAD_A["comments"]["nodes"],
         more_after="Y3Vyc29yOnYyOpHOBUf6iC==",
     )
+    events: list[tuple[Any, ...]] = []
     later = {"PRRT_kwDOThbRVc5Ak1aA": [earlier]}
-    gh = _ThreadsGitHub([first_page], filing_events, later_comments=later)
-    result = _file_issues(gh, "--confirm")
-    assert (result.exit_code, _writes(filing_events)) == (0, [("resolve", "PRRT_kwDOThbRVc5Ak1aA")])
+    result = _file_issues(_ThreadsGitHub([first_page], events, later_comments=later), "--confirm")
+    assert (result.exit_code, _writes(events)) == (0, [("resolve", "PRRT_kwDOThbRVc5Ak1aA")])
 
 
-def test_a_copilot_suggestion_quoting_the_marker_leaves_its_thread_to_be_filed(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_copilot_suggestion_quoting_the_marker_leaves_its_thread_to_be_filed() -> None:
     """The first comment never counts: a suggestion on the line that defines the marker quotes
     it whole."""
     marker = CONST_PR_THREAD_FILED_MARKER.format(issue=3)
@@ -1022,113 +1074,159 @@ def test_a_copilot_suggestion_quoting_the_marker_leaves_its_thread_to_be_filed(
         1593,
         _comment("PRRC_kwDOThbRVc6Ak1dD", suggestion, discussion=99),
     )
-    result = _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
-    assert (result.exit_code, _writes(filing_events)) == (
+    events: list[tuple[Any, ...]] = []
+    result = _file_issues(_ThreadsGitHub([thread], events), "--confirm")
+    assert (result.exit_code, _writes(events)) == (
         0,
-        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1dD"), ("resolve", "PRRT_kwDOThbRVc5Ak1dD")],
+        [
+            ("issue", 1701),
+            ("reply", "PRRT_kwDOThbRVc5Ak1dD"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1dD"),
+        ],
     )
 
 
-def test_a_marker_reply_from_another_login_does_not_count(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_marker_reply_from_another_login_does_not_count() -> None:
     marker = CONST_PR_THREAD_FILED_MARKER.format(issue=3)
     other = _comment(
         "PRRC_kwDOThbRVc6Ak1aY", f"Filed as #3.\n\n{marker}", author="someone", discussion=9
     )
-    gh = _ThreadsGitHub([_with_reply(_THREAD_A, other)], filing_events)
-    result = _file_issues(gh, "--confirm")
-    assert (result.exit_code, _writes(filing_events)) == (
+    events: list[tuple[Any, ...]] = []
+    result = _file_issues(_ThreadsGitHub([_with_reply(_THREAD_A, other)], events), "--confirm")
+    assert (result.exit_code, _writes(events)) == (
         0,
-        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+        [
+            ("issue", 1701),
+            ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+        ],
     )
 
 
-def test_a_rerun_after_a_failed_reply_opens_no_second_issue(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_rerun_after_a_failed_reply_opens_no_second_issue() -> None:
     """The issue is open when the reply fails: the failed run names it, and the rerun finds it
-    by the thread's link in its body, replies naming it and resolves the thread."""
+    in the store's issue listing by the thread's link in its body, replies naming it and
+    resolves the thread."""
+    events: list[tuple[Any, ...]] = []
     failing = frozenset({"PRRT_kwDOThbRVc5Ak1aA"})
-    first = _file_issues(
-        _ThreadsGitHub([_THREAD_A], filing_events, failing_replies=failing), "--confirm"
-    )
-    rerun = _file_issues(_ThreadsGitHub([_THREAD_A], filing_events), "--confirm")
+    stopped = _ThreadsGitHub([_THREAD_A], events, failing_replies=failing)
+    first = _file_issues(stopped, "--confirm")
+    rerun = _file_issues(_ThreadsGitHub([_THREAD_A], events, issues=stopped.opened), "--confirm")
     assert (
         first.exit_code,
-        "#1" in first.output,
+        "#1701" in first.output,
         rerun.exit_code,
-        _writes(filing_events),
-        "Filed as #1" in filing_events[1][2],
-        len(roadmap_store.issues()),
+        _writes(events),
+        "Filed as #1701" in events[1][2],
     ) == (
         1,
         True,
         0,
-        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+        [
+            ("issue", 1701),
+            ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+        ],
         True,
-        1,
     )
 
 
-def test_a_failure_part_way_reports_the_threads_already_filed(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+def test_the_issues_are_listed_once_a_run_through_the_github_session(
+    github_api: GitHubApiFake,
 ) -> None:
+    """Two threads whose issues a run opened before their replies failed: the rerun reads the
+    issue listing once, through the GitHub session, and names in each reply the open issue
+    that ends a line with that thread's link, not one whose link only begins with it nor a
+    closed one."""
+    link_a = _THREAD_A["comments"]["nodes"][0]["url"]
+    listing = [
+        _rest_issue(1690, "decoy", f"Quoted.\n\nsrc/a.py:1, {link_a}1\n"),
+        _rest_issue(1701, "follow up A", _linking(_THREAD_A)),
+        _rest_issue(1695, "closed", _linking(_THREAD_B), state="closed"),
+        _rest_issue(1702, "follow up B", _linking(_THREAD_B)),
+    ]
+    github_api.route("GET", _ISSUES_LISTING, github_json(listing))
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events)
+    result = _file_issues(gh, "--confirm", over_github=True)
+    named = [event[2].split(",")[0] for event in events if event[0] == "reply"]
+    assert (result.exit_code, _writes(events), named, gh.opened, github_api.requested) == (
+        0,
+        [
+            ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
+        ],
+        ["Filed as #1701", "Filed as #1702"],
+        [],
+        [f"GET {API}{_ISSUES_LISTING}"],
+    )
+
+
+def test_a_bad_page_of_the_issue_listing_stops_the_run_before_any_write(
+    github_api: GitHubApiFake,
+) -> None:
+    """A page that holds no list is never taken as the end of the listing, since the issue that
+    links the thread may be on it: the run stops before it opens, replies or resolves anything,
+    and requests no page after it."""
+    later = f"{_ISSUES_LISTING}&page=2"
+    full = github_json([_RECORDED_ISSUE] * 100, headers=next_page(later))
+    github_api.route("GET", _ISSUES_LISTING, full)
+    github_api.route("GET", later, github_json({"message": "Moved Permanently"}))
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A], events)
+    result = _file_issues(gh, "--confirm", over_github=True)
+    assert (result.exit_code, events, gh.opened, len(github_api.sent)) == (1, [], [], 2)
+
+
+def test_a_failure_part_way_reports_the_threads_already_filed() -> None:
     failing = frozenset({"PRRT_kwDOThbRVc5Ak1bB"})
-    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events, failing_replies=failing)
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], [], failing_replies=failing)
     result = _file_issues(gh, "--confirm")
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
-        "Filed PRRT_kwDOThbRVc5Ak1aA (src/devops_cli/github/pr_monitor.py:412) as #1" in output,
-        "#2" in output,
+        "Filed PRRT_kwDOThbRVc5Ak1aA (src/devops_cli/github/pr_monitor.py:412) as #1701" in output,
+        "#1702" in output,
     ) == (1, True, True)
 
 
-def test_a_failed_issue_stops_the_run_before_its_reply_and_resolve(
-    roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failed_issue_stops_the_run_before_its_reply_and_resolve() -> None:
     events: list[tuple[Any, ...]] = []
-
-    def refused(title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
-        raise GitHubOperationError("Could not open the issue (exit 1): HTTP 502")
-
-    monkeypatch.setattr(roadmap_store, "create_issue", refused)
-    result = _file_issues(_ThreadsGitHub([_THREAD_A, _THREAD_B], events), "--confirm")
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], events, failing_issue=True)
+    result = _file_issues(gh, "--confirm")
     assert (result.exit_code, events, "HTTP 502" in result.output) == (1, [], True)
 
 
-def test_a_pull_request_that_is_not_the_release_pull_request_is_refused(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_pull_request_that_is_not_the_release_pull_request_is_refused() -> None:
     """The stop rule is the release pull request's: an item pull request's threads are its
     author's to answer."""
     pull = _release_pull(head="feat/1345-review-threads", base="release/v0.2.37")
-    gh = _ThreadsGitHub([_THREAD_A], filing_events, pull=pull)
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A], events, pull=pull)
     result = _file_issues(gh, "--confirm")
     queries = [call for call in gh.calls if "graphql" in call]
     assert (
         result.exit_code,
         queries,
-        filing_events,
+        events,
         "not the release pull request" in result.output,
     ) == (1, [], [], True)
 
 
 @pytest.mark.parametrize(("merged", "shown"), [(True, "merged"), (False, "closed")])
 def test_a_release_pull_request_that_is_not_open_is_refused_before_its_threads_are_read(
-    roadmap_store: InMemoryRoadmapStore,
-    filing_events: list[tuple[Any, ...]],
-    merged: bool,
-    shown: str,
+    merged: bool, shown: str
 ) -> None:
     """The previous release's pull request still runs release/vX.Y.Z into main."""
     pull = {**_release_pull("release/v0.2.36"), "state": "closed", "merged": merged}
-    gh = _ThreadsGitHub([_THREAD_A], filing_events, pull=pull)
+    events: list[tuple[Any, ...]] = []
+    gh = _ThreadsGitHub([_THREAD_A], events, pull=pull)
     result = _file_issues(gh, "--confirm")
     queries = [call for call in gh.calls if "graphql" in call]
     output = " ".join(result.output.split())
-    assert (result.exit_code, queries, filing_events, f"is {shown}, not open" in output) == (
+    assert (result.exit_code, queries, events, f"is {shown}, not open" in output) == (
         1,
         [],
         [],
@@ -1136,9 +1234,7 @@ def test_a_release_pull_request_that_is_not_open_is_refused_before_its_threads_a
     )
 
 
-def test_a_thread_a_person_started_is_filed_without_source_agent(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_thread_a_person_started_is_filed_without_source_agent() -> None:
     """`source/agent` says a model wrote the text; a person's thread is theirs."""
     person = _thread(
         "PRRT_kwDOThbRVc5Ak1eE",
@@ -1146,13 +1242,12 @@ def test_a_thread_a_person_started_is_filed_without_source_agent(
         5,
         _comment("PRRC_kwDOThbRVc6Ak1eE", "This needs a test.", author=_VIEWER, discussion=11),
     )
-    _file_issues(_ThreadsGitHub([_THREAD_A, person], filing_events), "--confirm")
-    assert [issue.labels for issue in roadmap_store.issues()] == [("source/agent",), ()]
+    gh = _ThreadsGitHub([_THREAD_A, person], [])
+    _file_issues(gh, "--confirm")
+    assert [_labels(issue) for issue in gh.opened] == [["source/agent"], []]
 
 
-def test_a_deleted_author_is_named_ghost(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_deleted_author_is_named_ghost() -> None:
     """GitHub gives a deleted account's comment a null author and shows it as ghost."""
     thread = _thread(
         "PRRT_kwDOThbRVc5Ak1fF",
@@ -1160,13 +1255,12 @@ def test_a_deleted_author_is_named_ghost(
         8,
         _comment("PRRC_f", "Old note.", author=None, discussion=12),
     )
-    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
-    assert "ghost:\nOld note." in roadmap_store.issues()[0].body
+    gh = _ThreadsGitHub([thread], [])
+    _file_issues(gh, "--confirm")
+    assert "ghost:\nOld note." in gh.opened[0]["body"]
 
 
-def test_a_thread_a_push_moved_off_the_diff_is_placed_by_its_original_line(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_a_thread_a_push_moved_off_the_diff_is_placed_by_its_original_line() -> None:
     thread = _thread(
         "PRRT_kwDOThbRVc5Ak1gG",
         "src/devops_cli/github/pr_monitor.py",
@@ -1175,14 +1269,13 @@ def test_a_thread_a_push_moved_off_the_diff_is_placed_by_its_original_line(
         original_line=40,
         outdated=True,
     )
-    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
+    gh = _ThreadsGitHub([thread], [])
+    _file_issues(gh, "--confirm")
     expected = "chore(review): follow up src/devops_cli/github/pr_monitor.py:40 from #1283"
-    assert roadmap_store.issues()[0].title == expected
+    assert gh.opened[0]["title"] == expected
 
 
-def test_two_threads_on_a_whole_file_get_titles_that_tell_them_apart(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_two_threads_on_a_whole_file_get_titles_that_tell_them_apart() -> None:
     """A thread on a file, not a line, has neither `line` nor `originalLine`; its first
     comment's id tells it from another on the same file."""
     first = _thread(
@@ -1194,14 +1287,13 @@ def test_two_threads_on_a_whole_file_get_titles_that_tell_them_apart(
     second = _thread(
         "PRRT_kwDOThbRVc5Ak1iI", "docs/a.md", None, _comment("PRRC_i1", "Retitle.", discussion=15)
     )
-    _file_issues(_ThreadsGitHub([first, second], filing_events), "--confirm")
-    titles = [issue.title for issue in roadmap_store.issues()]
+    gh = _ThreadsGitHub([first, second], [])
+    _file_issues(gh, "--confirm")
+    titles = [issue["title"] for issue in gh.opened]
     assert (len(set(titles)), "PRRC_h1" in titles[0], "PRRC_i1" in titles[1]) == (2, True, True)
 
 
-def test_the_preview_marks_an_outdated_thread(
-    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
-) -> None:
+def test_the_preview_marks_an_outdated_thread() -> None:
     """A later push has probably dealt with an outdated thread, so the preview says so."""
     thread = _thread(
         "PRRT_kwDOThbRVc5Ak1jJ",
@@ -1211,7 +1303,7 @@ def test_the_preview_marks_an_outdated_thread(
         original_line=9,
         outdated=True,
     )
-    result = _file_issues(_ThreadsGitHub([thread, _THREAD_A], filing_events))
+    result = _file_issues(_ThreadsGitHub([thread, _THREAD_A], []))
     output = " ".join(result.output.split())
     marked = ["outdated" in line for line in output.split("Would file")[1:]]
     assert (result.exit_code, marked) == (0, [True, False])
