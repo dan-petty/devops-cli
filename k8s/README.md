@@ -66,7 +66,7 @@ minikube service qdrant -n llm --url
 # Valkey In-Memory Cache
 kubectl -n llm exec -it svc/valkey -- valkey-cli ping
 
-# Valkey Run Index (not deployed by deploy-stack; apply `k8s/llm/valkey-runs.yaml` yourself after creating its password):
+# Valkey Run Index (deployed by deploy-stack; see Cluster Secrets for its password):
 # benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
 # then point devops-cli at it through its NodePort.
 devops k8s push-secrets --only llm/valkey-runs-auth
@@ -567,11 +567,10 @@ Expose homelab Kubernetes services securely to the internet without public ports
    ```bash
    kubectl apply -k k8s/cloudflared/
    ```
-3. Set your Traefik ingress service type to `ClusterIP`:
-   ```bash
-   kubectl patch svc traefik -n kube-system -p '{"spec": {"type": "ClusterIP"}}'
-   ```
-4. Deploy the core service Ingress definitions with template substitution (substitutes `k8s.domain` from `config.yaml`; set it to `homelab.<domain>` so the rendered hosts such as `chat.homelab.<domain>` fall under the `*.homelab.<domain>` tunnel hostname):
+3. Ingress Controller (Traefik):
+   Stock k3s ships its own Traefik HelmChart; ensure k3s runs with `--disable traefik` so `devops k8s deploy-stack --stack infra` deploys the pinned Traefik release with `k8s/ingress/traefik-values.yaml` (configured with `service.type: ClusterIP`).
+4. Core Ingress definitions:
+   `devops k8s deploy-stack --stack infra` deploys `k8s/ingress/ingress-routes.yaml` with template substitution automatically (substitutes `k8s.domain` from `config.yaml`). To apply or preview manually:
    ```bash
    devops k8s apply k8s/ingress/ingress-routes.yaml --template
    ```

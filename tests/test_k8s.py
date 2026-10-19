@@ -328,6 +328,21 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     assert mock_run.call_count == 2
 
 
+def test_adopt_helm_resource_warns_and_refuses_for_traefik() -> None:
+    """_adopt_helm_resource_if_conflict warns and refuses to adopt for traefik release (#1675)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
+
+    err = (
+        'Error: unable to continue with install: Service "traefik" in namespace "kube-system" exists '
+        "and cannot be imported into the current release: invalid ownership metadata; "
+        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    )
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
+        res = _adopt_helm_resource_if_conflict(err, "traefik", "kube-system", context="local-k3s")
+    assert res is False
+    assert mock_run.call_count == 0
+
+
 _OPERATOR_CRDS = tuple(
     f"{plural}.monitoring.coreos.com"
     for plural in (
@@ -2141,14 +2156,27 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> Non
         for cmd in (call.args[0] for call in mock_cmd.call_args_list)
         if cmd[:3] == ["kubectl", "apply", "-k"]
     ]
-    assert (res.exit_code, kustomize_targets) == (0, [Path("k8s"), Path("k8s", "monitoring")])
+    assert (res.exit_code, kustomize_targets) == (
+        0,
+        [
+            Path("k8s"),
+            Path("k8s", "monitoring"),
+            Path("k8s", "gpu-feature-discovery"),
+        ],
+    )
 
 
 @pytest.mark.parametrize(
     ("stack", "kustomizations"),
     [
-        ("infra", [str(Path("k8s", "monitoring"))]),
-        ("all", [str(Path("k8s", "monitoring"))]),
+        (
+            "infra",
+            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+        ),
+        (
+            "all",
+            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+        ),
         ("llm", []),
     ],
 )
