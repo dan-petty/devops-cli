@@ -163,9 +163,11 @@ class GatewayIntakeModel:
     def _client(self) -> ProposalClient:
         if self._given_client is not None:
             return self._given_client
-        from devops_cli.ai.client import LLMClient
+        from devops_cli.ai.client import get_llm_client
 
-        return LLMClient(self._ai.for_task("analysis"), api_key=self._api_key)
+        return get_llm_client(
+            task="analysis", config=self._ai.for_task("analysis"), api_key=self._api_key
+        )
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed `texts` with the `embedding` task's model."""

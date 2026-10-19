@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.analyze.symbols import BaseRevision
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
@@ -51,7 +51,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
@@ -465,12 +465,11 @@ def _make_review_clients(
     append_cache: bool | None = None,
 ) -> ReviewClients:
     """Build LLM client for review analysis."""
-    api_key = get_ai_api_key(settings)
     task_config = settings.ai.for_task("analysis")
     return ReviewClients(
-        analysis=LLMClient(
-            task_config,
-            api_key=api_key,
+        analysis=get_llm_client(
+            task="analysis",
+            settings=settings,
             request_timeout_seconds=task_config.timeout or DEFAULT_REVIEW_TIMEOUT_SECONDS,
             cache_enabled=cache_enabled,
             append_cache=append_cache,

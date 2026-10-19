@@ -518,11 +518,11 @@ def _apply_ai_settings(
 @app.command()
 def models() -> None:
     """List available models for the configured provider."""
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.ai.client import get_llm_client
+    from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    client = get_llm_client(settings=settings)
     try:
         model_list = client.list_models()
     except Exception as exc:
@@ -544,15 +544,15 @@ def models() -> None:
 @app.command()
 def preload() -> None:
     """Preload configured model into VRAM across all configured Ollama servers."""
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.ai.client import get_llm_client
+    from devops_cli.config.settings import load_settings
 
     settings = load_settings()
     if settings.ai.provider != "ollama":
         p = settings.ai.provider
         print_warning(f"Model preloading is for Ollama provider (current: {p}).", prefix=False)
         return
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    client = get_llm_client(settings=settings)
     print_info(
         f"Preloading model [bold cyan]{settings.ai.model}[/bold cyan] across Ollama nodes...",
         prefix=False,
@@ -572,11 +572,10 @@ def _test_single_ollama_endpoint(
     u: str, test_sys_prompt: str, prompt: str, settings: Any
 ) -> tuple[str, bool, str, str]:
     """Execute test chat prompt against a specific Ollama endpoint URL."""
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.config.settings import get_ai_api_key
+    from devops_cli.ai.client import get_llm_client
 
     sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
-    sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings), cache_enabled=False)
+    sub_client = get_llm_client(config=sub_cfg, settings=settings, cache_enabled=False)
     try:
         resp = sub_client.chat(system=test_sys_prompt, user=prompt, use_cache=False)
         wall_sec = (
@@ -651,9 +650,9 @@ def test(
     ] = None,
 ) -> None:
     """Send a test prompt to verify AI provider connectivity across configured servers."""
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.task_loader import load_task_prompt
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.config.settings import load_settings
 
     settings = load_settings()
     test_sys_prompt = load_task_prompt("test_assistant.md")
@@ -672,7 +671,7 @@ def test(
     if url and settings.ai.provider == "ollama":
         cfg = settings.ai.model_copy(update={"ollama_urls": [url]})
 
-    client = LLMClient(cfg, api_key=get_ai_api_key(settings), cache_enabled=False)
+    client = get_llm_client(config=cfg, settings=settings, cache_enabled=False)
     print_info(
         f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
         f"model: [cyan]{settings.ai.model}[/cyan]...",
@@ -805,8 +804,8 @@ def prewarm(
     ] = False,
 ) -> None:
     """Prewarm local LLM models into GPU VRAM or proactively evict them to free memory."""
-    from devops_cli.ai.client import LLMClient, RequestPriority, request_priority_scope
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.ai.client import RequestPriority, get_llm_client, request_priority_scope
+    from devops_cli.config.settings import load_settings
 
     settings = load_settings()
     target_model = model or settings.ai.model
@@ -825,7 +824,7 @@ def prewarm(
             },
         ),
     ):
-        client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
+        client = get_llm_client(settings=settings, cache_enabled=False)
         results = client.preload_models(
             model=target_model,
             keep_alive=target_keep_alive,
@@ -871,8 +870,8 @@ def _write_stubs(repo: Path, stubs: list[str]) -> list[Path]:
 
 def _generate_agents_content(repo: Path, template: bool) -> str:
     """Generate AGENTS.md content via LLM or fallback template."""
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.ai.client import get_llm_client
+    from devops_cli.config.settings import load_settings
     from devops_cli.lang import MESSAGES
 
     meta = _parse_pyproject(repo)
@@ -881,7 +880,7 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
 
     settings = load_settings()
     try:
-        client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+        client = get_llm_client(settings=settings)
         context = _collect_project_context(repo)
     except Exception as exc:
         print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
@@ -1056,9 +1055,13 @@ def chat(  # noqa: C901
     import sys
 
     from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.client import LLMClient, RequestPriority, current_request_priority
+    from devops_cli.ai.client import (
+        RequestPriority,
+        current_request_priority,
+        get_llm_client,
+    )
     from devops_cli.ai.tools import get_persona_tools
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.config.settings import load_settings
 
     if persona not in _PERSONA_NAMES:
         print_error(
@@ -1077,7 +1080,7 @@ def chat(  # noqa: C901
     task_config = settings.ai.for_task("chat")
     if model:
         task_config = task_config.model_copy(update={"model": model})
-    client = LLMClient(task_config, api_key=get_ai_api_key(settings))
+    client = get_llm_client(config=task_config, settings=settings)
 
     if prewarm and client._config.provider == "ollama":
         ollama_urls = client._config.get_ollama_urls
@@ -1239,10 +1242,10 @@ def pipeline(
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.personas import PERSONAS, Persona
     from devops_cli.ai.tools import get_default_tools, get_persona_tools
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.dry_run import is_dry_run
     from devops_cli.output import render_dry_run_result
 
@@ -1272,7 +1275,7 @@ def pipeline(
         return
 
     settings = load_settings()
-    client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+    client = get_llm_client(task="chat", settings=settings)
     agent_tools = get_default_tools()
 
     pipeline_engine: MultiAgentPipeline[Any] = MultiAgentPipeline(

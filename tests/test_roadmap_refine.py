@@ -696,7 +696,7 @@ def test_cli_refine_dry_run_and_confirm(git_repo: Path, store: InMemoryRoadmapSt
     runner = CliRunner()
     with (
         patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)),
-        patch("devops_cli.roadmap.refine.LLMClient", return_value=mock_llm),
+        patch("devops_cli.roadmap.refine.get_llm_client", return_value=mock_llm),
     ):
         # Dry run
         res_dry = runner.invoke(

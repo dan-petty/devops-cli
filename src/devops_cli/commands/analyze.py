@@ -23,7 +23,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
 )
-from devops_cli.config.settings import get_ai_api_key, load_settings
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.repo import (
     find_repo_root,
@@ -309,11 +309,11 @@ def analyze_path(  # noqa: C901
     ai_client = None
     if enhanced and not (dry_run or is_dry_run()):
         try:
-            from devops_cli.ai.client import LLMClient
-            from devops_cli.config.settings import get_ai_api_key, load_settings
+            from devops_cli.ai.client import get_llm_client
+            from devops_cli.config.settings import load_settings
 
             settings = load_settings()
-            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            ai_client = get_llm_client(settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,
@@ -404,11 +404,11 @@ def analyze_branch(
     ai_client = None
     if enhanced and not (dry_run or is_dry_run()):
         try:
-            from devops_cli.ai.client import LLMClient
-            from devops_cli.config.settings import get_ai_api_key, load_settings
+            from devops_cli.ai.client import get_llm_client
+            from devops_cli.config.settings import load_settings
 
             settings = load_settings()
-            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            ai_client = get_llm_client(settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,
@@ -499,8 +499,10 @@ def analyze_pr(  # noqa: C901
     ai_client = None
     if enhanced and not (dry_run or is_dry_run()):
         try:
+            from devops_cli.ai.client import get_llm_client
+
             settings = load_settings()
-            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            ai_client = get_llm_client(settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,

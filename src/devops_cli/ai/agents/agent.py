@@ -69,7 +69,7 @@ from devops_cli.ai.agents.tools import (
     ToolCall,
     ToolReturn,
 )
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.template import TemplateStr
 from devops_cli.ai.toolsets import extract_tools_from_toolset
 from devops_cli.config.defaults import (
@@ -205,11 +205,9 @@ class PydanticAgent[T, DepsT = Any]:
         if client is not None:
             agent_client = client
         elif model:
-            from devops_cli.config.settings import AIConfig
-
-            agent_client = LLMClient(config=AIConfig(model=model))
+            agent_client = get_llm_client(model=model)
         else:
-            agent_client = LLMClient()
+            agent_client = get_llm_client()
 
         inst = agent_spec.instructions
         if isinstance(inst, list):
@@ -252,13 +250,11 @@ class PydanticAgent[T, DepsT = Any]:
         if client is not None:
             self.client = client
         elif isinstance(model, str):
-            from devops_cli.config.settings import AIConfig
-
-            self.client = LLMClient(config=AIConfig(model=model))
+            self.client = get_llm_client(model=model)
         elif model is not None:
             self.client = model
         else:
-            self.client = LLMClient()
+            self.client = get_llm_client()
 
         if instructions is not None:
             if isinstance(instructions, list):
@@ -533,9 +529,7 @@ class PydanticAgent[T, DepsT = Any]:
         try:
             if model is not None:
                 if isinstance(model, str):
-                    from devops_cli.config.settings import AIConfig
-
-                    self.client = LLMClient(config=AIConfig(model=model))
+                    self.client = get_llm_client(model=model)
                 else:
                     self.client = model
             elif client is not None:

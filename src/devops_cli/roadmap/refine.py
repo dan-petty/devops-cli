@@ -32,7 +32,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
@@ -57,7 +57,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_ROADMAP_RELEASE_CAP,
 )
-from devops_cli.config.settings import get_ai_api_key, get_tavily_api_key, load_settings
+from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
@@ -948,7 +948,7 @@ def plan_refine(
 
     settings = load_settings()
     ai_config = settings.ai
-    client = model or LLMClient(ai_config.for_task("analysis"), api_key=get_ai_api_key(settings))
+    client = model or get_llm_client(task="analysis", settings=settings)
     max_tokens = ai_config.for_task("analysis").context_window or 8192
 
     refined: list[RefinedItem] = []

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import httpx2
 
+from devops_cli.ai.client.factory import (
+    build_llm_client,
+    get_llm_client,
+)
 from devops_cli.ai.client.models import (
     MAX_STREAM_BYTES,
     AIClientError,
@@ -50,7 +54,9 @@ __all__ = [
     "StructuredOutputValidationError",
     "_is_json_error_payload",
     "acquire_ollama_slot",
+    "build_llm_client",
     "current_request_priority",
+    "get_llm_client",
     "get_ollama_active_leases",
     "get_ollama_waiting_counts",
     "httpx2",
