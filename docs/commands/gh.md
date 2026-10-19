@@ -1160,7 +1160,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 #### `devops gh pr threads file-issues`
 
-**File each unresolved review thread of the release pull request as a follow-up issue, the step of the stop rule in RELEASE_CYCLE.md once its Copilot passes are spent: the issue quotes the thread in a fence, names its file and line and links it, has no milestone and is labelled source/agent; then the thread gets a reply naming the issue and is resolved. Without --confirm it reads the threads and writes nothing; a rerun files no thread twice.**
+**A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release pull request's Copilot passes are spent. It files each unresolved review thread of the open release pull request not named by --keep as a follow-up issue, which quotes the thread in a fence, names its file and line, links it and has no milestone, labelled source/agent when Copilot started the thread; then the thread gets a reply naming the issue and is resolved. Without --confirm it makes the same reads and writes nothing: run it so first, with the same --keep flags. A --keep id that names no unresolved thread stops it before any write. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and finds the issue it opened for a thread whose reply failed by the thread's link.**
 
 ```bash
 devops gh pr threads file-issues [OPTIONS] <number>

@@ -1601,10 +1601,17 @@ CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
 # A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
 # request, or once the release pull request's Copilot budget is spent (#1345).
 CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
-# The marker `devops pr threads file-issues` leaves in the reply that names a thread's
-# follow-up issue, so a rerun resolves that thread and files it no second time (#1345).
-CONST_PR_THREAD_FILED_MARKER: Final[str] = "<!-- devops-cli: filed as a follow-up issue -->"
-# `devops pr threads file-issues` refuses any pull request but the release pull request.
+# The line `devops pr threads file-issues` ends the reply naming a thread's follow-up issue
+# with, and the pattern a line must match whole to be one, giving the issue's number (#1345). A
+# rerun counts it only in a reply the account running it wrote, never in the thread's first
+# comment, so a suggestion or another person's reply quoting it cannot resolve a thread.
+CONST_PR_THREAD_FILED_MARKER: Final[str] = "<!-- devops-cli: filed as #{issue} -->"
+CONST_PR_THREAD_FILED_MARKER_RE: Final[re.Pattern[str]] = re.compile(
+    r"<!-- devops-cli: filed as #([1-9][0-9]*) -->"
+)
+# The login GitHub shows for a deleted account, whose GraphQL `author` is null.
+CONST_GITHUB_GHOST_LOGIN: Final[str] = "ghost"
+# `devops pr threads file-issues` refuses any pull request but the open release pull request.
 CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the

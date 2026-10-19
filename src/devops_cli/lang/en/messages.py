@@ -664,6 +664,9 @@ class PRMessages:
     )
     thread_issue_cut: str = "[cut at {chars} characters]"
     thread_issue_source: str = "{location}, {url}"
+    # Where a thread on a whole file sits, which has no line: its first comment tells it from
+    # another such thread on the file.
+    thread_location_file: str = "{path}, comment {comment}"
     thread_filed_reply: str = (
         "Filed as #{issue}, a follow-up issue for a later release under the stop rule in "
         "RELEASE_CYCLE.md Step 3."
@@ -672,23 +675,60 @@ class PRMessages:
         "PR #{number} is not the release pull request ({head} into {base}): the stop rule "
         "files the release pull request's threads, so none was filed."
     )
+    threads_not_open: str = (
+        "PR #{number} is {state}, not open: the stop rule files the threads of the open release "
+        "pull request, so none was filed."
+    )
+    threads_unknown_keep: str = (
+        "--keep names {ids}, which is not an unresolved review thread of PR #{number}, so no "
+        "thread was filed or resolved: the thread it meant to keep would have been. Check the "
+        "ids with devops pr threads list {number} --unresolved-only."
+    )
+    threads_viewer_unread: str = (
+        "GitHub named no account for the GraphQL calls, so no reply could be told to be yours."
+    )
     threads_none: str = "PR #{number} has no unresolved review thread."
     thread_kept: str = "Kept {thread} ({location}) open."
     thread_to_file: str = "Would file {thread} ({location}) as: {title}"
-    thread_seen_filed: str = (
-        "{thread} ({location}) was filed by an earlier run; --confirm resolves it."
-    )
-    thread_resolved_filed: str = "Resolved {thread} ({location}), filed by an earlier run."
     thread_filed: str = "Filed {thread} ({location}) as #{issue} and resolved it."
+    thread_to_reuse: str = (
+        "Would name #{issue}, which an earlier run opened for {thread} ({location}), in a reply "
+        "and resolve the thread."
+    )
+    thread_reused: str = (
+        "Named #{issue}, which an earlier run opened for {thread} ({location}), in a reply and "
+        "resolved the thread."
+    )
+    thread_seen_filed: str = (
+        "{thread} ({location}) was filed as #{issue} by an earlier run; --confirm resolves it."
+    )
+    thread_resolved_filed: str = (
+        "Resolved {thread} ({location}), filed as #{issue} by an earlier run."
+    )
+    thread_outdated: str = (
+        "It is outdated: a push after the comment changed its lines, which may have dealt with it."
+    )
+    thread_answer_failed: str = (
+        "{thread} ({location}) is filed as #{issue}, but replying in it or resolving it failed: "
+        "{error}. Run the command again: it finds #{issue} by the thread's link and opens no "
+        "second issue."
+    )
     threads_preview_note: str = "Nothing was written. Run with --confirm to file them."
     threads_dry_run_heading: str = (
         "Dry run: no request was made. file-issues would make these requests, in order:"
     )
-    threads_plan_release: str = "PR #{number} is the release pull request"
-    threads_plan_unfiled: str = "the thread is not kept and holds no reply naming its issue"
-    threads_plan_not_kept: str = "the thread is not kept"
-    threads_plan_each: str = "for each unresolved thread"
+    threads_plan_release: str = "PR #{number} is the open release pull request"
+    threads_plan_more_comments: str = "a thread has more comments than its first page holds"
+    threads_plan_not_kept: str = "a thread is not kept"
+    threads_plan_unanswered: str = (
+        "a thread is not kept and holds no reply of yours naming its issue"
+    )
+    threads_plan_unlinked: str = (
+        "no open issue links the thread; labelled source/agent only when Copilot started it"
+    )
+    threads_plan_each: str = "for each such thread"
     threads_plan_page: str = "per page, until the last"
+    threads_plan_comment_page: str = "per page of a thread's later comments, until the last"
     copilot_pass_plan_below_budget: str = "its Copilot passes are below release_copilot_passes"
     copilot_pass_plan_per_page: str = "per page, until the last"
     update_table_title: str = "Pull Request Branch Update Summary"

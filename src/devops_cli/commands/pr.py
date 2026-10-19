@@ -3080,14 +3080,17 @@ def file_thread_issues_cmd(
         )
         return
     owner, repo_name = target_repo.split("/", 1)
+    shown = 0
     try:
-        filings = file_thread_issues(owner, repo_name, number, keep=keep or (), confirm=confirm)
+        for filing in file_thread_issues(
+            owner, repo_name, number, keep=keep or (), confirm=confirm
+        ):
+            print_info(describe_filing(filing, confirm=confirm))
+            shown += 1
     except DevOpsCLIError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
-    for filing in filings:
-        print_info(describe_filing(filing, confirm=confirm))
-    if not filings:
+    if not shown:
         print_success(MESSAGES.pr.threads_none.format(number=number))
     elif not confirm:
         print_info(MESSAGES.pr.threads_preview_note)

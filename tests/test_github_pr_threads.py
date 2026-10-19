@@ -9,6 +9,13 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from graphql import parse
+from graphql.language import (
+    FieldNode,
+    InlineFragmentNode,
+    OperationDefinitionNode,
+    SelectionSetNode,
+)
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app as pr_app
@@ -612,38 +619,53 @@ def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -
 
 # ── Remaining threads filed as follow-up issues (#1345) ─────────────────────────────────────────
 #
-# The pull request read is REST and the thread reads and writes are GraphQL; every reply below is
-# in the shape GitHub's documented schema gives the query or mutation that asks for it:
-# `PullRequestReviewThread` (`id`, `isResolved`, `path`, `line`, `comments`) and
-# `PullRequestReviewComment` (`id`, `body`, `author { login }`, `createdAt`, `url`), with Copilot
-# as the GraphQL login `copilot-pull-request-reviewer`.
+# The pull request read is REST and the thread reads and writes are GraphQL. The stand-in holds
+# each object in the shape GitHub's documented schema gives it, `PullRequestReviewThread` (`id`,
+# `isResolved`, `isOutdated`, `path`, `line`, `originalLine`, `comments`) and
+# `PullRequestReviewComment` (`id`, `body`, `author { login }`, null for a deleted account,
+# `createdAt`, `url`), with Copilot as the GraphQL login `copilot-pull-request-reviewer`, and
+# answers each query with only the fields it selects, as GitHub does. A GraphQL error makes gh
+# exit 1 and name it on stderr.
 
 _REPO = "dan-petty/devops-cli"
 _PULL = 1283
 _COPILOT_GRAPHQL = "copilot-pull-request-reviewer"
+_VIEWER = "maintainer"
+_FIRST_PAGE_END = "Y3Vyc29yOnYyOpHOBUf6iA=="
 
 
 def _comment(
-    comment_id: str, body: str, *, author: str = _COPILOT_GRAPHQL, discussion: int
+    comment_id: str, body: str, *, author: str | None = _COPILOT_GRAPHQL, discussion: int
 ) -> dict[str, Any]:
     return {
         "id": comment_id,
         "body": body,
-        "author": {"login": author},
+        "author": None if author is None else {"login": author},
         "createdAt": "2026-10-07T12:43:24Z",
         "url": f"https://github.com/{_REPO}/pull/{_PULL}#discussion_r{discussion}",
     }
 
 
 def _thread(
-    thread_id: str, path: str, line: int | None, *comments: dict[str, Any]
+    thread_id: str,
+    path: str,
+    line: int | None,
+    *comments: dict[str, Any],
+    original_line: int | None = None,
+    outdated: bool = False,
+    more_after: str | None = None,
 ) -> dict[str, Any]:
+    """A thread node; `more_after` is the cursor after its first page of comments when GitHub
+    holds more of them."""
+    page = {"hasNextPage": more_after is not None, "endCursor": more_after or _FIRST_PAGE_END}
     return {
         "id": thread_id,
         "isResolved": False,
+        "isOutdated": outdated,
         "path": path,
         "line": line,
-        "comments": {"nodes": list(comments)},
+        "originalLine": line if original_line is None else original_line,
+        "comments": {"pageInfo": page, "nodes": list(comments)},
     }
 
 
@@ -659,10 +681,7 @@ _THREAD_B = _thread(
     2890,
     _comment("PRRC_kwDOThbRVc6Ak1bB", "This loop reads the board twice.", discussion=2412345679),
     _comment(
-        "PRRC_kwDOThbRVc6Ak1bC",
-        "Agreed, after the release.",
-        author="maintainer",
-        discussion=2412345680,
+        "PRRC_kwDOThbRVc6Ak1bC", "Agreed, after the release.", author=_VIEWER, discussion=2412345680
     ),
 )
 
@@ -673,20 +692,46 @@ def _release_pull(head: str = "release/v0.2.37", base: str = "main") -> dict[str
     return {"number": _PULL, "state": "open", "merged": False, **sides}
 
 
+def _selected(value: Any, selection: SelectionSetNode | None) -> Any:
+    """`value` cut to the fields `selection` asks for, as GitHub answers a query: a field the
+    query does not ask for is left out, and one the stand-in lacks fails the test."""
+    if selection is None or value is None:
+        return value
+    if isinstance(value, list):
+        return [_selected(item, selection) for item in value]
+    answer: dict[str, Any] = {}
+    for node in selection.selections:
+        if isinstance(node, InlineFragmentNode):
+            answer.update(_selected(value, node.selection_set))
+            continue
+        assert isinstance(node, FieldNode)
+        name = node.name.value
+        assert name in value, f"the stand-in holds no {name} for the query to select"
+        answer[name] = _selected(value[name], node.selection_set)
+    return answer
+
+
 class _ThreadsGitHub:
     """`run_gh` answering the pull request read and the review thread GraphQL calls, recording
-    every call in `calls` and every write, in order, in `events`."""
+    every call in `calls` and every write, in order, in `events`. `later_comments` holds the
+    comments past a thread's first page, and a reply in a thread of `failing_replies` fails as
+    GitHub's GraphQL rate limit fails it."""
 
     def __init__(
         self,
         threads: list[dict[str, Any]],
         events: list[tuple[Any, ...]],
+        *,
         pull: dict[str, Any] | None = None,
+        later_comments: dict[str, list[dict[str, Any]]] | None = None,
+        failing_replies: frozenset[str] = frozenset(),
     ) -> None:
         self.calls: list[list[str]] = []
         self._threads = threads
         self._events = events
         self._pull = pull or _release_pull()
+        self._later = later_comments or {}
+        self._failing = failing_replies
 
     def __call__(self, args: list[str], **_: object) -> MagicMock:
         argv = [str(arg) for arg in args]
@@ -695,12 +740,22 @@ class _ThreadsGitHub:
             return MagicMock(returncode=0, stdout=json.dumps(self._pull), stderr="")
         flags = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg in ("-f", "-F")]
         fields = dict(flag.split("=", 1) for flag in flags)
-        answer = self._answer(fields.get("query", ""), fields)
+        operation = next(
+            definition
+            for definition in parse(fields["query"]).definitions
+            if isinstance(definition, OperationDefinitionNode)
+        )
+        name = operation.name.value if operation.name else ""
+        if name == "AddReply" and fields["threadId"] in self._failing:
+            limited = "API rate limit exceeded for user ID 1."
+            error = {"errors": [{"type": "RATE_LIMITED", "message": limited}]}
+            return MagicMock(returncode=1, stdout=json.dumps(error), stderr=f"gh: {limited}")
+        answer = {"data": _selected(self._data(name, fields), operation.selection_set)}
         return MagicMock(returncode=0, stdout=json.dumps(answer), stderr="")
 
-    def _answer(self, query: str, fields: dict[str, str]) -> dict[str, Any]:
-        if query.startswith("query GetReviewThreads"):
-            page = {"pageInfo": {"hasNextPage": False, "endCursor": "Y3Vyc29yOnYyOpHOBUf6iA=="}}
+    def _data(self, operation: str, fields: dict[str, str]) -> dict[str, Any]:
+        if operation == "GetReviewThreads":
+            page = {"pageInfo": {"hasNextPage": False, "endCursor": _FIRST_PAGE_END}}
             threads = {"reviewThreads": {**page, "nodes": self._threads}}
             budget = {
                 "limit": 5000,
@@ -708,18 +763,23 @@ class _ThreadsGitHub:
                 "cost": 1,
                 "resetAt": "2026-10-19T01:00:00Z",
             }
-            return {"data": {"rateLimit": budget, "repository": {"pullRequest": threads}}}
-        if query.startswith("mutation AddReply"):
+            return {"rateLimit": budget, "repository": {"pullRequest": threads}}
+        if operation == "GetThreadComments":
+            page = {"hasNextPage": False, "endCursor": "Y3Vyc29yOnYyOpHOBUf6iB=="}
+            nodes = self._later[fields["threadId"]]
+            return {"node": {"comments": {"pageInfo": page, "nodes": nodes}}}
+        if operation == "Viewer":
+            return {"viewer": {"login": _VIEWER}}
+        if operation == "AddReply":
             self._events.append(("reply", fields["threadId"], fields["body"]))
-            reply = _comment(
-                "PRRC_kwDOThbRVc6Ak1zZ", fields["body"], author="maintainer", discussion=1
-            )
-            return {"data": {"addPullRequestReviewThreadReply": {"comment": reply}}}
-        if query.startswith("mutation ResolveThread"):
+            reply = _comment("PRRC_kwDOThbRVc6Ak1zZ", fields["body"], author=_VIEWER, discussion=1)
+            return {"addPullRequestReviewThreadReply": {"comment": reply}}
+        if operation == "ResolveThread":
             self._events.append(("resolve", fields["threadId"]))
-            thread = {"id": fields["threadId"], "isResolved": True}
-            return {"data": {"resolveReviewThread": {"thread": thread}}}
-        return {"errors": [{"message": f"unscripted: {query[:40]}"}]}
+            return {
+                "resolveReviewThread": {"thread": {"id": fields["threadId"], "isResolved": True}}
+            }
+        raise AssertionError(f"unscripted GraphQL operation {operation!r}")
 
 
 @pytest.fixture
@@ -750,16 +810,26 @@ def _file_issues(gh: _ThreadsGitHub, *args: str) -> Any:
         )
 
 
+def _writes(events: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    return [event[:2] for event in events]
+
+
+def _with_reply(thread: dict[str, Any], reply: dict[str, Any]) -> dict[str, Any]:
+    comments = thread["comments"]
+    return {**thread, "comments": {**comments, "nodes": [*comments["nodes"], reply]}}
+
+
 def test_each_unresolved_thread_is_filed_then_replied_to_then_resolved(
     roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
 ) -> None:
-    """Each thread becomes one issue, with no milestone and labelled source/agent, before its
-    reply names the issue and the thread is resolved, one thread after the other."""
+    """Each thread becomes one issue, with no milestone and labelled source/agent since Copilot
+    started it, before its reply names the issue and the thread is resolved, one thread after
+    the other."""
     result = _file_issues(_ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events), "--confirm")
     issues = roadmap_store.issues()
     assert (
         result.exit_code,
-        [event[:2] for event in filing_events],
+        _writes(filing_events),
         "Filed as #1" in filing_events[1][2],
         "Filed as #2" in filing_events[4][2],
         issues[0].title,
@@ -820,15 +890,44 @@ def test_a_kept_thread_is_left_untouched(
     """`--keep` leaves open the thread of a regression the release fixes before it merges."""
     gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
     result = _file_issues(gh, "--confirm", "--keep", "PRRT_kwDOThbRVc5Ak1bB")
-    assert (
-        result.exit_code,
-        [event[:2] for event in filing_events],
-        len(roadmap_store.issues()),
-    ) == (
+    assert (result.exit_code, _writes(filing_events), len(roadmap_store.issues())) == (
         0,
         [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
         1,
     )
+
+
+@pytest.mark.parametrize("confirm", [(), ("--confirm",)], ids=["preview", "confirm"])
+def test_a_keep_id_that_names_no_unresolved_thread_is_refused_before_any_write(
+    roadmap_store: InMemoryRoadmapStore,
+    filing_events: list[tuple[Any, ...]],
+    confirm: tuple[str, ...],
+) -> None:
+    """A mistyped `--keep` would leave the regression thread to be filed and resolved, and the
+    release pull request would show no unresolved thread, so it stops the run."""
+    typo = "PRRT_kwDOThbRVc5Ak1bb"
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+    result = _file_issues(gh, *confirm, "--keep", typo)
+    assert (result.exit_code, filing_events, roadmap_store.issues(), typo in result.output) == (
+        1,
+        [],
+        [],
+        True,
+    )
+
+
+def test_the_preview_keeps_a_kept_thread(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    result = _file_issues(
+        _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events), "--keep", "PRRT_kwDOThbRVc5Ak1bB"
+    )
+    assert (
+        result.exit_code,
+        "Kept PRRT_kwDOThbRVc5Ak1bB" in result.output,
+        "Would file PRRT_kwDOThbRVc5Ak1bB" in result.output,
+        "Would file PRRT_kwDOThbRVc5Ak1aA" in result.output,
+    ) == (0, True, False, True)
 
 
 def test_without_confirm_the_threads_are_read_and_nothing_is_written(
@@ -858,23 +957,27 @@ def test_dry_run_makes_no_request_and_lists_the_requests(
         result.exit_code,
         gh.calls,
         roadmap_store_repos,
-        f"repos/{_REPO}/issues" in result.output,
+        "query Viewer" in result.output,
+        "query GetThreadComments" in result.output,
+        f"repos/{_REPO}/issues?state=all" in result.output,
         "labels[]=source/agent" in result.output,
         "mutation AddReply" in result.output,
         "mutation ResolveThread" in result.output,
-    ) == (0, [], [], True, True, True, True)
+    ) == (0, [], [], True, True, True, True, True, True)
 
 
-def test_a_thread_already_filed_is_resolved_and_not_filed_again(
+def test_a_thread_the_viewer_already_filed_is_resolved_and_not_filed_again(
     roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
 ) -> None:
-    """A run that stopped after the reply left the thread open; the rerun reads the marker in
-    that reply and only resolves it."""
-    earlier = f"Filed as #7, a follow-up issue.\n\n{CONST_PR_THREAD_FILED_MARKER}"
-    replied = _comment("PRRC_kwDOThbRVc6Ak1aZ", earlier, author="maintainer", discussion=8)
-    filed = {**_THREAD_A, "comments": {"nodes": [*_THREAD_A["comments"]["nodes"], replied]}}
+    """A run that stopped after the reply left the thread open; the rerun reads the marker line
+    in the reply the same account wrote, and only resolves the thread, naming its issue."""
+    marker = CONST_PR_THREAD_FILED_MARKER.format(issue=7)
+    earlier = _comment(
+        "PRRC_kwDOThbRVc6Ak1aZ", f"Filed as #7.\n\n{marker}", author=_VIEWER, discussion=8
+    )
+    filed = _with_reply(_THREAD_A, earlier)
     result = _file_issues(_ThreadsGitHub([filed, _THREAD_B], filing_events), "--confirm")
-    assert (result.exit_code, [event[:2] for event in filing_events]) == (
+    assert (result.exit_code, _writes(filing_events), "#7" in result.output) == (
         0,
         [
             ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
@@ -882,7 +985,104 @@ def test_a_thread_already_filed_is_resolved_and_not_filed_again(
             ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
             ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
         ],
+        True,
     )
+
+
+def test_a_marker_reply_past_the_first_page_of_comments_is_read(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    marker = CONST_PR_THREAD_FILED_MARKER.format(issue=7)
+    earlier = _comment(
+        "PRRC_kwDOThbRVc6Ak1aZ", f"Filed as #7.\n\n{marker}", author=_VIEWER, discussion=8
+    )
+    first_page = _thread(
+        "PRRT_kwDOThbRVc5Ak1aA",
+        "src/devops_cli/github/pr_monitor.py",
+        412,
+        *_THREAD_A["comments"]["nodes"],
+        more_after="Y3Vyc29yOnYyOpHOBUf6iC==",
+    )
+    later = {"PRRT_kwDOThbRVc5Ak1aA": [earlier]}
+    gh = _ThreadsGitHub([first_page], filing_events, later_comments=later)
+    result = _file_issues(gh, "--confirm")
+    assert (result.exit_code, _writes(filing_events)) == (0, [("resolve", "PRRT_kwDOThbRVc5Ak1aA")])
+
+
+def test_a_copilot_suggestion_quoting_the_marker_leaves_its_thread_to_be_filed(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """The first comment never counts: a suggestion on the line that defines the marker quotes
+    it whole."""
+    marker = CONST_PR_THREAD_FILED_MARKER.format(issue=3)
+    suggestion = f"Name the issue in the marker:\n```suggestion\n{marker}\n```"
+    thread = _thread(
+        "PRRT_kwDOThbRVc5Ak1dD",
+        "src/devops_cli/config/constants.py",
+        1593,
+        _comment("PRRC_kwDOThbRVc6Ak1dD", suggestion, discussion=99),
+    )
+    result = _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
+    assert (result.exit_code, _writes(filing_events)) == (
+        0,
+        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1dD"), ("resolve", "PRRT_kwDOThbRVc5Ak1dD")],
+    )
+
+
+def test_a_marker_reply_from_another_login_does_not_count(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    marker = CONST_PR_THREAD_FILED_MARKER.format(issue=3)
+    other = _comment(
+        "PRRC_kwDOThbRVc6Ak1aY", f"Filed as #3.\n\n{marker}", author="someone", discussion=9
+    )
+    gh = _ThreadsGitHub([_with_reply(_THREAD_A, other)], filing_events)
+    result = _file_issues(gh, "--confirm")
+    assert (result.exit_code, _writes(filing_events)) == (
+        0,
+        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+    )
+
+
+def test_a_rerun_after_a_failed_reply_opens_no_second_issue(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """The issue is open when the reply fails: the failed run names it, and the rerun finds it
+    by the thread's link in its body, replies naming it and resolves the thread."""
+    failing = frozenset({"PRRT_kwDOThbRVc5Ak1aA"})
+    first = _file_issues(
+        _ThreadsGitHub([_THREAD_A], filing_events, failing_replies=failing), "--confirm"
+    )
+    rerun = _file_issues(_ThreadsGitHub([_THREAD_A], filing_events), "--confirm")
+    assert (
+        first.exit_code,
+        "#1" in first.output,
+        rerun.exit_code,
+        _writes(filing_events),
+        "Filed as #1" in filing_events[1][2],
+        len(roadmap_store.issues()),
+    ) == (
+        1,
+        True,
+        0,
+        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+        True,
+        1,
+    )
+
+
+def test_a_failure_part_way_reports_the_threads_already_filed(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    failing = frozenset({"PRRT_kwDOThbRVc5Ak1bB"})
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events, failing_replies=failing)
+    result = _file_issues(gh, "--confirm")
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "Filed PRRT_kwDOThbRVc5Ak1aA (src/devops_cli/github/pr_monitor.py:412) as #1" in output,
+        "#2" in output,
+    ) == (1, True, True)
 
 
 def test_a_failed_issue_stops_the_run_before_its_reply_and_resolve(
@@ -913,6 +1113,108 @@ def test_a_pull_request_that_is_not_the_release_pull_request_is_refused(
         filing_events,
         "not the release pull request" in result.output,
     ) == (1, [], [], True)
+
+
+@pytest.mark.parametrize(("merged", "shown"), [(True, "merged"), (False, "closed")])
+def test_a_release_pull_request_that_is_not_open_is_refused_before_its_threads_are_read(
+    roadmap_store: InMemoryRoadmapStore,
+    filing_events: list[tuple[Any, ...]],
+    merged: bool,
+    shown: str,
+) -> None:
+    """The previous release's pull request still runs release/vX.Y.Z into main."""
+    pull = {**_release_pull("release/v0.2.36"), "state": "closed", "merged": merged}
+    gh = _ThreadsGitHub([_THREAD_A], filing_events, pull=pull)
+    result = _file_issues(gh, "--confirm")
+    queries = [call for call in gh.calls if "graphql" in call]
+    output = " ".join(result.output.split())
+    assert (result.exit_code, queries, filing_events, f"is {shown}, not open" in output) == (
+        1,
+        [],
+        [],
+        True,
+    )
+
+
+def test_a_thread_a_person_started_is_filed_without_source_agent(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """`source/agent` says a model wrote the text; a person's thread is theirs."""
+    person = _thread(
+        "PRRT_kwDOThbRVc5Ak1eE",
+        "src/a.py",
+        5,
+        _comment("PRRC_kwDOThbRVc6Ak1eE", "This needs a test.", author=_VIEWER, discussion=11),
+    )
+    _file_issues(_ThreadsGitHub([_THREAD_A, person], filing_events), "--confirm")
+    assert [issue.labels for issue in roadmap_store.issues()] == [("source/agent",), ()]
+
+
+def test_a_deleted_author_is_named_ghost(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """GitHub gives a deleted account's comment a null author and shows it as ghost."""
+    thread = _thread(
+        "PRRT_kwDOThbRVc5Ak1fF",
+        "src/a.py",
+        8,
+        _comment("PRRC_f", "Old note.", author=None, discussion=12),
+    )
+    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
+    assert "ghost:\nOld note." in roadmap_store.issues()[0].body
+
+
+def test_a_thread_a_push_moved_off_the_diff_is_placed_by_its_original_line(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    thread = _thread(
+        "PRRT_kwDOThbRVc5Ak1gG",
+        "src/devops_cli/github/pr_monitor.py",
+        None,
+        _comment("PRRC_g", "Guard the None.", discussion=13),
+        original_line=40,
+        outdated=True,
+    )
+    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
+    expected = "chore(review): follow up src/devops_cli/github/pr_monitor.py:40 from #1283"
+    assert roadmap_store.issues()[0].title == expected
+
+
+def test_two_threads_on_a_whole_file_get_titles_that_tell_them_apart(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """A thread on a file, not a line, has neither `line` nor `originalLine`; its first
+    comment's id tells it from another on the same file."""
+    first = _thread(
+        "PRRT_kwDOThbRVc5Ak1hH",
+        "docs/a.md",
+        None,
+        _comment("PRRC_h1", "Split this.", discussion=14),
+    )
+    second = _thread(
+        "PRRT_kwDOThbRVc5Ak1iI", "docs/a.md", None, _comment("PRRC_i1", "Retitle.", discussion=15)
+    )
+    _file_issues(_ThreadsGitHub([first, second], filing_events), "--confirm")
+    titles = [issue.title for issue in roadmap_store.issues()]
+    assert (len(set(titles)), "PRRC_h1" in titles[0], "PRRC_i1" in titles[1]) == (2, True, True)
+
+
+def test_the_preview_marks_an_outdated_thread(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """A later push has probably dealt with an outdated thread, so the preview says so."""
+    thread = _thread(
+        "PRRT_kwDOThbRVc5Ak1jJ",
+        "src/a.py",
+        None,
+        _comment("PRRC_j", "Off by one.", discussion=16),
+        original_line=9,
+        outdated=True,
+    )
+    result = _file_issues(_ThreadsGitHub([thread, _THREAD_A], filing_events))
+    output = " ".join(result.output.split())
+    marked = ["outdated" in line for line in output.split("Would file")[1:]]
+    assert (result.exit_code, marked) == (0, [True, False])
 
 
 def test_a_long_thread_is_cut_and_says_so() -> None:

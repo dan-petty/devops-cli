@@ -8,8 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.constants import CONST_GITHUB_GHOST_LOGIN
+from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.lang import MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +28,19 @@ class ReviewComment(BaseModel):
 
 
 class ReviewThread(BaseModel):
-    """A pull request review thread containing one or more comments."""
+    """A pull request review thread containing one or more comments.
+
+    `line` is None once a later push moved the thread's lines out of the diff, which makes it
+    outdated, and for a thread on a whole file; `original_line` is the line it was opened on,
+    None for a thread on a whole file.
+    """
 
     id: str
     is_resolved: bool = False
+    is_outdated: bool = False
     path: str = ""
     line: int | None = None
+    original_line: int | None = None
     comments: list[ReviewComment] = Field(default_factory=list)
 
 
@@ -108,9 +118,15 @@ query GetReviewThreads($owner: String!, $repo: String!, $pr: Int!, $cursor: Stri
         nodes {
           id
           isResolved
+          isOutdated
           path
           line
+          originalLine
           comments(first: 50) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             nodes {
               id
               body
@@ -132,8 +148,10 @@ query GetReviewThread($threadId: ID!) {
     ... on PullRequestReviewThread {
       id
       isResolved
+      isOutdated
       path
       line
+      originalLine
       comments(first: 50) {
         nodes {
           id
@@ -144,6 +162,36 @@ query GetReviewThread($threadId: ID!) {
         }
       }
     }
+  }
+}
+""".strip()
+
+_QUERY_GET_THREAD_COMMENTS = """
+query GetThreadComments($threadId: ID!, $cursor: String) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          body
+          author { login }
+          createdAt
+          url
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+_QUERY_VIEWER = """
+query Viewer {
+  viewer {
+    login
   }
 }
 """.strip()
@@ -192,6 +240,16 @@ def review_threads_args(
     return graphql_args(_QUERY_GET_REVIEW_THREADS, variables)
 
 
+def thread_comments_args(thread_id: str, cursor: str) -> list[str]:
+    """The arguments that read the page of review thread `thread_id`'s comments after `cursor`."""
+    return graphql_args(_QUERY_GET_THREAD_COMMENTS, {"threadId": thread_id, "cursor": cursor})
+
+
+def viewer_args() -> list[str]:
+    """The arguments that read the login of the account the GraphQL calls run as."""
+    return graphql_args(_QUERY_VIEWER, {})
+
+
 def reply_thread_args(thread_id: str, body: str) -> list[str]:
     """The arguments that post `body` as a reply in review thread `thread_id`."""
     return graphql_args(_MUTATION_ADD_REPLY, {"threadId": thread_id, "body": body})
@@ -202,14 +260,23 @@ def resolve_thread_args(thread_id: str) -> list[str]:
     return graphql_args(_MUTATION_RESOLVE_THREAD, {"threadId": thread_id})
 
 
+def _author_login(raw: dict[str, Any]) -> str:
+    """A comment's author login: GitHub's `ghost` for a deleted account, whose `author` is
+    null; empty when the author was not read."""
+    if "author" not in raw:
+        return ""
+    author = raw["author"]
+    if author is None:
+        return CONST_GITHUB_GHOST_LOGIN
+    return str(author.get("login", "")) if isinstance(author, dict) else str(author)
+
+
 def _parse_review_comment(raw: dict[str, Any]) -> ReviewComment:
     """Parse a single comment dictionary from GraphQL nodes."""
-    author_obj = raw.get("author") or {}
-    author_login = author_obj.get("login", "") if isinstance(author_obj, dict) else str(author_obj)
     return ReviewComment(
         id=raw.get("id", ""),
         body=raw.get("body", ""),
-        author=author_login,
+        author=_author_login(raw),
         created_at=raw.get("createdAt", ""),
         url=raw.get("url", "") or "",
     )
@@ -222,10 +289,39 @@ def _parse_review_thread(node: dict[str, Any]) -> ReviewThread:
     return ReviewThread(
         id=node.get("id", ""),
         is_resolved=bool(node.get("isResolved", False)),
+        is_outdated=bool(node.get("isOutdated", False)),
         path=node.get("path", "") or "",
         line=node.get("line"),
+        original_line=node.get("originalLine"),
         comments=comments,
     )
+
+
+def _later_comments(thread_id: str, cursor: str) -> list[ReviewComment]:
+    """The comments of review thread `thread_id` after `cursor`, every page of them."""
+    comments: list[ReviewComment] = []
+    after: str | None = cursor
+    for _ in range(DEFAULT_GH_MAX_PAGINATED_PAGES):
+        if not after:
+            break
+        data = _run_graphql(thread_comments_args(thread_id, after))
+        page = ((data.get("data") or {}).get("node") or {}).get("comments") or {}
+        nodes = page.get("nodes") or []
+        comments.extend(_parse_review_comment(c) for c in nodes if isinstance(c, dict))
+        info = page.get("pageInfo") or {}
+        after = info.get("endCursor") if info.get("hasNextPage") else None
+    return comments
+
+
+def _read_thread(node: dict[str, Any]) -> ReviewThread:
+    """A review thread node, with the comments past its first page read too."""
+    thread = _parse_review_thread(node)
+    info = (node.get("comments") or {}).get("pageInfo") or {}
+    cursor = info.get("endCursor") if info.get("hasNextPage") else None
+    if not cursor:
+        return thread
+    later = _later_comments(thread.id, str(cursor))
+    return thread.model_copy(update={"comments": [*thread.comments, *later]})
 
 
 def _list_pr_review_threads_graphql(
@@ -247,7 +343,7 @@ def _list_pr_review_threads_graphql(
             .get("reviewThreads", {})
         )
         raw_nodes = pr_data.get("nodes", [])
-        threads.extend(_parse_review_thread(n) for n in raw_nodes if isinstance(n, dict))
+        threads.extend(_read_thread(n) for n in raw_nodes if isinstance(n, dict))
 
         page_info = pr_data.get("pageInfo", {})
         if not page_info.get("hasNextPage"):
@@ -273,6 +369,15 @@ def list_pr_review_threads(
     """
     repo_name = repo.split("/")[-1]
     return _list_pr_review_threads_graphql(owner, repo_name, pr_number, unresolved_only)
+
+
+def read_viewer_login() -> str:
+    """The login of the account the GraphQL calls run as, the one whose replies it writes."""
+    data = _run_graphql(viewer_args())
+    login = ((data.get("data") or {}).get("viewer") or {}).get("login")
+    if not login:
+        raise GitHubOperationError(MESSAGES.pr.threads_viewer_unread, operation="graphql.viewer")
+    return str(login)
 
 
 def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:

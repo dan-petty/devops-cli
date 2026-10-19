@@ -1,15 +1,25 @@
 """A pull request's two branches, as GitHub's REST API describes them in `pulls/{number}`, and
 whether the pull request is the release pull request (`release/vX.Y.Z` into the default branch).
 
-`devops pr check-readiness` exempts the release pull request from grounding, and `devops pr
-copilot-pass` requests a Copilot pass on it alone (#1345), so both read it here.
+`devops pr check-readiness` exempts the release pull request from grounding. `devops pr
+copilot-pass` requests a Copilot pass on the open release pull request alone, and `devops pr
+threads file-issues` files its threads alone (#1345), so both refuse any other pull request
+through `require_open_release_pr`, each with its own error and words.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from devops_cli.config.constants import CONST_RELEASE_BRANCH_RE
+
+
+class PullRequestRefusal(Protocol):
+    """The error a command raises to refuse a pull request, such as `CopilotPassRefusedError`."""
+
+    def __call__(self, message: str, *, details: dict[str, Any] | None = None) -> Exception:
+        """Build the error from its message and the context that names the pull request."""
+        ...
 
 
 def _repo_full_name(side: dict[str, Any]) -> str:
@@ -43,4 +53,40 @@ def is_release_pr(pr_data: dict[str, Any]) -> bool:
     return same_repository(pr_data) and into_default and release_head
 
 
-__all__ = ["branch_ref", "default_branch", "is_release_pr", "same_repository"]
+def require_open_release_pr(
+    pr_data: dict[str, Any],
+    number: int,
+    *,
+    refused: PullRequestRefusal,
+    not_open: str,
+    not_release: str,
+) -> None:
+    """Raise `refused` unless pull request `number` is open and is the release pull request:
+    with `not_open`, formatted with `number` and `state`, when it is merged or closed, as the
+    previous release's is, and with `not_release`, formatted with `number`, `head` and `base`,
+    when it is not `release/vX.Y.Z` into the default branch."""
+    merged = pr_data.get("merged") is True
+    state = str(pr_data.get("state") or "").lower()
+    if merged or state != "open":
+        shown = "merged" if merged else state or "closed"
+        raise refused(
+            not_open.format(number=number, state=shown),
+            details={"pull_request": number, "state": state, "merged": merged},
+        )
+    if is_release_pr(pr_data):
+        return
+    head, base = branch_ref(pr_data, "head"), branch_ref(pr_data, "base")
+    raise refused(
+        not_release.format(number=number, head=head, base=base),
+        details={"pull_request": number, "head": head, "base": base},
+    )
+
+
+__all__ = [
+    "PullRequestRefusal",
+    "branch_ref",
+    "default_branch",
+    "is_release_pr",
+    "require_open_release_pr",
+    "same_repository",
+]
