@@ -29,13 +29,13 @@ from devops_cli.config.constants import (
 )
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions.git import CopilotPassRefusedError, GitHubOperationError
-from devops_cli.github.pr_branches import branch_ref, is_release_pr
+from devops_cli.github.pr_branches import require_open_release_pr
 from devops_cli.github.pr_monitor import (
     _detect_copilot_status,
-    _fetch_pr_details,
     _fetch_raw_reviews,
     branch_pr_rest_argv,
     branch_pr_view_argv,
+    fetch_pr_details,
     is_copilot_review,
     pr_details_argv,
 )
@@ -107,30 +107,6 @@ def copilot_pass_argv(number: int | str, repo: str) -> list[str]:
     return [CONST_GH_CLI, "pr", "edit", str(number), *reviewer, "--repo", repo]
 
 
-def _require_open(pr_data: dict[str, Any], number: int) -> None:
-    """Refuse a pull request that is merged or closed, such as the previous release's."""
-    merged = pr_data.get("merged") is True
-    state = str(pr_data.get("state") or "").lower()
-    if state == "open" and not merged:
-        return
-    shown = "merged" if merged else state or "closed"
-    raise CopilotPassRefusedError(
-        MESSAGES.pr.copilot_pass_not_open.format(number=number, state=shown),
-        details={"pull_request": number, "state": state, "merged": merged},
-    )
-
-
-def _require_release_pr(pr_data: dict[str, Any], number: int) -> None:
-    """Refuse any pull request but the release pull request, naming its two branches."""
-    if is_release_pr(pr_data):
-        return
-    head, base = branch_ref(pr_data, "head"), branch_ref(pr_data, "base")
-    raise CopilotPassRefusedError(
-        MESSAGES.pr.copilot_pass_not_release_pr.format(number=number, head=head, base=base),
-        details={"pull_request": number, "head": head, "base": base},
-    )
-
-
 def _refuse_spent(passes: CopilotPasses, number: int) -> None:
     """Refuse a pass once `passes` has spent the budget."""
     if not passes.spent:
@@ -168,9 +144,13 @@ def request_copilot_pass(owner: str, repo_name: str, number: int) -> CopilotPass
     valid.
     """
     repo = f"{owner}/{repo_name}"
-    pr_data = _fetch_pr_details(owner, repo_name, number)
-    _require_open(pr_data, number)
-    _require_release_pr(pr_data, number)
+    require_open_release_pr(
+        fetch_pr_details(owner, repo_name, number),
+        number,
+        refused=CopilotPassRefusedError,
+        not_open=MESSAGES.pr.copilot_pass_not_open,
+        not_release=MESSAGES.pr.copilot_pass_not_release_pr,
+    )
     passes = read_copilot_passes(owner, repo_name, number, budget=read_copilot_budget(repo))
     _refuse_spent(passes, number)
     _send_request(number, repo)

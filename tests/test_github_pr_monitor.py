@@ -736,7 +736,7 @@ class TestMonitorPR:
         checks = [PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")]
 
         with (
-            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
             patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
             patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
@@ -788,7 +788,7 @@ class TestMonitorPR:
         ]
 
         with (
-            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
             patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
             patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
             patch(
@@ -1070,7 +1070,7 @@ class TestMonitorPR:
             }
         ]
         with (
-            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
             patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
@@ -1118,7 +1118,7 @@ class TestMonitorPR:
             "mergeable_state": "clean",
         }
         with (
-            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
             patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=[]),
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
@@ -1157,7 +1157,7 @@ class TestMonitorPR:
             "mergeable_state": "clean",
         }
         with (
-            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
             patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=[]),
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
@@ -1434,7 +1434,7 @@ def test_the_monitor_reads_1283s_recorded_copilot_passes(
     checks = [PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")]
     monkeypatch.setattr(pr_monitor, "time", _Clock())
     with (
-        patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+        patch("devops_cli.github.pr_monitor.fetch_pr_details", return_value=pr_details),
         patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
         patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=threads),
     ):

@@ -530,7 +530,7 @@ class RawReviewsList(list[dict[str, Any]]):
         self.error = error
 
 
-def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
+def fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
     pr_proc = run_gh(pr_details_argv(owner, repo_name, pr_number), check=False, quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
@@ -664,7 +664,7 @@ def get_pr_monitoring_status(
 ) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
-    pr_data = _fetch_pr_details(owner, repo_name, pr_number)
+    pr_data = fetch_pr_details(owner, repo_name, pr_number)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
     is_draft = bool(pr_data.get("draft", False))
     mergeable = pr_data.get("mergeable")

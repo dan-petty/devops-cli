@@ -873,6 +873,8 @@ DEFAULT_ROADMAP_RELEASE_ITEM_TARGET: int = 50
 # Copilot review passes one release pull request gets, the pass when it opens included. Once they
 # are spent, `devops pr copilot-pass` requests none (#1345).
 DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES: int = 2
+# The most characters of a review thread's comments its follow-up issue quotes (#1345).
+DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS: int = 4000
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
