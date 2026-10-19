@@ -130,6 +130,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `SuspendedResponseExpired` | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
+| `ThreadFilingRefusedError` | `THREAD_FILING_REFUSED` | `1` | Git | Raised when `devops pr threads file-issues` refuses to file a pull request's threads. |
 | `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `ToolExecutionError` | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |

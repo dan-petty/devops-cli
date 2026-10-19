@@ -21,6 +21,7 @@ class ReviewComment(BaseModel):
     body: str
     author: str = ""
     created_at: str = ""
+    url: str = ""
 
 
 class ReviewThread(BaseModel):
@@ -69,22 +70,24 @@ def _parse_graphql_output(stdout: str) -> dict[str, Any]:
     return data
 
 
-def _run_graphql_query(query: str, variables: dict[str, Any]) -> dict[str, Any]:
-    """Execute a GraphQL query/mutation via `gh api graphql` with rate limiting and backoff."""
-    args = [
-        "api",
-        "graphql",
-        "-f",
-        f"query={query}",
-    ]
-    args.extend(_build_graphql_args(variables))
+def graphql_args(query: str, variables: dict[str, Any]) -> list[str]:
+    """The `gh api graphql` arguments that send `query` with `variables`."""
+    return ["api", "graphql", "-f", f"query={query}", *_build_graphql_args(variables)]
 
+
+def _run_graphql(args: list[str]) -> dict[str, Any]:
+    """Run a `gh api graphql` call with rate limiting and backoff, and parse its answer."""
     proc = run_gh(args, check=False)
     if proc.returncode != 0 or not proc.stdout:
         err = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
         raise GitHubOperationError(f"GitHub GraphQL query failed: {err}")
 
     return _parse_graphql_output(proc.stdout)
+
+
+def _run_graphql_query(query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Execute a GraphQL query/mutation via `gh api graphql` with rate limiting and backoff."""
+    return _run_graphql(graphql_args(query, variables))
 
 
 _QUERY_GET_REVIEW_THREADS = """
@@ -113,6 +116,7 @@ query GetReviewThreads($owner: String!, $repo: String!, $pr: Int!, $cursor: Stri
               body
               author { login }
               createdAt
+              url
             }
           }
         }
@@ -136,6 +140,7 @@ query GetReviewThread($threadId: ID!) {
           body
           author { login }
           createdAt
+          url
         }
       }
     }
@@ -179,6 +184,24 @@ mutation UnresolveThread($threadId: ID!) {
 """.strip()
 
 
+def review_threads_args(
+    owner: str, repo_name: str, pr_number: int | str, cursor: str | None = None
+) -> list[str]:
+    """The arguments that read one page of a pull request's review threads."""
+    variables = {"owner": owner, "repo": repo_name, "pr": pr_number, "cursor": cursor}
+    return graphql_args(_QUERY_GET_REVIEW_THREADS, variables)
+
+
+def reply_thread_args(thread_id: str, body: str) -> list[str]:
+    """The arguments that post `body` as a reply in review thread `thread_id`."""
+    return graphql_args(_MUTATION_ADD_REPLY, {"threadId": thread_id, "body": body})
+
+
+def resolve_thread_args(thread_id: str) -> list[str]:
+    """The arguments that resolve review thread `thread_id`."""
+    return graphql_args(_MUTATION_RESOLVE_THREAD, {"threadId": thread_id})
+
+
 def _parse_review_comment(raw: dict[str, Any]) -> ReviewComment:
     """Parse a single comment dictionary from GraphQL nodes."""
     author_obj = raw.get("author") or {}
@@ -188,6 +211,7 @@ def _parse_review_comment(raw: dict[str, Any]) -> ReviewComment:
         body=raw.get("body", ""),
         author=author_login,
         created_at=raw.get("createdAt", ""),
+        url=raw.get("url", "") or "",
     )
 
 
@@ -215,13 +239,7 @@ def _list_pr_review_threads_graphql(
     cursor: str | None = None
 
     while True:
-        vars_dict: dict[str, Any] = {"owner": owner, "repo": repo_name, "pr": pr_number}
-        if cursor:
-            vars_dict["cursor"] = cursor
-        data = _run_graphql_query(
-            _QUERY_GET_REVIEW_THREADS,
-            variables=vars_dict,
-        )
+        data = _run_graphql(review_threads_args(owner, repo_name, pr_number, cursor or None))
         pr_data = (
             data.get("data", {})
             .get("repository", {})
@@ -262,10 +280,7 @@ def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:
     clean_body = body.strip()
     if not clean_body:
         raise GitHubOperationError("Reply comment body cannot be empty.")
-    data = _run_graphql_query(
-        _MUTATION_ADD_REPLY,
-        variables={"threadId": thread_id, "body": clean_body},
-    )
+    data = _run_graphql(reply_thread_args(thread_id, clean_body))
     comment_data = (
         data.get("data", {}).get("addPullRequestReviewThreadReply", {}).get("comment", {})
     )
@@ -274,10 +289,7 @@ def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:
 
 def resolve_pr_review_thread(thread_id: str) -> ThreadResolutionResult:
     """Programmatically mark a PR review discussion thread as resolved."""
-    data = _run_graphql_query(
-        _MUTATION_RESOLVE_THREAD,
-        variables={"threadId": thread_id},
-    )
+    data = _run_graphql(resolve_thread_args(thread_id))
     thread_data = data.get("data", {}).get("resolveReviewThread", {}).get("thread", {})
     is_resolved = bool(thread_data.get("isResolved", True))
     return ThreadResolutionResult(thread_id=thread_id, is_resolved=is_resolved, success=True)

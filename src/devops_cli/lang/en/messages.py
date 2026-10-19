@@ -656,6 +656,39 @@ class PRMessages:
     copilot_pass_plan_branch_pr_fallback: str = "the REST read names no open pull request, or fails"
     copilot_pass_plan_release: str = "PR #{number} is the open release pull request"
     copilot_pass_plan_request: str = "Copilot's review of {repo} pull request {number}"
+    # `devops pr threads file-issues` (#1345).
+    thread_issue_title: str = "chore(review): follow up {location} from #{number}"
+    thread_issue_intro: str = (
+        "A review thread on #{number} that the stop rule in RELEASE_CYCLE.md Step 3 left for a "
+        "later release, once the release pull request's Copilot passes were spent:"
+    )
+    thread_issue_cut: str = "[cut at {chars} characters]"
+    thread_issue_source: str = "{location}, {url}"
+    thread_filed_reply: str = (
+        "Filed as #{issue}, a follow-up issue for a later release under the stop rule in "
+        "RELEASE_CYCLE.md Step 3."
+    )
+    threads_not_release_pr: str = (
+        "PR #{number} is not the release pull request ({head} into {base}): the stop rule "
+        "files the release pull request's threads, so none was filed."
+    )
+    threads_none: str = "PR #{number} has no unresolved review thread."
+    thread_kept: str = "Kept {thread} ({location}) open."
+    thread_to_file: str = "Would file {thread} ({location}) as: {title}"
+    thread_seen_filed: str = (
+        "{thread} ({location}) was filed by an earlier run; --confirm resolves it."
+    )
+    thread_resolved_filed: str = "Resolved {thread} ({location}), filed by an earlier run."
+    thread_filed: str = "Filed {thread} ({location}) as #{issue} and resolved it."
+    threads_preview_note: str = "Nothing was written. Run with --confirm to file them."
+    threads_dry_run_heading: str = (
+        "Dry run: no request was made. file-issues would make these requests, in order:"
+    )
+    threads_plan_release: str = "PR #{number} is the release pull request"
+    threads_plan_unfiled: str = "the thread is not kept and holds no reply naming its issue"
+    threads_plan_not_kept: str = "the thread is not kept"
+    threads_plan_each: str = "for each unresolved thread"
+    threads_plan_page: str = "per page, until the last"
     copilot_pass_plan_below_budget: str = "its Copilot passes are below release_copilot_passes"
     copilot_pass_plan_per_page: str = "per page, until the last"
     update_table_title: str = "Pull Request Branch Update Summary"

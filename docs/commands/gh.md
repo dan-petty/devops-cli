@@ -1158,4 +1158,27 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+#### `devops gh pr threads file-issues`
+
+**File each unresolved review thread of the release pull request as a follow-up issue, the step of the stop rule in RELEASE_CYCLE.md once its Copilot passes are spent: the issue quotes the thread in a fence, names its file and line and links it, has no milestone and is labelled source/agent; then the thread gets a reply naming the issue and is resolved. Without --confirm it reads the threads and writes nothing; a rerun files no thread twice.**
+
+```bash
+devops gh pr threads file-issues [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--keep` | `string` | - | Leave this thread open, for a regression the release fixes; repeatable. |
+| `--confirm` | `boolean` | - | File the issues, reply in the threads and resolve them; without it, nothing is written. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---

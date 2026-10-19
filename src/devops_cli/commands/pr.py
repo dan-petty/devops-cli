@@ -3050,3 +3050,44 @@ def resolve_all_threads_cmd(
 
     successful = [r for r in results if r.success and r.is_resolved]
     print_success(f"Resolved {len(successful)}/{len(results)} review thread(s) on PR #{number}.")
+
+
+@threads_app.command("file-issues", help=HELP.pr.threads_file_issues)
+def file_thread_issues_cmd(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    keep: Annotated[list[str] | None, typer.Option("--keep", help=HELP.pr.threads_keep)] = None,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.pr.threads_confirm)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """File the release pull request's unresolved review threads as follow-up issues (#1345)."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.github.review_thread_issues import (
+        describe_filing,
+        file_thread_issues,
+        plan_thread_issues,
+    )
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error(ERRORS.pr.invalid_target_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        plan = plan_thread_issues(target_repo, number)
+        render_request_plan(
+            MESSAGES.pr.threads_dry_run_heading, plan, (MESSAGES.dry_run.placeholders_note,)
+        )
+        return
+    owner, repo_name = target_repo.split("/", 1)
+    try:
+        filings = file_thread_issues(owner, repo_name, number, keep=keep or (), confirm=confirm)
+    except DevOpsCLIError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+    for filing in filings:
+        print_info(describe_filing(filing, confirm=confirm))
+    if not filings:
+        print_success(MESSAGES.pr.threads_none.format(number=number))
+    elif not confirm:
+        print_info(MESSAGES.pr.threads_preview_note)

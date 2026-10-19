@@ -568,6 +568,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("gh", "pr", "list"),
         ("gh", "pr", "monitor"),
         ("gh", "pr", "ready"),
+        ("gh", "pr", "threads", "file-issues"),
         ("gh", "pr", "threads", "list"),
         ("gh", "pr", "threads", "reply"),
         ("gh", "pr", "threads", "resolve"),
@@ -621,6 +622,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("pr", "copilot-pass"),
         ("pr", "create"),
         ("pr", "hardening-report"),
+        ("pr", "threads", "file-issues"),
         ("pr", "threads", "resolve-all"),
         ("pr", "threads", "unresolve"),
         ("pr", "view"),
@@ -1599,6 +1601,11 @@ CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
 # A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
 # request, or once the release pull request's Copilot budget is spent (#1345).
 CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
+# The marker `devops pr threads file-issues` leaves in the reply that names a thread's
+# follow-up issue, so a rerun resolves that thread and files it no second time (#1345).
+CONST_PR_THREAD_FILED_MARKER: Final[str] = "<!-- devops-cli: filed as a follow-up issue -->"
+# `devops pr threads file-issues` refuses any pull request but the release pull request.
+CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, the margin

@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Sequence
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
 
+from devops_cli.commands.pr import app as pr_app
+from devops_cli.config.constants import CONST_PR_THREAD_FILED_MARKER
+from devops_cli.config.defaults import DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.pr_threads import (
     ReviewComment,
+    ReviewThread,
     ThreadResolutionResult,
     list_pr_review_threads,
     reply_pr_review_thread,
     resolve_pr_review_thread,
     unresolve_pr_review_thread,
 )
+from devops_cli.github.review_thread_issues import thread_issue_body
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import IssueRecord
 
 SAMPLE_GRAPHQL_RESPONSE = {
     "data": {
@@ -559,7 +570,6 @@ def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -
     as a read and each of the three resolves as a write, so `pr threads resolve-all` sends its
     resolves at least the write interval apart."""
     import subprocess
-    from typing import Any
 
     from devops_cli.github.pr_threads import resolve_all_pr_review_threads
     from devops_cli.github.rate_limiter import GitHubRateLimiter
@@ -598,3 +608,318 @@ def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -
         [result.success for result in results],
         [call.kwargs["is_mutation"] for call in acquire.call_args_list],
     ) == ([True, True, True], [False, True, True, True])
+
+
+# ── Remaining threads filed as follow-up issues (#1345) ─────────────────────────────────────────
+#
+# The pull request read is REST and the thread reads and writes are GraphQL; every reply below is
+# in the shape GitHub's documented schema gives the query or mutation that asks for it:
+# `PullRequestReviewThread` (`id`, `isResolved`, `path`, `line`, `comments`) and
+# `PullRequestReviewComment` (`id`, `body`, `author { login }`, `createdAt`, `url`), with Copilot
+# as the GraphQL login `copilot-pull-request-reviewer`.
+
+_REPO = "dan-petty/devops-cli"
+_PULL = 1283
+_COPILOT_GRAPHQL = "copilot-pull-request-reviewer"
+
+
+def _comment(
+    comment_id: str, body: str, *, author: str = _COPILOT_GRAPHQL, discussion: int
+) -> dict[str, Any]:
+    return {
+        "id": comment_id,
+        "body": body,
+        "author": {"login": author},
+        "createdAt": "2026-10-07T12:43:24Z",
+        "url": f"https://github.com/{_REPO}/pull/{_PULL}#discussion_r{discussion}",
+    }
+
+
+def _thread(
+    thread_id: str, path: str, line: int | None, *comments: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "id": thread_id,
+        "isResolved": False,
+        "path": path,
+        "line": line,
+        "comments": {"nodes": list(comments)},
+    }
+
+
+_THREAD_A = _thread(
+    "PRRT_kwDOThbRVc5Ak1aA",
+    "src/devops_cli/github/pr_monitor.py",
+    412,
+    _comment("PRRC_kwDOThbRVc6Ak1aA", "Rename `state` to `copilot_state`.", discussion=2412345678),
+)
+_THREAD_B = _thread(
+    "PRRT_kwDOThbRVc5Ak1bB",
+    "src/devops_cli/commands/pr.py",
+    2890,
+    _comment("PRRC_kwDOThbRVc6Ak1bB", "This loop reads the board twice.", discussion=2412345679),
+    _comment(
+        "PRRC_kwDOThbRVc6Ak1bC",
+        "Agreed, after the release.",
+        author="maintainer",
+        discussion=2412345680,
+    ),
+)
+
+
+def _release_pull(head: str = "release/v0.2.37", base: str = "main") -> dict[str, Any]:
+    repo = {"full_name": _REPO, "default_branch": "main"}
+    sides = {"head": {"ref": head, "repo": repo}, "base": {"ref": base, "repo": repo}}
+    return {"number": _PULL, "state": "open", "merged": False, **sides}
+
+
+class _ThreadsGitHub:
+    """`run_gh` answering the pull request read and the review thread GraphQL calls, recording
+    every call in `calls` and every write, in order, in `events`."""
+
+    def __init__(
+        self,
+        threads: list[dict[str, Any]],
+        events: list[tuple[Any, ...]],
+        pull: dict[str, Any] | None = None,
+    ) -> None:
+        self.calls: list[list[str]] = []
+        self._threads = threads
+        self._events = events
+        self._pull = pull or _release_pull()
+
+    def __call__(self, args: list[str], **_: object) -> MagicMock:
+        argv = [str(arg) for arg in args]
+        self.calls.append(argv)
+        if argv[-1] == f"repos/{_REPO}/pulls/{_PULL}":
+            return MagicMock(returncode=0, stdout=json.dumps(self._pull), stderr="")
+        flags = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg in ("-f", "-F")]
+        fields = dict(flag.split("=", 1) for flag in flags)
+        answer = self._answer(fields.get("query", ""), fields)
+        return MagicMock(returncode=0, stdout=json.dumps(answer), stderr="")
+
+    def _answer(self, query: str, fields: dict[str, str]) -> dict[str, Any]:
+        if query.startswith("query GetReviewThreads"):
+            page = {"pageInfo": {"hasNextPage": False, "endCursor": "Y3Vyc29yOnYyOpHOBUf6iA=="}}
+            threads = {"reviewThreads": {**page, "nodes": self._threads}}
+            budget = {
+                "limit": 5000,
+                "remaining": 4990,
+                "cost": 1,
+                "resetAt": "2026-10-19T01:00:00Z",
+            }
+            return {"data": {"rateLimit": budget, "repository": {"pullRequest": threads}}}
+        if query.startswith("mutation AddReply"):
+            self._events.append(("reply", fields["threadId"], fields["body"]))
+            reply = _comment(
+                "PRRC_kwDOThbRVc6Ak1zZ", fields["body"], author="maintainer", discussion=1
+            )
+            return {"data": {"addPullRequestReviewThreadReply": {"comment": reply}}}
+        if query.startswith("mutation ResolveThread"):
+            self._events.append(("resolve", fields["threadId"]))
+            thread = {"id": fields["threadId"], "isResolved": True}
+            return {"data": {"resolveReviewThread": {"thread": thread}}}
+        return {"errors": [{"message": f"unscripted: {query[:40]}"}]}
+
+
+@pytest.fixture
+def filing_events(
+    roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[Any, ...]]:
+    """Every write of a filing run, in order: each issue the roadmap store opens, then the
+    replies and resolves the GraphQL stand-in records."""
+    events: list[tuple[Any, ...]] = []
+    create = roadmap_store.create_issue
+
+    def recorded(title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
+        issue = create(title, body, labels=labels)
+        events.append(("issue", issue.number))
+        return issue
+
+    monkeypatch.setattr(roadmap_store, "create_issue", recorded)
+    return events
+
+
+def _file_issues(gh: _ThreadsGitHub, *args: str) -> Any:
+    with (
+        patch("devops_cli.github.pr_threads.run_gh", side_effect=gh),
+        patch("devops_cli.github.pr_monitor.run_gh", side_effect=gh),
+    ):
+        return CliRunner().invoke(
+            pr_app, ["threads", "file-issues", str(_PULL), "--repo", _REPO, *args]
+        )
+
+
+def test_each_unresolved_thread_is_filed_then_replied_to_then_resolved(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """Each thread becomes one issue, with no milestone and labelled source/agent, before its
+    reply names the issue and the thread is resolved, one thread after the other."""
+    result = _file_issues(_ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events), "--confirm")
+    issues = roadmap_store.issues()
+    assert (
+        result.exit_code,
+        [event[:2] for event in filing_events],
+        "Filed as #1" in filing_events[1][2],
+        "Filed as #2" in filing_events[4][2],
+        issues[0].title,
+        [(issue.labels, issue.release) for issue in issues],
+    ) == (
+        0,
+        [
+            ("issue", 1),
+            ("reply", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("issue", 2),
+            ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
+        ],
+        True,
+        True,
+        "chore(review): follow up src/devops_cli/github/pr_monitor.py:412 from #1283",
+        [(("source/agent",), None), (("source/agent",), None)],
+    )
+
+
+def test_an_issue_holds_the_fenced_thread_its_location_and_its_link(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    _file_issues(_ThreadsGitHub([_THREAD_B], filing_events), "--confirm")
+    body = roadmap_store.issues()[0].body
+    fenced = body.split("```")[1]
+    assert (
+        "This loop reads the board twice." in fenced,
+        "Agreed, after the release." in fenced,
+        "src/devops_cli/commands/pr.py:2890" in body,
+        f"https://github.com/{_REPO}/pull/{_PULL}#discussion_r2412345679" in body,
+    ) == (True, True, True, True)
+
+
+def test_a_mention_and_an_issue_reference_stay_inside_a_fence_longer_than_any_in_the_text(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """Neither `@someone` nor `#12` may notify or link from the issue, and a fence in the
+    comment cannot close the one around it."""
+    text = "@someone see #12 first:\n```python\nx = 1\n```"
+    thread = _thread("PRRT_kwDOThbRVc5Ak1cC", "src/a.py", 3, _comment("PRRC_c", text, discussion=7))
+    _file_issues(_ThreadsGitHub([thread], filing_events), "--confirm")
+    before, fenced, after = roadmap_store.issues()[0].body.split("````\n", 2)
+    outside = before + after
+    reference = re.compile(r"#12\b")
+    assert (
+        "@someone" in fenced,
+        bool(reference.search(fenced)),
+        "@someone" in outside,
+        bool(reference.search(outside)),
+    ) == (True, True, False, False)
+
+
+def test_a_kept_thread_is_left_untouched(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """`--keep` leaves open the thread of a regression the release fixes before it merges."""
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+    result = _file_issues(gh, "--confirm", "--keep", "PRRT_kwDOThbRVc5Ak1bB")
+    assert (
+        result.exit_code,
+        [event[:2] for event in filing_events],
+        len(roadmap_store.issues()),
+    ) == (
+        0,
+        [("issue", 1), ("reply", "PRRT_kwDOThbRVc5Ak1aA"), ("resolve", "PRRT_kwDOThbRVc5Ak1aA")],
+        1,
+    )
+
+
+def test_without_confirm_the_threads_are_read_and_nothing_is_written(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    gh = _ThreadsGitHub([_THREAD_A, _THREAD_B], filing_events)
+    result = _file_issues(gh)
+    title = "chore(review): follow up src/devops_cli/commands/pr.py:2890 from #1283"
+    assert (result.exit_code, filing_events, roadmap_store.issues(), title in result.output) == (
+        0,
+        [],
+        [],
+        True,
+    )
+
+
+def test_dry_run_makes_no_request_and_lists_the_requests(
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    filing_events: list[tuple[Any, ...]],
+) -> None:
+    """`--dry-run` reads nothing either (#412): it lists the reads, then the issue, reply and
+    resolve each thread would get."""
+    gh = _ThreadsGitHub([_THREAD_A], filing_events)
+    result = _file_issues(gh, "--confirm", "--dry-run")
+    assert (
+        result.exit_code,
+        gh.calls,
+        roadmap_store_repos,
+        f"repos/{_REPO}/issues" in result.output,
+        "labels[]=source/agent" in result.output,
+        "mutation AddReply" in result.output,
+        "mutation ResolveThread" in result.output,
+    ) == (0, [], [], True, True, True, True)
+
+
+def test_a_thread_already_filed_is_resolved_and_not_filed_again(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """A run that stopped after the reply left the thread open; the rerun reads the marker in
+    that reply and only resolves it."""
+    earlier = f"Filed as #7, a follow-up issue.\n\n{CONST_PR_THREAD_FILED_MARKER}"
+    replied = _comment("PRRC_kwDOThbRVc6Ak1aZ", earlier, author="maintainer", discussion=8)
+    filed = {**_THREAD_A, "comments": {"nodes": [*_THREAD_A["comments"]["nodes"], replied]}}
+    result = _file_issues(_ThreadsGitHub([filed, _THREAD_B], filing_events), "--confirm")
+    assert (result.exit_code, [event[:2] for event in filing_events]) == (
+        0,
+        [
+            ("resolve", "PRRT_kwDOThbRVc5Ak1aA"),
+            ("issue", 1),
+            ("reply", "PRRT_kwDOThbRVc5Ak1bB"),
+            ("resolve", "PRRT_kwDOThbRVc5Ak1bB"),
+        ],
+    )
+
+
+def test_a_failed_issue_stops_the_run_before_its_reply_and_resolve(
+    roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[tuple[Any, ...]] = []
+
+    def refused(title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
+        raise GitHubOperationError("Could not open the issue (exit 1): HTTP 502")
+
+    monkeypatch.setattr(roadmap_store, "create_issue", refused)
+    result = _file_issues(_ThreadsGitHub([_THREAD_A, _THREAD_B], events), "--confirm")
+    assert (result.exit_code, events, "HTTP 502" in result.output) == (1, [], True)
+
+
+def test_a_pull_request_that_is_not_the_release_pull_request_is_refused(
+    roadmap_store: InMemoryRoadmapStore, filing_events: list[tuple[Any, ...]]
+) -> None:
+    """The stop rule is the release pull request's: an item pull request's threads are its
+    author's to answer."""
+    pull = _release_pull(head="feat/1345-review-threads", base="release/v0.2.37")
+    gh = _ThreadsGitHub([_THREAD_A], filing_events, pull=pull)
+    result = _file_issues(gh, "--confirm")
+    queries = [call for call in gh.calls if "graphql" in call]
+    assert (
+        result.exit_code,
+        queries,
+        filing_events,
+        "not the release pull request" in result.output,
+    ) == (1, [], [], True)
+
+
+def test_a_long_thread_is_cut_and_says_so() -> None:
+    text = "x" * (DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS + 50)
+    comment = {"id": "PRRC_long", "body": text, "author": _COPILOT_GRAPHQL}
+    thread = ReviewThread.model_validate(
+        {"id": "PRRT_long", "path": "src/a.py", "line": 1, "comments": [comment]}
+    )
+    body = thread_issue_body(_PULL, thread)
+    assert (body.count("x") <= DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS, "cut" in body) == (True, True)

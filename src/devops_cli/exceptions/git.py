@@ -14,6 +14,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_UNREAD_ERROR_CODE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_MSG_BRANCH_INVALID,
+    CONST_THREAD_FILING_REFUSED_ERROR_CODE,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 
@@ -233,6 +234,23 @@ class CopilotPassRefusedError(GitHubOperationError):
             message,
             operation="copilot_pass",
             error_code=CONST_COPILOT_PASS_REFUSED_ERROR_CODE,
+            details={key: _bounded_detail(value) for key, value in (details or {}).items()},
+        )
+
+
+class ThreadFilingRefusedError(GitHubOperationError):
+    """Raised when `devops pr threads file-issues` refuses to file a pull request's threads.
+
+    It refuses any pull request but the release pull request, whose threads the stop rule in
+    `RELEASE_CYCLE.md` governs. Each detail is bounded to `CONST_MAX_ERROR_DETAIL_LENGTH`
+    characters (#1345).
+    """
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message,
+            operation="threads_file_issues",
+            error_code=CONST_THREAD_FILING_REFUSED_ERROR_CODE,
             details={key: _bounded_detail(value) for key, value in (details or {}).items()},
         )
 

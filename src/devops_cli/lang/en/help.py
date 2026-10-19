@@ -856,6 +856,18 @@ class PRCommandHelp:
     edit_milestone: str = "Set the milestone for this pull request."
     threads_app: str = "Manage and programmatically resolve PR review discussion threads."
     threads_list: str = "List PR review discussion threads, file locations, and comments."
+    threads_file_issues: str = (
+        "File each unresolved review thread of the release pull request as a follow-up issue, "
+        "the step of the stop rule in RELEASE_CYCLE.md once its Copilot passes are spent: the "
+        "issue quotes the thread in a fence, names its file and line and links it, has no "
+        "milestone and is labelled source/agent; then the thread gets a reply naming the "
+        "issue and is resolved. Without --confirm it reads the threads and writes nothing; a "
+        "rerun files no thread twice."
+    )
+    threads_keep: str = "Leave this thread open, for a regression the release fixes; repeatable."
+    threads_confirm: str = (
+        "File the issues, reply in the threads and resolve them; without it, nothing is written."
+    )
     threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
     threads_resolve: str = (
         "Programmatically mark one or more PR review discussion threads as resolved."
