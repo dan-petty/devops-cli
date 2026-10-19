@@ -664,16 +664,24 @@ class LLMClient(
                 # The HTTP transport is the single retry layer; do not retry dispatch exceptions.
                 span_h.record_exception(exc)
                 raise
-            except Exception as exc:
+            except httpx2.TransportError as exc:
                 err = self._connection_error(exc)
+                span_h.record_exception(err)
+                raise err from exc
+            except Exception as exc:
+                err = AIClientError(f"{type(exc).__name__}: {exc}")
                 span_h.record_exception(err)
                 raise err from exc
 
         if isinstance(last_exc, AIClientError):
             span_h.record_exception(last_exc)
             raise last_exc
-        if last_exc is not None:
+        if isinstance(last_exc, httpx2.TransportError):
             err = self._connection_error(last_exc)
+            span_h.record_exception(err)
+            raise err
+        if last_exc is not None:
+            err = AIClientError(f"{type(last_exc).__name__}: {last_exc}")
             span_h.record_exception(err)
             raise err
         fallback_err = AIClientError("AI request failed with no valid response.")
