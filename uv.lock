@@ -711,6 +711,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anyio" },
     { name = "beautifulsoup4" },
+    { name = "cachetools" },
     { name = "click" },
     { name = "cryptography" },
     { name = "dnspython", extra = ["idna"] },
@@ -798,6 +799,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = "==4.15.1" },
     { name = "beautifulsoup4", specifier = "==4.15.0" },
+    { name = "cachetools", specifier = "==7.1.8" },
     { name = "click", specifier = "==8.5.0" },
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "dnspython", extras = ["idna"], specifier = "==2.8.0" },

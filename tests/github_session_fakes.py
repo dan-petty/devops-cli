@@ -10,10 +10,13 @@ fixture in `tests/conftest.py` installs it for the process's session.
 
 A route answers with its responses in order, and its last response repeats. A response may be an
 `httpx2.TransportError` class, which is raised for the request instead, as a refused connect is.
-A request no route names gets GitHub's 404. With `delay` set, each answer arrives that many
-seconds after its request, so requests can be in flight together. The fake records every request
-it receives, each client it answers and that client's egress level, the pauses the rate limiter
-asked for and the waits gidgethub's retry hook asked for; neither takes any time.
+A request whose `If-None-Match` names the ETag of the response it would get gets a 304 instead,
+with that response's headers but no body and no `Link`, as GitHub answers one (checked against
+GitHub on 2026-10-19). A request no route names gets GitHub's 404. With `delay` set, each answer
+arrives that many seconds after its request, so requests can be in flight together. The fake
+records every request it receives, each client it answers and that client's egress level, the
+pauses the rate limiter asked for and the waits gidgethub's retry hook asked for; neither takes
+any time.
 
 `RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
 tests that script gh for the board as well.
@@ -149,11 +152,27 @@ class GitHubApiFake:
         answer = answers.pop(0) if len(answers) > 1 else answers[0]
         if isinstance(answer, type):
             raise answer("connection refused", request=request)
+        if _names_the_etag_of(request, answer):
+            return _not_modified(answer)
         return httpx2.Response(answer.status_code, headers=answer.headers, content=answer.content)
 
     async def _later(self, response: httpx2.Response) -> httpx2.Response:
         await anyio.sleep(self.delay)
         return response
+
+
+def _names_the_etag_of(request: httpx2.Request, answer: httpx2.Response) -> bool:
+    """Whether `request` is conditional on the ETag `answer` carries."""
+    etag = answer.headers.get("etag")
+    return etag is not None and request.headers.get("if-none-match") == etag
+
+
+def _not_modified(answer: httpx2.Response) -> httpx2.Response:
+    """GitHub's 304 in place of `answer`: its headers without its body, and without the `Link`
+    header, which GitHub's 304 does not carry."""
+    dropped = {"link", "content-type", "content-length"}
+    headers = {name: value for name, value in answer.headers.items() if name not in dropped}
+    return httpx2.Response(304, headers=headers)
 
 
 class RunnerSession:

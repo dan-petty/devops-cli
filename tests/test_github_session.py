@@ -837,3 +837,234 @@ def test_a_page_that_is_no_list_of_items_fails_closed(
         2,
         True,
     )
+
+
+# ── Conditional requests (#983) ──────────────────────────────────────────────────────────────────
+
+_ETAG = 'W/"0a953aa2"'
+_LATER_ETAG = 'W/"5c6521e1"'
+_KEYS = "/user/ssh_signing_keys"
+
+
+def _conditions(github_api: GitHubApiFake) -> list[str | None]:
+    """The `If-None-Match` of each request the fake received, None where it sent none."""
+    return [request.headers.get("if-none-match") for request in github_api.sent]
+
+
+def _tagged_page(items: list[Any], etag: str, *, next_url: str | None = None) -> httpx2.Response:
+    """One page of a plain listing, carrying `etag`."""
+    links = next_page(next_url) if next_url else {}
+    return github_json(items, headers={"etag": etag, **links})
+
+
+def test_a_second_get_of_a_url_sends_the_etag_it_was_answered_with(
+    github_api: GitHubApiFake,
+) -> None:
+    """The session keeps a GET's ETag and makes the next GET of that URL conditional on it."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}, headers={"etag": _ETAG}))
+    session = get_github_session()
+    answers = [session.rest("GET", "/user") for _ in range(2)]
+    assert (answers, _conditions(github_api)) == ([{"login": "octocat"}] * 2, [None, _ETAG])
+
+
+def test_a_304_answers_with_the_stored_body_paced_and_charged_with_the_quota_it_reports(
+    github_api: GitHubApiFake,
+) -> None:
+    """A 304 gives back the body stored with its ETag; it still waits its turn on the ledger,
+    which keeps the `x-ratelimit-remaining` the 304 reported."""
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"login": "octocat"}, headers={"etag": _ETAG, **quota_headers(4934)}),
+        httpx2.Response(304, headers={"etag": _ETAG, **quota_headers(4930)}),
+    )
+    limiter = get_github_rate_limiter()
+    session = get_github_session()
+    with patch.object(limiter, "acquire", wraps=limiter.acquire) as acquire:
+        answers = [session.rest("GET", "/user") for _ in range(2)]
+    assert (answers, acquire.call_count, limiter.get_quota("core").remaining) == (
+        [{"login": "octocat"}] * 2,
+        2,
+        4930,
+    )
+
+
+def test_a_session_over_another_token_sends_no_etag_for_the_same_url(
+    github_api: GitHubApiFake,
+) -> None:
+    """Each session keeps its own ETags, so one identity's are never sent as another's."""
+    github_api.route("GET", "/user", github_json({"login": "a"}, headers={"etag": _ETAG}))
+    for token in ("token-a", "token-b"):
+        rate_limiter.identity_rate_limiter(token).update_quota(
+            "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+        )
+    first, second = GitHubSession("token-a"), GitHubSession("token-b")
+    try:
+        first.rest("GET", "/user")
+        second.rest("GET", "/user")
+        first.rest("GET", "/user")
+    finally:
+        first.close()
+        second.close()
+    assert _conditions(github_api) == [None, None, _ETAG]
+
+
+def test_a_post_stores_nothing(github_api: GitHubApiFake) -> None:
+    """A write's answer is never kept, so neither another write nor a read of its URL is made
+    conditional on it."""
+    github_api.route("POST", _KEYS, github_json({"id": 1}, status=201, headers={"etag": _ETAG}))
+    github_api.route("GET", _KEYS, github_json([], headers={"etag": _LATER_ETAG}))
+    session = get_github_session()
+    session.rest("POST", _KEYS, body={"title": "t", "key": "k"})
+    session.rest("POST", _KEYS, body={"title": "t", "key": "k"})
+    session.rest("GET", _KEYS)
+    assert _conditions(github_api) == [None, None, None]
+
+
+def test_a_conditional_get_retried_after_a_502_still_answers_from_its_etag(
+    github_api: GitHubApiFake,
+) -> None:
+    """A retry sends the same `If-None-Match`, and its 304 gives back the stored body."""
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"login": "octocat"}, headers={"etag": _ETAG}),
+        github_json({"message": "Server Error"}, status=502),
+        github_json({"login": "octocat"}, headers={"etag": _ETAG}),
+    )
+    session = get_github_session()
+    answers = [session.rest("GET", "/user") for _ in range(2)]
+    assert (answers, _conditions(github_api), len(github_api.waits)) == (
+        [{"login": "octocat"}] * 2,
+        [None, _ETAG, _ETAG],
+        1,
+    )
+
+
+def test_a_caller_that_changes_an_answer_leaves_the_stored_one_as_github_sent_it(
+    github_api: GitHubApiFake,
+) -> None:
+    """Every read gets its own copy, so what one caller changes is never what a 304 gives back."""
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"login": "octocat"}, headers={"etag": _ETAG}),
+        httpx2.Response(304, headers={"etag": _ETAG}),
+    )
+    session = get_github_session()
+    session.rest("GET", "/user")["login"] = "changed"
+    assert session.rest("GET", "/user") == {"login": "octocat"}
+
+
+def test_the_session_keeps_the_etags_of_its_latest_reads_only(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ETag store is bounded: past `DEFAULT_GH_SESSION_ETAG_CACHE_SIZE` URLs, the one read
+    longest ago is dropped and read in full again."""
+    monkeypatch.setattr(session_transport, "DEFAULT_GH_SESSION_ETAG_CACHE_SIZE", 1)
+    github_api.route("GET", "/user", github_json({"login": "octocat"}, headers={"etag": _ETAG}))
+    github_api.route("GET", _KEYS, github_json([], headers={"etag": _LATER_ETAG}))
+    session = get_github_session()
+    for path in ("/user", _KEYS, "/user", "/user"):
+        session.rest("GET", path)
+    assert _conditions(github_api) == [None, None, None, _ETAG]
+
+
+def test_a_page_answered_from_its_etag_keeps_its_next_link_and_the_last_page_is_read_in_full(
+    github_api: GitHubApiFake,
+) -> None:
+    """A 304 for a page gives back its items and the next link stored with them; a page that
+    linked no next one is read in full, since its 304 could not show a next page added since."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second))
+    github_api.route("GET", second, _tagged_page([{"id": 3}], _LATER_ETAG))
+    session = get_github_session()
+    listings = [list(session.paginate(_ISSUES)) for _ in range(2)]
+    assert (listings, _conditions(github_api)) == (
+        [[{"id": 1}, {"id": 2}, {"id": 3}]] * 2,
+        [None, None, _ETAG, None],
+    )
+
+
+def test_a_one_page_listing_leaves_nothing_stored(github_api: GitHubApiFake) -> None:
+    """A page that links no next one is not kept once it is read, so a later GET of its URL is
+    sent in full."""
+    github_api.route("GET", _ISSUES, _tagged_page([{"id": 1}], _ETAG))
+    session = get_github_session()
+    list(session.paginate(_ISSUES))
+    session.rest("GET", _ISSUES)
+    assert _conditions(github_api) == [None, None]
+
+
+def test_a_listing_reads_in_full_a_last_page_a_rest_get_stored(github_api: GitHubApiFake) -> None:
+    """A `rest` GET keeps its answer, which links no next page; a listing of that URL still
+    reads it in full, so a next page added since is read on to."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route(
+        "GET",
+        _ISSUES,
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG),
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second),
+    )
+    github_api.route("GET", second, _page([{"id": 3}], None))
+    session = get_github_session()
+    session.rest("GET", _ISSUES)
+    listing = list(session.paginate(_ISSUES))
+    assert (listing, _conditions(github_api)) == (
+        [{"id": 1}, {"id": 2}, {"id": 3}],
+        [None, None, None],
+    )
+
+
+def test_one_page_listings_leave_the_store_to_pages_that_can_answer_304(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With room for three answers, three one-page listings read between two reads of a
+    two-page listing leave its first page stored, so the second read sends it conditionally."""
+    monkeypatch.setattr(session_transport, "DEFAULT_GH_SESSION_ETAG_CACHE_SIZE", 3)
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second))
+    github_api.route("GET", second, _tagged_page([{"id": 3}], _LATER_ETAG))
+    comments = [f"/repos/octo/repo/issues/{number}/comments" for number in range(3)]
+    for number, path in enumerate(comments):
+        github_api.route("GET", path, _tagged_page([], f'W/"c{number}"'))
+    session = get_github_session()
+    for path in (_ISSUES, *comments, _ISSUES):
+        list(session.paginate(path))
+    first_pages = [request for request in github_api.sent if request.url == f"{API}{_ISSUES}"]
+    assert [request.headers.get("if-none-match") for request in first_pages] == [None, _ETAG]
+
+
+def test_a_last_page_that_gains_a_next_page_is_read_on_to_it(github_api: GitHubApiFake) -> None:
+    """GitHub's ETag covers a page's body only, so a full last page keeps its ETag when a next
+    page is added after it; the listing still reads the new page."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route(
+        "GET",
+        _ISSUES,
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG),
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second),
+    )
+    github_api.route("GET", second, _page([{"id": 3}], None))
+    session = get_github_session()
+    listings = [list(session.paginate(_ISSUES)) for _ in range(2)]
+    assert listings == [[{"id": 1}, {"id": 2}], [{"id": 1}, {"id": 2}, {"id": 3}]]
+
+
+def test_a_page_answered_from_its_etag_that_is_no_list_of_items_still_fails_closed(
+    github_api: GitHubApiFake,
+) -> None:
+    """The stored body of a 304 goes through the same check as a fresh page: an error object
+    is never read as a listing."""
+    second = _LINK_STYLES["page-links"][0]
+    error_page = github_json(
+        {"message": "Server Error"}, headers={"etag": _ETAG, **next_page(second)}
+    )
+    github_api.route("GET", _ISSUES, error_page)
+    session = get_github_session()
+    pages = []
+    for _ in range(2):
+        with pytest.raises(GitHubUnreadError) as unread:
+            list(session.paginate(_ISSUES))
+        pages.append(unread.value.details["page"])
+    assert (pages, _conditions(github_api)) == ([1, 1], [None, _ETAG])

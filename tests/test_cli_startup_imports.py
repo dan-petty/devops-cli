@@ -258,6 +258,39 @@ print("__HEAVY_STATUS__" + json.dumps(loaded))
     assert loaded == []
 
 
+_GITHUB_HELP_ARGVS = [["--help"], ["gh", "--help"], ["roadmap", "--help"], ["pr", "--help"]]
+
+
+def test_help_leaves_the_github_sessions_etag_store_unloaded() -> None:
+    """`cachetools` holds the GitHub session's ETags (#983) and loads with the session's
+    transport, on its first request; neither the top-level help nor the help of a command
+    that reads through the session loads it."""
+    code = f"""
+import json
+import sys
+import devops_cli.entry
+
+for argv in {_GITHUB_HELP_ARGVS!r}:
+    try:
+        devops_cli.entry.main(argv)
+    except SystemExit:
+        pass
+
+print("__ETAG_STORE__" + json.dumps("cachetools" in sys.modules))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=_clean_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found_line = next(
+        line for line in proc.stdout.splitlines() if line.startswith("__ETAG_STORE__")
+    )
+    assert json.loads(found_line.removeprefix("__ETAG_STORE__")) is False
+
+
 def test_running_commands_import_no_heavy_modules() -> None:
     """Verify importing devops_cli.main, commands.ci, tracer, and http loads zero heavy modules."""
     code = f"""
