@@ -18,12 +18,19 @@ def test_ci_maintain_dry_run() -> None:
     assert "DRY_RUN" in result.stdout
 
 
+@patch("devops_cli.commands.ci._returncode", return_value=0)
 @patch("devops_cli.commands.ci._run", return_value=True)
 @patch("devops_cli.commands.ci._verify_python_314_environment", return_value=True)
-def test_ci_maintain_live(mock_verify: MagicMock, mock_run: MagicMock) -> None:
+def test_ci_maintain_live(
+    mock_verify: MagicMock, mock_run: MagicMock, mock_returncode: MagicMock
+) -> None:
+    """The audit runs through the audit check's own command, never a real `uv audit` (#1697)."""
     result = runner.invoke(app, ["maintain", "--fix"])
-    assert result.exit_code == 0
-    assert mock_run.called
+    assert (
+        result.exit_code,
+        mock_run.called,
+        [call.args[0] for call in mock_returncode.call_args_list],
+    ) == (0, True, [get_check_spec("audit").cmd])
 
 
 @pytest.mark.parametrize(
