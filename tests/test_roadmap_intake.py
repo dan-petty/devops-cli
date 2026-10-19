@@ -430,6 +430,62 @@ def test_a_duplicate_close_a_person_reopened_is_placed_without_a_duplicate_check
     ) == ([()], [], "New")
 
 
+def test_a_candidate_with_a_person_placed_milestone_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an existing candidate with a milestone placed by a person is held as a possible
+    duplicate, leaving it open and writing nothing (#1686)."""
+    original = roadmap.issue("Split work", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P1-High")
+    parent = roadmap.issue("Parent task", release=NEXT)
+    roadmap.run(FakeModel(duplicates={"Parent task": "Split work"}))
+    assert roadmap.store.closures(parent) == []
+    assert roadmap.comments(parent) == []
+    assert roadmap.store.item(parent) is None
+
+
+def test_a_candidate_with_a_person_priority_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an existing candidate with a person-set Priority label is held as a possible
+    duplicate, leaving it open and writing nothing (#1686)."""
+    original = roadmap.issue("Feature A", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
+    candidate = roadmap.issue("Feature A copy", labels=("priority/p1-high",))
+    roadmap.run(FakeModel(duplicates={"Feature A copy": "Feature A"}))
+    assert roadmap.store.closures(candidate) == []
+    assert roadmap.comments(candidate) == []
+
+
+def test_a_candidate_older_than_its_matched_original_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an older candidate matched to a newer original is held as a possible duplicate,
+    leaving it open and writing nothing (#1686)."""
+    parent = roadmap.issue("Older parent task")
+    split = roadmap.issue("Newer split task", on_board=True)
+    roadmap.store.set_field(roadmap.item(split), ItemField.PRIORITY, "P1-High")
+    roadmap.run(FakeModel(duplicates={"Older parent task": "Newer split task"}))
+    assert roadmap.store.closures(parent) == []
+    assert roadmap.comments(parent) == []
+
+
+def test_an_unplanned_newer_candidate_matched_to_an_older_original_is_closed_as_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an unplanned, newer candidate matched to an older original is closed as a duplicate (#1686)."""
+    original = roadmap.issue("Original feature", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
+    copy = roadmap.issue("Duplicate feature")
+    roadmap.run(FakeModel(duplicates={"Duplicate feature": "Original feature"}))
+    closures = roadmap.store.closures(copy)
+    (comment,) = roadmap.comments(copy)
+    assert (
+        [(c.reason, c.duplicate_of) for c in closures],
+        f"#{original}" in comment,
+    ) == ([("duplicate", original)], True)
+
+
 # ── Priority and evidence ─────────────────────────────────────────────────────
 
 
@@ -1105,6 +1161,23 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
         len(fake_model.requests),
         board.store.job_writes() == before,
     ) == (True, True, True, True, True, 1, True)
+
+
+def test_intake_plan_reports_possible_duplicate_left_for_a_person(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """Verify devops roadmap intake --plan reports a person-planned candidate as a possible duplicate
+    held for a person rather than closing it as duplicate (#1686)."""
+    parent = board.issue("feat: parent issue", release=NEXT)
+    split = board.issue("feat: split issue", on_board=True)
+    board.store.set_field(board.item(split), ItemField.PRIORITY, "P1-High")
+    fake_model.duplicates["feat: parent issue"] = "feat: split issue"
+    output = _intake("--issue", str(parent), "--plan")
+    assert (
+        f"#{parent} feat: parent issue: possible duplicate of #{split}, left for a person" in output
+    )
+    assert "close as a duplicate" not in output
+    assert "writes:" not in output
 
 
 def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
