@@ -37,6 +37,7 @@ from devops_cli.telemetry.instruments import (
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.paths import REPO_ROOT
+from tests.support.telemetry_capture import Captured
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
@@ -292,46 +293,6 @@ def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> No
         if "_sum" not in _panel_queries(panel) or "_count" not in _panel_queries(panel)
     ]
     assert (len(duration_panels), missing) == (5, [])
-
-
-class Captured:
-    """Metric data points an enabled client would send, with their resource."""
-
-    def __init__(self) -> None:
-        self.payloads: list[dict[str, Any]] = []
-
-    def __call__(self, path: str, payload: dict[str, Any]) -> None:
-        # An LLM call also sends its spans; only the metrics are kept.
-        if "resourceMetrics" in payload:
-            self.payloads.append(payload)
-
-    @property
-    def metrics(self) -> list[dict[str, Any]]:
-        tracer_module.get_tracer().flush()
-        return [
-            metric
-            for payload in self.payloads
-            for resource in payload["resourceMetrics"]
-            for scope in resource["scopeMetrics"]
-            for metric in scope["metrics"]
-        ]
-
-    def points(self, name: str) -> list[tuple[dict[str, Any], float]]:
-        """Each data point of a metric, as (attributes, value)."""
-        found = []
-        for metric in self.metrics:
-            if metric["name"] != name:
-                continue
-            data = (
-                metric.get("sum")
-                or metric.get("exponentialHistogram")
-                or metric.get("histogram")
-                or metric["gauge"]
-            )
-            for point in data["dataPoints"]:
-                attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
-                found.append((attrs, point.get("asDouble", point.get("sum"))))
-        return found
 
 
 @pytest.fixture

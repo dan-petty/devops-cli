@@ -54,7 +54,7 @@ from devops_cli.roadmap.request_plan import (
 )
 from tests.github_session_fakes import API, RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
-from tests.test_roadmap_board_read import _fields_reply, board_of, issues_of
+from tests.support.roadmap_board_replies import board_of, fields_reply, issues_of
 
 REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
@@ -351,7 +351,7 @@ def _github(board: dict[str, Any], milestones: list[dict[str, Any]]) -> _Gh:
     return _Gh(
         {
             "contents/.github/roadmap.toml": "board = 2\n",
-            "fields(first": _fields_reply(),
+            "fields(first": fields_reply(),
             "RoadmapGraphQLBudget": lambda _: budget_reply(server.remaining - 1),
             BOARD_READ: server,
             "issues?": issues_of(board),

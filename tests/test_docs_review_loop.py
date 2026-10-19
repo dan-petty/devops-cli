@@ -21,7 +21,7 @@ from devops_cli.core.command_resolver import (
     resolve_devops_argv,
 )
 from devops_cli.telemetry.instruments import INSTRUMENTS
-from tests.markdown_examples import code_snippets, devops_commands, shell_words
+from tests.support.markdown_examples import code_snippets, devops_commands, shell_words
 from tests.support.paths import REPO_ROOT
 
 _SELF_IMPROVEMENT = REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"

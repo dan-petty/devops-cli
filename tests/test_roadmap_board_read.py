@@ -43,52 +43,13 @@ from devops_cli.roadmap.reprioritize import plan_reprioritization
 from tests.github_session_fakes import RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
 from tests.support.paths import FIXTURES
+from tests.support.roadmap_board_replies import REPO, board_of, fields_reply, issues_of
 
-REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
 SCHEMA = FIXTURES / "roadmap" / "github-schema-board.graphql"
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 # A quota far from spent and far from its reset, so `run_gh`'s pacing never waits on it.
 QUOTA = {"limit": 5000, "remaining": 5000, "used": 0, "reset": 4_000_000_000}
-
-
-def board_of(open_items: int, closed_items: int, *, archived: int = 0) -> dict[str, Any]:
-    """A board of this repository's issues #1..: the open ones first, then the closed ones,
-    then `archived` closed ones that are archived."""
-    items = []
-    for number in range(1, open_items + closed_items + archived + 1):
-        is_open = number <= open_items
-        items.append(
-            {
-                "id": f"PVTI_{number}",
-                "content": {
-                    "type": "Issue",
-                    "number": number,
-                    "repository": REPO,
-                    "title": f"#{number}",
-                    "url": f"https://github.com/{REPO}/issues/{number}",
-                    "state": "OPEN" if is_open else "CLOSED",
-                },
-                "status": "Ready" if is_open else "Done",
-                **({"isArchived": True} if number > open_items + closed_items else {}),
-            }
-        )
-    return {"items": items, "totalCount": len(items)}
-
-
-def issues_of(board: dict[str, Any]) -> list[dict[str, Any]]:
-    """The REST issues of every item on `board`."""
-    return [
-        {
-            "number": entry["content"]["number"],
-            "title": entry["content"]["title"],
-            "html_url": entry["content"]["url"],
-            "state": entry["content"]["state"].lower(),
-            "labels": [],
-            "milestone": None,
-        }
-        for entry in board["items"]
-    ]
 
 
 class Gh:
@@ -319,21 +280,6 @@ def test_an_error_that_is_not_a_budget_refusal_names_no_reset(error: Exception) 
 # ── A reprioritize run ────────────────────────────────────────────────────────
 
 
-def _fields_reply() -> dict[str, Any]:
-    status = {
-        "id": "PVTSSF_status",
-        "name": "Status",
-        "dataType": "SINGLE_SELECT",
-        "options": [
-            {"id": f"o{i}", "name": name}
-            for i, name in enumerate(("New", "Ready", "Blocked", "Done"))
-        ],
-    }
-    record = {"id": "PVTF_jobrecord", "name": "Job record", "dataType": "TEXT"}
-    connection = {"totalCount": 2, "nodes": [status, record]}
-    return {"data": {"repositoryOwner": {"projectV2": {"id": "PVT_board", "fields": connection}}}}
-
-
 def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     """The board of 2026-10-04: 931 items, 280 of them open, one more archived. Through `run_gh`,
     with gh's process stubbed, the run charges the GraphQL points its board read reports: one
@@ -344,7 +290,7 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     server = BoardServer(board)
     gh = Gh(
         {
-            "fields(first": _fields_reply(),
+            "fields(first": fields_reply(),
             BOARD_READ: server,
             "issues?state=all": issues_of(board),
             "milestones?state=all": [],

@@ -18,6 +18,14 @@ from devops_cli.ai.response_repair import (
     repair_json_string,
 )
 from devops_cli.ai.review_schema import ReviewResult, normalize_unicode_text, parse_review_response
+from tests.support.review_replies import (
+    FINDINGS,
+    LINK,
+    REVIEW,
+    REVIEW_BLOCK,
+    TITLES,
+    TRUNCATED,
+)
 
 
 class SampleModel(BaseModel):
@@ -192,30 +200,6 @@ def test_text_output_functions_run_only_when_they_take_the_text_alone() -> None:
     assert results == ["HELLO", None, None]
 
 
-# A review answer of three findings, and the replies a model wraps it in.
-_FINDINGS = [
-    {
-        "severity": "HIGH",
-        "location": f"src/app.py:{line}",
-        "title": title,
-        "description": "User input reaches the query unchecked.",
-        "fix": "Bind the value as a query parameter.",
-    }
-    for line, title in (
-        (10, "SQL injection in search"),
-        (24, "Unbounded page size"),
-        (31, "Stack trace in error page"),
-    )
-]
-_TITLES = [finding["title"] for finding in _FINDINGS]
-_REVIEW = {"findings": _FINDINGS}
-_REVIEW_TEXT = json.dumps(_REVIEW, indent=2)
-_REVIEW_BLOCK = "```json\n" + _REVIEW_TEXT + "\n```"
-_LINK = "See [OWASP A03](https://example.com/owasp-a03) for context.\n\n"
-# Cut off inside the third finding, as a reply that runs out of tokens is.
-_TRUNCATED = _REVIEW_TEXT[: _REVIEW_TEXT.rindex('"description"')]
-
-
 def _titles(reply: str) -> list[str] | None:
     """The titles of the findings a review reply parses to, or None when it does not parse."""
     review = parse_review_response(reply)
@@ -230,14 +214,14 @@ def _with_raw_newlines(json_text: str) -> str:
 @pytest.mark.parametrize(
     "reply",
     [
-        pytest.param("Here is my review.\n\n" + _REVIEW_BLOCK, id="prose-then-block"),
-        pytest.param(_LINK + _REVIEW_BLOCK, id="markdown-link-before"),
+        pytest.param("Here is my review.\n\n" + REVIEW_BLOCK, id="prose-then-block"),
+        pytest.param(LINK + REVIEW_BLOCK, id="markdown-link-before"),
         pytest.param(
-            "The handler reads `items[0]` without a bounds check.\n\n" + _REVIEW_BLOCK,
+            "The handler reads `items[0]` without a bounds check.\n\n" + REVIEW_BLOCK,
             id="index-before",
         ),
         pytest.param(
-            _REVIEW_BLOCK + '\n\nNote: `request.args["id"]` is user input.', id="subscript-after"
+            REVIEW_BLOCK + '\n\nNote: `request.args["id"]` is user input.', id="subscript-after"
         ),
     ],
 )
@@ -253,14 +237,14 @@ def test_brackets_in_the_prose_cost_a_review_no_finding(reply: str) -> None:
     assert (
         _titles(reply),
         [finding.title for finding in structured.findings] if structured else None,
-    ) == (_TITLES, _TITLES)
+    ) == (TITLES, TITLES)
 
 
 _FENCED_FIX = "Bind the term as a parameter:\n```python\ncursor.execute(sql, (term,))\n```\nRerun."
-_REVIEW_WITH_A_FENCED_FIX = {"findings": [{**_FINDINGS[0], "fix": _FENCED_FIX}, *_FINDINGS[1:]]}
+_REVIEW_WITH_A_FENCED_FIX = {"findings": [{**FINDINGS[0], "fix": _FENCED_FIX}, *FINDINGS[1:]]}
 
 
-@pytest.mark.parametrize("prose", ["", _LINK], ids=["block-only", "link-before"])
+@pytest.mark.parametrize("prose", ["", LINK], ids=["block-only", "link-before"])
 @pytest.mark.parametrize("raw_newlines", [False, True], ids=["escaped-newlines", "raw-newlines"])
 def test_a_fence_inside_a_fix_keeps_every_finding_whole(prose: str, raw_newlines: bool) -> None:
     """Verify a ```python block inside a fix neither ends the json block nor costs a finding.
@@ -283,28 +267,28 @@ def test_a_fence_inside_a_fix_keeps_every_finding_whole(prose: str, raw_newlines
 )
 def test_a_json_block_followed_by_a_python_example_parses_the_json_block(example: str) -> None:
     """Verify a ```python example after the answer is not read into the answer."""
-    reply = _REVIEW_BLOCK + "\n\nFor example:\n```python\n" + example + "\n```"
+    reply = REVIEW_BLOCK + "\n\nFor example:\n```python\n" + example + "\n```"
 
-    assert repair_json_string(reply) == _REVIEW
+    assert repair_json_string(reply) == REVIEW
 
 
 @pytest.mark.parametrize(
     "reply",
     [
-        pytest.param(json.dumps(_REVIEW), id="bare-object"),
-        pytest.param(json.dumps(_FINDINGS), id="bare-list"),
-        pytest.param("Here are my findings:\n" + json.dumps(_FINDINGS), id="list-after-prose"),
-        pytest.param(_LINK + json.dumps(_REVIEW), id="object-after-a-link"),
-        pytest.param(_TRUNCATED, id="truncated"),
-        pytest.param("```json\n" + _TRUNCATED, id="truncated-block"),
-        pytest.param(_LINK + "```json\n" + _TRUNCATED, id="truncated-block-after-a-link"),
-        pytest.param(str(_REVIEW), id="single-quoted"),
-        pytest.param("```json\n" + str(_REVIEW) + "\n```", id="single-quoted-block"),
+        pytest.param(json.dumps(REVIEW), id="bare-object"),
+        pytest.param(json.dumps(FINDINGS), id="bare-list"),
+        pytest.param("Here are my findings:\n" + json.dumps(FINDINGS), id="list-after-prose"),
+        pytest.param(LINK + json.dumps(REVIEW), id="object-after-a-link"),
+        pytest.param(TRUNCATED, id="truncated"),
+        pytest.param("```json\n" + TRUNCATED, id="truncated-block"),
+        pytest.param(LINK + "```json\n" + TRUNCATED, id="truncated-block-after-a-link"),
+        pytest.param(str(REVIEW), id="single-quoted"),
+        pytest.param("```json\n" + str(REVIEW) + "\n```", id="single-quoted-block"),
     ],
 )
 def test_bare_truncated_or_malformed_replies_still_yield_every_finding(reply: str) -> None:
     """Verify bare JSON, as an object or a list of findings, and replies json-repair mends parse."""
-    assert _titles(reply) == _TITLES
+    assert _titles(reply) == TITLES
 
 
 def test_a_reply_an_open_bracket_swallowed_never_reads_as_a_review_without_findings() -> None:
@@ -315,10 +299,10 @@ def test_a_reply_an_open_bracket_swallowed_never_reads_as_a_review_without_findi
     for a review that found nothing, which the review runner accepts where it would
     otherwise ask the model again.
     """
-    single_quoted = str({"findings": _FINDINGS[:1]})
+    single_quoted = str({"findings": FINDINGS[:1]})
     reply = "The pattern `[a-z` is unterminated.\n```json\n" + single_quoted + "\n```"
 
-    assert _titles(reply) in (None, _TITLES[:1])
+    assert _titles(reply) in (None, TITLES[:1])
 
 
 _GUIDE = "# Build\n\n```bash\nmake test\n```\n\nRun it before every push.\n"
