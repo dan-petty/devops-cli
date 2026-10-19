@@ -12,10 +12,11 @@ A route answers with its responses in order, and its last response repeats. A re
 `httpx2.TransportError` class, which is raised for the request instead, as a refused connect is.
 A request whose `If-None-Match` names the ETag of the response it would get gets a 304 instead,
 with that response's headers but no body and no `Link`, as GitHub answers one (checked against
-GitHub on 2026-10-19). A request no route names gets GitHub's 404. With `delay` set, each answer arrives that many
-seconds after its request, so requests can be in flight together. The fake records every request
-it receives, each client it answers and that client's egress level, the pauses the rate limiter
-asked for and the waits gidgethub's retry hook asked for; neither takes any time.
+GitHub on 2026-10-19). A request no route names gets GitHub's 404. With `delay` set, each answer
+arrives that many seconds after its request, so requests can be in flight together. The fake
+records every request it receives, each client it answers and that client's egress level, the
+pauses the rate limiter asked for and the waits gidgethub's retry hook asked for; neither takes
+any time.
 
 `RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
 tests that script gh for the board as well.

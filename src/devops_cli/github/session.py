@@ -94,7 +94,7 @@ class GitHubSession:
         a next page after `DEFAULT_GH_MAX_PAGINATED_PAGES` pages, read when the listing runs,
         raises `GitHubUnreadError` naming `path` and the cap instead of reading on. A page the
         session holds an answer for is read with `If-None-Match`, and a 304 gives back its items
-        and next link; a page whose answer linked no next one is read in full, since its 304
+        and next link; a page that links no next one is read in full and not kept, since its 304
         could not show a page added after it.
         """
         max_pages = DEFAULT_GH_MAX_PAGINATED_PAGES

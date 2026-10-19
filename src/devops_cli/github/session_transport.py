@@ -22,8 +22,9 @@ of that URL with `If-None-Match`; a 304 gives back the stored answer. Each attem
 still paced and charged by `_request`, retried by the same hook and sent through the same origin
 hook, and a stored page is still checked by `listed_items`. Every GET's answer is handed out as a
 copy, so no caller changes a stored one. GitHub's ETag covers a page's body only and its 304
-carries no `Link`, so a page whose stored answer linked no next page is read in full: a page added
-after a full last page leaves that page's ETag as it was.
+carries no `Link`, so a page that links no next page is read in full and not kept, leaving the
+store to pages that can answer 304: a page added after a full last page leaves that page's ETag
+as it was.
 
 A transport is closed by `close()`, when it is garbage-collected, or at interpreter exit, while
 the portal's thread can still run; closing cancels the requests still in flight and drops its
@@ -276,10 +277,12 @@ class SessionGitHubAPI(GitHubAPI):
         self, endpoint: str, url: str, *, number: int, iterable_key: str | None
     ) -> tuple[list[Any], str | None]:
         """Page `number` of the listing at `endpoint`, read from `url`: its items, and the URL of
-        the next page, which an empty page or one without `rel="next"` has none of. A page whose
-        stored answer linked no next page is read in full."""
+        the next page, which an empty page or one without `rel="next"` has none of. A page that
+        links no next page is read in full and not kept: an answer a `rest` GET stored for its
+        URL is dropped before the read, and the page's own after it."""
         self._forget_last_page(url)
         answer, more = await self._exchange("GET", endpoint, url, page=number)
+        self._forget_last_page(url)
         items = listed_items(answer, path=endpoint, page=number, iterable_key=iterable_key)
         return items, (more if items else None)
 

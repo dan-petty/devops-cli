@@ -986,6 +986,55 @@ def test_a_page_answered_from_its_etag_keeps_its_next_link_and_the_last_page_is_
     )
 
 
+def test_a_one_page_listing_leaves_nothing_stored(github_api: GitHubApiFake) -> None:
+    """A page that links no next one is not kept once it is read, so a later GET of its URL is
+    sent in full."""
+    github_api.route("GET", _ISSUES, _tagged_page([{"id": 1}], _ETAG))
+    session = get_github_session()
+    list(session.paginate(_ISSUES))
+    session.rest("GET", _ISSUES)
+    assert _conditions(github_api) == [None, None]
+
+
+def test_a_listing_reads_in_full_a_last_page_a_rest_get_stored(github_api: GitHubApiFake) -> None:
+    """A `rest` GET keeps its answer, which links no next page; a listing of that URL still
+    reads it in full, so a next page added since is read on to."""
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route(
+        "GET",
+        _ISSUES,
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG),
+        _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second),
+    )
+    github_api.route("GET", second, _page([{"id": 3}], None))
+    session = get_github_session()
+    session.rest("GET", _ISSUES)
+    listing = list(session.paginate(_ISSUES))
+    assert (listing, _conditions(github_api)) == (
+        [{"id": 1}, {"id": 2}, {"id": 3}],
+        [None, None, None],
+    )
+
+
+def test_one_page_listings_leave_the_store_to_pages_that_can_answer_304(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With room for three answers, three one-page listings read between two reads of a
+    two-page listing leave its first page stored, so the second read sends it conditionally."""
+    monkeypatch.setattr(session_transport, "DEFAULT_GH_SESSION_ETAG_CACHE_SIZE", 3)
+    second = _LINK_STYLES["page-links"][0]
+    github_api.route("GET", _ISSUES, _tagged_page([{"id": 1}, {"id": 2}], _ETAG, next_url=second))
+    github_api.route("GET", second, _tagged_page([{"id": 3}], _LATER_ETAG))
+    comments = [f"/repos/octo/repo/issues/{number}/comments" for number in range(3)]
+    for number, path in enumerate(comments):
+        github_api.route("GET", path, _tagged_page([], f'W/"c{number}"'))
+    session = get_github_session()
+    for path in (_ISSUES, *comments, _ISSUES):
+        list(session.paginate(path))
+    first_pages = [request for request in github_api.sent if request.url == f"{API}{_ISSUES}"]
+    assert [request.headers.get("if-none-match") for request in first_pages] == [None, _ETAG]
+
+
 def test_a_last_page_that_gains_a_next_page_is_read_on_to_it(github_api: GitHubApiFake) -> None:
     """GitHub's ETag covers a page's body only, so a full last page keeps its ETag when a next
     page is added after it; the listing still reads the new page."""
