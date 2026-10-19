@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.github_session_fakes import GitHubApiFake
+    from tests.support.fakes.model import ModelFake
     from tests.web_fakes import StubWeb
 
 pytest.register_assert_rewrite("tests.support")
@@ -560,6 +561,22 @@ def github_api(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
     )
     return api
+
+
+@pytest.fixture
+def model_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModelFake]:
+    """The model and embedding edge, faked for every AI client the test opens (ADR 0007, #1001).
+
+    Installs an in-memory `ModelFake` into the client factory seam. Any client built by
+    `get_llm_client` or `build_llm_client` routes to this fake, answering queued responses,
+    matching route patterns, or returning deterministic embeddings without network calls.
+    """
+    from devops_cli.ai.client import factory
+    from tests.support.fakes.model import ModelFake
+
+    fake = ModelFake()
+    monkeypatch.setattr(factory, "_client_override", fake)
+    yield fake
 
 
 @functools.lru_cache(maxsize=1)

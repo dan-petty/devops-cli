@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from devops_cli.ai.client.unified import LLMClient
     from devops_cli.config.settings import AIConfig, Settings
 
 from devops_cli.ai.client import unified as _unified
+
+_client_override: Any | None = None
+
+
+def set_llm_client_override(override: Any | None) -> None:
+    """Set or clear a model client override for tests (#1001, ADR 0007)."""
+    global _client_override
+    _client_override = override
 
 
 def get_llm_client(
@@ -35,6 +43,19 @@ def get_llm_client(
     Returns:
         Configured LLMClient instance.
     """
+    if _client_override is not None:
+        if callable(_client_override) and not hasattr(_client_override, "chat"):
+            res: Any = _client_override(
+                task=task,
+                config=config,
+                settings=settings,
+                model=model,
+                api_key=api_key,
+                cache_enabled=cache_enabled,
+                **kwargs,
+            )
+            return cast("LLMClient", res)
+        return cast("LLMClient", _client_override)
     active_settings: Settings | None = settings
     if config is not None:
         cfg = config

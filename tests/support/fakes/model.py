@@ -219,6 +219,38 @@ class ModelFake(Model):
         """Return the sequence of available models."""
         return list(self._available_models)
 
+    def preload_models(self, models: list[str] | None = None) -> dict[str, bool]:
+        """Duck OllamaClient.preload_models returning success for requested models."""
+        target_models = models or [self._model_name]
+        return {model: True for model in target_models}
+
+    def chat_structured(
+        self,
+        system: str = "",
+        prompt: str = "",
+        schema: type[Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Duck structured client completion returning parsed model or schema instance."""
+        self._record_call(prompt=prompt, system_prompt=system, messages=(), stream=False)
+        answer = self._resolve_answer(prompt)
+        if schema is not None:
+            if isinstance(answer, schema):
+                return answer
+            if isinstance(answer.content, schema):
+                return answer.content
+            if isinstance(answer.content, str):
+                import json
+
+                try:
+                    if hasattr(schema, "model_validate_json"):
+                        return schema.model_validate_json(answer.content)
+                    if hasattr(schema, "model_validate"):
+                        return schema.model_validate(json.loads(answer.content))
+                except Exception:
+                    pass
+        return answer.content
+
     def embed(self, texts: str | Sequence[str], dimension: int = 128) -> list[list[float]]:
         """Return deterministic unit embeddings for the given text or sequence of texts."""
         text_list = [texts] if isinstance(texts, str) else list(texts)
@@ -240,6 +272,19 @@ class ModelFake(Model):
     ) -> Iterator[str]:
         """Stream response tokens synchronously."""
         self._record_call(prompt=prompt, system_prompt=system_prompt, messages=(), stream=True)
+        answer = self._resolve_answer(prompt)
+        words = answer.content.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == len(words) - 1 else f"{word} "
+
+    def chat_messages_stream(
+        self, system_prompt: str = "", messages: Sequence[Any] = (), **kwargs: Any
+    ) -> Iterator[str]:
+        """Stream response tokens synchronously over a sequence of messages."""
+        prompt, extracted_sys = _extract_prompt_and_system(messages, system_prompt=system_prompt)
+        self._record_call(
+            prompt=prompt, system_prompt=extracted_sys, messages=messages, stream=True
+        )
         answer = self._resolve_answer(prompt)
         words = answer.content.split(" ")
         for i, word in enumerate(words):
