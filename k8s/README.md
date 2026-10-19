@@ -373,6 +373,15 @@ kubectl -n devops logs -f job/<name>
 9. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
 10. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 
+### Agent sessions
+
+`k8s/agents/` defines read-only identity and boundaries for autonomous AI agent sessions running against the cluster:
+
+- **Namespace `agents`**: Enforces `restricted` Pod Security Standards across `enforce`, `warn`, and `audit` levels.
+- **ServiceAccount `devops-agent`**: Created in namespace `agents` with `automountServiceAccountToken: false` to ensure agents do not automatically mount cluster credentials.
+- **ClusterRoleBinding `devops-agent-view`**: Binds `devops-agent` exclusively to the built-in read-only `view` ClusterRole. No other RBAC manifests grant mutating or secret-reading permissions to this identity.
+- **GitOps Management**: Managed by Application `agents` (`k8s/argocd/apps/agents.yaml`) under the `homelab` project, with AppProject orphan-ignore rules configured for transient session secrets (`agent-grant-*`).
+
 ## Teardown
 
 ```bash
@@ -393,7 +402,7 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 22 leaf Applications (8 raw leaf applications and 14 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 23 leaf Applications (9 raw leaf applications and 14 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -600,6 +609,10 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
 k8s/
 ├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
+├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
+│   ├── kustomization.yaml
+│   ├── serviceaccount.yaml   # ServiceAccount devops-agent in namespace agents with automount disabled
+│   └── clusterrolebinding.yaml # ClusterRoleBinding devops-agent-view bound to ClusterRole view
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
@@ -628,7 +641,7 @@ k8s/
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 22 leaf Applications (8 raw + 14 Helm)
+│   └── apps/                 # AppProjects and 23 leaf Applications (9 raw + 14 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
