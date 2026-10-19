@@ -382,6 +382,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
+|  | `devops pr copilot-pass [OPTIONS] <number>` | Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |

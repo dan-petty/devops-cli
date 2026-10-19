@@ -911,6 +911,16 @@ class PRCommandHelp:
     hardening_report_fail_on_missing: str = (
         "Exit with non-zero exit code if hardening is missing on any audited defect pull request."
     )
+    copilot_pass: str = (
+        "Request one Copilot review pass on the open release pull request while its passes, "
+        "every Copilot review submitted and one running or requested and not yet started, are "
+        "below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent "
+        "it requests nothing and exits 1. Any other pull request, and a merged or closed one, is "
+        "refused, since Copilot reviews only the open release pull request."
+    )
+    copilot_pass_number: str = (
+        "Release pull request number; the current branch's pull request when omitted."
+    )
 
 
 @dataclass(frozen=True)

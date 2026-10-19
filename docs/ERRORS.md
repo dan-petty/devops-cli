@@ -48,6 +48,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ConstellationResumeError` | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
 | `ContentFilterError` | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `ContextBudgetExceededError` | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
+| `CopilotPassRefusedError` | `COPILOT_PASS_REFUSED` | `1` | Git | Raised when `devops pr copilot-pass` refuses to request a Copilot pass. |
 | `CosignError` | `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
 | `CosignVerificationError` | `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DependencyError` | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |

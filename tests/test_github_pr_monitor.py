@@ -13,6 +13,7 @@ from devops_cli.github.pr_monitor import (
     CopilotReviewStatus,
     PRCheckRun,
     PRMonitorStatus,
+    _CopilotTimeline,
     _fetch_raw_reviews,
     _query_timeline_copilot_state,
     get_pr_monitoring_status,
@@ -20,6 +21,20 @@ from devops_cli.github.pr_monitor import (
     resolve_branch_pr_number,
 )
 from devops_cli.github.pr_threads import ReviewComment, ReviewThread
+from tests.copilot_review_payloads import (
+    CHANGES_RECOMMENDED,
+    FIRST_REVIEW_ID,
+    MAINTAINER,
+    NO_CHANGES,
+    SECOND_REVIEW_ID,
+    TIMELINE_COPILOT,
+    copilot_pass,
+    copilot_review,
+    review_request_removed,
+    review_requested,
+    reviewed,
+    work_started,
+)
 from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 
 # The timeline and the reviews of PR #168, as the GitHub session reads them (#983).
@@ -240,11 +255,7 @@ class TestGetPRMonitoringStatus:
             ]
         }
         reviews_data = [
-            {
-                "user": {"login": "copilot-pull-request-reviewer[bot]"},
-                "state": "COMMENTED",
-                "submitted_at": "2026-09-12T13:59:17Z",
-            },
+            copilot_review(FIRST_REVIEW_ID, body=NO_CHANGES),
             {
                 "user": {"login": "tech-lead"},
                 "state": "APPROVED",
@@ -253,16 +264,7 @@ class TestGetPRMonitoringStatus:
             },
         ]
 
-        timeline_output = json.dumps(
-            [
-                {"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"},
-                {
-                    "event": "reviewed",
-                    "submitted_at": "2026-09-12T13:59:17Z",
-                    "user": {"login": "copilot-pull-request-reviewer[bot]"},
-                },
-            ]
-        )
+        timeline_output = json.dumps(copilot_pass(FIRST_REVIEW_ID))
 
         github_api.route("GET", _REVIEWS_168, github_json(reviews_data))
         github_api.route("GET", _TIMELINE_168, github_json(json.loads(timeline_output)))
@@ -316,16 +318,7 @@ class TestGetPRMonitoringStatus:
                 },
             ]
         }
-        timeline_output = json.dumps(
-            [
-                {"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"},
-                {
-                    "event": "reviewed",
-                    "submitted_at": "2026-09-12T13:59:17Z",
-                    "user": {"login": "copilot-pull-request-reviewer[bot]"},
-                },
-            ]
-        )
+        timeline_output = json.dumps(copilot_pass(FIRST_REVIEW_ID))
 
         github_api.route("GET", _REVIEWS_168, github_json({"message": "Bad Gateway"}, status=502))
         github_api.route("GET", _TIMELINE_168, github_json(json.loads(timeline_output)))
@@ -749,7 +742,7 @@ class TestMonitorPR:
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
                 "devops_cli.github.pr_monitor._query_timeline_copilot_state",
-                return_value=(False, "reviewed"),
+                return_value=_CopilotTimeline(event="reviewed"),
             ),
         ):
             result = monitor_pr(
@@ -803,7 +796,7 @@ class TestMonitorPR:
             ),
             patch(
                 "devops_cli.github.pr_monitor._query_timeline_copilot_state",
-                return_value=(False, "reviewed"),
+                return_value=_CopilotTimeline(event="reviewed"),
             ),
         ):
             result = monitor_pr(
@@ -864,22 +857,9 @@ class TestMonitorPR:
     def test_detect_copilot_status_human_review_does_not_clear_copilot(
         self, github_api: GitHubApiFake
     ) -> None:
-        reviews_data = [
-            {
-                "user": {"login": "copilot-pull-request-reviewer[bot]"},
-                "state": "COMMENTED",
-                "submitted_at": "2026-09-12T13:00:00Z",
-            }
-        ]
+        reviews_data = [copilot_review(FIRST_REVIEW_ID)]
         timeline = json.dumps(
-            [
-                {"event": "copilot_work_started", "created_at": "2026-09-12T13:00:00Z"},
-                {
-                    "event": "reviewed",
-                    "user": {"login": "human-developer"},
-                    "submitted_at": "2026-09-12T13:05:00Z",
-                },
-            ]
+            [*copilot_pass(FIRST_REVIEW_ID), work_started(), reviewed(5444000001, MAINTAINER)]
         )
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
@@ -1095,7 +1075,7 @@ class TestMonitorPR:
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
                 "devops_cli.github.pr_monitor._query_timeline_copilot_state",
-                return_value=(False, "reviewed"),
+                return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
                 "devops_cli.github.check_verdict._fetch_checks_from_rest",
@@ -1143,7 +1123,7 @@ class TestMonitorPR:
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
                 "devops_cli.github.pr_monitor._query_timeline_copilot_state",
-                return_value=(False, "reviewed"),
+                return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
                 "devops_cli.github.check_verdict._fetch_checks_from_rest",
@@ -1182,7 +1162,7 @@ class TestMonitorPR:
             patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
             patch(
                 "devops_cli.github.pr_monitor._query_timeline_copilot_state",
-                return_value=(False, "reviewed"),
+                return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
                 "devops_cli.github.check_verdict._fetch_checks_from_rest",
@@ -1218,63 +1198,94 @@ _REVIEWS_PAGE_2 = "/repositories/1/pulls/168/reviews?per_page=100&page=2"
 
 def test_a_two_page_timeline_gives_both_copilot_events(github_api: GitHubApiFake) -> None:
     """Copilot starting on page 1 and finishing on page 2 reads as finished: every page is read."""
-    started = {"event": "copilot_work_started", "actor": {"login": "Copilot"}}
-    reviewed = {"event": "reviewed", "user": {"login": "copilot-pull-request-reviewer[bot]"}}
     github_api.route(
         "GET",
         _TIMELINE,
-        github_json([started, {"event": "commented"}], headers=next_page(_TIMELINE_PAGE_2)),
+        github_json([work_started(), {"event": "commented"}], headers=next_page(_TIMELINE_PAGE_2)),
     )
-    github_api.route("GET", _TIMELINE_PAGE_2, github_json([reviewed]))
-    state = _query_timeline_copilot_state("octo", "repo", 168)
-    assert (state, len(github_api.sent)) == ((False, "reviewed", ""), 2)
+    github_api.route("GET", _TIMELINE_PAGE_2, github_json([reviewed(FIRST_REVIEW_ID)]))
+    state = _query_timeline_copilot_state("octo", "repo", 168, frozenset({FIRST_REVIEW_ID}))
+    assert (state, len(github_api.sent)) == (_CopilotTimeline(event="reviewed"), 2)
 
 
 def test_a_timeline_page_that_is_no_list_leaves_the_copilot_state_unread(
     github_api: GitHubApiFake,
 ) -> None:
     """A malformed second page is a read failure, never a timeline that ends early."""
-    started = {"event": "copilot_work_started", "actor": {"login": "Copilot"}}
-    github_api.route("GET", _TIMELINE, github_json([started], headers=next_page(_TIMELINE_PAGE_2)))
+    github_api.route(
+        "GET", _TIMELINE, github_json([work_started()], headers=next_page(_TIMELINE_PAGE_2))
+    )
     github_api.route("GET", _TIMELINE_PAGE_2, github_json({"message": "Server Error"}))
-    working, event, err = _query_timeline_copilot_state("octo", "repo", 168)
-    assert (working, event, "page 2" in err) == (False, "", True)
+    state = _query_timeline_copilot_state("octo", "repo", 168, frozenset())
+    assert (state.working, state.event, "page 2" in state.error) == (False, "", True)
+
+
+# A person's review and one by the coding agent, which the timeline also names `Copilot`.
+_PERSON_REVIEW_ID = 5444000001
+_CODING_AGENT_EVENT_ID = 5444000002
+_BOT_REVIEWER = {"login": "github-actions[bot]", "type": "Bot", "id": 41898282}
 
 
 @pytest.mark.parametrize(
     ("events", "state"),
     [
-        pytest.param([], (False, ""), id="no-events"),
+        pytest.param([], _CopilotTimeline(), id="no-events"),
         pytest.param(
-            [
-                {"event": "copilot_work_started"},
-                {"event": "reviewed", "author": "github-actions[bot]"},
-            ],
-            (True, "copilot_work_started"),
+            [work_started(), reviewed(_PERSON_REVIEW_ID, _BOT_REVIEWER)],
+            _CopilotTimeline(working=True, event="copilot_work_started"),
             id="another-reviewer-leaves-copilot-working",
         ),
         pytest.param(
-            [
-                {"event": "copilot_work_started"},
-                {"event": "reviewed", "author": "copilot-swe-reviewer"},
-            ],
-            (False, "reviewed"),
+            copilot_pass(FIRST_REVIEW_ID),
+            _CopilotTimeline(event="reviewed"),
             id="copilot-review-ends-the-work",
         ),
         pytest.param(
-            ["not an event", {"event": "copilot_work_started"}],
-            (True, "copilot_work_started"),
+            [work_started(), reviewed(_PERSON_REVIEW_ID, MAINTAINER)],
+            _CopilotTimeline(working=True, event="copilot_work_started"),
+            id="a-persons-review-leaves-copilot-working",
+        ),
+        pytest.param(
+            [work_started(), reviewed(_CODING_AGENT_EVENT_ID, TIMELINE_COPILOT)],
+            _CopilotTimeline(working=True, event="copilot_work_started"),
+            id="a-copilot-event-that-is-no-copilot-review-leaves-copilot-working",
+        ),
+        pytest.param(
+            ["not an event", work_started()],
+            _CopilotTimeline(working=True, event="copilot_work_started"),
             id="non-object-entries-skipped",
+        ),
+        pytest.param(
+            [review_requested()],
+            _CopilotTimeline(requested=True),
+            id="a-request-copilot-has-not-started-is-pending",
+        ),
+        pytest.param(
+            [*copilot_pass(FIRST_REVIEW_ID), review_requested()],
+            _CopilotTimeline(event="reviewed", requested=True),
+            id="a-request-after-a-finished-pass-is-pending",
+        ),
+        pytest.param(
+            [review_requested(), review_request_removed()],
+            _CopilotTimeline(),
+            id="a-withdrawn-request-is-not-pending",
+        ),
+        pytest.param(
+            [review_requested(MAINTAINER)],
+            _CopilotTimeline(),
+            id="a-request-to-a-person-is-not-copilots",
         ),
     ],
 )
 def test_the_timeline_events_give_the_copilot_state(
-    events: list[object], state: tuple[bool, str]
+    events: list[object], state: _CopilotTimeline
 ) -> None:
-    """Copilot is working from its start event until a review by it or by no named author."""
+    """Copilot works from its start event until the `reviewed` event of one of its own reviews,
+    named by the review's id, since the timeline names the account `Copilot` (#1345). A request
+    to it is pending until it starts, is withdrawn, or a review of its ends the pass."""
     from devops_cli.github.pr_monitor import _timeline_copilot_state
 
-    assert _timeline_copilot_state(events) == state
+    assert _timeline_copilot_state(events, frozenset({FIRST_REVIEW_ID})) == state
 
 
 def test_the_reviews_are_read_from_every_page(github_api: GitHubApiFake) -> None:
@@ -1302,3 +1313,144 @@ def test_a_failed_reviews_read_is_reported_with_no_reviews(github_api: GitHubApi
     github_api.route("GET", _REVIEWS, github_json({"message": "Bad Gateway"}, status=502))
     reviews = _fetch_raw_reviews("octo", "repo", 168)
     assert (list(reviews), "HTTP 502" in reviews.error) == ([], True)
+
+
+def test_a_review_by_a_user_whose_login_contains_copilot_is_not_copilots(
+    github_api: GitHubApiFake,
+) -> None:
+    """Only Copilot's own logins make a review Copilot's (#1345): a person named copilot-fan who
+    recommends changes and approves is a person reviewing, so Copilot is idle and the approval
+    counts."""
+    from devops_cli.github.pr_monitor import _detect_copilot_status, _resolve_review_decision
+
+    reviews = [
+        {
+            "user": {"login": "copilot-fan", "type": "User"},
+            "state": "APPROVED",
+            "commit_id": "7316135",
+            "body": "### Changes recommended\n\nRename this.",
+            "submitted_at": "2026-10-18T10:00:00Z",
+        }
+    ]
+    github_api.route("GET", _TIMELINE_168, github_json([]))
+    status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews)
+    assert (status.state, _resolve_review_decision(reviews, head_sha="7316135")) == (
+        "idle",
+        "APPROVED",
+    )
+
+
+# ── #1283's first two Copilot passes, as GitHub recorded them (#1345) ─────────────────────────────
+
+_REVIEWS_1283 = "/repos/dan-petty/devops-cli/pulls/1283/reviews?per_page=100"
+_TIMELINE_1283 = "/repos/dan-petty/devops-cli/issues/1283/timeline?per_page=100"
+_HEAD_1283 = "1d2c3b4a5f6e"
+
+
+class _Clock:
+    """`time` as `monitor_pr` reads it, where a sleep moves the clock on and takes no time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _route_1283(github_api: GitHubApiFake, *, second_body: str, then: list[object]) -> list[object]:
+    """Route #1283's reviews and timeline: two finished Copilot passes, the second with
+    `second_body`, a person's approval of the head, and the events in `then` after them."""
+    reviews = [
+        copilot_review(FIRST_REVIEW_ID),
+        copilot_review(SECOND_REVIEW_ID, body=second_body, submitted_at="2026-10-07T15:35:57Z"),
+        {"id": 5444999999, "user": MAINTAINER, "state": "APPROVED", "commit_id": _HEAD_1283},
+    ]
+    timeline = [*copilot_pass(FIRST_REVIEW_ID), *copilot_pass(SECOND_REVIEW_ID), *then]
+    github_api.route("GET", _REVIEWS_1283, github_json(reviews))
+    github_api.route("GET", _TIMELINE_1283, github_json(timeline))
+    return reviews
+
+
+def test_two_finished_copilot_passes_read_as_completed(github_api: GitHubApiFake) -> None:
+    """Each `reviewed` event names one of Copilot's reviews, so both passes have ended."""
+    from devops_cli.github.pr_monitor import _detect_copilot_status
+
+    reviews = _route_1283(github_api, second_body=NO_CHANGES, then=[])
+    status = _detect_copilot_status("dan-petty", "devops-cli", 1283, reviews, unresolved_threads=[])
+    assert (status.is_active, status.state) == (False, "completed")
+
+
+_UNRESOLVED = ReviewThread(
+    id="PRRT_1283",
+    is_resolved=False,
+    path="src/devops_cli/github/pr_monitor.py",
+    line=1,
+    comments=[ReviewComment(id="PRRC_1283", body="Rename this.", author="Copilot")],
+)
+
+
+@pytest.mark.parametrize(
+    ("second_body", "then", "threads", "exit_code", "says"),
+    [
+        pytest.param(NO_CHANGES, [], [], 0, "READY FOR MERGING", id="ready"),
+        pytest.param(
+            NO_CHANGES, [work_started()], [], 3, "Copilot review still active", id="third-pass"
+        ),
+        pytest.param(
+            CHANGES_RECOMMENDED,
+            [],
+            [_UNRESOLVED],
+            2,
+            "Copilot review requested changes",
+            id="unresolved-thread",
+        ),
+    ],
+)
+def test_the_monitor_reads_1283s_recorded_copilot_passes(
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+    second_body: str,
+    then: list[object],
+    threads: list[ReviewThread],
+    exit_code: int,
+    says: str,
+) -> None:
+    """With checks green, an approval of the head and a clean merge, the monitor passes once
+    Copilot's two passes have ended, waits while a third runs, and stops on an unresolved
+    thread of Copilot's."""
+    from devops_cli.github import pr_monitor
+
+    _route_1283(github_api, second_body=second_body, then=then)
+    pr_details = {
+        "title": "feat: thirteen copilot passes",
+        "head": {"sha": _HEAD_1283},
+        "draft": False,
+        "mergeable": True,
+        "mergeable_state": "clean",
+    }
+    checks = [PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")]
+    monkeypatch.setattr(pr_monitor, "time", _Clock())
+    with (
+        patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+        patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
+        patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=threads),
+    ):
+        result = pr_monitor.monitor_pr(
+            "dan-petty", "devops-cli", 1283, timeout=120, interval=60, settle_timeout=0
+        )
+    assert (result.exit_code, says in result.message) == (exit_code, True)
+
+
+def test_a_pending_copilot_request_leaves_the_monitor_waiting_on_nothing(
+    github_api: GitHubApiFake,
+) -> None:
+    """A request Copilot has not started is no running pass: the monitor never waits on a
+    request Copilot may never take up (#1566, #1581 and #1615 got no Copilot review)."""
+    from devops_cli.github.pr_monitor import _detect_copilot_status
+
+    github_api.route("GET", _TIMELINE_168, github_json([review_requested()]))
+    status = _detect_copilot_status("dan-petty", "devops-cli", 168, [])
+    assert (status.is_active, status.state, status.pass_requested) == (False, "idle", True)

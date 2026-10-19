@@ -560,6 +560,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("gh", "pr", "check-readiness"),
         ("gh", "pr", "checks"),
         ("gh", "pr", "close"),
+        ("gh", "pr", "copilot-pass"),
         ("gh", "pr", "create"),
         ("gh", "pr", "diff"),
         ("gh", "pr", "edit"),
@@ -617,6 +618,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("mcp", "serve"),
         ("mcp", "tools"),
         ("pipeline",),
+        ("pr", "copilot-pass"),
         ("pr", "create"),
         ("pr", "hardening-report"),
         ("pr", "threads", "resolve-all"),
@@ -1557,6 +1559,35 @@ CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GITHUB_SCOPE_ERROR_CODE: Final[str] = "GITHUB_SCOPE_MISSING"
 CONST_GITHUB_NOT_FOUND_ERROR_CODE: Final[str] = "GITHUB_NOT_FOUND"
 CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
+# Copilot code review is the GitHub App `copilot-pull-request-reviewer`, and GitHub names an app's
+# bot account `<slug>[bot]` (#1345). The reviews endpoint names the bot
+# `copilot-pull-request-reviewer[bot]`, and GraphQL names it `copilot-pull-request-reviewer`, gh's
+# `CopilotReviewerLogin` (gh 2.102.0, api/queries_repo.go): a review record is Copilot's only when
+# its author's login is exactly one of them. The issue timeline names the same account (id
+# 175728472) `Copilot`, type Bot, a login the Copilot coding agent shares, so a timeline `reviewed`
+# event is matched by the id of one of Copilot's reviews, never by login, and a review request by
+# the account's type and its app's page, `/apps/<slug>` (read on #1283's timeline).
+CONST_COPILOT_REVIEWER_APP_SLUG: Final[str] = "copilot-pull-request-reviewer"
+CONST_COPILOT_REVIEWER_LOGINS: Final[frozenset[str]] = frozenset(
+    {f"{CONST_COPILOT_REVIEWER_APP_SLUG}[bot]", CONST_COPILOT_REVIEWER_APP_SLUG}
+)
+CONST_COPILOT_REVIEWER_APP_PATH: Final[str] = f"/apps/{CONST_COPILOT_REVIEWER_APP_SLUG}"
+# The `type` GitHub gives an app's bot account.
+CONST_GITHUB_BOT_ACCOUNT_TYPE: Final[str] = "Bot"
+# The issue timeline events that request a review or withdraw the request, each with whether it
+# leaves the reviewer requested.
+CONST_GH_REVIEW_REQUEST_EVENTS: Final[dict[str, bool]] = {
+    "review_requested": True,
+    "review_request_removed": False,
+}
+# The keys a review record names its author under: `user` in a REST review, `author` in a
+# GraphQL one.
+CONST_GITHUB_REVIEW_AUTHOR_KEYS: Final[tuple[str, ...]] = ("user", "author")
+# The reviewer `gh pr edit --add-reviewer` requests a Copilot review with (gh 2.102.0).
+CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
+# A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
+# request, or once the release pull request's Copilot budget is spent (#1345).
+CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, the margin
