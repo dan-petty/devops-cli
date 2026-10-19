@@ -16,7 +16,6 @@ import pytest
 import typer
 import yaml
 from click.testing import CliRunner, Result
-from numpy import random as np_random
 
 from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import get_check_specs
@@ -78,6 +77,8 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def global_rngs_restored() -> Iterator[None]:
     """Put back the global `random` and numpy RNG states, which pytest-randomly reseeds when it
     runs in this process, so the tests this worker runs next do not start from a fixed seed."""
+    from numpy import random as np_random
+
     state, numpy_state = random.getstate(), np_random.get_state()
     yield
     random.setstate(state)

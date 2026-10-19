@@ -16,6 +16,7 @@ from devops_cli.k8s.port_forward_daemon import (
     PortForwardDaemonManager,
     PortForwardInfo,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 runner = CliRunner()
 dummy_app = new_typer()
@@ -275,7 +276,8 @@ def test_concurrent_launches_keep_both_records(
     monkeypatch.setattr(
         module, "get_daemon_manager", lambda: PortForwardDaemonManager(state_file=state_file)
     )
-    first_spawning, second_spawned = threading.Event(), threading.Event()
+    first_spawning, second_starting, second_spawned = (threading.Event() for _ in range(3))
+    handoffs: list[bool] = []
 
     def popen(cmd: list[str], **kwargs: object) -> MagicMock:
         if "svc/ollama" in cmd:
@@ -283,6 +285,9 @@ def test_concurrent_launches_keep_both_records(
         else:
             first_spawning.set()
             # Without a lock, the second run reads the state file while the first waits here.
+            # This short window checks that the second run does not spawn meanwhile, and opens
+            # only once the second run has started, so it times the lock, not a thread start-up.
+            handoffs.append(second_starting.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             second_spawned.wait(timeout=0.2)
         return MagicMock(pid=os.getpid())
 
@@ -294,14 +299,18 @@ def test_concurrent_launches_keep_both_records(
         args=([("otel", "svc/tempo", 3200, 3200)], None, "127.0.0.1", "infra"),
     )
     first.start()
-    first_spawning.wait(timeout=5)
+    handoffs.append(first_spawning.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+    second_starting.set()
     networking._launch_port_forwards(
         [("llm", "svc/ollama", 11434, 11434)], None, "127.0.0.1", "llm"
     )
-    first.join(timeout=5)
+    first.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     listed = PortForwardDaemonManager(state_file=state_file).list_forwards()
-    assert sorted(f.service for f in listed) == ["svc/ollama", "svc/tempo"]
+    assert (sorted(f.service for f in listed), handoffs) == (
+        ["svc/ollama", "svc/tempo"],
+        [True, True],
+    )
 
 
 def test_a_failed_save_leaves_the_previous_state_intact(tmp_path: Path) -> None:
@@ -401,16 +410,19 @@ def test_listing_and_stopping_wait_for_a_run_holding_the_lock(
     holder = PortForwardDaemonManager(state_file=state_file)
     holder.save_forwards([])
     other = PortForwardDaemonManager(state_file=state_file)
-    finished = threading.Event()
+    asking, finished = threading.Event(), threading.Event()
     run = other.list_forwards if operation == "list" else other.stop_forwards
 
     with holder.locked():
-        worker = threading.Thread(target=lambda: (run(), finished.set()))
+        worker = threading.Thread(target=lambda: (asking.set(), run(), finished.set()))
         worker.start()
+        asked = asking.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+        # This short window checks that the run does not finish while the lock is held. It
+        # opens only once the run has started, so it times the lock, not a thread start-up.
         waited = not finished.wait(timeout=0.1)
-    worker.join(timeout=5)
+    worker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    assert (waited, finished.is_set()) == (True, True)
+    assert (asked, waited, finished.is_set()) == (True, True, True)
 
 
 def test_a_status_check_with_no_state_file_creates_nothing(tmp_path: Path) -> None:

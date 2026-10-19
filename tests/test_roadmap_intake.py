@@ -2150,7 +2150,7 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         writes,
         [args for args in github.calls[start:] if "--method" in args or "-X" in args],
         (github.issues[1]["milestone"] or {}).get("title"),
-        github.comments.get(1),
+        github.comments.get(1, []),
         {key: restored.get(key) for key in ("status", "priority", "job record", "isArchived")},
         (applied.placed, applied.finished),
     ) == (
@@ -2158,7 +2158,7 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         [["project", "item-add"], ["project", "item-archive"]],
         [],
         CURRENT,
-        None,
+        [],
         {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
         (0, (1,)),
     )

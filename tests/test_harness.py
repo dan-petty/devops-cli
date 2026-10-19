@@ -9,7 +9,6 @@ import re
 import shlex
 import signal
 import subprocess
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +27,7 @@ from devops_cli.ai.harness import (
     SubAgent,
     SubAgents,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 
 def test_file_system_safe_operations(tmp_path: Path) -> None:
@@ -2220,19 +2220,14 @@ def test_shell_limits_concurrent_background_processes() -> None:
         assert "maximum limit" in res3.lower() or "blocked" in res3.lower()
 
 
+MEMBER_LIFETIME_SECONDS = int(10 * THREAD_HANDOFF_BOUND_SECONDS)
+"""How long a group member sleeps: well past the bound of the wait that checks it ended, so only
+`stop_command` can end it inside that wait. `_kill_if_running` ends a member a failing test left."""
+
 _POSIX_PROCESS_GROUPS = pytest.mark.skipif(
     not hasattr(os, "killpg") or not Path("/proc/self/stat").is_file(),
     reason="needs POSIX process groups and the Linux /proc filesystem",
 )
-
-
-def _poll_until(predicate: Callable[[], bool], timeout: float = 2.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.02)
-    return True
 
 
 def _gone_or_zombie(pid: int) -> bool:
@@ -2273,13 +2268,15 @@ def test_stop_command_ends_members_an_exited_leader_left_running(tmp_path: Path)
     """
     tools = _background_tools(tmp_path)
     # The member leaves the command's pipes, so the readers see EOF once the leader exits.
-    started = tools["start_command"]("sh -c 'sleep 30 >/dev/null 2>&1 & echo $! > pid; exit 0'")
+    started = tools["start_command"](
+        f"sh -c 'sleep {MEMBER_LIFETIME_SECONDS} >/dev/null 2>&1 & echo $! > pid; exit 0'"
+    )
     cmd_id = started.split("ID: ")[1]
-    finished = _poll_until(lambda: "FINISHED" in tools["check_command"](cmd_id))
+    finished = wait_until(lambda: "FINISHED" in tools["check_command"](cmd_id))
     pid = _read_pid(tmp_path / "pid")
     try:
         report = tools["stop_command"](cmd_id)
-        ended = _poll_until(lambda: _gone_or_zombie(pid))
+        ended = wait_until(lambda: _gone_or_zombie(pid))
     finally:
         _kill_if_running(pid)
 
@@ -2299,16 +2296,16 @@ def test_stop_command_kills_a_member_that_ignores_sigterm(tmp_path: Path) -> Non
     kept running.
     """
     tools = _background_tools(tmp_path)
-    member = "trap '' TERM; echo $$ > pid; exec sleep 30"
+    member = f"trap '' TERM; echo $$ > pid; exec sleep {MEMBER_LIFETIME_SECONDS}"
     started = tools["start_command"](
         shlex.join(["sh", "-c", f"sh -c {shlex.quote(member)} & wait"])
     )
     cmd_id = started.split("ID: ")[1]
-    written = _poll_until(lambda: _read_pid(tmp_path / "pid") > 1)
+    written = wait_until(lambda: _read_pid(tmp_path / "pid") > 1)
     pid = _read_pid(tmp_path / "pid")
     try:
         tools["stop_command"](cmd_id)
-        ended = _poll_until(lambda: _gone_or_zombie(pid))
+        ended = wait_until(lambda: _gone_or_zombie(pid))
     finally:
         _kill_if_running(pid)
 
@@ -2402,20 +2399,14 @@ def test_playwright_navigate_blocks_unsupported_schemes() -> None:
     assert "blocked" in res.lower() or "unsupported" in res.lower()
 
 
-def _await_background_finish(tools: dict[str, Any], cmd_id: str, budget: float = 20.0) -> str:
-    """Poll check_command until the process reports FINISHED or the budget expires.
+def _await_background_finish(tools: dict[str, Any], cmd_id: str) -> str:
+    """The check_command report once the process reports FINISHED, or once the bound has passed.
 
-    The budget is what turns the deadlock into a test failure instead of a hung suite: an
-    undrained child never exits, so without a deadline the poll would spin forever.
+    The bound is what turns the deadlock into a test failure instead of a hung suite: an
+    undrained child never exits, so without one the poll would spin forever.
     """
-    import time
-
-    deadline = time.monotonic() + budget
-    result = tools["check_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
-    while "FINISHED" not in result and time.monotonic() < deadline:
-        time.sleep(0.1)
-        result = tools["check_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
-    return result
+    wait_until(lambda: "FINISHED" in tools["check_command"].function(command_id=cmd_id))
+    return str(tools["check_command"].function(command_id=cmd_id))
 
 
 def _start_background_python(shell: Shell, snippet: str) -> tuple[dict[str, Any], str]:

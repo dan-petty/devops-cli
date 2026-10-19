@@ -86,6 +86,7 @@ from tests.roadmap_board_fake import (
     budget_reply,
     gh_variables,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
 REPO = "dan-petty/devops-cli"
@@ -687,7 +688,8 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
     record the earlier one wrote, never the one both read before either wrote (#1532)."""
     github = GitHubFake(REPO)
     github.seed_issue(7, card={})
-    armed, read, written = threading.Event(), threading.Event(), threading.Event()
+    armed, read, writing, written = (threading.Event() for _ in range(4))
+    handoffs: list[bool] = []
 
     def held_after_its_card_read(
         args: list[str], **kwargs: Any
@@ -696,7 +698,10 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
         if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
             read.set()
             # Held between its card read and its write: the model lane's write lands here
-            # unless the store keeps it out until this one writes, when the wait runs out.
+            # unless the store keeps it out until this one writes. This short window checks
+            # that it does not land, and opens only once the model lane is about to write, so
+            # it times the store's lock, not a thread start-up.
+            handoffs.append(writing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             written.wait(timeout=0.3)
         return answer
 
@@ -714,7 +719,8 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
     (refined,) = model_lane.items()
 
     def refine() -> None:
-        read.wait(timeout=5)
+        handoffs.append(read.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        writing.set()
         model_lane.set_marks(refined, {RefineRecordKey.BODY_HASH: "b1"})
         written.set()
 
@@ -722,11 +728,11 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
     armed.set()
     refining.start()
     release_lane.set_marks(reprioritized, {JobMark.PENDING: "{}"})
-    refining.join(timeout=5)
-    assert json.loads((github.card(7) or {})["job record"]) == {
-        "Pending": "{}",
-        "refine.body_hash": "b1",
-    }
+    refining.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert (json.loads((github.card(7) or {})["job record"]), handoffs) == (
+        {"Pending": "{}", "refine.body_hash": "b1"},
+        [True, True],
+    )
 
 
 def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> None:
@@ -741,7 +747,8 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
         ],
     )
     github.seed_issue(7, card={})
-    armed, read, checked = threading.Event(), threading.Event(), threading.Event()
+    armed, read, placing_it, checked = (threading.Event() for _ in range(4))
+    handoffs: list[bool] = []
 
     def held_after_its_card_read(
         args: list[str], **kwargs: Any
@@ -750,7 +757,10 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
         if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
             read.set()
             # Held between its card read and its writes: the model lane's milestone check runs
-            # here unless the store keeps it out until this one writes, when the wait runs out.
+            # here unless the store keeps it out until this one writes. This short window checks
+            # that it does not run, and opens only once the model lane is about to place the
+            # item, so it times the store's lock, not a thread start-up.
+            handoffs.append(placing_it.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             checked.wait(timeout=0.3)
         return answer
 
@@ -781,7 +791,8 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
     raised: list[RoadmapCardChangedError] = []
 
     def intake() -> None:
-        read.wait(timeout=5)
+        handoffs.append(read.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        placing_it.set()
         try:
             model_lane.set_field(placed, ItemField.RELEASE, "v0.2.26")
         except RoadmapCardChangedError as error:
@@ -791,12 +802,13 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
     armed.set()
     placing.start()
     release_lane.set_field(reprioritized, ItemField.RELEASE, "v0.2.25")
-    placing.join(timeout=5)
+    placing.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert (
         (github.issues[7]["milestone"] or {}).get("title"),
         json.loads((github.card(7) or {})["job record"]),
         [error.details["now"] for error in raised],
-    ) == ("v0.2.25", {"Release": "v0.2.25"}, ["v0.2.25"])
+        handoffs,
+    ) == ("v0.2.25", {"Release": "v0.2.25"}, ["v0.2.25"], [True, True])
 
 
 def _person_edits_after_the_read(
