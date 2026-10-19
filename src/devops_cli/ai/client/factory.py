@@ -19,6 +19,41 @@ def set_llm_client_override(override: Any | None) -> None:
     _client_override = override
 
 
+def _handle_override(
+    override: Any,
+    task: str | None,
+    config: AIConfig | None,
+    settings: Settings | None,
+    model: str | None,
+    api_key: str | None,
+    cache_enabled: bool | None,
+    kwargs: dict[str, Any],
+) -> LLMClient:
+    """Dispatch to active client override or record factory invocation (#1001)."""
+    if callable(override) and not hasattr(override, "chat"):
+        res: Any = override(
+            task=task,
+            config=config,
+            settings=settings,
+            model=model,
+            api_key=api_key,
+            cache_enabled=cache_enabled,
+            **kwargs,
+        )
+        return cast("LLMClient", res)
+    if hasattr(override, "record_factory_call"):
+        override.record_factory_call(
+            task=task,
+            config=config,
+            settings=settings,
+            model=model,
+            api_key=api_key,
+            cache_enabled=cache_enabled,
+            **kwargs,
+        )
+    return cast("LLMClient", override)
+
+
 def get_llm_client(
     task: str | None = None,
     *,
@@ -44,18 +79,9 @@ def get_llm_client(
         Configured LLMClient instance.
     """
     if _client_override is not None:
-        if callable(_client_override) and not hasattr(_client_override, "chat"):
-            res: Any = _client_override(
-                task=task,
-                config=config,
-                settings=settings,
-                model=model,
-                api_key=api_key,
-                cache_enabled=cache_enabled,
-                **kwargs,
-            )
-            return cast("LLMClient", res)
-        return cast("LLMClient", _client_override)
+        return _handle_override(
+            _client_override, task, config, settings, model, api_key, cache_enabled, kwargs
+        )
     active_settings: Settings | None = settings
     if config is not None:
         cfg = config
