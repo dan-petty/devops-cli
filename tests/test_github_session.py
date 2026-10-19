@@ -86,19 +86,24 @@ def test_the_session_never_shows_its_token(pin_github_session: str) -> None:
     assert pin_github_session not in f"{session!r} {session.cache_dir}"
 
 
-def test_login_is_read_once_from_get_user() -> None:
+def test_login_is_read_once_from_get_user(github_api: GitHubApiFake) -> None:
     """`session.login` asks `GET /user` the first time it is read, then keeps the answer."""
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
-    )
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
     session = get_github_session()
-    with patch("subprocess.run", return_value=_gh_answers("octocat\n")) as run:
-        logins = (session.login, session.login)
-    gh_calls = [call.args[0] for call in run.call_args_list if call.args[0][0] == CONST_GH_CLI]
-    assert (logins, gh_calls) == (
+    logins = (session.login, session.login)
+    assert (logins, len(github_api.sent)) == (
         ("octocat", "octocat"),
-        [[CONST_GH_CLI, "api", "user", "--jq", ".login"]],
+        1,
     )
+
+
+def test_login_raises_when_get_user_fails(github_api: GitHubApiFake) -> None:
+    """`session.login` raises when `GET /user` fails, with no fallback."""
+    github_api.route("GET", "/user", github_json({"message": "Bad credentials"}, status=401))
+    session = get_github_session()
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
+        _ = session.login
+    assert raised.value.error_code == "GITHUB_UNAUTHENTICATED"
 
 
 def test_without_a_token_the_session_raises_the_unauthenticated_error(

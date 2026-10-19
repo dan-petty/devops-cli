@@ -46,7 +46,11 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import ServiceConfig
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+)
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
@@ -93,7 +97,7 @@ from devops_cli.roadmap.store import (
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.github_session_fakes import API, RunnerSession
+from tests.github_session_fakes import API, GitHubApiFake, RunnerSession, github_json
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.web_fakes import StubWeb
@@ -101,7 +105,6 @@ from tests.web_fakes import StubWeb
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
 RELEASE_BRANCH = f"release/{RELEASE}"
-SESSION_LOGIN_ARGV = [CONST_GH_CLI, "api", "user", "--jq", ".login"]
 COMMIT_IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.com")
 # GitHub's `release` `published` webhook, a ship's hint (#1360).
 SHIP_HINT = CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS[1]
@@ -205,13 +208,15 @@ def dangling_head_remote(release_remote: Path) -> Path:
 
 
 @pytest.fixture
-def child_argvs(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[list[str]]]:
-    """Run git for real and answer the session's login lookup at the process edge.
+def child_argvs(
+    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> Iterator[list[list[str]]]:
+    """Run git for real and answer the session's login lookup through the session fake.
 
-    Every child's argv is recorded. `gh api user --jq .login` prints `test-bot`, and any other gh
-    command fails the test instead of reaching GitHub. The core quota is seeded, so the lookup sends
-    no `gh api rate_limit` first, and a lookup that failed would show as the `devops-cli` fallback.
+    Every child's argv is recorded. `GET /user` returns `test-bot`, and any gh command fails
+    the test instead of reaching GitHub.
     """
+    github_api.route("GET", "/user", github_json({"login": "test-bot"}))
     get_github_rate_limiter().update_quota(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
     )
@@ -222,9 +227,7 @@ def child_argvs(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[list[str]]]:
         argvs.append(list(argv))
         if argv[0] != CONST_GH_CLI:
             return real_run(argv, *args, **kwargs)
-        if list(argv) != SESSION_LOGIN_ARGV:
-            raise AssertionError(f"A clone test ran {argv}, which would reach GitHub")
-        return subprocess.CompletedProcess(argv, 0, stdout="test-bot\n", stderr="")
+        raise AssertionError(f"A clone test ran {argv}, which would reach GitHub")
 
     monkeypatch.setattr(subprocess, "run", run)
     yield argvs
@@ -1004,6 +1007,60 @@ def test_checkout_raises_when_origin_head_names_no_branch(
     ) == (True, True)
 
 
+def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    release_remote: Path,
+    github_api: GitHubApiFake,
+) -> None:
+    """When `GET /user` fails, the clone rows and the change filter fail closed without fallback.
+
+    `ensure_checkout` fails before configuring `user.name`, so no `devops-cli` identity is
+    written. The clone row fails in `run_due_jobs`, and a store with no actor fails the round
+    during change filtering rather than filtering with `devops-cli` (#1409).
+    """
+    github_api.route("GET", "/user", github_json({"message": "Bad credentials"}, status=401))
+    cur = _current_release(seeded_store)
+    data_dir = tmp_path / "data"
+
+    with pytest.raises(GitHubUnauthenticatedError):
+        ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+
+    clone_dir = data_dir / "roadmap" / REPO / CONST_ROADMAP_RUN_CLONE_DIRNAME
+    if (clone_dir / ".git").exists():
+        proc = subprocess.run(
+            ["git", "-C", str(clone_dir), "config", "user.name"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.stdout.strip() != "devops-cli"
+
+    table = build_stub_table({"refine": lambda **_: JobOutcome()}, needs_clone=True)
+    with pytest.raises(RoadmapRunError) as exc_info:
+        run_due_jobs(
+            REPO,
+            seeded_store,
+            table=table,
+            data_dir=data_dir,
+            remote_url=str(release_remote),
+            batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
+        )
+    assert "refine" in exc_info.value.failed_jobs
+
+    store_without_actor = seeded_store.as_actor("")
+    store_without_actor._actor = None  # type: ignore[assignment]
+    with pytest.raises(GitHubUnauthenticatedError):
+        run_due_jobs(
+            REPO,
+            store_without_actor,
+            table=table,
+            data_dir=data_dir,
+            remote_url=str(release_remote),
+            batch={("poll", "", ""): 1},
+        )
+
+
 def test_a_round_after_a_ship_runs_its_clone_jobs_on_the_default_branch(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
@@ -1278,6 +1335,11 @@ def test_the_metrics_job_walks_the_release_tags_of_its_own_clone(
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
         stub_web.page(url, json.dumps(STATUS_PAGE))
+    stub_web.page(
+        f"{API}/user",
+        json.dumps({"login": "test-bot"}),
+        headers={"content-type": "application/json"},
+    )
     GLOBAL_METRICS.clear_metric(PROJECT_RELEASES_TOTAL.name)
     data_dir = tmp_path / "data"
     with caplog.at_level(logging.WARNING):
