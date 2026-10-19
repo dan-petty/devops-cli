@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.gh import milestones_app
+from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import GitHubState, Release
+from devops_cli.roadmap.store import GitHubState, Release, RoadmapStore
+from tests.github_session_fakes import API, GitHubApiFake, github_json
 
 runner = CliRunner()
 # Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.
@@ -151,21 +155,30 @@ def test_cli_milestones_list_refuses_an_unknown_state(roadmap_store: InMemoryRoa
 
 
 def test_cli_milestones_list_names_a_failed_read(
-    unreadable_github_roadmap: list[list[str]],
+    github_api: GitHubApiFake,
+    github_roadmap_factory: Callable[..., RoadmapStore],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When GitHub can't be read, list exits 1 and names the read instead of finding nothing."""
+    """When GitHub can't be read, list exits 1 and names the read instead of finding nothing.
+    The GitHub store reads the milestones through the process's session, which GitHub answers
+    with a 502 through its retries: the session's unread error names the listing and the
+    status (#983)."""
+    from devops_cli.roadmap import store as roadmap_module
+
+    listing = f"/repos/{REPO}/milestones?state=all&per_page=100"
+    github_api.route("GET", listing, github_json({"message": "Server Error"}, status=502))
+    monkeypatch.setattr(roadmap_module, "get_roadmap_store", github_roadmap_factory)
     res = runner.invoke(milestones_app, ["list", "--repo", REPO])
+    with pytest.raises(GitHubUnreadError) as raised:
+        github_roadmap_factory(REPO).releases()
     assert (
         res.exit_code,
-        f"Could not read milestones (page 1) in {REPO} (exit 1)" in res.output,
+        f"GitHub gave no readable answer to GET {listing} (page 1) (HTTP 502)"
+        in " ".join(res.output.split()),
         "No milestones found" in res.output,
-        unreadable_github_roadmap,
-    ) == (
-        1,
-        True,
-        False,
-        [["api", f"repos/{REPO}/milestones?state=all&per_page=100&page=1"]],
-    )
+        raised.value.details["status"],
+        {url for url in github_api.requested},
+    ) == (1, True, False, 502, {f"GET {API}{listing}"})
 
 
 def test_cli_milestones_status(

@@ -390,11 +390,10 @@ def _intake(
     confirm: bool,
     opened: list[RoadmapStore],
 ) -> None:
-    meter = SpendMeter()
     with _exit_on_failure("Could not plan intake"):
-        target, config, store = _open_roadmap(
-            repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER, runner=meter.run
-        )
+        # Counts from here the requests the identity's ledger paces, gh's and the session's.
+        meter = SpendMeter()
+        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER)
         opened.append(store)
         plan = plan_intake(
             store,

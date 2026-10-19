@@ -40,6 +40,7 @@ from devops_cli.github.error_classifier import (
     is_gh_owner_lookup_failure,
     unlisted_entry,
 )
+from devops_cli.github.owner_lookup import owner_lookup_failure
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
@@ -588,16 +589,25 @@ def _project_login(owner: str) -> str:
 def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
     """The error a read of `what` that exited non-zero raises: the class the gh classifier
     names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
-    nothing to stderr."""
+    nothing to stderr. A board read's `--owner <login>` has no `@me` fallback, so an owner
+    lookup gh dropped the cause of is decided by GraphQL's own budget (#983)."""
     err_output = _gh_output(proc)
     said = err_output or (proc.stdout or "").strip()
-    return classify_gh_failure(
-        err_output, exit_code=proc.returncode, operation=operation
-    ) or GitHubOperationError(
+    classified = classify_gh_failure(err_output, exit_code=proc.returncode, operation=operation)
+    if classified is not None and is_gh_owner_lookup_failure(err_output):
+        return owner_lookup_failure(
+            classified, read=_gh_command, failed=f"Failed to read {what}", operation=operation
+        )
+    return classified or GitHubOperationError(
         f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
         operation=operation,
         details={"read": what[:256]},
     )
+
+
+def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """One gh command of a board read, through `run_gh`, never from its response cache."""
+    return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
 
 
 def _gh_read[Payload: BaseModel](
@@ -605,7 +615,7 @@ def _gh_read[Payload: BaseModel](
 ) -> Payload:
     """One read through `run_gh`, which charges a GraphQL reply the points its `rateLimit`
     reports; raises when GitHub can't be read or answers malformed."""
-    proc = run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
+    proc = _gh_command(args)
     if proc.returncode != 0:
         raise _read_failure(proc, what, operation)
     try:

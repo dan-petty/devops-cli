@@ -3,7 +3,8 @@
 A dry run makes no request, reads included. It returns the job's real result type, marked as a
 dry run, holding the requests a run makes in order as `PlannedRequest`s (#741): the exact `gh`
 argv and stdin, built by the same argument builders `GitHubRoadmapStore` runs, so the plan
-cannot drift from the run. A value that needs a read is a placeholder in angle brackets, a
+cannot drift from the run. A REST listing, which the store reads through the GitHub session
+(#983), is its `GET` and URL. A value that needs a read is a placeholder in angle brackets, a
 request that runs only when something holds names that in `condition`, and a request a run makes
 for each page, item or field says so in `repeat`.
 
@@ -33,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_OPEN_ITEMS_FILTER,
     CONST_ROADMAP_RENDER_BOARD_FILTER,
     CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
+    CONST_URL_GITHUB_API_BASE,
 )
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.lang import MESSAGES
@@ -95,11 +97,24 @@ def planned_gh(
     )
 
 
+def planned_session_read(
+    path: str, target: str, *, condition: str = "", repeat: str = ""
+) -> PlannedRequest:
+    """One read the GitHub session sends (#983): a REST GET of `target`, shown as its request
+    line, the method and the URL of `path` under GitHub's API."""
+    return PlannedRequest(
+        method=f"REST {MESSAGES.roadmap.intake_request_read}",
+        target=target,
+        argv=("GET", f"{CONST_URL_GITHUB_API_BASE}{path}"),
+        condition=condition,
+        repeat=repeat,
+    )
+
+
 def is_page_repeat(repeat: str) -> bool:
     """Whether `repeat` is only a page repeat: the request runs at least once, then again per
     page. Any other repeat may run no time at all."""
-    texts = MESSAGES.roadmap
-    return repeat in (texts.plan_repeat_page, texts.intake_repeat_page)
+    return repeat == MESSAGES.roadmap.plan_repeat_page
 
 
 @dataclass(frozen=True)
@@ -130,10 +145,14 @@ class StoreRequests:
         **values: str,
     ) -> PlannedRequest:
         """One `gh` command, against the target `key` names in `plan_targets`."""
-        target = MESSAGES.roadmap.plan_targets[key].format(
+        target = self._target(key, **values)
+        return planned_gh(argv, target, stdin=stdin, condition=condition, repeat=repeat)
+
+    def _target(self, key: str, **values: str) -> str:
+        """What the request `key` names in `plan_targets` reads or writes."""
+        return MESSAGES.roadmap.plan_targets[key].format(
             board=self.number, owner=self.owner, **values
         )
-        return planned_gh(argv, target, stdin=stdin, condition=condition, repeat=repeat)
 
     # ── Reads ──
 
@@ -144,9 +163,11 @@ class StoreRequests:
         ]
 
     def listing(self, endpoint: str, key: str, **values: str) -> Requests:
-        """A REST listing, a full page at a time until a page is short."""
-        args = gh.listing_page_args(endpoint, _p("page"))
-        return [self.gh(args, key, repeat=MESSAGES.roadmap.plan_repeat_page, **values)]
+        """A REST listing the GitHub session reads (#983): its first page, then each next page
+        GitHub links."""
+        target = self._target(key, **values)
+        path = gh.listing_path(endpoint)
+        return [planned_session_read(path, target, repeat=MESSAGES.roadmap.plan_repeat_page)]
 
     def releases(self) -> Requests:
         return self.listing(gh.milestones_endpoint(self.repo), "milestones")
@@ -696,6 +717,7 @@ __all__ = [
     "is_page_repeat",
     "migrate_requests",
     "planned_gh",
+    "planned_session_read",
     "render_dry_run",
     "render_requests",
     "reprioritize_requests",

@@ -35,7 +35,7 @@ from devops_cli.roadmap.github_store import (
     board_fields_args,
     default_branch_args,
     issues_endpoint,
-    listing_page_args,
+    listing_path,
 )
 from devops_cli.roadmap.migrate import MigrationPlan, dry_run_migration
 from devops_cli.roadmap.render import RenderedRoadmap, dry_run_render, render
@@ -52,8 +52,9 @@ from devops_cli.roadmap.request_plan import (
     render_requests,
     reprioritize_requests,
 )
+from tests.github_session_fakes import API, RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
-from tests.test_roadmap_board_read import _fields_reply, _rest_pages, board_of, issues_of
+from tests.test_roadmap_board_read import _fields_reply, board_of, issues_of
 
 REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
@@ -124,7 +125,10 @@ def test_each_dry_run_returns_its_jobs_result_type_marked_as_a_dry_run() -> None
         [type(result) for result in results],
         [result.dry_run for result in results],
         (reprioritized.has_writes, migrated.writes, rendered.text),
-        [all(request.argv[:1] == ("gh",) for request in requests) for requests in planned],
+        [
+            all(request.argv[:1] in (("gh",), ("GET",)) for request in requests)
+            for requests in planned
+        ],
         [bool(result.write_requests) for result in results[:2]],
         [
             requests[-1].argv[-1].endswith("rateLimit { cost limit remaining used resetAt } }")
@@ -151,7 +155,7 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
         board_budget_args(OWNER, "<board>", ""),
         board_items_args(OWNER, "<board>", ""),
         board_items_args(OWNER, "<board>", "", after="<cursor>"),
-        listing_page_args(issues_endpoint(REPO), "<n>"),
+        (f"{API}{listing_path(issues_endpoint(REPO))}",),
         default_branch_args(REPO),
     ]
     assert all(tuple(args) in planned for args in expected)
@@ -187,7 +191,7 @@ def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
         "set_field": ["fields(first", "RoadmapBoardCard", "item-edit by id", "item-edit by id"],
         "release": [
             "fields(first",
-            "api repos/dan-petty/devops-cli/milestones?state=all&per_page=100&page=<n>",
+            f"{API}/repos/dan-petty/devops-cli/milestones?state=all&per_page=100",
             "RoadmapBoardCard",
             "item-edit by id",
             "api -X PATCH",
@@ -350,7 +354,7 @@ def _github(board: dict[str, Any], milestones: list[dict[str, Any]]) -> _Gh:
             "fields(first": _fields_reply(),
             "RoadmapGraphQLBudget": lambda _: budget_reply(server.remaining - 1),
             BOARD_READ: server,
-            "issues?": _rest_pages(issues_of(board)),
+            "issues?": issues_of(board),
             "milestones?state=all": milestones,
             "defaultBranchRef": {"data": {"repository": {"defaultBranchRef": branch}}},
         }
@@ -366,7 +370,9 @@ def github_stores(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(
         roadmap_store_module,
         "get_roadmap_store",
-        lambda repo, **options: GitHubRoadmapStore(repo, **options),
+        lambda repo, **options: GitHubRoadmapStore(
+            repo, **options, session=RunnerSession(options["runner"])
+        ),
     )
     with patch("time.sleep", side_effect=AssertionError("slept")):
         yield
@@ -378,7 +384,8 @@ def test_a_reprioritize_runs_gh_argv_sequence_is_its_plan(github_stores: None) -
     plan_reprioritization(store, repo=REPO, config=config, now=NOW)
     store.graphql_spend()
     planned = dry_run_reprioritization(REPO, ref="main", now=NOW).requests
-    assert (len(gh.calls) > 20, follows(planned, gh.calls)) == (True, True)
+    # Ten board pages and the listings, each read through the session in one call here.
+    assert (len(gh.calls) > 15, follows(planned, gh.calls)) == (True, True)
 
 
 def test_a_render_runs_gh_argv_sequence_is_its_plan(github_stores: None) -> None:
@@ -614,7 +621,9 @@ def test_a_reprioritize_preview_reads_github_and_ends_with_the_spend_line(
     monkeypatch.setattr(
         roadmap_store_module,
         "get_roadmap_store",
-        lambda repo, **options: GitHubRoadmapStore(repo, **{**options, "runner": gh}),
+        lambda repo, **options: GitHubRoadmapStore(
+            repo, **{**options, "runner": gh, "session": RunnerSession(gh)}
+        ),
     )
     result = runner.invoke(app, ["reprioritize", "--repo", REPO, *flags])
     last = result.output.strip().splitlines()[-1]

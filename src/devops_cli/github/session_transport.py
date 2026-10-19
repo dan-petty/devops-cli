@@ -51,6 +51,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RETRIES,
     DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS,
+    DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubRateLimitError, GitHubUnreadError
@@ -69,7 +70,7 @@ from devops_cli.github.rate_limiter import (
     identity_rate_limiter,
 )
 from devops_cli.github.request_classifier import GitHubRequest, is_write_request
-from devops_cli.http.client import ClientOptions, new_async_http_client
+from devops_cli.http.client import ClientOptions, new_async_http_client, request_timeout
 from devops_cli.http.egress import EgressLevel
 
 logger = logging.getLogger(__name__)
@@ -112,13 +113,16 @@ async def refuse_other_origins(request: httpx2.Request) -> None:
 
 def session_client() -> httpx2.AsyncClient:
     """The session's client from the egress factory at the public level, following redirects
-    under the origin hook and pinning the REST API version."""
+    under the origin hook and pinning the REST API version. It connects within
+    `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`, a public-internet bound, and keeps the
+    factory's read timeout; a connect that still fails is not retried."""
     options: ClientOptions = {
         "follow_redirects": True,
         "headers": {CONST_GITHUB_HEADER_API_VERSION: CONST_GITHUB_API_VERSION},
         "event_hooks": {"request": [refuse_other_origins]},
     }
-    return new_async_http_client(level=EgressLevel.PUBLIC, **options)
+    timeout = request_timeout(connect=DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS)
+    return new_async_http_client(level=EgressLevel.PUBLIC, timeout=timeout, **options)
 
 
 def _gh_api_command(url: str) -> list[str]:

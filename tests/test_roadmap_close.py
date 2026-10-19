@@ -829,7 +829,7 @@ def test_the_dry_run_lists_the_closes_and_the_cut_without_a_request() -> None:
     lines = [request.line() for request in (*plan.requests, *plan.write_requests)]
     assert (plan.dry_run, plan.closings, plan.cut) == (True, (), None)
     for expected in (
-        f"gh api 'repos/{REPO}/pulls?state=closed&base=release%2F%3Crelease%3E",
+        f"GET 'https://api.github.com/repos/{REPO}/pulls?state=closed&base=release%2F%3Crelease%3E",
         "gh pr checks '<number>' --json name,state,bucket,workflow,link --repo example/roadmap",
         f"gh api -X PATCH 'repos/{REPO}/issues/<item>' -f state=closed -f state_reason=completed",
         "git push --force-with-lease -u origin 'release/<release>'",

@@ -12,15 +12,19 @@ A route answers with its responses in order, and its last response repeats. A re
 `httpx2.TransportError` class, which is raised for the request instead, as a refused connect is.
 A request no route names gets GitHub's 404. With `delay` set, each answer arrives that many
 seconds after its request, so requests can be in flight together. The fake records every request
-it receives, the egress level of each client it answers, the pauses the rate limiter asked for
-and the waits gidgethub's retry hook asked for; neither takes any time.
+it receives, each client it answers and that client's egress level, the pauses the rate limiter
+asked for and the waits gidgethub's retry hook asked for; neither takes any time.
+
+`RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
+tests that script gh for the board as well.
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
 import anyio
@@ -97,6 +101,7 @@ class GitHubApiFake:
         self._routes: dict[tuple[str, str], list[Answer]] = {}
         self.sent: list[httpx2.Request] = []
         self.levels: list[EgressLevel | None] = []
+        self.clients: list[httpx2.AsyncClient] = []
         self.paced: list[float] = []
         self.waits: list[float] = []
         self.delay = 0.0
@@ -119,6 +124,7 @@ class GitHubApiFake:
                 fake.levels.append(level)
                 transport = httpx2.MockTransport(vetted_handler(fake._handle, level))
                 super().__init__(**{**kwargs, "transport": transport})
+                fake.clients.append(self)
 
         return GitHubApiClient
 
@@ -148,3 +154,41 @@ class GitHubApiFake:
     async def _later(self, response: httpx2.Response) -> httpx2.Response:
         await anyio.sleep(self.delay)
         return response
+
+
+class RunnerSession:
+    """A GitHub session whose REST listings a scripted gh runner answers, for the roadmap store
+    tests that script gh for the board as well (#983).
+
+    `paginate` asks the runner with the listing's URL as its one argument, so a reply keyed by
+    the listing's path answers it, the runner records the read beside the gh commands, and a
+    read the store sends through gh instead is told apart. A reply holding a list is the whole
+    listing; a failed one raises the class the gh classifier makes of its stderr, else the
+    unread error; anything else fails closed through the session's own `listed_items`. Paging,
+    a failed page, the page cap and the class each HTTP failure raises are the real session's,
+    and are tested only over `GitHubApiFake`.
+    """
+
+    def __init__(self, runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
+        self._runner = runner
+
+    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[Any]:
+        from devops_cli.exceptions.git import GitHubUnreadError
+        from devops_cli.github.error_classifier import classify_gh_failure
+        from devops_cli.github.session_transport import listed_items
+
+        reply = self._runner([f"{API}{path}"], check=False, quiet=True, use_cache=False)
+        if reply.returncode != 0:
+            said = (reply.stderr or reply.stdout or "").strip()[:256]
+            raise classify_gh_failure(
+                reply.stderr or "", exit_code=reply.returncode
+            ) or GitHubUnreadError(
+                f"GitHub gave no readable answer to GET {path}: {said}", details={"path": path}
+            )
+        try:
+            answer = json.loads(reply.stdout or "null")
+        except json.JSONDecodeError as exc:
+            raise GitHubUnreadError(
+                f"GitHub's answer to GET {path} is no JSON", details={"path": path}
+            ) from exc
+        yield from listed_items(answer, path=path, page=1, iterable_key=iterable_key)

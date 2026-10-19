@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -22,6 +23,7 @@ from devops_cli.github.projects import (
 )
 from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
+from tests.roadmap_board_fake import budget_reply
 from tests.support.paths import REPO_ROOT
 
 
@@ -766,6 +768,49 @@ def test_a_failed_board_read_raises_a_rate_limit_only_the_gh_table_names() -> No
         GitHubOperationError,
         True,
     )
+
+
+@pytest.mark.parametrize(
+    ("budget", "error"),
+    [
+        pytest.param(
+            (0, json.dumps(budget_reply(4000)), ""), GitHubOperationError, id="points-left"
+        ),
+        pytest.param((0, json.dumps(budget_reply(0)), ""), GitHubRateLimitError, id="spent"),
+        pytest.param(
+            (1, "", "gh: You have exceeded a secondary rate limit. (HTTP 403)"),
+            GitHubRateLimitError,
+            id="budget-read-rate-limited",
+        ),
+    ],
+)
+def test_a_board_read_whose_owner_lookup_gh_drops_asks_graphql_for_its_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    budget: tuple[int, str, str],
+    error: type[GitHubOperationError],
+) -> None:
+    """`gh project field-list --owner <login>` has no `@me` fallback: when gh drops its owner
+    lookup's cause, the read asks GraphQL for its budget, as the roadmap store does (#983). With
+    points left the read fails plainly, naming them; a spent or refused budget keeps the rate
+    limit."""
+    from devops_cli.roadmap.board_read import GRAPHQL_BUDGET_OPERATION
+
+    sent: list[list[str]] = []
+
+    def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        sent.append(list(args))
+        if GRAPHQL_BUDGET_OPERATION in " ".join(args):
+            return subprocess.CompletedProcess(args, *budget)
+        return subprocess.CompletedProcess(args, 1, "", "unknown owner type")
+
+    monkeypatch.setattr(projects_mod, "run_gh", gh)
+    with pytest.raises(GitHubOperationError) as raised:
+        projects_mod._read_field_options("octo-org", 2)
+    assert (
+        type(raised.value),
+        len(sent),
+        "4000 points left" in raised.value.message,
+    ) == (error, 2, error is GitHubOperationError)
 
 
 @pytest.mark.parametrize(

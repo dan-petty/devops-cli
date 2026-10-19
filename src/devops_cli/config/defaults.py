@@ -294,6 +294,11 @@ DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
 # high (up to 3600s) to accommodate homelab performance and local AI/LLM inference.
 DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
+# The GitHub session's connect timeout (#983): api.github.com is reached over the public
+# internet, where Linux resends a lost SYN after 1, 2 and 4 s and a TLS handshake on a lossy link
+# runs longer, so the 1 s bound meant for local services failed live reads. It stays well under
+# the 30 s gh's own dialer allows.
+DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8

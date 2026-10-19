@@ -1553,16 +1553,17 @@ class RoadmapMessages:
     plan_dry_run_render: str = "Then render writes {path}, which makes no request."
     plan_dry_run_notes: tuple[str, ...] = (
         "A board read whose count changes while it is read reads it once more, from its first "
-        "page. run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+        "page. Pacing a request, whether gh runs it or the GitHub session sends it, may read "
+        "`gh api rate_limit`; that read costs no quota. A board command whose owner lookup gh "
+        "could not finish reads GraphQL's budget once, for about one point.",
     )
     plan_modes_exclusive: str = "Pass one of {modes}, not more."
-    plan_repeat_page: str = "per page, until a page is short"
+    plan_repeat_page: str = "per page, while GitHub links a next one"
     plan_repeat_board_page: str = "per page after the first, while GraphQL reports a next page"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "board": "<board>",
             "cursor": "<cursor>",
-            "page": "<n>",
             "number": "<number>",
             "milestone": "<milestone>",
             "release": "<release>",
@@ -1919,7 +1920,6 @@ class RoadmapMessages:
     )
     intake_request_read: str = "read"
     intake_request_write: str = "write"
-    intake_repeat_page: str = "per page, until a page is short"
     intake_repeat_candidate: str = (
         "for each candidate: an open issue off the board or an item without a Priority"
     )

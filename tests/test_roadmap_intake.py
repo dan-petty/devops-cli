@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -46,12 +47,14 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import (
     BOARD_BUDGET_OPERATION,
     BOARD_CARD_OPERATION,
     BOARD_ITEMS_OPERATION,
+    GRAPHQL_BUDGET_OPERATION,
 )
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -90,6 +93,7 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
+from tests.github_session_fakes import API, GitHubApiFake, RunnerSession, github_json
 from tests.roadmap_board_fake import GitHubFake, field_id
 
 REPO = "example/roadmap"
@@ -1200,7 +1204,7 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
     steps = [
         "Dry run: no request was made",
         f"gh api -H 'Accept: application/vnd.github.raw+json' repos/{REPO}/contents/.github/roadmap.toml",
-        f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
+        f"GET 'https://api.github.com/repos/{REPO}/milestones?state=all&per_page=100' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
         f"{REPO}/contents/.github/labels.yml",
@@ -1373,18 +1377,18 @@ def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
     replies = {"search/issues": '{"total_count": 0, "incomplete_results": false}'}
 
     def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        ran.append(("gh", *args))
+        ran.append(("GET", *args) if args[0].startswith(API) else ("gh", *args))
         stdout = next((reply for key, reply in replies.items() if key in args), "[]")
         return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
-    store = GitHubRoadmapStore(REPO, runner=gh)
+    store = GitHubRoadmapStore(REPO, runner=gh, session=RunnerSession(gh))
     store.repository_file(".github/roadmap.toml", ref="v0.2.26")
     store.releases()
     store.issues()
     store.count_issues(IssueQuery(state=GitHubState.OPEN))
     store.repository_file(".github/labels.yml", ref="v0.2.26")
     planned = dry_run_intake(REPO, ref="v0.2.26").requests
-    shown = {tuple(arg.replace("<n>", "1") for arg in r.argv) for r in planned if r.argv}
+    shown = {r.argv for r in planned if r.argv}
     assert (len(ran), set(ran) <= shown) == (5, True)
 
 
@@ -1436,27 +1440,33 @@ def test_the_mode_flags_exclude_each_other(no_requests: None, flags: tuple[str, 
     assert "one of --dry-run, --plan and --confirm" in _intake(*flags, exit_code=1)
 
 
-def test_the_spend_meter_counts_each_gh_request_by_api_and_each_model_call() -> None:
-    ran: list[list[str]] = []
+def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_call(
+    github_api: GitHubApiFake,
+) -> None:
+    """Every GitHub request a run makes waits its turn on the identity's ledger: a gh command
+    through `run_gh` and a request the GitHub session sends alike (#983). The meter reports the
+    requests paced since it started, by the resource they spend, and the embedding and proposal
+    calls; a request paced before it started is not the run's."""
+    from devops_cli.github import rate_limiter
 
-    def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        ran.append(args)
-        return subprocess.CompletedProcess(args, 0, "[]", "")
-
-    meter = SpendMeter(gh=gh)
-    for args in (
-        ["api", "repos/example/roadmap/issues?state=all&per_page=100&page=1"],
-        ["api", "-X", "GET", "search/issues", "-f", "q=repo:example/roadmap", "-F", "per_page=1"],
-        ["project", "item-list", "1", "--owner", "example", "--format", "json"],
-        ["api", "graphql", "-f", "query=query { viewer { login } }"],
-    ):
-        meter.run(args, check=False, quiet=True, use_cache=False)
+    limiter = rate_limiter.get_github_rate_limiter()
+    for resource in ("search", "graphql"):
+        limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 600)
+    limiter.acquire(subcommand="core")
+    meter = SpendMeter()
+    answered = subprocess.CompletedProcess(["gh"], 0, "[]", "")
+    with patch.object(rate_limiter, "_burst_protected_subprocess", return_value=answered):
+        rate_limiter.run_gh(["api", "repos/example/roadmap/issues/1"])
+        rate_limiter.run_gh(["api", "-X", "GET", "search/issues", "-f", "q=x", "-F", "per_page=1"])
+        rate_limiter.run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"])
+    listing = "/repos/example/roadmap/milestones?state=all&per_page=100"
+    github_api.route("GET", listing, github_json([]))
+    list(get_github_session().paginate(listing))
     model = meter.model(FakeModel())
     model.embed(["one", "two"])
     model.propose(ProposalRequest(title="t", body="b", shortlist=(), types=("type/bug",)))
-    assert (len(ran), meter.spend()) == (
-        4,
-        Spend(rest=1, search=1, graphql=2, embedding_calls=1, embedded_texts=2, model_calls=1),
+    assert meter.spend() == Spend(
+        rest=2, search=1, graphql=1, embedding_calls=1, embedded_texts=2, model_calls=1
     )
 
 
@@ -1471,10 +1481,12 @@ def test_open_roadmap_sends_every_github_request_through_the_given_runner(
         runners.append(options.get("runner"))
         return store
 
+    def runner(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, "", "")
+
     monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", open_store)
-    meter = SpendMeter()
-    open_roadmap(REPO, ref=None, runner=meter.run)
-    assert runners == [meter.run, meter.run]
+    open_roadmap(REPO, ref=None, runner=runner)
+    assert runners == [runner, runner]
 
 
 def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
@@ -1975,7 +1987,9 @@ def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadma
             card={"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"},
         )
     owner = REPO.split("/")[0]
-    return github, GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    return github, GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
 
 
 def _intake_on_github(
@@ -2089,7 +2103,9 @@ def test_an_issue_whose_card_a_person_archived_is_placed_in_one_round_on_that_ca
     placed = github.card(1) or {}
     second = len(github.calls)
     owner = REPO.split("/")[0]
-    later = GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    later = GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
     again, apply_again = _intake_on_github(later, FakeModel())
     assert (
         applied.placed,
@@ -2146,6 +2162,34 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
         (0, (1,)),
     )
+
+
+def test_an_owner_lookup_gh_drops_while_graphql_is_rate_limited_stops_the_round() -> None:
+    """The first candidate's `item-add` drops its owner lookup, and GraphQL refuses the budget
+    read that would tell why with a secondary rate limit: the error stays a rate limit, so the
+    round stops there instead of sending every later candidate's lookup into the limit (#983)."""
+    github, _ = on_github()
+    for number in (1, 2):
+        github.seed_issue(number, f"feat: new idea {number}")
+    adds: list[list[str]] = []
+
+    def gh(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if args[:2] == ["project", "item-add"]:
+            adds.append(args)
+            return subprocess.CompletedProcess(args, 1, "", "unknown owner type")
+        if adds and GRAPHQL_BUDGET_OPERATION in " ".join(args):
+            refused = "gh: You have exceeded a secondary rate limit. (HTTP 403)"
+            return subprocess.CompletedProcess(args, 1, "", refused)
+        return github(args, **kwargs)
+
+    owner = REPO.split("/")[0]
+    store = GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=gh, session=RunnerSession(github)
+    )
+    _, apply = _intake_on_github(store, FakeModel())
+    with pytest.raises(GitHubRateLimitError):
+        apply()
+    assert len(adds) == 1
 
 
 def test_an_intake_of_three_placements_reads_the_board_once() -> None:

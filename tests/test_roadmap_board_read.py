@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from graphql import build_schema, parse, validate
@@ -42,6 +40,7 @@ from devops_cli.roadmap.board_read import (
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.reprioritize import plan_reprioritization
+from tests.github_session_fakes import RunnerSession
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
 from tests.support.paths import FIXTURES
 
@@ -112,7 +111,9 @@ class Gh:
 
 def store_over(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, Gh]:
     gh = Gh(replies)
-    return GitHubRoadmapStore(REPO, board_owner=OWNER, board_number=2, runner=gh), gh
+    return GitHubRoadmapStore(
+        REPO, board_owner=OWNER, board_number=2, runner=gh, session=RunnerSession(gh)
+    ), gh
 
 
 def board_reads(gh: Gh) -> list[dict[str, str]]:
@@ -177,7 +178,12 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
         }
     )
     reprioritize = GitHubRoadmapStore(
-        REPO, board_owner=OWNER, board_number=2, runner=gh, board_filter="-status:Done"
+        REPO,
+        board_owner=OWNER,
+        board_number=2,
+        runner=gh,
+        board_filter="-status:Done",
+        session=RunnerSession(gh),
     )
     store.items()
     store.backlog()
@@ -328,15 +334,6 @@ def _fields_reply() -> dict[str, Any]:
     return {"data": {"repositoryOwner": {"projectV2": {"id": "PVT_board", "fields": connection}}}}
 
 
-def _rest_pages(listing: list[dict[str, Any]]) -> Callable[[list[str]], Any]:
-    def page(args: list[str]) -> Any:
-        (number,) = parse_qs(urlsplit(args[-1]).query)["page"]
-        start = (int(number) - 1) * 100
-        return listing[start : start + 100]
-
-    return page
-
-
 def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     """The board of 2026-10-04: 931 items, 280 of them open, one more archived. Through `run_gh`,
     with gh's process stubbed, the run charges the GraphQL points its board read reports: one
@@ -349,7 +346,7 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
         {
             "fields(first": _fields_reply(),
             BOARD_READ: server,
-            "issues?state=all": _rest_pages(issues_of(board)),
+            "issues?state=all": issues_of(board),
             "milestones?state=all": [],
             "defaultBranchRef": {
                 "data": {
@@ -375,7 +372,9 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
             ),
             patch("devops_cli.github.rate_limiter.time.sleep"),
         ):
-            store = GitHubRoadmapStore(REPO, board_owner=OWNER, board_number=2)
+            store = GitHubRoadmapStore(
+                REPO, board_owner=OWNER, board_number=2, session=RunnerSession(gh)
+            )
             plan = plan_reprioritization(store, repo=REPO, config=RoadmapConfig(board=2), now=NOW)
             spend = store.graphql_spend()
             charged = get_github_rate_limiter().points_charged("graphql")

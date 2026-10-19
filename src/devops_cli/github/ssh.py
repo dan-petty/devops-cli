@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterable
 from http import HTTPStatus
+from typing import Any
 
 from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
@@ -13,13 +15,19 @@ from devops_cli.github.error_classifier import classify_gh_failure, gh_http_stat
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
 
+_SIGNING_KEYS = "/user/ssh_signing_keys"
+
 
 class SSHRegistrationError(RuntimeError):
     """Raised when SSH/signing key registration on GitHub fails."""
 
 
 def register_key_on_github(pub_key: str, title: str) -> None:
-    """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity."""
+    """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity.
+
+    A refusal on either path is an `SSHRegistrationError`, which the `devops ssh` commands
+    report, and on which `rotate` removes the key it generated (#983).
+    """
     if _register_with_gh(pub_key, title):
         return
     try:
@@ -28,7 +36,10 @@ def register_key_on_github(pub_key: str, title: str) -> None:
         raise SSHRegistrationError(
             "No usable GitHub auth found for key registration. Run 'gh auth login'."
         ) from exc
-    _register_with_token_api(session, pub_key, title)
+    try:
+        _register_with_token_api(session, pub_key, title)
+    except GitHubOperationError as exc:
+        raise SSHRegistrationError(str(exc)) from exc
 
 
 def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -> None:
@@ -36,9 +47,9 @@ def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -
     client = session.client
 
     # Authentication key — skip if an identical key body already exists
-    key_body = " ".join(pub_key.split()[:2])  # "ssh-ed25519 <base64>"
+    key_body = _key_body(pub_key)
     existing = client.get_user_ssh_keys()
-    if not any(" ".join(k.key.split()[:2]) == key_body for k in existing):
+    if not any(_key_body(k.key) == key_body for k in existing):
         client.add_user_ssh_key(title=title, key=pub_key)
 
     # Signing key (separate endpoint, not yet in PyGithub)
@@ -50,7 +61,7 @@ def _register_with_gh(pub_key: str, title: str) -> bool:
     if not _gh_auth_ok():
         return False
 
-    key_body = " ".join(pub_key.split()[:2])
+    key_body = _key_body(pub_key)
     existing_auth = _gh_list_keys("/user/keys")
     if (existing_auth is not None and key_body not in existing_auth) or existing_auth is None:
         _gh_add_key("/user/keys", pub_key, title)
@@ -95,14 +106,21 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
     if not isinstance(payload, list):
         return None
 
-    keys: set[str] = set()
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        key_text = item.get("key")
-        if isinstance(key_text, str):
-            keys.add(" ".join(key_text.split()[:2]))
-    return keys
+    return _listed_key_bodies(payload)
+
+
+def _key_body(key: str) -> str:
+    """A key as GitHub lists it: its type and its base64, without the comment."""
+    return " ".join(key.split()[:2])
+
+
+def _listed_key_bodies(entries: Iterable[Any]) -> set[str]:
+    """The keys a key listing holds, as `_key_body` gives each; an entry with no key is skipped."""
+    return {
+        _key_body(entry["key"])
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("key"), str)
+    }
 
 
 def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
@@ -152,7 +170,7 @@ def _registered_after_422(endpoint: str, pub_key: str) -> bool:
     account, so the keys are listed again: a listed key, or a list that can't be read, is
     registered."""
     listed = _gh_list_keys(endpoint)
-    return listed is None or " ".join(pub_key.split()[:2]) in listed
+    return listed is None or _key_body(pub_key) in listed
 
 
 def _registration_failure(result: subprocess.CompletedProcess[str]) -> str:
@@ -178,9 +196,24 @@ def _github_reasons(answer: str) -> str:
 
 
 def _add_signing_key(session: GitHubSession, pub_key: str, title: str) -> None:
-    """Register the key as a GitHub SSH signing key; GitHub's 422 means it already is one."""
+    """Register the key as a GitHub SSH signing key. GitHub answers 422 for a key it already
+    holds, but also for one it rejects as invalid and one in use on another account, so a 422
+    counts as registered only when the session's signing-key listing holds the key or can't be
+    read, as `_registered_after_422` reads gh's."""
     try:
-        session.rest("POST", "/user/ssh_signing_keys", body={"title": title, "key": pub_key})
+        session.rest("POST", _SIGNING_KEYS, body={"title": title, "key": pub_key})
     except GitHubOperationError as exc:
-        if exc.details.get("status") != HTTPStatus.UNPROCESSABLE_ENTITY:
+        if exc.details.get("status") != HTTPStatus.UNPROCESSABLE_ENTITY or not _session_lists_key(
+            session, pub_key
+        ):
             raise
+
+
+def _session_lists_key(session: GitHubSession, pub_key: str) -> bool:
+    """Whether the session's signing-key listing holds `pub_key`; a listing that can't be read
+    counts as holding it."""
+    try:
+        listed = _listed_key_bodies(session.paginate(_SIGNING_KEYS))
+    except GitHubOperationError:
+        return True
+    return _key_body(pub_key) in listed
