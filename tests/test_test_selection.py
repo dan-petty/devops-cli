@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_coverage_index_path
+from devops_cli.commands.ci import _normalize_repo_rel_path
 from devops_cli.commands.ci import app as ci_app
+from devops_cli.config.constants import CONST_FULL_RUN_TRIGGER_NAMES
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
     module_path_for_source,
@@ -144,6 +147,79 @@ def test_missing_tests_tree_yields_no_targets(tmp_path: Path) -> None:
         [],
         ["src/devops_cli/mod.py"],
     )
+
+
+def test_a_module_selects_no_test_module_only_for_sitting_in_its_package_directory(
+    project: Path,
+) -> None:
+    """A test module in the directory under `tests/` that mirrors a module's package runs only
+    when it names or imports the module: replayed over 15 commits, the ones it added beside it
+    never ran it (#1312)."""
+    mirror = project / "tests" / "security"
+    mirror.mkdir()
+    (mirror / "test_policy.py").write_text("def test_policy() -> None: ...\n", encoding="utf-8")
+    sources = ["src/devops_cli/security/secrets.py", "src/devops_cli/security/__init__.py"]
+    assert [select_tests_for_sources([source], project).pytest_targets() for source in sources] == [
+        ["tests/test_credential_flow.py", "tests/test_secrets.py"],
+        ["tests/test_credential_flow.py"],
+    ]
+
+
+_FIXTURES_ONLY = "import pytest\n\n\n@pytest.fixture\ndef policy() -> str:\n    return 'deny'\n"
+_HOOK = "\n\ndef pytest_collection_modifyitems(config, items):\n    items.reverse()\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "selected"),
+    [
+        pytest.param(_FIXTURES_ONLY, ["tests/security"], id="fixtures-only"),
+        pytest.param(_FIXTURES_ONLY + _HOOK, ["tests"], id="hook"),
+        pytest.param(
+            "from tests.support.hooks import pytest_runtest_setup\n", ["tests"], id="imported-hook"
+        ),
+        pytest.param("from tests.support.hooks import *\n", ["tests"], id="star-import"),
+        pytest.param("def broken(:\n", ["tests"], id="unparsable"),
+        pytest.param(None, ["tests"], id="deleted"),
+    ],
+)
+def test_a_nested_conftest_selects_the_whole_suite_when_it_binds_a_hook(
+    project: Path, text: str | None, selected: list[str]
+) -> None:
+    """pytest calls a `pytest_*` hook of every conftest for every test, so one bound in
+    `tests/security/conftest.py`, defined or imported, can change a test in any directory; a
+    conftest of fixtures only reaches its own directory. It is read with `ast`, and one it
+    cannot read, or that imports `*`, counts as binding a hook (#1312)."""
+    (project / "tests" / "security").mkdir()
+    if text is not None:
+        (project / "tests" / "security" / "conftest.py").write_text(text, encoding="utf-8")
+    targets = select_tests_for_sources(["tests/security/conftest.py"], project).pytest_targets()
+    assert targets == selected
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        "tests/support/paths.py",
+        "tests/conftest.py",
+        "conftest.py",
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+    ],
+)
+def test_a_change_that_forces_a_full_run_selects_the_suite_without_reading_the_tests(
+    project: Path, trigger: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A change `forces_full_run` names reaches every test, so the selector returns `tests` at
+    once, listing and reading no test module for the source changed beside it (#1312)."""
+
+    def unread(self: Path, *args: object, **kwargs: object) -> NoReturn:
+        raise AssertionError(f"the selector read {self}")
+
+    for method in ("glob", "rglob", "read_text"):
+        monkeypatch.setattr(Path, method, unread)
+    selection = select_tests_for_sources(["src/devops_cli/security/secrets.py", trigger], project)
+    assert (selection.pytest_targets(), selection.unmapped_sources) == (["tests"], [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -432,33 +508,124 @@ def test_cli_test_trigger_file_conftest_forces_full_run(
     ) == (0, [], True, 0, [], True, 1, True)
 
 
-def test_cli_test_trigger_file_modified_since_build_forces_full_run(
+def test_cli_test_support_module_forces_full_run(
     monkeypatch: pytest.MonkeyPatch, project: Path
 ) -> None:
-    """A trigger file modified since build forces a full run and names the trigger file."""
+    """A module under tests/support/ forces the full suite with or without an index, as a
+    conftest does, because a fixture it registers reaches tests that never import it; with
+    --no-fallback it fails naming the file (#1312)."""
+    (project / "tests" / "support").mkdir()
+    (project / "tests" / "support" / "paths.py").write_text("ROOT = None\n", encoding="utf-8")
+    (project / "tests" / "test_paths.py").write_text(
+        "from tests.support.paths import ROOT\n", encoding="utf-8"
+    )
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
-    (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
     index_path = resolve_coverage_index_path(project)
     index = CoverageIndex(
         covering_tests={"src/a.py": ["tests/test_a.py"]},
-        source_hashes={"src/a.py": "h_a", "pyproject.toml": "h_old"},
+        source_hashes={"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
         built_at=100.0,
     )
-    save_index(index, index_path)
 
     called: list[list[str]] = []
     monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
     monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
     monkeypatch.setattr(
         "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {"src/a.py": "h_a", "pyproject.toml": "h_new"},
+        lambda root=Path("."): {"src/a.py": "h_a", "tests/support/paths.py": "h_s"},
     )
 
-    result = runner.invoke(ci_app, ["test", "src/a.py"])
+    res_no_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    targets_no_idx = [arg for arg in called[0] if arg.startswith("tests/")]
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
-    assert (result.exit_code, targets, "pyproject.toml" in result.output) == (0, [], True)
+    save_index(index, index_path)
+    res_with_idx = runner.invoke(ci_app, ["test", "tests/support/paths.py"])
+    targets_with_idx = [arg for arg in called[1] if arg.startswith("tests/")]
+
+    res_no_fb = runner.invoke(ci_app, ["test", "tests/support/paths.py", "--no-fallback"])
+
+    assert (
+        res_no_idx.exit_code,
+        targets_no_idx,
+        "tests/support/paths.py" in res_no_idx.output,
+        res_with_idx.exit_code,
+        targets_with_idx,
+        "tests/support/paths.py" in res_with_idx.output,
+        res_no_fb.exit_code,
+        "tests/support/paths.py" in res_no_fb.output,
+    ) == (0, [], True, 0, [], True, 1, True)
+
+
+@pytest.mark.parametrize("prefix", ["", "./"])
+@pytest.mark.parametrize("name", sorted(CONST_FULL_RUN_TRIGGER_NAMES))
+def test_cli_test_every_trigger_name_forces_a_full_run_as_given_or_after_a_dot_slash(
+    monkeypatch: pytest.MonkeyPatch, project: Path, name: str, prefix: str
+) -> None:
+    """With no index, each trigger name refuses under --no-fallback and runs the full suite
+    under --fallback, whether or not it is given after `./`: only that prefix is dropped, so
+    `.python-version` keeps its leading dot and stays a trigger."""
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+    monkeypatch.setattr("devops_cli.core.coverage_index.load_index", lambda _: CoverageIndex())
+
+    refused = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--no-fallback"])
+    full = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--fallback"])
+
+    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    assert (refused.exit_code, name in refused.output, full.exit_code, len(called), targets) == (
+        1,
+        True,
+        0,
+        1,
+        [],
+    )
+
+
+@pytest.mark.parametrize(
+    ("given", "normalized"),
+    [("./.python-version", ".python-version"), ("../x.py", "../x.py"), ("./src/a.py", "src/a.py")],
+)
+def test_a_relative_path_loses_only_a_leading_dot_slash(
+    tmp_path: Path, given: str, normalized: str
+) -> None:
+    assert _normalize_repo_rel_path(given, tmp_path) == normalized
+
+
+@pytest.mark.parametrize("trigger", ["tests/support/paths.py", "pyproject.toml"])
+def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
+    monkeypatch: pytest.MonkeyPatch, project: Path, trigger: str
+) -> None:
+    """Once a support module or the project's dependencies changed and were committed, the
+    index is stale, not a reason to run the whole suite on every later run: an unrelated source
+    is selected by name and import, even under --no-fallback, and the warning names the file
+    (#1312)."""
+    secrets = "src/devops_cli/security/secrets.py"
+    index = CoverageIndex(
+        covering_tests={secrets: ["tests/test_secrets.py"]},
+        source_hashes={secrets: "h_s", trigger: "h_old"},
+        built_at=100.0,
+    )
+    save_index(index, resolve_coverage_index_path(project))
+    called: list[list[str]] = []
+    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
+    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
+    monkeypatch.setattr(
+        "devops_cli.ci.cache.compute_worktree_blob_hashes",
+        lambda root=Path("."): {secrets: "h_s", trigger: "h_new"},
+    )
+
+    result = runner.invoke(ci_app, ["test", secrets, "--no-fallback"])
+
+    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests/")]
+    output = " ".join(result.output.split())
+    assert (result.exit_code, targets, trigger in output, "stale" in output) == (
+        0,
+        ["tests/test_credential_flow.py", "tests/test_secrets.py"],
+        True,
+        True,
+    )
 
 
 def test_cli_test_helper_without_index_runs_importing_tests(

@@ -12,8 +12,17 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from itertools import takewhile
 from pathlib import Path
 from typing import Final
+
+if __spec__ is None:
+    # Run as a script, which has no `__spec__` and cannot import `tests`: name the command that
+    # runs the module, its dotted name read from its path up through each package (#1312).
+    _script = Path(sys.argv[0]).resolve()
+    _packages = takewhile(lambda directory: (directory / "__init__.py").is_file(), _script.parents)
+    _module = ".".join([*reversed([package.name for package in _packages]), _script.stem])
+    sys.exit(f"Usage: uv run python -m {_module} --lower")
 
 import pytest
 
@@ -25,7 +34,7 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 
 CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
 # The module's dotted name is the same under pytest and under `python -m`, so the command follows
-# the module wherever it moves; run as a script, it could not import `tests.support` (#1312).
+# the module wherever it moves; run as a script, the module names this command and exits (#1312).
 CONST_LOWER_COMMAND: Final[str] = f"uv run python -m {__spec__.name} --lower"
 
 
@@ -417,6 +426,26 @@ def test_read_check_false_is_not_flagged(tmp_path: Path) -> None:
     )
     violations = collect_ast_unread_check_false(source_file, tmp_path)
     assert len(violations) == 0
+
+
+def test_run_as_a_script_it_names_the_module_command_and_exits_1() -> None:
+    """Python gives a script no `__spec__`, and from `tests/` it cannot import `tests.support`:
+    run so, the module prints the `-m` command that runs it and exits 1, with no traceback
+    (#1312)."""
+    script = REPO_ROOT.joinpath(*__spec__.name.split(".")).with_suffix(".py")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--lower"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert (proc.returncode, proc.stdout, proc.stderr.strip()) == (
+        1,
+        "",
+        f"Usage: {CONST_LOWER_COMMAND}",
+    )
 
 
 def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path: Path) -> None:

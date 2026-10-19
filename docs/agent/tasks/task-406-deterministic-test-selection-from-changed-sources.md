@@ -7,7 +7,7 @@
 
 ## 1. Description & Objectives
 
-`devops ci test` narrows execution to tests covering changed source files, accelerating pre-commit verification. Previously, test selection relied solely on textual grep heuristics rather than coverage profiling. This deliverable introduces an on-demand reverse coverage index built by `devops ci coverage --build-index` using `COVERAGE_CORE=ctrace` and `--cov-context=test`. `devops ci test` loads this index to deterministically map changed source files to covering test files, incorporates worktree drift since the index was created, falls back to text-based selection per unindexed source, and escalates to the full test suite when trigger files (`conftest.py`, `pyproject.toml`, `uv.lock`, `.python-version`) change.
+`devops ci test` narrows execution to tests covering changed source files, accelerating pre-commit verification. Previously, test selection relied solely on textual grep heuristics rather than coverage profiling. This deliverable introduces an on-demand reverse coverage index built by `devops ci coverage --build-index` using `COVERAGE_CORE=ctrace` and `--cov-context=test`. `devops ci test` loads this index to deterministically map changed source files to covering test files, incorporates worktree drift since the index was created, falls back to text-based selection per unindexed source, and escalates to the full test suite when trigger files (`conftest.py`, `pyproject.toml`, `uv.lock`, `.python-version`) or, since #1312, a module under `tests/support/` change (`forces_full_run` in `src/devops_cli/core/coverage_index.py`). Since #1312, a trigger that changed only since the index was built leaves the index stale instead, and the changed files are selected by text.
 
 #### Key Deliverables:
 - Exact on-demand index build: `devops ci coverage --build-index` executes with `--cov-context=test` and `COVERAGE_CORE=ctrace` in the subprocess environment, persisting a per-worktree index in the cache directory (`resolve_coverage_index_path`).
@@ -15,7 +15,7 @@
 - Query performance & path normalization: SQLite context database queries collapse contexts during SQL aggregation and normalize source file paths once per distinct path.
 - Worktree drift reconciliation: `devops ci test` calculates changed, added, or deleted files against the recorded index blob hashes, augmenting the test target selection.
 - Test helper dependency mapping: Non-test helper modules under `tests/` select importing test modules and are never passed directly to pytest.
-- Full suite trigger handling: Changes to `conftest.py`, `pyproject.toml`, `uv.lock`, or `.python-version` force a full test suite run, refusing execution when `--no-fallback` is set.
+- Full suite trigger handling: Changes to `conftest.py`, `pyproject.toml`, `uv.lock`, or `.python-version` force a full test suite run, refusing execution when `--no-fallback` is set; since #1312, a change under `tests/support/` does too (`forces_full_run` in `src/devops_cli/core/coverage_index.py`).
 - Per-source selector attribution: Selection report attributes whether coverage index or text-based selector resolved each target source file, reporting index age and drift count.
 - Unit and integration test coverage with structural tuple equality assertions.
 - Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
