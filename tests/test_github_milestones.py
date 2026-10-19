@@ -10,6 +10,7 @@ from devops_cli.commands.gh import milestones_app
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
+from tests.github_session_fakes import API
 
 runner = CliRunner()
 # Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.
@@ -157,14 +158,15 @@ def test_cli_milestones_list_names_a_failed_read(
     res = runner.invoke(milestones_app, ["list", "--repo", REPO])
     assert (
         res.exit_code,
-        f"Could not read milestones (page 1) in {REPO} (exit 1)" in res.output,
+        f"GitHub gave no readable answer to GET /repos/{REPO}/milestones"
+        in " ".join(res.output.split()),
         "No milestones found" in res.output,
         unreadable_github_roadmap,
     ) == (
         1,
         True,
         False,
-        [["api", f"repos/{REPO}/milestones?state=all&per_page=100&page=1"]],
+        [[f"{API}/repos/{REPO}/milestones?state=all&per_page=100"]],
     )
 
 

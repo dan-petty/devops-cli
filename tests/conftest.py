@@ -644,12 +644,14 @@ def roadmap_store(
 
 @pytest.fixture
 def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Open the GitHub store over a `gh` that exits 1, as when GitHub can't be read.
+    """Open the GitHub store over a `gh` that exits 1, as when GitHub can't be read, and a
+    session whose listings that `gh` answers.
 
-    Returns the argv of every `gh` command the store ran.
+    Returns the argv of every `gh` command the store ran and every listing it read.
     """
     from devops_cli.roadmap import store as roadmap_module
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
+    from tests.github_session_fakes import RunnerSession
 
     calls: list[list[str]] = []
 
@@ -661,7 +663,9 @@ def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
         roadmap_module,
         "get_roadmap_store",
         # A runner the command passes (intake's spend meter) is replaced by the failing `gh`.
-        lambda repo, runner=None, **kwargs: GitHubRoadmapStore(repo, runner=gh_exits_1, **kwargs),
+        lambda repo, runner=None, **kwargs: GitHubRoadmapStore(
+            repo, runner=gh_exits_1, **kwargs, session=RunnerSession(gh_exits_1)
+        ),
     )
     return calls
 

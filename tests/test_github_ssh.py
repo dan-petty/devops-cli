@@ -12,6 +12,7 @@ import httpx2
 import pytest
 
 from devops_cli.exceptions.git import (
+    GitHubOperationError,
     GitHubRateLimitError,
     GitHubScopeError,
     GitHubUnauthenticatedError,
@@ -316,17 +317,6 @@ def test_register_with_token_api(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.param(github_json({"id": 1}, status=201), None, id="registered"),
         pytest.param(
             github_json(
-                {
-                    "message": "Validation Failed",
-                    "errors": [{"code": "custom", "field": "key", "message": "key is in use"}],
-                },
-                status=422,
-            ),
-            None,
-            id="already-registered",
-        ),
-        pytest.param(
-            github_json(
                 {"message": "Forbidden"},
                 status=403,
                 headers={
@@ -348,7 +338,8 @@ def test_add_signing_key(
     answer: httpx2.Response,
     raised: type[Exception] | None,
 ) -> None:
-    """The signing key is one session POST; a 422 means it is already registered."""
+    """The signing key is one session POST, with the session's token; a refusal raises its
+    class."""
     github_api.route("POST", "/user/ssh_signing_keys", answer)
     with pytest.raises(raised) if raised else nullcontext():
         _add_signing_key(get_github_session(), "ssh-ed25519 AAAAC3", "Title")
@@ -357,4 +348,54 @@ def test_add_signing_key(
         {"title": "Title", "key": "ssh-ed25519 AAAAC3"},
         f"token {pin_github_session}",
         1,
+    )
+
+
+def _validation_failed(reason: str) -> httpx2.Response:
+    """GitHub's 422 for a key it won't add, with its reason."""
+    error = {"resource": "PublicKey", "code": "custom", "field": "key", "message": reason}
+    return github_json({"message": "Validation Failed", "errors": [error]}, status=422)
+
+
+@pytest.mark.parametrize(
+    ("reason", "listing", "registered"),
+    [
+        pytest.param(
+            "key is already in use",
+            github_json([{"id": 1, "key": "ssh-ed25519 AAAAC3", "title": "Title"}]),
+            True,
+            id="listed",
+        ),
+        pytest.param(
+            "key is invalid. You must supply a key in OpenSSH public key format",
+            github_json([]),
+            False,
+            id="invalid-key",
+        ),
+        pytest.param("key is already in use", github_json([]), False, id="in-use-elsewhere"),
+        pytest.param(
+            "key is already in use",
+            github_json({"message": "x"}, status=502),
+            True,
+            id="listing-unread",
+        ),
+    ],
+)
+def test_a_signing_key_422_counts_as_registered_only_when_the_session_lists_the_key(
+    github_api: GitHubApiFake, reason: str, listing: httpx2.Response, registered: bool
+) -> None:
+    """GitHub answers 422 for a key it already holds, but also for one it rejects as invalid and
+    one in use on another account. The session lists the signing keys: a listed key, or a
+    listing that can't be read, is registered, and a listing read without it raises the 422
+    (#983), as the gh path confirms its 422."""
+    github_api.route("POST", "/user/ssh_signing_keys", _validation_failed(reason))
+    github_api.route("GET", "/user/ssh_signing_keys", listing)
+    with nullcontext() if registered else pytest.raises(GitHubOperationError) as raised:
+        _add_signing_key(get_github_session(), "ssh-ed25519 AAAAC3 test@example.com", "Title")
+    assert (
+        [f"{request.method} {request.url.path}" for request in github_api.sent][:2],
+        None if registered else raised.value.details["status"],
+    ) == (
+        ["POST /user/ssh_signing_keys", "GET /user/ssh_signing_keys"],
+        None if registered else 422,
     )

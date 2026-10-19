@@ -93,6 +93,7 @@ from devops_cli.roadmap.store import (
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
+from tests.github_session_fakes import API, RunnerSession
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.web_fakes import StubWeb
@@ -1671,7 +1672,9 @@ def _github_round(
         json.dumps({"intake": t5, "close": t5, "reprioritize": t5}), encoding="utf-8"
     )
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
-    store = GitHubRoadmapStore(REPO, board_owner="example", board_number=1, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="example", board_number=1, runner=github, session=RunnerSession(github)
+    )
     return github, store
 
 
@@ -1716,10 +1719,10 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
         data_dir=tmp_path,
         now=NOW,
     )
-    assert (ran, github.graphql_calls(), [args[1].split("?")[0] for args in github.calls]) == (
+    assert (ran, github.graphql_calls(), [args[-1].split("?")[0] for args in github.calls]) == (
         (),
         [],
-        [f"repos/{REPO}/issues/events", f"repos/{REPO}/pulls", f"repos/{REPO}/releases"],
+        [f"{API}/repos/{REPO}/{listing}" for listing in ("issues/events", "pulls", "releases")],
     )
 
 
@@ -1877,7 +1880,9 @@ def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..
     monkeypatch.setattr(
         roadmap_store_module,
         "get_roadmap_store",
-        lambda repo, runner=None, **options: GitHubRoadmapStore(repo, runner=gh, **options),
+        lambda repo, runner=None, **options: GitHubRoadmapStore(
+            repo, runner=gh, **options, session=RunnerSession(gh)
+        ),
     )
 
 

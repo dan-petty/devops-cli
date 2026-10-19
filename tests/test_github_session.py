@@ -636,6 +636,41 @@ def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
     )
 
 
+def test_the_sessions_client_waits_a_public_connect_timeout_and_the_factorys_read_timeout(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub is reached over the public internet, where a lost SYN is resent after 1 s and a
+    TLS handshake on a lossy link takes longer: the factory's 1 s connect timeout, sized for
+    local services, made reads fail with `ConnectTimeout` (2026-10-19). The session's client
+    connects within `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS` and keeps the factory's read
+    timeout."""
+    from devops_cli.config import defaults
+
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    get_github_session().rest("GET", "/user")
+    (client,) = github_api.clients
+    assert (client.timeout.connect, client.timeout.read) == (
+        getattr(defaults, "DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS", None),
+        defaults.DEFAULT_HTTP_TIMEOUT_SECONDS,
+    )
+
+
+def test_a_connect_timeout_raises_the_unread_error_naming_the_endpoint_without_a_retry(
+    github_api: GitHubApiFake,
+) -> None:
+    """A connect that still times out is not retried: it raises the unread error naming the
+    endpoint and the cause, after one request."""
+    check_runs = "/repos/octo/repo/commits/abc/check-runs?per_page=100"
+    github_api.route("GET", check_runs, httpx2.ConnectTimeout)
+    with pytest.raises(GitHubUnreadError) as raised:
+        list(get_github_session().paginate(check_runs, iterable_key="check_runs"))
+    assert (
+        raised.value.details["path"],
+        f"{check_runs} (page 1): ConnectTimeout" in raised.value.message,
+        len(github_api.sent),
+    ) == (check_runs, True, 1)
+
+
 def test_the_fake_github_api_and_stub_web_refuse_to_share_a_test(
     github_api: GitHubApiFake, request: pytest.FixtureRequest
 ) -> None:

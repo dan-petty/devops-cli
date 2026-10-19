@@ -90,6 +90,7 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
+from tests.github_session_fakes import API, RunnerSession
 from tests.roadmap_board_fake import GitHubFake, field_id
 
 REPO = "example/roadmap"
@@ -1200,7 +1201,7 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
     steps = [
         "Dry run: no request was made",
         f"gh api -H 'Accept: application/vnd.github.raw+json' repos/{REPO}/contents/.github/roadmap.toml",
-        f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
+        f"GET 'https://api.github.com/repos/{REPO}/milestones?state=all&per_page=100' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
         f"{REPO}/contents/.github/labels.yml",
@@ -1373,18 +1374,18 @@ def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
     replies = {"search/issues": '{"total_count": 0, "incomplete_results": false}'}
 
     def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        ran.append(("gh", *args))
+        ran.append(("GET", *args) if args[0].startswith(API) else ("gh", *args))
         stdout = next((reply for key, reply in replies.items() if key in args), "[]")
         return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
-    store = GitHubRoadmapStore(REPO, runner=gh)
+    store = GitHubRoadmapStore(REPO, runner=gh, session=RunnerSession(gh))
     store.repository_file(".github/roadmap.toml", ref="v0.2.26")
     store.releases()
     store.issues()
     store.count_issues(IssueQuery(state=GitHubState.OPEN))
     store.repository_file(".github/labels.yml", ref="v0.2.26")
     planned = dry_run_intake(REPO, ref="v0.2.26").requests
-    shown = {tuple(arg.replace("<n>", "1") for arg in r.argv) for r in planned if r.argv}
+    shown = {r.argv for r in planned if r.argv}
     assert (len(ran), set(ran) <= shown) == (5, True)
 
 
@@ -1975,7 +1976,9 @@ def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadma
             card={"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"},
         )
     owner = REPO.split("/")[0]
-    return github, GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    return github, GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
 
 
 def _intake_on_github(
@@ -2089,7 +2092,9 @@ def test_an_issue_whose_card_a_person_archived_is_placed_in_one_round_on_that_ca
     placed = github.card(1) or {}
     second = len(github.calls)
     owner = REPO.split("/")[0]
-    later = GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    later = GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
     again, apply_again = _intake_on_github(later, FakeModel())
     assert (
         applied.placed,
