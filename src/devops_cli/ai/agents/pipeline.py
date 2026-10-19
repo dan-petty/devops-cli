@@ -3,9 +3,9 @@
 Example:
     >>> from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     >>> from devops_cli.ai.agents.agent import PydanticAgent
-    >>> from devops_cli.ai.client import LLMClient
+    >>> from devops_cli.ai.client import get_llm_client
     >>>
-    >>> client = LLMClient()
+    >>> client = get_llm_client()
     >>> agent = PydanticAgent(
     ...     client=client, name="DevSecOps", system_prompt="Review code security."
     ... )

@@ -490,10 +490,10 @@ class Advisor(BaseCapability):
             return str(res)
 
         try:
-            from devops_cli.config.settings import get_llm_client
+            from devops_cli.ai.client import get_llm_client
 
             client = get_llm_client()
-            resp = client.chat(f"{self.instructions}\n\nTask: {prompt}")
+            resp = client.chat(self.instructions, f"Task: {prompt}")
             return str(getattr(resp, "content", str(resp)))
         except Exception:
             return f"Advisor [{model_target}] guidance: analysis complete for prompt."

@@ -1048,7 +1048,12 @@ def model_request_sync(
     **kwargs: Any,
 ) -> LLMResponse:
     """Make a direct, synchronous request to a model without an agent wrapper."""
-    llm_client = client or LLMClient(config=AIConfig(model=model, **kwargs))
+    if client is not None:
+        llm_client = client
+    else:
+        from devops_cli.ai.client.factory import get_llm_client
+
+        llm_client = get_llm_client(model=model, **kwargs)
     if isinstance(prompt_or_messages, str):
         return llm_client.chat(system_prompt, prompt_or_messages, enable_thinking=enable_thinking)
     return llm_client.chat_messages(

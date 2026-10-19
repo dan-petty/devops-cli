@@ -39,7 +39,7 @@ from devops_cli.ai.analyze.symbols import (
     change_symbol_delta,
     with_symbol_delta,
 )
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.client.network import limit_completion_tokens, uses_gateway_slots
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
@@ -2472,7 +2472,7 @@ class ReviewPipelineOrchestrator:
         if not is_dry_run():
             self.session_dir.mkdir(parents=True, exist_ok=True)
             self.files_dir.mkdir(parents=True, exist_ok=True)
-        self.llm_client: ReviewLLMClient = llm_client or LLMClient()
+        self.llm_client: ReviewLLMClient = llm_client or get_llm_client(task="review")
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}

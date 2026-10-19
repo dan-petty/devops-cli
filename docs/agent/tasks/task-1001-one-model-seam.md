@@ -15,7 +15,7 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - **Contract suite (`tests/test_model_contract.py`).** Tests the promises of the model edge: completion, streaming, thinking extraction, finish reason mapping, token usage, error propagation, sequential answering, pattern routing, deterministic unit-normalized embeddings, and model listing. Validates both `ModelFake` and real implementations (`pydantic_ai.models.test.TestModel`, `LLMClient` over recorded frames) offline without network.
 - **Conftest fixture held.** Edits to `tests/conftest.py` and the shared `model_fake` pytest fixture are held until #1312 PR 3 merges (which registers `tests/support/` modules as plugins and refactors the root conftest).
 
-**Part 2: Provider adapters with egress factory, direct spend tracking, and private import retirements (this PR).**
+**Part 2: Provider adapters with egress factory, direct spend tracking, and private import retirements (PR #1702, merged).**
 
 - **Egress factory injection (`src/devops_cli/ai/providers/__init__.py`).** `create_pydantic_ai_provider` injects `http_client=new_async_http_client(level=level)` on providers whose constructor accepts `http_client` (`OpenAIProvider`, `AnthropicProvider`, `OllamaProvider`, etc.), enforcing bounded timeouts, connection pooling, and SSRF guardrails through the egress factory.
 - **Direct spend tracking rebuild (`src/devops_cli/ai/direct.py`).** Direct completion (`direct_model_request_sync`, `direct_model_request`) and streaming (`direct_model_request_stream_sync`, `direct_model_request_stream`) track model spend into the ledger with accurate metadata (extracting provider from model system, server from base URL, served-by from gateway tags, finish reason, and token usage). Stream spend records upon generator completion inside `try...finally`.
@@ -23,10 +23,16 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - **Retire private pydantic-ai imports.** Replaced `pydantic_ai._run_context` with public `from pydantic_ai import RunContext as NativeRunContext` in `src/devops_cli/ai/agents/agent.py` and `context.py`. Retired redundant `resolve_model_id_sync` reaching `_models_by_id` in `src/devops_cli/ai/durable.py` in favor of public async `resolve_model_id`.
 - **Constants update (`src/devops_cli/config/constants.py`).** Removed `"direct"` from `CONST_LOCAL_TRANSPORT_LABELS` so direct requests record true provider and server attribution rather than classifying as local/none.
 
+**Part 3: Client factory consolidation and deleting `config/settings.py:get_llm_client` (this PR).**
+
+- **The factory (`src/devops_cli/ai/client/factory.py`).** Implements `get_llm_client(task, config, settings, model, api_key, cache_enabled, **kwargs)` and alias `build_llm_client`. Builds clients per task with active settings, task-specific configurations, API keys from settings/keyring/env, model overrides, and cache controls.
+- **Deleting `config/settings.py:get_llm_client`.** Removed `get_llm_client` from `config/settings.py`, eliminating the circular coupling from `config` into `ai/client`. Re-exported `get_llm_client` and `build_llm_client` directly in `devops_cli.ai.client`.
+- **Routing inline constructions.** Replaced all 26 inline `LLMClient(...)` instantiations across `src/devops_cli/` (`ai/agents/agent.py`, `ai/benchmark/runner.py`, `ai/chaos/injector.py`, `ai/client/unified.py`, `ai/pydantic_ai_bridge.py`, `ai/review/pipeline.py`, `ai/review/runner.py`, `commands/ai.py`, `commands/analyze.py`, `roadmap/intake_model.py`, `roadmap/refine.py`) with `get_llm_client(...)`.
+- **Unit tests (`tests/test_ai_client_factory.py`).** Comprehensive unit tests verifying factory defaults, task routing, explicit configurations, model overrides, key propagation, and the absence of `get_llm_client` on `config.settings`.
+
 **Subsequent parts of #1001.**
 
-- Conftest fixture registration and test suite migration: PR 3 of #1001 (once #1312 PR 3 merges).
-- Factory consolidation (`src/devops_cli/ai/client/factory.py`), removing inline `LLMClient(...)` instantiations, deleting `config/settings.py:get_llm_client`: PR 4 of #1001.
+- Conftest fixture registration and test suite migration: PR 4 of #1001 (once #1312 PR 3 merges).
 - Final caller cleanups, changelog fragment `changelog.d/1001.md`, and issue close: PR 5 of #1001.
 
 ## Acceptance Criteria
@@ -38,8 +44,10 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - [x] `create_pydantic_ai_provider` injects `http_client` from the egress factory into pydantic-ai providers accepting it.
 - [x] Direct spend tracking in `src/devops_cli/ai/direct.py` attributes provider, server, served-by, tokens, and finish reason across sync, async, and streaming direct requests.
 - [x] Retired private `pydantic_ai._run_context` and `_models_by_id` references in `src/devops_cli/ai/`.
+- [x] One factory in `src/devops_cli/ai/client/factory.py` builds clients per task.
+- [x] `config/settings.py:get_llm_client` is deleted, and `get_llm_client` is re-exported from `devops_cli.ai.client`.
+- [x] All inline `LLMClient(...)` constructions in `src/` are routed to `get_llm_client`.
 - Conftest fixture `model_fake`: held until #1312 PR 3 merges.
-- Client factory consolidation and removal of inline `LLMClient(...)` calls: subsequent PR of #1001.
 - Changelog fragment `changelog.d/1001.md`: final PR of #1001 that closes the issue.
 - Pending a person: `devops ai chat`, one `devops review path`, and `devops rag query` run against the gateway and against a local Ollama.
 
@@ -51,9 +59,12 @@ Tests double only process edges through seams (ADR 0007). The model edge is one 
 - [x] `src/devops_cli/ai/providers/__init__.py`: Inject egress factory HTTP client into providers.
 - [x] `src/devops_cli/ai/direct.py`: Rebuilt direct spend tracking with provider/server attribution and streaming spend recording.
 - [x] `src/devops_cli/ai/pydantic_ai_bridge.py`: Gateway `served_by` tagging.
-- [x] `src/devops_cli/ai/agents/agent.py`: Public `RunContext` import.
+- [x] `src/devops_cli/ai/agents/agent.py`: Public `RunContext` import and `get_llm_client` routing.
 - [x] `src/devops_cli/ai/agents/context.py`: Public `RunContext` import.
 - [x] `src/devops_cli/ai/durable.py`: Retired private `_models_by_id` sync method.
 - [x] `src/devops_cli/config/constants.py`: Removed `"direct"` from `CONST_LOCAL_TRANSPORT_LABELS`.
-- [x] `docs/agent/tasks/task-1001-one-model-seam.md`: Task tracking file for Part 1 & Part 2 of #1001.
-- PR 3 to PR 5: see Description.
+- [x] `src/devops_cli/ai/client/factory.py`: Client factory `get_llm_client` and `build_llm_client`.
+- [x] `src/devops_cli/config/settings.py`: Deleted `get_llm_client`.
+- [x] `tests/test_ai_client_factory.py`: Unit tests for factory functions.
+- [x] `docs/agent/tasks/task-1001-one-model-seam.md`: Task tracking file for Part 1, 2, and 3 of #1001.
+- PR 4 to PR 5: see Description.

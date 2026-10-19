@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.research.models import (
     CausalEdge,
     CausalGraph,
@@ -18,7 +19,6 @@ from devops_cli.ai.research.models import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AI_RESEARCH_DIR
-from devops_cli.config.settings import get_llm_client
 
 _DEFAULT_SYNTHESIS_SYSTEM = (
     "You are a causal reasoning and state machine synthesis engine for software engineering. "

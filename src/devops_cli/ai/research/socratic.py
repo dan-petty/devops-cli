@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.research.models import (
     SocraticInquiryResult,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AI_SOCRATIC_MAX_PROBES
-from devops_cli.config.settings import get_llm_client
 
 _DEFAULT_SOCRATIC_SYSTEM = (
     "You are a metacognitive Socratic inquiry engine for software engineering tasks. "

@@ -18,7 +18,7 @@ from pydantic_ai.usage import UsageLimits
 
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.capabilities import BaseCapability
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.governance import TokenBucketGovernance, TokenBudgetConfig
 from devops_cli.ai.personas import PERSONAS, Persona
@@ -275,7 +275,7 @@ def _fallback_pydantic_agent(
     max_concurrency: AnyConcurrencyLimit,
 ) -> Any:
     """Construct fallback PydanticAgent when native PydanticAI Agent fails to initialize."""
-    active_client = client or LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    active_client = client or get_llm_client(settings=settings)
     name_suffix = target_model if target_model else "default"
     return PydanticAgent(
         client=active_client,
