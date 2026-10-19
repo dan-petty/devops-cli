@@ -133,6 +133,16 @@ def create_pydantic_ai_provider(
     if api_key is not None:
         init_kwargs["api_key"] = api_key
 
+    import inspect
+
+    sig = inspect.signature(provider_cls.__init__)
+    if "http_client" in sig.parameters and "http_client" not in init_kwargs:
+        from devops_cli.http.client import new_async_http_client
+        from devops_cli.http.egress import EgressLevel
+
+        level = EgressLevel.PRIVATE if allow_private_network else EgressLevel.LOOPBACK
+        init_kwargs["http_client"] = new_async_http_client(level=level)
+
     return provider_cls(**init_kwargs)
 
 

@@ -140,7 +140,10 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
         )
 
     try:
-        return infer_model(name, provider_factory=_provider_factory)
+        model_obj = infer_model(name, provider_factory=_provider_factory)
+        if active_settings.ai.provider == CONST_AI_GATEWAY_PROVIDER or _gateway_prefix(model_str):
+            setattr(model_obj, "served_by", base_url)
+        return model_obj
     except (InvalidURLError, SSRFBlockedError) as exc:
         reason = exc.details.get("reason", exc.message)
         raise ConfigurationError(

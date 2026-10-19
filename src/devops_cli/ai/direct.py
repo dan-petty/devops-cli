@@ -83,6 +83,53 @@ def to_model_messages(
     return model_msgs
 
 
+def _model_spend_metadata(resolved_model: Any) -> tuple[str, str, str | None]:
+    """Extract (provider, server, served_by) for spend tracking from a resolved Model (#1001)."""
+    provider = getattr(resolved_model, "system", None)
+    if not provider:
+        if isinstance(resolved_model, str):
+            prefix, sep, _ = resolved_model.partition(":")
+            provider = prefix if sep else "test"
+        else:
+            provider = getattr(resolved_model, "backend_type", "openai")
+    base_url = (
+        getattr(resolved_model, "base_url", None)
+        or getattr(getattr(resolved_model, "provider", None), "base_url", None)
+        or getattr(getattr(resolved_model, "client", None), "base_url", None)
+    )
+    server = str(base_url) if base_url else "localhost"
+    served_by = getattr(resolved_model, "served_by", None)
+    return str(provider), server, served_by
+
+
+def _record_direct_spend(
+    resolved_model: Any,
+    model_repr: str,
+    usage: Any,
+    request_type: str,
+    started: float,
+    finish_reason: Any = None,
+) -> None:
+    """Record spend for a direct model request or stream (#1001)."""
+    if not usage:
+        return
+    from devops_cli.ai.spend import current_stage, track_request_spend
+
+    provider, server, served_by = _model_spend_metadata(resolved_model)
+    track_request_spend(
+        provider=provider,
+        model=model_repr,
+        server=server,
+        served_by=served_by,
+        prompt_tokens=getattr(usage, "input_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "output_tokens", 0) or 0,
+        request_type=request_type,
+        duration_seconds=time.monotonic() - started,
+        stage=current_stage.get(),
+        finish_reason=finish_reason,
+    )
+
+
 def direct_model_request_sync(
     prompt_or_messages: str | Sequence[ModelMessage | ChatMessage | Any],
     model: Model | KnownModelName | str | None = None,
@@ -112,20 +159,14 @@ def direct_model_request_sync(
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         )
-        if resp.usage:
-            from devops_cli.ai.spend import current_stage, track_request_spend
-
-            track_request_spend(
-                provider="pydantic_ai_direct",
-                model=model_repr,
-                server="direct",
-                prompt_tokens=resp.usage.input_tokens or 0,
-                completion_tokens=resp.usage.output_tokens or 0,
-                request_type="direct_sync",
-                duration_seconds=time.monotonic() - started,
-                stage=current_stage.get(),
-                finish_reason=resp.finish_reason,
-            )
+        _record_direct_spend(
+            resolved_model,
+            model_repr,
+            resp.usage,
+            "direct_sync",
+            started,
+            resp.finish_reason,
+        )
         return resp
 
 
@@ -158,20 +199,14 @@ async def direct_model_request(
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         )
-        if resp.usage:
-            from devops_cli.ai.spend import current_stage, track_request_spend
-
-            track_request_spend(
-                provider="pydantic_ai_direct",
-                model=model_repr,
-                server="direct",
-                prompt_tokens=resp.usage.input_tokens or 0,
-                completion_tokens=resp.usage.output_tokens or 0,
-                request_type="direct_async",
-                duration_seconds=time.monotonic() - started,
-                stage=current_stage.get(),
-                finish_reason=resp.finish_reason,
-            )
+        _record_direct_spend(
+            resolved_model,
+            model_repr,
+            resp.usage,
+            "direct_async",
+            started,
+            resp.finish_reason,
+        )
         return resp
 
 
@@ -196,6 +231,7 @@ def direct_model_request_stream_sync(
         "pydantic_ai.direct.model_request_stream_sync",
         attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
+        started = time.monotonic()
         with model_request_stream_sync(
             resolved_model,
             msgs,
@@ -203,9 +239,21 @@ def direct_model_request_stream_sync(
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         ) as stream:
-            for event in stream:
-                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    yield event.delta.content_delta
+            try:
+                for event in stream:
+                    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                        yield event.delta.content_delta
+            finally:
+                resp = getattr(stream, "response", None)
+                finish_reason = getattr(resp, "finish_reason", None)
+                _record_direct_spend(
+                    resolved_model,
+                    model_repr,
+                    getattr(stream, "usage", None),
+                    "direct_stream_sync",
+                    started,
+                    finish_reason,
+                )
 
 
 async def direct_model_request_stream(
@@ -229,6 +277,7 @@ async def direct_model_request_stream(
         "pydantic_ai.direct.model_request_stream",
         attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
+        started = time.monotonic()
         async with model_request_stream(
             resolved_model,
             msgs,
@@ -236,9 +285,21 @@ async def direct_model_request_stream(
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         ) as stream:
-            async for event in stream:
-                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    yield event.delta.content_delta
+            try:
+                async for event in stream:
+                    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                        yield event.delta.content_delta
+            finally:
+                resp = getattr(stream, "response", None)
+                finish_reason = getattr(resp, "finish_reason", None)
+                _record_direct_spend(
+                    resolved_model,
+                    model_repr,
+                    getattr(stream, "usage", None),
+                    "direct_stream_async",
+                    started,
+                    finish_reason,
+                )
 
 
 def extract_response_text(response: ModelResponse) -> str:
