@@ -1776,6 +1776,155 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
     ) == ([Outcome.SKIP, Outcome.PLACE], True, None, "P2-Medium")
 
 
+def test_off_list_type_retries_once_and_files_valid_second_reply(roadmap: Roadmap) -> None:
+    """A proposal with an off-list type is retried once with feedback; a valid second reply
+    places the candidate after exactly two calls (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/infra"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("perf(ci): faster hook")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    assert (
+        decision.outcome,
+        decision.shown[0],
+        len(client.calls),
+        "type 'type/perf' is not one of" in client.calls[1],
+        "type/infra" in _labels(roadmap, issue),
+    ) == (Outcome.PLACE, "type/infra", 2, True, True)
+
+
+def test_two_off_list_replies_skip_candidate_with_both_problems_in_report(roadmap: Roadmap) -> None:
+    """Two off-list replies skip the candidate with both problems named in the report (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/unknown"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("perf(ci): bad type twice")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    report = render_intake(plan, repo=REPO)
+    assert (
+        decision.outcome,
+        len(client.calls),
+        "type 'type/perf' is not one of" in decision.reason,
+        "type 'type/unknown' is not one of" in decision.reason,
+        "type 'type/perf' is not one of" in report,
+        "type 'type/unknown' is not one of" in report,
+        roadmap.store.item(issue) is None,
+    ) == (Outcome.SKIP, 2, True, True, True, True, True)
+
+
+def test_off_list_value_or_effort_is_retried_the_same_way(roadmap: Roadmap) -> None:
+    """An off-list value or effort is retried once with feedback (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"value": "Enormous"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"value": "High"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("feat: big thing")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    assert (
+        decision.outcome,
+        decision.shown[2],
+        len(client.calls),
+        "value 'Enormous' is not one of" in client.calls[1],
+        roadmap.fields(issue)[2],
+    ) == (Outcome.PLACE, "High", 2, True, "High")
+
+
+def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
+    board: Roadmap, fake_model: FakeModel, tmp_path: Path
+) -> None:
+    """devops roadmap intake --title ... --body-file ... --confirm exits non-zero when the candidate
+    is skipped (#1677)."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("candidate body", encoding="utf-8")
+    fake_model.proposals["perf(ci): fail"] = {"type": "type/perf"}
+    output = _intake(
+        "--title",
+        "perf(ci): fail",
+        "--body-file",
+        str(body_file),
+        "--confirm",
+        exit_code=1,
+    )
+    assert "skipped, nothing written" in output
+
+
+def test_intake_confirm_over_existing_issues_exits_zero_when_skipped(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """A run over existing candidates keeps exit 0 and lists its skips (#1677)."""
+    issue = board.issue("perf(ci): existing issue")
+    fake_model.proposals["perf(ci): existing issue"] = {"type": "type/perf"}
+    output = _intake("--confirm", exit_code=0)
+    assert f"#{issue} perf(ci): existing issue: skipped, nothing written" in output
+
+
+def test_intake_plan_counts_retry_as_one_more_model_call(
+    board: Roadmap, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--plan counts retry as one more model call in spend line, and --dry-run makes no request (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/infra"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    monkeypatch.setattr(roadmap_command, "build_intake_model", lambda: model)
+    board.issue("perf(ci): planned retry")
+    plan_output = _intake("--plan")
+    assert "2 proposal call(s)" in plan_output
+    assert len(client.calls) == 2
+
+
 def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: Roadmap) -> None:
     original = roadmap.finished("Cache embeddings")
     copy = roadmap.issue("Keep embeddings cached")
