@@ -114,16 +114,18 @@ def _write_package(root: Path, files: dict[str, str]) -> ModuleType:
 def test_a_support_package_that_fails_to_import_fails_the_registration_naming_it(
     support_under_test: Path,
 ) -> None:
-    """Registration walks into subpackages and imports every module there, and one that fails
-    to import fails the registration, named by `import_plugin`, instead of being skipped
-    (#1312)."""
+    """Registration walks into subpackages and imports every module there that could give
+    pytest a fixture or hook, and one that fails to import fails the registration, named by
+    `import_plugin`, instead of being skipped (#1312)."""
     package = _write_package(
         support_under_test,
         {
             "__init__.py": "",
             "plain.py": "VALUE = 1\n",
             "broken/__init__.py": "",
-            "broken/inner.py": "raise ImportError('a name the module needs is gone')\n",
+            "broken/inner.py": (
+                "import pytest\n\nraise ImportError('a name the module needs is gone')\n"
+            ),
         },
     )
     with pytest.raises(ImportError) as raised:
@@ -132,6 +134,24 @@ def test_a_support_package_that_fails_to_import_fails_the_registration_naming_it
         f'"{_SUPPORT_UNDER_TEST}.broken.inner"' in str(raised.value),
         "a name the module needs is gone" in str(raised.value),
     ) == (True, True)
+
+
+def test_a_plain_helper_is_left_for_its_importers_to_load(support_under_test: Path) -> None:
+    """A support module that defines no fixture or hook and imports neither pytest nor another
+    support module is not imported at registration, so a heavy helper such as the model fake
+    costs a run nothing until a test imports it (#1735)."""
+    package = _write_package(
+        support_under_test,
+        {"__init__.py": "", "helper.py": "raise ImportError('imported at start-up')\n"},
+    )
+    pluginmanager = pytest.PytestPluginManager()
+
+    register_support_plugins(pluginmanager, package)
+
+    assert (
+        pluginmanager.get_plugin(f"{_SUPPORT_UNDER_TEST}.helper"),
+        f"{_SUPPORT_UNDER_TEST}.helper" in sys.modules,
+    ) == (None, False)
 
 
 _FIXTURE_DEFS = "import pytest\n\n\n@pytest.fixture\ndef identity() -> str:\n    return 'nobody'\n"

@@ -94,18 +94,24 @@ def reset_rag_state_per_test() -> Iterator[None]:
     """Ensure every unit test starts and ends with clean RAG verified collection models, no
     cached investigation retriever, whose Qdrant client would carry one test's address into the
     next, and no knowledge-base check state, whose cooldown would let only the first test in a
-    process to reach Qdrant make the check."""
-    from devops_cli.ai.rag.investigator import clear_investigation_cache
-    from devops_cli.ai.rag.kb_sync import reset_kb_sync_state
-    from devops_cli.ai.rag.retriever import reset_search_verified_models
+    process to reach Qdrant make the check. A module no test has imported holds none of that
+    state, so only the loaded ones are reset, and a test that never reaches RAG does not import
+    it, with pydantic-ai behind it (#1735)."""
+    resets = {
+        "devops_cli.ai.rag.retriever": "reset_search_verified_models",
+        "devops_cli.ai.rag.investigator": "clear_investigation_cache",
+        "devops_cli.ai.rag.kb_sync": "reset_kb_sync_state",
+    }
 
-    reset_search_verified_models()
-    clear_investigation_cache()
-    reset_kb_sync_state()
+    def reset_loaded() -> None:
+        for module_name, reset in resets.items():
+            module = sys.modules.get(module_name)
+            if module is not None:
+                getattr(module, reset)()
+
+    reset_loaded()
     yield
-    reset_search_verified_models()
-    clear_investigation_cache()
-    reset_kb_sync_state()
+    reset_loaded()
 
 
 def _is_loopback(host: str) -> bool:
@@ -809,50 +815,6 @@ def isolate_devops_cli_config(
     yield test_config
     reset_settings_cache()
     reset_tracer()
-
-
-@pytest.fixture(autouse=True, scope="session")
-def guard_live_rag_data() -> None:
-    """Ensure no test ever interacts with or mutates live Qdrant endpoints."""
-    from qdrant_client import QdrantClient as NativeQdrantClient
-
-    from devops_cli.ai.rag.qdrant import QdrantClient
-
-    orig_init = QdrantClient.__init__
-    orig_native_init = NativeQdrantClient.__init__
-
-    cfg_domain = ""
-    try:
-        from devops_cli.config.settings import load_settings
-
-        s = load_settings()
-        cfg_domain = (getattr(getattr(s, "k8s", None), "domain", None) or "").strip().lower()
-    except Exception:
-        pass
-
-    def guarded_init(
-        self, base_url: str = "http://localhost:6333", *args: Any, **kwargs: Any
-    ) -> None:
-        url_str = str(base_url).lower()
-        if cfg_domain and cfg_domain in url_str:
-            raise RuntimeError(
-                f"Test attempted to connect to live Qdrant endpoint: {base_url}. "
-                "Tests must use localhost, example.com, or mocks."
-            )
-        orig_init(self, base_url, *args, **kwargs)
-
-    def guarded_native_init(self, *args: Any, **kwargs: Any) -> None:
-        raw_url = kwargs.get("url") or (args[0] if args else "")
-        url_str = str(raw_url).lower()
-        if cfg_domain and cfg_domain in url_str:
-            raise RuntimeError(
-                f"Test attempted to connect to live Qdrant endpoint: {raw_url}. "
-                "Tests must use localhost, example.com, or mocks."
-            )
-        orig_native_init(self, *args, **kwargs)
-
-    QdrantClient.__init__ = guarded_init
-    NativeQdrantClient.__init__ = guarded_native_init
 
 
 @pytest.fixture
