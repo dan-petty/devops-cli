@@ -1894,6 +1894,9 @@ class RoadmapMessages:
         "Quota: {quota}."
     )
     intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
+    intake_possible_duplicate_line: str = (
+        "- {subject}: possible duplicate of #{original}, left for a person: {reason}"
+    )
     intake_duplicate_closes: str = "It is closed as a duplicate."
     intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
     intake_fold_line: str = (

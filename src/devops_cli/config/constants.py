@@ -2976,6 +2976,7 @@ CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: re
 CONST_ROADMAP_INTAKE_DUPLICATE_MARKER: Final[str] = "<!-- devops roadmap intake: duplicate -->"
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
+CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"
 # The agent filing quota's labels (#1153): an agent's candidate, and one opened beyond the allowance.
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
 CONST_ROADMAP_BORROWED_LABEL: Final[str] = "budget/borrowed"

@@ -10,11 +10,15 @@ gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as i
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
 also compared with the open agent issues off the board, which a run that stopped after filing
 leaves. Each text is embedded once, and the model judges the candidate against its nearest
-`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a
-duplicate of the original, with one comment, and stays off the board; a new candidate that is a
-duplicate is not filed. An unfinished item, and an issue whose timeline shows a duplicate close
-that a person reversed by reopening it, skip the check. A new candidate whose text holds what
-looks like a secret is refused before it reaches a model or GitHub.
+`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
+board; a new candidate that is a duplicate is not filed. An unfinished item, and an issue whose
+timeline shows a duplicate close that a person reversed by reopening it, skip the check. An
+existing issue a person planned (a milestone a person set, or a Priority a person set on its
+card or label) is never closed as a duplicate; intake reports it as a possible duplicate left for
+a person, places nothing else for it, and writes nothing (#1686). A duplicate pair closes the
+newer issue, never the older: when the model names an original newer than the candidate, intake
+reports the pair as a possible duplicate and closes nothing. A new candidate whose text holds
+what looks like a secret is refused before it reaches a model or GitHub.
 
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
 with a one-line reason, and optionally one piece of evidence. The types it may pick are the
@@ -114,6 +118,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITY,
+    CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
     CONST_ROADMAP_STATUS_NEW,
@@ -157,6 +162,7 @@ from devops_cli.roadmap.reprioritize import (
     admission_event,
     current_release,
     decide,
+    placed_by_person,
     release_state,
 )
 from devops_cli.roadmap.store import (
@@ -372,11 +378,12 @@ class IntakeDecision:
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
     reasons: tuple[tuple[str, str, str], ...] = ()
+    held: bool = False
 
     @property
     def has_writes(self) -> bool:
         if self.outcome is Outcome.DUPLICATE:
-            return self.subject.number is not None
+            return self.subject.number is not None and not self.held
         return self.outcome is Outcome.PLACE
 
     @property
@@ -388,6 +395,8 @@ class IntakeDecision:
         """Each write, in the order intake makes it."""
         texts = MESSAGES.roadmap
         if self.outcome is Outcome.DUPLICATE:
+            if self.held:
+                return []
             close = texts.intake_write_close if self.comment else texts.intake_write_close_only
             return [close.format(original=self.original)]
         filing = ", ".join(self.filing_labels) or texts.intake_no_labels
@@ -1088,6 +1097,28 @@ def _rejected(named: int | None) -> tuple[str, ...]:
     return (MESSAGES.roadmap.intake_note_duplicate_rejected.format(number=named),)
 
 
+def _has_person_milestone(subject: Subject) -> bool:
+    if subject.item is not None:
+        return placed_by_person(subject.item)
+    return subject.release is not None
+
+
+def _has_person_priority(subject: Subject) -> bool:
+    if any(lb.lower().startswith(CONST_ROADMAP_PRIORITY_LABEL_PREFIX) for lb in subject.labels):
+        return True
+    if subject.item is not None and subject.item.priority is not None:
+        record = subject.item.job_record
+        return (
+            ItemField.PRIORITY not in record or record[ItemField.PRIORITY] != subject.item.priority
+        )
+    return False
+
+
+def _is_planned_by_person(subject: Subject) -> bool:
+    """Whether a person planned the candidate: set its milestone, or Priority on card or label."""
+    return _has_person_milestone(subject) or _has_person_priority(subject)
+
+
 @dataclass
 class _Planner:
     """Decides each candidate in turn; one it places joins the comparison set. With
@@ -1188,6 +1219,17 @@ class _Planner:
     def _duplicate(self, subject: Subject, original: int, reason: str) -> IntakeDecision:
         """A duplicate, which for an agent's candidate is the quota's fold into its original;
         its comment is left out when a stopped run already left it."""
+        if subject.number is not None and (
+            _is_planned_by_person(subject) or subject.number < original
+        ):
+            return IntakeDecision(
+                subject,
+                Outcome.DUPLICATE,
+                quota=QuotaDecision.NOT_COUNTED,
+                original=original,
+                reason=reason,
+                held=True,
+            )
         marker = CONST_ROADMAP_INTAKE_DUPLICATE_MARKER
         comment = (
             None
@@ -1418,7 +1460,11 @@ def _apply_decision(
     store: RoadmapStore, decision: IntakeDecision, refine_hook: Callable[[RoadmapStore, int], Any]
 ) -> IntakeApplied:
     """One candidate's writes, and what they wrote."""
-    if decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
+    if (
+        decision.outcome is Outcome.DUPLICATE
+        and decision.subject.number is not None
+        and not decision.held
+    ):
         assert decision.original is not None
         store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
         return IntakeApplied(closed=1)
@@ -1537,6 +1583,12 @@ def _decision_lines(decision: IntakeDecision, standing: QuotaStanding) -> list[s
     if decision.outcome is Outcome.FOLD:
         return [_fold_line(decision, standing)]
     if decision.outcome is Outcome.DUPLICATE:
+        if decision.held:
+            return [
+                texts.intake_possible_duplicate_line.format(
+                    subject=subject, original=decision.original, reason=decision.reason
+                )
+            ]
         action = (
             texts.intake_duplicate_closes
             if decision.subject.number is not None
