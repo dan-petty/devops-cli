@@ -13,6 +13,9 @@ import os
 # OpenBLAS parks an idle thread per CPU in each process that loads numpy, against pids.max.
 # pytest-randomly (`devops ci test --repeat`) loads numpy before this line, so that run keeps them.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+# Textual reads its animation level once, on import. Off, a tab switch moves its underline at once
+# instead of over 0.3 s of frames that the pilot waits out after every key and pause (#1725).
+os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
 import functools

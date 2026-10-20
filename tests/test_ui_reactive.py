@@ -82,6 +82,7 @@ from devops_cli.ui.state import DashboardState, DomainSnapshot
 from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
 from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
 from tests.k8s_fakes import status as container_status
+from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 # =============================================================================
 # Fixtures
@@ -1218,14 +1219,20 @@ def patched_fetchers(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
     return apply
 
 
-async def _settle(pilot: Any, predicate: Callable[[], bool], timeout: float = 10.0) -> bool:
-    """Pump the UI until a predicate holds, so tests do not depend on a fixed sleep."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await pilot.pause(0.05)
-    return predicate()
+async def _settle(pilot: Any, predicate: Callable[[], bool]) -> bool:
+    """Pump the UI until a predicate holds, so tests do not depend on a fixed sleep.
+
+    The predicate is read again every poll interval, as `tests.support.waits.wait_until` does,
+    but between reads the UI keeps running: a blocking wait would stall the app the predicate
+    waits on. A passing test returns as soon as the predicate holds; only a failing one waits
+    out the bound.
+    """
+    deadline = time.monotonic() + THREAD_HANDOFF_BOUND_SECONDS
+    while not predicate():
+        if time.monotonic() >= deadline:
+            return False
+        await pilot.pause(POLL_INTERVAL_SECONDS)
+    return True
 
 
 @pytest.mark.asyncio
@@ -1464,6 +1471,23 @@ async def _stream_into(pilot: Any, pane: LogPane, lines: list[str]) -> None:
     pane.start_stream(lambda: iter(lines))
     await _settle(pilot, lambda: pane.buffer.total_appended >= len(lines))
     await pilot.pause()
+
+
+def _stream_ended(pane: LogPane) -> Callable[[], bool]:
+    """A predicate that holds once the pane's current stream has ended: its reader thread and
+    its consumer worker both.
+
+    Only those two write a stream's lines, so once both have ended a line the stream should not
+    have written is in the buffer already, and a check for it needs no window of its own.
+    """
+    reader = pane._producer
+    consumers = [
+        worker
+        for worker in pane.app.workers
+        if worker.node is pane and worker.group == "log-stream"
+    ]
+    assert reader is not None and len(consumers) == 1
+    return lambda: not reader.is_alive() and consumers[0].is_finished
 
 
 @pytest.mark.asyncio
@@ -1750,10 +1774,10 @@ async def test_stopping_a_stream_halts_consumption(
         pane = app.query_one("#log-pane", LogPane)
         pane.start_stream(gated)
         await _settle(pilot, lambda: pane.buffer.total_appended == 1)
+        stream_ended = _stream_ended(pane)
         pane.stop_stream()
         gate.set()
-        await pilot.pause(0.2)
-        assert pane.buffer.total_appended == 1
+        assert (await _settle(pilot, stream_ended), pane.buffer.total_appended) == (True, 1)
 
 
 @pytest.mark.asyncio
@@ -2673,7 +2697,7 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
             assert producing.wait(timeout=10)
             started = time.monotonic()
             await pilot.press("q")
-            await pilot.pause(0.2)
+            assert await _settle(pilot, lambda: not app.is_running), "q did not stop the app"
         elapsed = time.monotonic() - started
     finally:
         release.set()
@@ -2711,18 +2735,20 @@ async def test_the_stream_reader_runs_on_a_daemon_thread(
     interpreter joins at exit.
     """
     release = threading.Event()
+    reading = threading.Event()
     patched_fetchers()
     app = DashboardApp(refresh_interval=0)
     try:
-        async with app.run_test() as pilot:
+        async with app.run_test():
             pane = app.query_one("#log-pane", LogPane)
 
             def _hanging_stream() -> list[str]:
+                reading.set()
                 release.wait(30)
                 return ["x"]
 
             pane.start_stream(_hanging_stream)
-            await pilot.pause(0.1)
+            assert reading.wait(THREAD_HANDOFF_BOUND_SECONDS)
             assert pane._producer is not None
             assert pane._producer.daemon is True
     finally:
@@ -3198,7 +3224,11 @@ def test_a_pod_log_source_reads_the_container_it_was_given(
 
 
 def _endless(release: threading.Event) -> Callable[..., Callable[[], Any]]:
-    """A pod log source factory whose streams never end until released, as a followed log."""
+    """A pod log source factory whose streams never end until released, as a followed log.
+
+    A line every 10 ms keeps a stream live without keeping the process busy: after each key the
+    pilot waits for the process to go idle, for up to a second.
+    """
 
     def source(pod: str, namespace: str, container: str | None = None, **_: Any) -> Any:
         def lines() -> Any:
@@ -3206,18 +3236,20 @@ def _endless(release: threading.Event) -> Callable[..., Callable[[], Any]]:
             while not release.is_set():
                 index += 1
                 yield f"{pod}/{container} {index}"
-                time.sleep(0.002)
+                release.wait(0.01)
 
         return lines
 
     return source
 
 
-async def _switched_cleanly(pilot: Any, pane: LogPane, old: str, new: str) -> bool:
-    """Wait for the new stream, then for long enough that a leaking old one would show."""
+async def _switched_cleanly(
+    pilot: Any, pane: LogPane, old_stream_ended: Callable[[], bool], old: str, new: str
+) -> bool:
+    """Wait for the new stream, and for the old one to end, after which a leak would show."""
     await _settle(pilot, lambda: bool(pane.buffer.search(new)))
-    await pilot.pause(0.3)
-    return not pane.buffer.search(old) and bool(pane.buffer.search(new))
+    ended = await _settle(pilot, old_stream_ended)
+    return ended and not pane.buffer.search(old) and bool(pane.buffer.search(new))
 
 
 @pytest.mark.asyncio
@@ -3235,8 +3267,11 @@ async def test_switching_containers_stops_the_previous_stream(
             pane = app.query_one("#log-pane", LogPane)
             await pilot.press("enter")
             await _settle(pilot, lambda: bool(pane.buffer.search("web-0/app")))
+            old_stream_ended = _stream_ended(pane)
             await pilot.press("c")
-            assert await _switched_cleanly(pilot, pane, "web-0/app", "web-0/sidecar")
+            assert await _switched_cleanly(
+                pilot, pane, old_stream_ended, "web-0/app", "web-0/sidecar"
+            )
     finally:
         release.set()
 
@@ -3256,8 +3291,9 @@ async def test_opening_a_second_pod_stops_the_first_pods_stream(
             pane = app.query_one("#log-pane", LogPane)
             await pilot.press("enter")
             await _settle(pilot, lambda: bool(pane.buffer.search("pod-00/")))
+            old_stream_ended = _stream_ended(pane)
             await pilot.press("1", "down", "enter")
-            assert await _switched_cleanly(pilot, pane, "pod-00/", "pod-01/")
+            assert await _switched_cleanly(pilot, pane, old_stream_ended, "pod-00/", "pod-01/")
     finally:
         release.set()
 
