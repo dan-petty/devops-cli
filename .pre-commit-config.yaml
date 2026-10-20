@@ -10,6 +10,9 @@ repos:
         stages: [pre-commit]
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=markdown]
+        # syrupy writes a blank line of a snapshot as its two-space indent; trimming it breaks the
+        # snapshot, which is regenerated, never edited (docs/TESTING.md).
+        exclude: ^tests/__snapshots__/
         stages: [pre-commit]
       - id: end-of-file-fixer
         stages: [pre-commit]

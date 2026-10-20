@@ -2122,6 +2122,7 @@ def fail_to_pass(
     output = format_fail_to_pass_report(report)
     _append_step_summary(output)
     if not report.satisfied:
-        _get("print_error")(output, prefix=False)
+        # Written raw: pytest's output in the report is neither markup nor emoji codes (#1669).
+        _get("write_stderr")(f"{output}\n")
         raise typer.Exit(1)
     _get("print_info")(output, prefix=False, safe=True)

@@ -6,7 +6,10 @@ with the head's `tests/` overlaid, and runs those test files with the current py
 (`-o addopts=`, `-p no:cacheprovider`, `--continue-on-collection-errors`, `--junitxml`), so a
 test file that cannot be collected on base is reported as errored and the others still run.
 A defect PR exits non-zero unless at least one changed test fails in the call phase on base,
-or the PR body declares `Fail-to-pass: not applicable: <reason>`.
+or the PR body declares `Fail-to-pass: not applicable: <reason>`. A replay whose pytest was
+interrupted, stopped with an internal or usage error, or wrote no complete JUnit report could
+not run on base, and fails any PR without that line (#1669). A changed test file that cannot be
+collected on base is reported as errored.
 """
 
 from __future__ import annotations
@@ -24,10 +27,13 @@ from pathlib import Path, PurePosixPath
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.constants import (
+    CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
     CONST_FAIL_TO_PASS_ESCAPE_PATTERN,
+    CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
@@ -92,6 +98,15 @@ class TestCaseOutcome(BaseModel):
         return f"{self.classname}::{self.name}" if self.classname else self.name
 
 
+class ReplayCouldNotRun(BaseModel):
+    """A replay whose pytest stopped before it reported the changed tests on base (#1669)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    exit_status: int
+    output_tail: str = ""
+
+
 class FailToPassReport(BaseModel):
     """Outcome of replaying changed tests against the merge-base tree."""
 
@@ -103,6 +118,7 @@ class FailToPassReport(BaseModel):
     outcomes: tuple[TestCaseOutcome, ...]
     is_defect: bool
     escape_reason: str | None = None
+    could_not_run: ReplayCouldNotRun | None = None
 
     @property
     def failed_count(self) -> int:
@@ -121,8 +137,13 @@ class FailToPassReport(BaseModel):
 
     @property
     def satisfied(self) -> bool:
-        """Whether the fail-to-pass gate is satisfied for this run."""
-        return not self.is_defect or self.escape_reason is not None or self.failed_count > 0
+        """Whether the fail-to-pass gate is satisfied: the not-applicable line always is, a
+        replay that could not run never is, and a defect needs a changed test failing on base."""
+        if self.escape_reason is not None:
+            return True
+        if self.could_not_run is not None:
+            return False
+        return not self.is_defect or self.failed_count > 0
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -134,6 +155,7 @@ class _JUnitHTMLParser(HTMLParser):
         self._current_case: tuple[str, str] | None = None
         self._current_status: str = "passed"
         self._current_message: str = ""
+        self.root_closed = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr_map = {key: (val or "") for key, val in attrs}
@@ -147,6 +169,7 @@ class _JUnitHTMLParser(HTMLParser):
             self._current_message = raw_msg.splitlines()[0].strip() if raw_msg else ""
 
     def handle_endtag(self, tag: str) -> None:
+        self.root_closed = self.root_closed or tag == CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG
         if tag == "testcase" and self._current_case is not None:
             classname, name = self._current_case
             self.outcomes.append(
@@ -238,14 +261,44 @@ def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]
     ]
 
 
+def _output_tail(output: str) -> str:
+    """The last whole lines of `output` that fit in `CONST_MAX_ERROR_DETAIL_LENGTH` characters,
+    or the end of its last line when that line alone is longer."""
+    printed = "\n".join(line.rstrip() for line in output.splitlines() if line.strip())
+    if len(printed) <= CONST_MAX_ERROR_DETAIL_LENGTH:
+        return printed
+    whole_lines = printed[-CONST_MAX_ERROR_DETAIL_LENGTH - 1 :].partition("\n")[2]
+    return whole_lines or printed[-CONST_MAX_ERROR_DETAIL_LENGTH:]
+
+
+def _read_junit_report(junit_path: Path) -> tuple[TestCaseOutcome, ...] | None:
+    """The outcomes of the JUnit report at `junit_path`, or None when pytest wrote none, or left
+    one empty or cut short, never closing its root element (#1669)."""
+    if not junit_path.is_file():
+        return None
+    parser = _JUnitHTMLParser()
+    parser.feed(junit_path.read_text(encoding="utf-8", errors="replace"))
+    return tuple(parser.outcomes) if parser.root_closed else None
+
+
 def _run_pytest_on_base(
     tree_dir: Path, junit_path: Path, test_files: Sequence[str]
-) -> tuple[TestCaseOutcome, ...]:
-    """Run pytest on `test_files` inside `tree_dir` and parse the JUnit XML report."""
-    run_subprocess(pytest_replay_argv(junit_path, test_files), cwd=tree_dir, capture_output=True)
-    if not junit_path.is_file():
-        return ()
-    return parse_junit_xml(junit_path.read_text(encoding="utf-8"))
+) -> tuple[tuple[TestCaseOutcome, ...], ReplayCouldNotRun | None]:
+    """Run pytest on `test_files` inside `tree_dir` and parse its JUnit XML report.
+
+    A run pytest interrupted, stopped with an internal or usage error, or that wrote no complete
+    report could not run, and keeps pytest's exit status and the tail of its output (#1669).
+    """
+    argv = pytest_replay_argv(junit_path, test_files)
+    result = run_subprocess(argv, cwd=tree_dir, capture_output=True)
+    outcomes = _read_junit_report(junit_path)
+    if (
+        outcomes is not None
+        and result.returncode not in CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES
+    ):
+        return outcomes, None
+    output = _output_tail(f"{result.stdout or ''}\n{result.stderr or ''}")
+    return outcomes or (), ReplayCouldNotRun(exit_status=result.returncode, output_tail=output)
 
 
 def _is_enforced_defect(title: str | None, labels: Sequence[str] | None) -> bool:
@@ -291,14 +344,25 @@ def run_fail_to_pass(
         tree_dir = tmp_path / "tree"
         junit_path = tmp_path / "junit.xml"
         materialise_base_with_head_tests(root, merge_base, head, tree_dir)
-        outcomes = _run_pytest_on_base(tree_dir, junit_path, files)
+        outcomes, could_not_run = _run_pytest_on_base(tree_dir, junit_path, files)
     return FailToPassReport(
         merge_base=merge_base,
         head=head,
         changed_test_files=files,
         outcomes=outcomes,
         is_defect=is_defect,
+        could_not_run=could_not_run,
     )
+
+
+def _could_not_run_lines(could_not_run: ReplayCouldNotRun, files: str) -> list[str]:
+    """The report's lines for a replay of `files` that could not run on base (#1669)."""
+    reason = MESSAGES.ci.fail_to_pass_could_not_run.format(
+        status=could_not_run.exit_status, files=files
+    )
+    if not could_not_run.output_tail:
+        return [reason]
+    return [reason, MESSAGES.ci.fail_to_pass_replay_output.format(output=could_not_run.output_tail)]
 
 
 def format_fail_to_pass_report(report: FailToPassReport) -> str:
@@ -318,6 +382,8 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
         if report.changed_test_files
         else "no changed test files"
     )
+    if report.could_not_run is not None:
+        return "\n".join([*lines, *_could_not_run_lines(report.could_not_run, files_label)])
     lines.append(
         MESSAGES.ci.fail_to_pass_summary.format(
             failed=report.failed_count,

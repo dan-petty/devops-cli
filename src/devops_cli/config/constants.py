@@ -2354,6 +2354,13 @@ CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
     "error": "errored",
     "skipped": "skipped",
 }
+# The root element pytest's `--junitxml` report closes last; a report that never closes it is
+# empty or was cut short, and holds no complete replay (#1669).
+CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG: Final[str] = "testsuites"
+# pytest's exit statuses (`pytest.ExitCode`) for a run that stopped before reporting the tests it
+# was given: interrupted (2), internal error (3) and usage error (4). A replay ending so could not
+# run on base; exit 5, no tests collected, is an empty replay (#1669).
+CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozenset({2, 3, 4})
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
