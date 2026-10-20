@@ -35,7 +35,6 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
-from devops_cli.output import print_dry_run_command
 from devops_cli.telemetry.tracer import get_tracer, record_metric, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
@@ -361,6 +360,8 @@ def run_subprocess(
     W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
     _validate_subprocess_cwd(cwd)
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
+        from devops_cli.output import print_dry_run_command
+
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
@@ -644,6 +645,8 @@ async def run_subprocess_async(
         )
 
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
+        from devops_cli.output import print_dry_run_command
+
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"

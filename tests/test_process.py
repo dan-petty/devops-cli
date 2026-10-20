@@ -25,8 +25,8 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions")
 
 # A hung run's timeout: its child writes its pids within milliseconds, and this leaves a loaded
-# host seconds for that before the run's process group is stopped.
-HUNG_RUN_TIMEOUT_SECONDS = 5.0
+# host sufficient headroom before the run's process group is stopped (#1748).
+HUNG_RUN_TIMEOUT_SECONDS = 1.0
 
 
 def test_run_subprocess_success() -> None:
