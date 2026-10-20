@@ -30,6 +30,18 @@ def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
 
 
+@pytest.fixture
+def image_programs_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every program as installed, as in the published image, which ships uv, pre-commit
+    and claude.
+
+    post-create really installs each of those that `shutil.which` cannot find. On a host without
+    claude, such as a GitHub runner, that meant Claude Code's installer, a 276 MB download, in
+    every test that runs post-create.
+    """
+    monkeypatch.setattr("shutil.which", lambda cmd, *_args, **_kwargs: f"/usr/local/bin/{cmd}")
+
+
 class TestDevcontainerCli:
     """Tests for devcontainer CLI commands."""
 
@@ -130,6 +142,7 @@ class TestDevcontainerCli:
         data = json.loads(dc_file.read_text(encoding="utf-8"))
         assert data["image"] == "mcr.microsoft.com/devcontainers/python:3.14"
 
+    @pytest.mark.usefixtures("image_programs_installed")
     def test_post_create_command_executes_successfully(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -616,6 +629,7 @@ class TestDevcontainerCli:
             "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
         ) == (True, True, True, True)
 
+    @pytest.mark.usefixtures("image_programs_installed")
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -896,6 +910,7 @@ class TestDevcontainerCli:
         assert Path("/scratch").resolve() in paths
         assert (tmp_path / ".venv").resolve() in paths
 
+    @pytest.mark.usefixtures("image_programs_installed")
     def test_setup_volume_mount_permissions_and_lifecycle(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
