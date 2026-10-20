@@ -39,7 +39,7 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     RoadmapStore,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 BOARD_OPTIONS = {
     ItemField.STATUS: ("Backlog", "Ready", "In Progress", "Done"),

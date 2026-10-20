@@ -69,7 +69,14 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     RoadmapStore,
 )
-from tests.github_session_fakes import (
+from tests.roadmap_board_fake import (
+    BOARD_READ,
+    BoardServer,
+    GitHubFake,
+    budget_reply,
+    gh_variables,
+)
+from tests.support.fakes.github import (
     API,
     JSON_TYPE,
     GitHubApiFake,
@@ -77,13 +84,6 @@ from tests.github_session_fakes import (
     github_json,
     next_page,
     quota_headers,
-)
-from tests.roadmap_board_fake import (
-    BOARD_READ,
-    BoardServer,
-    GitHubFake,
-    budget_reply,
-    gh_variables,
 )
 from tests.support.paths import FIXTURES
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS

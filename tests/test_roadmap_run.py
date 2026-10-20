@@ -97,9 +97,9 @@ from devops_cli.roadmap.store import (
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.github_session_fakes import API, GitHubApiFake, RunnerSession, github_json
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
+from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 

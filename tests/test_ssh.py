@@ -19,7 +19,7 @@ from devops_cli.crypto.ssh_keys import (
 )
 from devops_cli.github.session import GitHubSession
 from devops_cli.models.ssh import ManagedSSHKey
-from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 runner = CliRunner()
 

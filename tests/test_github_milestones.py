@@ -13,7 +13,7 @@ from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release, RoadmapStore
-from tests.github_session_fakes import API, GitHubApiFake, github_json
+from tests.support.fakes.github import API, GitHubApiFake, github_json
 
 runner = CliRunner()
 # Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.

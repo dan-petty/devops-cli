@@ -35,7 +35,7 @@ from tests.copilot_review_payloads import (
     reviewed,
     work_started,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 # The timeline and the reviews of PR #168, as the GitHub session reads them (#983).
 _TIMELINE_168 = "/repos/dan-petty/devops-cli/issues/168/timeline?per_page=100"

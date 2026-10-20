@@ -39,7 +39,7 @@ from devops_cli.github import rate_limiter, session_transport, ssh
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
 from devops_cli.http.egress import EgressLevel
-from tests.github_session_fakes import (
+from tests.support.fakes.github import (
     API,
     JSON_TYPE,
     GitHubApiFake,
@@ -461,7 +461,7 @@ import httpx2
 from devops_cli.core import process
 from devops_cli.github import session
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from tests.github_session_fakes import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.web_fakes import PUBLIC_ADDRESS, ScriptedResolver
 
 socket.getaddrinfo = ScriptedResolver({"api.github.com": [[PUBLIC_ADDRESS]]}, socket.getaddrinfo)

@@ -21,9 +21,9 @@ from devops_cli.github.projects import (
     ProjectTemplate,
     load_project_template,
 )
-from tests.github_session_fakes import GitHubApiFake, github_json, next_page
 from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
 from tests.roadmap_board_fake import budget_reply
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 from tests.support.paths import REPO_ROOT
 
 

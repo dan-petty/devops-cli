@@ -40,7 +40,7 @@ from devops_cli.roadmap.board_read import (
     BOARD_ITEMS_OPERATION,
     item_list_key,
 )
-from tests.github_session_fakes import API
+from tests.support.fakes.github import API
 
 BOARD_READ = "RoadmapBoard"
 """The reply key a `RecordedGh` matches both board queries by."""

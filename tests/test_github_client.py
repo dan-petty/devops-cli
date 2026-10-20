@@ -20,10 +20,10 @@ from devops_cli.github.client import (
     GitHubClient,
     RepoInfo,
 )
-from tests.github_session_fakes import github_json, github_redirect, github_text
+from tests.support.fakes.github import github_json, github_redirect, github_text
 
 if TYPE_CHECKING:
-    from tests.github_session_fakes import GitHubApiFake
+    from tests.support.fakes.github import GitHubApiFake
     from tests.web_fakes import StubWeb
 
 

@@ -1049,23 +1049,17 @@ CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
 )
 # A token without a scope the command needs: gh project's GraphQL message ("your authentication
 # token is missing required scopes"), gh api's scope suggestion ("This API operation needs the
-# ... scope") and the wordings of the project scope.
+# ... scope"), GitHub's GraphQL refusal of a project field ("requires one of the following
+# scopes: ['read:project']") and gh gpg-key's "insufficient OAuth scopes".
 CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "missing required scopes",
     "this api operation needs the",
     "read:project",
-    "scope 'project'",
-    'scope "project"',
-    "project scope",
     "oauth scope",
-    "requires additional permissions",
-    "requires the 'project' scope",
-    "need the 'project' scope",
 )
 # No login, or one GitHub refused (HTTP 401).
 CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
     "not logged in",
-    "authentication required",
     "http 401",
     "bad credentials",
 )
