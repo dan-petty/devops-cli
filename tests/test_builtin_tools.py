@@ -390,8 +390,14 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
     )
 
 
-def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
-    """Verify scan_gitleaks, scan_semgrep, scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search."""
+def test_builtin_security_and_iac_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
+) -> None:
+    """Verify scan_gitleaks, scan_semgrep, scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search.
+
+    The knowledge base check before the search finds Qdrant down, refused through
+    `refusing_port`, and its retry waits return at once.
+    """
     from devops_cli.ai.review_schema import Finding
     from devops_cli.ai.tools.builtin_tools import (
         docker_analyze_layers,
@@ -429,6 +435,12 @@ def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
         stdout="Found 1 finding in target",
         stderr="",
     )
+
+    from devops_cli.config.settings import reset_settings_cache
+
+    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
+    reset_settings_cache()
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
 
     with (
         patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),

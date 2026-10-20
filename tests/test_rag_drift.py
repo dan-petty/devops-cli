@@ -6,12 +6,23 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.rag.drift import RAGDriftDetector, RAGDriftReport
 from devops_cli.main import app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def qdrant_is_down(monkeypatch: pytest.MonkeyPatch, refusing_port: int) -> None:
+    """Qdrant refuses every connection, through `refusing_port`: drift comes from the workspace
+    and the index cache alone."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
+    reset_settings_cache()
 
 
 def test_drift_detector_clean_state(tmp_path: Path) -> None:

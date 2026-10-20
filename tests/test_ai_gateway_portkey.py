@@ -136,12 +136,14 @@ class TestPortkeyGatewayRouter:
 class TestPortkeyCLI:
     """Test suite for CLI ai gateway commands with the Portkey provider."""
 
-    def test_routes_with_portkey_provider(self) -> None:
-        """Verify 'devops ai gateway routes --provider portkey' prints Portkey routes."""
-        res_table = runner.invoke(gateway_cli_app, ["routes", "--provider", "portkey"])
-        res_json = runner.invoke(
-            gateway_cli_app, ["routes", "--provider", "portkey", "--format", "json"]
-        )
+    def test_routes_with_portkey_provider(self, refusing_port: int) -> None:
+        """Verify 'devops ai gateway routes --provider portkey' prints Portkey routes.
+
+        The gateway is down, refused through `refusing_port`, so the routes are the defaults.
+        """
+        portkey = ["--provider", "portkey", "--gateway-url", f"http://127.0.0.1:{refusing_port}"]
+        res_table = runner.invoke(gateway_cli_app, ["routes", *portkey])
+        res_json = runner.invoke(gateway_cli_app, ["routes", *portkey, "--format", "json"])
 
         parsed = json.loads(res_json.output)
         coder_item = next(p for p in parsed if p["virtual_model"] == "devops-coder")

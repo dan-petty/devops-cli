@@ -98,15 +98,9 @@ def test_probe_tcp_success() -> None:
         server.close()
 
 
-def test_probe_tcp_connection_refused() -> None:
-    """Test TCP probe against an unused closed port."""
-    # Find a port that is immediately closed
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    res = probe_tcp("127.0.0.1", port, timeout=1.0)
+def test_probe_tcp_connection_refused(refusing_port: int) -> None:
+    """Test TCP probe against a port that refuses connections."""
+    res = probe_tcp("127.0.0.1", refusing_port, timeout=1.0)
     assert res.protocol == ProbeProtocol.TCP
     assert res.status == ProbeStatus.FAIL
     assert res.message is not None
@@ -219,14 +213,9 @@ def test_probe_http_latency_sla_exceeded(http_server: str) -> None:
     assert "sla" in (res.message or "").lower()
 
 
-def test_probe_http_unreachable() -> None:
+def test_probe_http_unreachable(refusing_port: int) -> None:
     """Test HTTP probe against unreachable server."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    res = probe_http(f"http://127.0.0.1:{port}/healthz", timeout=1.0)
+    res = probe_http(f"http://127.0.0.1:{refusing_port}/healthz", timeout=1.0)
     assert res.protocol == ProbeProtocol.HTTP
     assert res.status == ProbeStatus.FAIL
     assert res.message is not None
@@ -279,14 +268,9 @@ def test_probe_grpc_reachability() -> None:
         server.close()
 
 
-def test_probe_grpc_unreachable() -> None:
+def test_probe_grpc_unreachable(refusing_port: int) -> None:
     """Test gRPC probe on unreachable host:port."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    res = probe_grpc("127.0.0.1", port, timeout=1.0)
+    res = probe_grpc("127.0.0.1", refusing_port, timeout=1.0)
     assert res.protocol == ProbeProtocol.GRPC
     assert res.status == ProbeStatus.FAIL
 
@@ -519,17 +503,17 @@ def test_parse_target_endpoint_variations() -> None:
         assert invalid_target in str(exc_info.value)
 
 
-def test_run_sandbox_probes_with_openapi_and_grpc() -> None:
+def test_run_sandbox_probes_with_openapi_and_grpc(refusing_port: int) -> None:
     """Test run_sandbox_probes with OPENAPI and GRPC protocols."""
     with patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp:
         mock_tcp.return_value = EndpointProbeResult(
             protocol=ProbeProtocol.TCP,
-            target="127.0.0.1:8080",
+            target=f"127.0.0.1:{refusing_port}",
             status=ProbeStatus.PASS,
             latency_ms=1.0,
         )
         report = run_sandbox_probes(
-            "127.0.0.1:8080",
+            f"127.0.0.1:{refusing_port}",
             protocols=[ProbeProtocol.OPENAPI, ProbeProtocol.GRPC],
             timeout=1.0,
         )

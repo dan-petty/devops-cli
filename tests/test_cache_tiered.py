@@ -232,8 +232,9 @@ def test_stats_report_hit_ratio_and_evictions() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cached_decorator_memoizes_by_arguments() -> None:
-    """Repeat calls with the same arguments are served from cache."""
+def test_cached_decorator_memoizes_by_arguments(refusing_port: int) -> None:
+    """Repeat calls with the same arguments are served from cache, with Valkey down."""
+    get_pool(host="127.0.0.1", port=refusing_port)
     calls: list[int] = []
 
     @cached("test:double", tier="l1")
@@ -245,8 +246,9 @@ def test_cached_decorator_memoizes_by_arguments() -> None:
     assert calls == [2, 3]
 
 
-def test_cached_decorator_does_not_memoize_none() -> None:
+def test_cached_decorator_does_not_memoize_none(refusing_port: int) -> None:
     """A None result is not cached, so a transient failure is retried."""
+    get_pool(host="127.0.0.1", port=refusing_port)
     calls: list[int] = []
 
     @cached("test:maybe", tier="l1")

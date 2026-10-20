@@ -28,8 +28,11 @@ WORKERS = 4
 
 
 @pytest.fixture
-def embedding_posts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
-    """A gateway whose backends serve only the review model: every embedding request fails."""
+def embedding_posts(monkeypatch: pytest.MonkeyPatch, refusing_port: int) -> Iterator[list[str]]:
+    """A gateway whose backends serve only the review model: every embedding request fails.
+
+    The Valkey cache is down, refused through `refusing_port`.
+    """
     posts: list[str] = []
 
     def refuse(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
@@ -48,6 +51,7 @@ def embedding_posts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     )
     st.ai.rag.enabled = True
     st.qdrant.url = QDRANT_URL
+    st.valkey.host = f"127.0.0.1:{refusing_port}"
     monkeypatch.setattr(settings_mod, "load_settings", lambda *a, **k: st)
     monkeypatch.setattr(settings_mod, "get_ai_api_key", lambda *a, **k: "test-key")
     monkeypatch.setattr(settings_mod, "get_qdrant_api_key", lambda *a, **k: None)

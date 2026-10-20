@@ -90,13 +90,18 @@ def register_test_mock_provider():
 
 
 @pytest.fixture(autouse=True)
-def reset_rag_verified_models_per_test() -> Iterator[None]:
-    """Ensure every unit test starts and ends with clean RAG verified collection models."""
+def reset_rag_state_per_test() -> Iterator[None]:
+    """Ensure every unit test starts and ends with clean RAG verified collection models and no
+    cached investigation retriever, whose Qdrant client would carry one test's address into the
+    next."""
+    from devops_cli.ai.rag.investigator import clear_investigation_cache
     from devops_cli.ai.rag.retriever import reset_search_verified_models
 
     reset_search_verified_models()
+    clear_investigation_cache()
     yield
     reset_search_verified_models()
+    clear_investigation_cache()
 
 
 def _is_loopback(host: str) -> bool:
@@ -122,8 +127,15 @@ def _is_numeric_host(host: Any, resolve: Callable[..., Any]) -> bool:
     return True
 
 
+# Loopback connects the network guard refused because no socket in this process binds the port,
+# each as `host:port (thread)`, naming the thread, which may outlive its test.
+# `unexpected_loopback_connects` fails the test that leaves any.
+_UNEXPECTED_LOOPBACK_CONNECTS: list[str] = []
+
+
 def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
-    """Report whether the network guard refuses a connect; raise for a host that is not loopback."""
+    """Report whether the network guard refuses a connect, recording a refused loopback port;
+    raise for a host that is not loopback."""
     if not (isinstance(address, tuple) and len(address) >= 2):
         return False
     host = str(address[0])
@@ -132,20 +144,49 @@ def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
             f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
             "All external APIs and endpoints must be mocked in tests."
         )
-    return address[1] not in owned_ports
+    if address[1] in owned_ports:
+        return False
+    _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{host}:{address[1]} ({threading.current_thread().name})")
+    return True
+
+
+class _BoundPorts:
+    """The ports sockets in this process bind, each owned while its socket is open.
+
+    `listen` binds a socket that was not bound yet, to a port of the kernel's choosing. A closed
+    socket reports fileno -1, and one that was collected has already left the weak mapping.
+    """
+
+    def __init__(self) -> None:
+        self._ports: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
+        self._lock = threading.RLock()
+
+    def own(self, sock: socket.socket) -> None:
+        """Own the port `sock` is bound to, if it is an address family with ports."""
+        name = sock.getsockname()
+        if isinstance(name, tuple):
+            with self._lock:
+                self._ports[sock] = name[1]
+
+    def owned(self) -> set[int]:
+        """The ports of the bound sockets still open."""
+        with self._lock:
+            return {port for sock, port in self._ports.items() if sock.fileno() != -1}
 
 
 @pytest.fixture(autouse=True, scope="session")
 def prevent_external_network_calls() -> None:
     """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
 
-    A loopback connect reaches only a port this test process listens on, and only while that
-    listener is open. Any other loopback port refuses, as if nothing listened there, so a
-    `kubectl port-forward` or a daemon on the workstation is never reached and every machine takes
-    CI's offline path. Once a test closes its server, the port refuses again, so whatever binds it
-    next, such as another xdist worker or a port-forward, is not reached either. The refusal is the
-    `ConnectionRefusedError` that clients already handle: a `RuntimeError` would escape them and
-    send the test down a path no user reaches. Non-loopback connects raise `RuntimeError`.
+    A loopback connect reaches only a port a socket in this test process binds, and only while
+    that socket is open: a server the test started, or `refusing_port`. Any other loopback port
+    refuses, as if nothing listened there, so a `kubectl port-forward` or a daemon on the
+    workstation is never reached and every machine takes CI's offline path, and the connect fails
+    the test (`unexpected_loopback_connects`). Once a test closes its socket, the port refuses
+    again, so whatever binds it next, such as another xdist worker or a port-forward, is not reached
+    either. The refusal is the `ConnectionRefusedError` that clients already handle: a
+    `RuntimeError` would escape them and send the test down a path no user reaches. Non-loopback
+    connects raise `RuntimeError`.
 
     The guard patches this process only. A subprocess a test spawns is not guarded, and a server
     a test starts in a subprocess is refused like any other port this process does not own.
@@ -154,10 +195,10 @@ def prevent_external_network_calls() -> None:
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
+    orig_bind = socket.socket.bind
     orig_listen = socket.socket.listen
     orig_getaddrinfo = socket.getaddrinfo
-    listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
-    listeners_lock = threading.RLock()
+    bound = _BoundPorts()
 
     # A blocked connect still pays for a real DNS query first. Fail external
     # names the way an unresolvable one does, so callers take their existing gaierror path at once.
@@ -177,26 +218,21 @@ def prevent_external_network_calls() -> None:
             "All external APIs and endpoints must be mocked in tests.",
         )
 
+    def guarded_bind(self, address):
+        orig_bind(self, address)
+        bound.own(self)
+
     def guarded_listen(self, *args):
         orig_listen(self, *args)
-        name = self.getsockname()
-        if isinstance(name, tuple):
-            with listeners_lock:
-                listeners[self] = name[1]
-
-    # A listener's port is owned while the socket is open. A closed one reports fileno -1, and one
-    # that was collected has already left the weak mapping.
-    def owned_ports() -> set[int]:
-        with listeners_lock:
-            return {port for sock, port in listeners.items() if sock.fileno() != -1}
+        bound.own(self)
 
     def guarded_connect(self, address):
-        if _refuses_connect(address, owned_ports()):
+        if _refuses_connect(address, bound.owned()):
             raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
         return orig_connect(self, address)
 
     def guarded_connect_ex(self, address):
-        if _refuses_connect(address, owned_ports()):
+        if _refuses_connect(address, bound.owned()):
             return errno.ECONNREFUSED
         return orig_connect_ex(self, address)
 
@@ -204,6 +240,7 @@ def prevent_external_network_calls() -> None:
     # worker thread, or one `atexit` flushes, still runs after the last fixture is torn down.
     socket.socket.connect = guarded_connect
     socket.socket.connect_ex = guarded_connect_ex
+    socket.socket.bind = guarded_bind
     socket.socket.listen = guarded_listen
     socket.getaddrinfo = guarded_getaddrinfo
 
@@ -246,6 +283,59 @@ def refuse_real_programs() -> None:
 
     # Installed for the rest of the process, as the network block is.
     subprocess.Popen.__init__ = refusing_init  # type: ignore[method-assign]
+
+
+@pytest.fixture(autouse=True)
+def unexpected_loopback_connects() -> Iterator[list[str]]:
+    """Fail a test that connected to a loopback port no socket in this process binds.
+
+    The guard refuses such a connect as a service that is down would, so the client takes its
+    ordinary path, and records it; the record fails the test here even when the code under test
+    swallowed the refusal. A test that reaches a service fakes it at its edge, and one that checks a
+    refused service refuses it through `refusing_port`. A connect from a thread that outlived an
+    earlier test is reported by the test running when it happens. A test of the guard itself reads
+    its connects from this list and clears it.
+    """
+    yield _UNEXPECTED_LOOPBACK_CONNECTS
+    reached = list(_UNEXPECTED_LOOPBACK_CONNECTS)
+    _UNEXPECTED_LOOPBACK_CONNECTS.clear()
+    if reached:
+        pytest.fail(
+            "Connected to a loopback port no socket in this test process binds: "
+            f"{', '.join(reached)}. Fake the service at its edge, or refuse it through "
+            "`refusing_port`.",
+            pytrace=False,
+        )
+
+
+@contextmanager
+def _bound_refusing_socket() -> Iterator[int]:
+    """Bind a loopback port and never listen on it, so the kernel refuses every connect to it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        yield sock.getsockname()[1]
+
+
+@pytest.fixture
+def refusing_port(prevent_external_network_calls: None) -> Iterator[int]:
+    """A loopback port whose every connect is refused: the double of a service that is down.
+
+    The test binds it, so the network guard lets connects through and the kernel refuses them.
+    """
+    with _bound_refusing_socket() as port:
+        yield port
+
+
+@pytest.fixture(scope="session")
+def unserved_side_channel_port(prevent_external_network_calls: None) -> Iterator[int]:
+    """The refusing port the floor's config names for telemetry export and the Valkey cache.
+
+    Both are best-effort side channels the code under test survives without, and every test
+    reaches them, so the floor binds one port for the run that refuses them as an unserved
+    workstation does. A test that checks either channel installs its own double.
+    """
+    with _bound_refusing_socket() as port:
+        yield port
 
 
 @pytest.fixture
@@ -685,8 +775,14 @@ def isolate_keyring_backends() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG."""
+def isolate_devops_cli_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
+) -> Iterator[Path]:
+    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG.
+
+    Telemetry export and the Valkey cache go to the floor's refusing port. Qdrant's address is
+    one no test binds, so a test that reaches Qdrant without a double fails.
+    """
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
@@ -695,14 +791,16 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     test_config_dir = (tmp_path / ".test_config").resolve()
     test_config_dir.mkdir(parents=True, exist_ok=True)
     test_config = test_config_dir / "config.yaml"
+    side_channel = f"127.0.0.1:{unserved_side_channel_port}"
     test_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        f"telemetry:\n  enabled: true\n  endpoint: http://{side_channel}\n"
         "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
-        "qdrant:\n  url: http://localhost:6333\n",
+        "qdrant:\n  url: http://localhost:6333\n"
+        f"valkey:\n  host: {side_channel}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
-    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", f"http://{side_channel}")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     yield test_config
     reset_settings_cache()
@@ -960,7 +1058,9 @@ def reset_docker_engine_singleton():
 
 
 @pytest.fixture
-def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def docker_endpoint_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
+):
     """Provide an isolated environment for Docker endpoint resolution tests (#1108)."""
     import hashlib
     import json
@@ -984,7 +1084,7 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     endpoint_config = tmp_path / "devops_endpoint_config.yaml"
     endpoint_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        f"telemetry:\n  enabled: true\n  endpoint: http://127.0.0.1:{unserved_side_channel_port}\n"
         "ai:\n  allow_private_network: false\n  rag:\n    enabled: false\n"
         "qdrant:\n  url: http://localhost:6333\n",
         encoding="utf-8",

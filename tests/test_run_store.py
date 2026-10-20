@@ -170,12 +170,12 @@ def test_the_index_holds_each_record_by_mechanism_and_subject(valkey: FakeValkey
 
 
 def test_runs_are_kept_locally_when_no_index_is_configured_or_reachable(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
     """Verify a run is kept in the data directory and says why it was not shared."""
     unconfigured = record_run(Mechanism.PROMPT_EVAL, setup={}, subject={}, results={})
     settings = load_settings()
-    settings.runs.index_url = "valkey://127.0.0.1:9"
+    settings.runs.index_url = f"valkey://127.0.0.1:{refusing_port}"
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: settings)
     unreachable = record_run(Mechanism.PROMPT_EVAL, setup={}, subject={}, results={})
 

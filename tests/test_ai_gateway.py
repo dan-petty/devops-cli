@@ -229,10 +229,14 @@ class TestGatewayRouter:
 class TestAIGatewayCLI:
     """Test suite for CLI devops ai gateway commands."""
 
-    def test_routes_command_table_and_json(self) -> None:
-        """Verify 'devops ai gateway routes' executes with table and JSON formatting."""
-        res_table = runner.invoke(gateway_cli_app, ["routes"])
-        res_json = runner.invoke(gateway_cli_app, ["routes", "--format", "json"])
+    def test_routes_command_table_and_json(self, refusing_port: int) -> None:
+        """Verify 'devops ai gateway routes' executes with table and JSON formatting.
+
+        The gateway is down, refused through `refusing_port`, so the routes are the defaults.
+        """
+        gateway = ["--gateway-url", f"http://127.0.0.1:{refusing_port}"]
+        res_table = runner.invoke(gateway_cli_app, ["routes", *gateway])
+        res_json = runner.invoke(gateway_cli_app, ["routes", *gateway, "--format", "json"])
 
         parsed = json.loads(res_json.output)
         assert (

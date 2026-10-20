@@ -217,9 +217,9 @@ def test_load_needs_prometheus_and_a_valid_window(monkeypatch: pytest.MonkeyPatc
     )
 
 
-def test_prometheus_errors_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prometheus_errors_are_reported(refusing_port: int) -> None:
     """Verify an unreachable Prometheus is reported, not raised."""
-    query = pool_load_module.prometheus_query("http://127.0.0.1:9", timeout=1)
+    query = pool_load_module.prometheus_query(f"http://127.0.0.1:{refusing_port}", timeout=1)
 
     with pytest.raises(pool_load_module.PoolLoadError, match="did not answer"):
         query("up")
