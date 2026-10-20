@@ -47,6 +47,7 @@ from devops_cli.roadmap.reprioritize import (
     decide,
     emit_reprioritize_telemetry,
     is_due,
+    nearest_planned_release,
     plan_reprioritization,
     release_growth,
     render_plan,
@@ -808,7 +809,7 @@ def test_a_starting_release_is_topped_up_to_the_cap_in_order_from_items_no_perso
         [started.admitted(number) for number in kept + pulled],
     ) == (
         [NEXT] * 12,
-        [None] * 5,
+        [LATER, LATER, LATER, None, None],
         [LATER],
         [
             "Moved to v0.2.26: v0.2.26 started with fewer than its 12 items and was topped up "
@@ -2681,7 +2682,7 @@ def test_a_renamed_release_is_not_started_again_and_its_items_stay_admitted(
         roadmap.store.branch("release/v0.3.0"),
     ) == (
         ("v0.3.0", None),
-        ["v0.3.0"] * 5 + [None],
+        ["v0.3.0"] * 5 + ["v0.3.1"],
         ["v0.3.0"] * 4,
         [
             "Admitted to v0.3.0: after v0.3.0 started, only a critical fix can join it. A "
@@ -3405,3 +3406,167 @@ def test_telemetry_skip_conditions(
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "test")
     emit_reprioritize_telemetry(plan)
     assert captured_telemetry.points("devops_cli_roadmap_release_size_at_start") == []
+
+
+# ── Issue #882: Backlog P0/P1 Placement and Start Rules ─────────────────────────
+
+
+def test_nearest_planned_release_returns_nearest_with_room(roadmap: Roadmap) -> None:
+    """The helper returns the nearest open planned release holding fewer than limit items, or None."""
+    releases = [roadmap.store.release(t) for t in (CURRENT, NEXT, LATER)]
+    valid_releases = [r for r in releases if r is not None]
+
+    # Empty releases: NEXT has 0 items (< 16), so it is nearest after CURRENT
+    res = nearest_planned_release(valid_releases, roadmap.store.items(), after=CURRENT, limit=16)
+    assert res is not None and res.title == NEXT
+
+    # Fill NEXT to 16 items
+    for i in range(16):
+        roadmap.file(f"next_{i}", release=NEXT)
+
+    # Now NEXT has 16 items, so LATER is the nearest with room
+    res2 = nearest_planned_release(valid_releases, roadmap.store.items(), after=CURRENT, limit=16)
+    assert res2 is not None and res2.title == LATER
+
+    # Fill LATER to 16 items
+    for i in range(16):
+        roadmap.file(f"later_{i}", release=LATER)
+
+    # Now all planned releases have 16 items
+    res3 = nearest_planned_release(valid_releases, roadmap.store.items(), after=CURRENT, limit=16)
+    assert res3 is None
+
+
+def test_backlog_p1_goes_to_nearest_planned_release_with_room_and_p2_stays_in_backlog(
+    started: Roadmap,
+) -> None:
+    """A backlog P1 goes to the nearest planned release holding fewer than 16 items, with the priority reason comment. A P2 stays in the backlog."""
+    p1_item = started.file("backlog p1", priority="P1-High", release=None)
+    p2_item = started.file("backlog p2", priority="P2-Medium", release=None)
+
+    started.run()
+
+    assert started.release_of(p1_item) == [NEXT]
+    assert started.comments(p1_item) == [
+        f"Moved to {NEXT}: every open P0 and P1 item sits in an open release."
+    ]
+    assert started.release_of(p2_item) == [None]
+    assert started.comments(p2_item) == []
+
+
+def test_backlog_p0_meeting_release_at_16_displaces_lowest_ranked_unimplemented_p3(
+    started: Roadmap,
+) -> None:
+    """A backlog P0 meeting a release that holds 16 displaces its lowest-ranked unimplemented P3 to the next release with room. A P3 with a linked PR is never displaced."""
+    for i in range(14):
+        started.file(f"next p1 {i}", priority="P1-High", release=NEXT)
+    p3_unimplemented = started.file("p3 low", priority="P3-Low", value="Low", release=NEXT)
+    p3_with_pr = started.file("p3 pr", priority="P3-Low", value="High", release=NEXT)
+    started.person.open_pull_request(
+        f"feat: closes #{p3_with_pr}", base="main", head=f"feat/p3-{p3_with_pr}", release=NEXT
+    )
+
+    backlog_p0 = started.file("backlog p0", kind="bug", priority="P0-Critical", release=None)
+
+    started.run()
+
+    assert started.release_of(backlog_p0) == [NEXT]
+    assert started.comments(backlog_p0) == [
+        f"Moved to {NEXT}: every open P0 and P1 item sits in an open release."
+    ]
+    # p3_unimplemented is displaced into LATER
+    assert started.release_of(p3_unimplemented) == [LATER]
+    # p3_with_pr is protected and stays in NEXT
+    assert started.release_of(p3_with_pr) == [NEXT]
+
+
+def test_backlog_p1_meeting_16_goes_to_next_release_instead_displacing_nothing(
+    started: Roadmap,
+) -> None:
+    """A P1 meeting 16 goes to the next release instead, displacing nothing."""
+    for i in range(15):
+        started.file(f"next p1 {i}", priority="P1-High", release=NEXT)
+    p3_item = started.file("p3 low", priority="P3-Low", release=NEXT)
+
+    backlog_p1 = started.file("backlog p1", priority="P1-High", release=None)
+
+    started.run()
+
+    assert started.release_of(backlog_p1) == [LATER]
+    assert started.comments(backlog_p1) == [
+        f"Moved to {LATER}: every open P0 and P1 item sits in an open release."
+    ]
+    # p3 was NOT displaced
+    assert started.release_of(p3_item) == [NEXT]
+
+
+def test_with_every_planned_release_at_16_creates_next_patch_release(
+    started: Roadmap,
+) -> None:
+    """With every planned release at 16 and no unimplemented P3 to displace, the run creates the next patch release and places the item there."""
+    # NEXT and LATER each hold 16 P1 items
+    for i in range(16):
+        started.file(f"next p1 {i}", priority="P1-High", release=NEXT)
+    for i in range(16):
+        started.file(f"later p1 {i}", priority="P1-High", release=LATER)
+
+    backlog_p1 = started.file("backlog p1", priority="P1-High", release=None)
+
+    writes = started.run()
+
+    # Next patch release after LATER (v0.2.27) is v0.2.28
+    assert started.release_of(backlog_p1) == ["v0.2.28"]
+    assert any(w.operation == "create_release" and w.value == "v0.2.28" for w in writes)
+
+
+def test_at_start_new_p1_goes_to_next_new_p2_to_backlog_new_critical_fix_stays(
+    started: Roadmap,
+) -> None:
+    """At a start, a New P1 goes to the next planned release, a New P2 still goes to the backlog, and a New critical fix still stays."""
+    new_crit = started.file(
+        "new crit fix", kind="bug", priority="P0-Critical", status="New", release=NEXT
+    )
+    new_p1 = started.file("new p1", priority="P1-High", status="New", release=NEXT)
+    new_p2 = started.file("new p2", priority="P2-Medium", status="New", release=NEXT)
+    blocked_p1 = started.file("blocked p1", priority="P1-High", status="Blocked", release=NEXT)
+    blocked_p2 = started.file("blocked p2", priority="P2-Medium", status="Blocked", release=NEXT)
+
+    started.ship(CURRENT)
+
+    started.run()
+
+    # NEXT started
+    assert started.release_of(new_crit) == [NEXT]
+    assert started.release_of(new_p1) == [LATER]
+    assert started.release_of(blocked_p1) == [LATER]
+    assert started.release_of(new_p2) == [None]
+    assert started.release_of(blocked_p2) == [None]
+
+
+def test_p1_taken_out_of_release_by_person_stays_in_backlog_and_plan_lists_it(
+    started: Roadmap,
+) -> None:
+    """A P1 that a person took out of a release stays in the backlog, and the plan lists it."""
+    item = started.file("p1 person moved", priority="P1-High", release=LATER)
+    started.place(item, None)
+    started.ship(close_milestone=True)
+
+    plan = started.plan()
+    assert any(it.number == item and release == LATER for (it, release) in plan.kept_out)
+    rendered = render_plan(plan)
+    assert f"- #{item} was taken out of {LATER} by a person" in rendered
+
+    started.run()
+    assert started.release_of(item) == [None]
+
+
+def test_second_run_with_no_change_writes_nothing(
+    started: Roadmap,
+) -> None:
+    """A second run with no change writes nothing."""
+    started.file("backlog p1", priority="P1-High", release=None)
+    first_writes = started.run()
+    assert len(first_writes) > 0
+
+    second_writes = started.run()
+    assert second_writes == []

@@ -77,7 +77,7 @@ The items that joined a release after its start, were turned away, descoped or t
 
 
 **Backlog**:
-The single prioritized pool of items not assigned to any release.
+The single prioritized pool of items not assigned to any release. Every open P0 and P1 item sits in an open release; only items a person took out of a release stay in the backlog.
 _Avoid_: icebox, triage queue
 
 **Critical fix**:
@@ -115,7 +115,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Reprioritization**:
-Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and its limit, its size plus a few slots, so that a late P0 or P1 item joins without moving another out. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
+Re-ranking items, placing open P0 and P1 items from the backlog into open planned releases, moving items between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and its limit, its size plus a few slots, so that a late P0 or P1 item joins without moving another out. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
 _Avoid_: guard, governor, scope governor
 
 **Closure**:
