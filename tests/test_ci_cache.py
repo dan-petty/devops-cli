@@ -182,6 +182,78 @@ def test_any_tracked_change_misses_the_cache(
     ) == (True, None)
 
 
+def test_verdict_survives_add_and_commit_but_misses_after_amend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A saved CI cache verdict is found after add and commit, but missed after an amend changing a file."""
+    cache_dir = tmp_path / ".data" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True)
+
+    (tmp_path / ".gitignore").write_text(".data/\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", ".gitignore"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "init"], check=True)
+
+    code_file = tmp_path / "app.py"
+    code_file.write_text("value = 1\n", encoding="utf-8")
+
+    res_before = compute_workspace_fingerprint(root=tmp_path)
+    assert res_before is not None
+    fp_before, head_sha = res_before
+
+    checks = [
+        CICachedCheck(
+            name="test",
+            display_title="pytest",
+            passed=True,
+            duration_seconds=0.1,
+        )
+    ]
+    save_ci_cache(
+        fingerprint=fp_before,
+        head_sha=head_sha,
+        checks=checks,
+        options={},
+        passed=True,
+        root=tmp_path,
+    )
+
+    assert get_ci_cache(fingerprint=fp_before, options={}, root=tmp_path) is not None
+
+    subprocess.run(["git", "-C", str(tmp_path), "add", "app.py"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "feat: app"], check=True)
+
+    res_after_commit = compute_workspace_fingerprint(root=tmp_path)
+    assert res_after_commit is not None
+    fp_after_commit, _ = res_after_commit
+
+    assert (
+        fp_after_commit == fp_before,
+        get_ci_cache(fingerprint=fp_after_commit, options={}, root=tmp_path) is not None,
+    ) == (True, True)
+
+    code_file.write_text("value = 2\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-a", "--amend", "-qm", "feat: app amended"],
+        check=True,
+    )
+
+    res_after_amend = compute_workspace_fingerprint(root=tmp_path)
+    assert res_after_amend is not None
+    fp_after_amend, _ = res_after_amend
+
+    assert (
+        fp_after_amend != fp_before,
+        get_ci_cache(fingerprint=fp_after_amend, options={}, root=tmp_path) is None,
+    ) == (True, True)
+
+
 def test_clear_ci_cache(isolated_cache_dir: Path) -> None:
     """Test cache invalidation via clear_ci_cache."""
     cache_file = resolve_ci_cache_path()
