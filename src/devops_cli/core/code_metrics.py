@@ -2,7 +2,7 @@
 
 The one copy of the metric. `devops scan complexity`, the inspection hotspots, the architecture
 spec verifier, the whole-tree test and the structural-invariants pre-commit hook all read it.
-Stdlib only and no `devops_cli` import, so the hook (`python -m devops_cli.core.code_metrics`)
+Stdlib only and no `devops_cli` import, so the hook (`python3 -P src/devops_cli/core/code_metrics.py`)
 loads no scanner: its cap arrives as `--max-depth`.
 
 - **Nesting**: the function body is depth 1, and each If, While, For, AsyncFor, ExceptHandler,
