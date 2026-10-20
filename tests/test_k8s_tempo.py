@@ -36,7 +36,12 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
     k8s_jaeger_refs = [
         str(path.relative_to(Path("k8s")))
         for path in sorted(Path("k8s").rglob("*"))
-        if path.is_file() and "jaeger" in path.read_text(encoding="utf-8").lower()
+        if path.is_file()
+        and (
+            path != Path("k8s/otel/values.yaml")
+            or collector_values.get("config", {}).get("receivers", {}).get("jaeger") is not None
+        )
+        and "jaeger" in path.read_text(encoding="utf-8").lower()
     ]
 
     assert (

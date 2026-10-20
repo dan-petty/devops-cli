@@ -347,21 +347,63 @@ def test_otel_collector_is_scraped_once_through_its_pod_annotations() -> None:
 
 
 def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
-    """Alloy's prometheus.receive_http serves only POST /api/v1/metrics/write, on the receiver
-    feature's port (9090 in k8s-monitoring 4.5.2). It answers 404 on /api/v1/write, and the
-    collector drops every devops-cli point as a permanent error (#829)."""
+    """The OTel collector remote-writes directly to Prometheus server in one hop (#1132).
+
+    Avoids two-hop Alloy path where one late CLI sample poisons unrelated cluster metrics batches.
+    """
     with open(K8S_DIR / "otel" / "values.yaml", encoding="utf-8") as f:
         otel = yaml.safe_load(f)
     with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
-        receiver = yaml.safe_load(f)["prometheusMetricsReceiver"]
+        k8s_mon = yaml.safe_load(f)
+    with open(K8S_DIR / "monitoring" / "prometheus-values.yaml", encoding="utf-8") as f:
+        prom = yaml.safe_load(f)
 
-    endpoint = urlsplit(otel["config"]["exporters"]["prometheusremotewrite"]["endpoint"])
-    assert (receiver.get("enabled"), endpoint.hostname, endpoint.port, endpoint.path) == (
-        True,
-        f"k8s-monitoring-{receiver['collector']}.monitoring.svc.cluster.local",
-        receiver.get("port", 9090),
-        "/api/v1/metrics/write",
+    # 1. prometheus_remote_write is the only metrics exporter and carries cluster label
+    metrics_exporters = otel["config"]["service"]["pipelines"]["metrics"]["exporters"]
+    assert metrics_exporters == ["prometheus_remote_write"]
+    prw = otel["config"]["exporters"]["prometheus_remote_write"]
+    endpoint = urlsplit(prw["endpoint"])
+    assert (endpoint.hostname, endpoint.port, endpoint.path) == (
+        "prometheus-server.monitoring.svc.cluster.local",
+        9090,
+        "/api/v1/write",
     )
+    cluster_name = k8s_mon["cluster"]["name"]
+    assert prw.get("external_labels", {}).get("cluster") == cluster_name
+    assert prw.get("translation_strategy") == "UnderscoreEscapingWithoutSuffixes"
+
+    # 2. image.tag is absent
+    assert "tag" not in otel.get("image", {})
+
+    # 3. Prometheus server flags & tsdb out-of-order window
+    server_cfg = prom.get("server", {})
+    assert server_cfg.get("tsdb", {}).get("out_of_order_time_window") == "10m"
+    assert "web.enable-remote-write-receiver" in server_cfg.get("extraArgs", {})
+
+    # 4. prometheusMetricsReceiver is not enabled
+    assert not k8s_mon.get("prometheusMetricsReceiver", {}).get("enabled", False)
+
+    # 5. jaeger, zipkin, prometheus receivers are null
+    receivers = otel["config"]["receivers"]
+    assert receivers.get("jaeger") is None
+    assert receivers.get("zipkin") is None
+    assert receivers.get("prometheus") is None
+    assert "otlp" in receivers
+
+    # 6. debug is absent from every pipeline and exporters
+    assert "debug" not in otel["config"].get("exporters", {})
+    for pipe_name, pipe in otel["config"]["service"]["pipelines"].items():
+        assert "debug" not in pipe.get("exporters", []), f"debug exporter present in {pipe_name}"
+
+    # 7. memory_limiter percentage settings are null
+    mem_limiter = otel["config"]["processors"]["memory_limiter"]
+    assert mem_limiter.get("limit_percentage") is None
+    assert mem_limiter.get("spike_limit_percentage") is None
+
+    # 8. unused ports are disabled
+    ports = otel.get("ports", {})
+    for p in ("jaeger-compact", "jaeger-thrift", "jaeger-grpc", "zipkin"):
+        assert ports.get(p, {}).get("enabled") is False, f"port {p} not disabled"
 
 
 # Services declared in plain manifests that sit in a namespace where a Helm release installs.

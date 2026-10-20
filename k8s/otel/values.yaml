@@ -6,7 +6,6 @@ mode: deployment
 
 image:
   repository: "otel/opentelemetry-collector-contrib"
-  tag: "0.159.0"
   pullPolicy: IfNotPresent
 
 resources:
@@ -38,6 +37,9 @@ securityContext:
 # ── Collector pipeline configuration ─────────────────────────────────────────
 config:
   receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
     otlp:
       protocols:
         grpc:
@@ -54,6 +56,8 @@ config:
       check_interval: 5s
       limit_mib: 400
       spike_limit_mib: 100
+      limit_percentage: null
+      spike_limit_percentage: null
 
     # devops-cli runs each command as its own short-lived process, so it sends counters and
     # histograms as deltas. This keeps each series' running total, which Prometheus needs; a
@@ -62,11 +66,6 @@ config:
       max_stale: 1h
 
   exporters:
-    # Debug exporter for local development visibility.
-    # In production environments, remove 'debug' from service.pipelines or gate verbosity.
-    debug:
-      verbosity: basic
-
     # Send traces to Tempo in-cluster (local dev/homelab uses internal gRPC with insecure: true;
     # for production clusters, enable TLS certificates via cert-manager and set insecure: false).
     otlp_grpc/tempo:
@@ -80,12 +79,12 @@ config:
       tls:
         insecure: true
 
-    # Prometheus remote write to Alloy's prometheus.receive_http (k8s-monitoring's
-    # prometheusMetricsReceiver), which serves only POST /api/v1/metrics/write and answers 404
-    # on the Prometheus server's /api/v1/write. Local dev uses the internal HTTP Service; for
-    # production zero-trust networking, configure an https endpoint, TLS secrets, and basic_auth.
-    prometheusremotewrite:
-      endpoint: http://k8s-monitoring-alloy-metrics.monitoring.svc.cluster.local:9090/api/v1/metrics/write
+    # Direct Prometheus remote-write (#1132). Bypasses the two-hop Alloy receiver path so late
+    # samples do not poison unrelated cluster metrics batches.
+    prometheus_remote_write:
+      endpoint: http://prometheus-server.monitoring.svc.cluster.local:9090/api/v1/write
+      external_labels:
+        cluster: homelab-k3s
       # devops-cli names its metrics as Prometheus does (`_total`, `_seconds`); added unit
       # suffixes turned `devops_cli_command_total` into `devops_cli_command_total_ratio`,
       # which no dashboard queries.
@@ -96,17 +95,17 @@ config:
       traces:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [debug, otlp_grpc/tempo]
+        exporters: [otlp_grpc/tempo]
 
       metrics:
         receivers: [otlp]
         processors: [memory_limiter, deltatocumulative, batch]
-        exporters: [debug, prometheusremotewrite]
+        exporters: [prometheus_remote_write]
 
       logs:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [debug, otlp_http/loki]
+        exporters: [otlp_http/loki]
 
 # ClusterIP: In-cluster workloads export to otel-collector.otel.svc.cluster.local.
 # Workstation export uses `devops k8s port-forward` or ingress routing.
@@ -121,6 +120,14 @@ podAnnotations:
   prometheus.io/port: "8888"
 
 ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
   metrics:
     enabled: true
   otlp:

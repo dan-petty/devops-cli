@@ -11,6 +11,11 @@ server:
   retention: 30d
   retentionSize: 16GB
 
+  # Accept out-of-order samples within 10m (#1132). The v1 remote-write handler otherwise
+  # drops a whole batch for one late sample.
+  tsdb:
+    out_of_order_time_window: 10m
+
   extraArgs:
     web.enable-remote-write-receiver: ""
     enable-feature: native-histograms
