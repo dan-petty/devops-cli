@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://ollama.com/"
+  - "https://github.com/ollama/ollama"
+reviewed: "2026-10-15"
+tags:
+  - "ai"
+  - "agentic-ai"
+  - "review"
+---
+
 # Knowledge Base Topic: Agentic AI & Automated Code Review Systems
 
 ## 1. Overview & Domain Architecture

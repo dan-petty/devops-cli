@@ -1,3 +1,17 @@
+---
+applies_to:
+  - "tool:kubectl@1.37.*"
+  - "k8s@1.31.*"
+sources:
+  - "https://kubernetes.io/docs/reference/kubectl/"
+  - "https://github.com/kubernetes/kubectl"
+reviewed: "2026-10-15"
+tags:
+  - "kubectl"
+  - "k8s"
+  - "kubernetes"
+---
+
 # Knowledge Base: kubectl (Kubernetes CLI Orchestrator)
 
 ## 1. Overview & Purpose

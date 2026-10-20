@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:helm@4.3.*"
+sources:
+  - "https://helm.sh/"
+  - "https://github.com/helm/helm"
+reviewed: "2026-10-15"
+tags:
+  - "helm"
+  - "k8s"
+  - "kubernetes"
+---
+
 # Knowledge Base: Helm (Kubernetes Package Manager)
 
 ## 1. Overview & Purpose

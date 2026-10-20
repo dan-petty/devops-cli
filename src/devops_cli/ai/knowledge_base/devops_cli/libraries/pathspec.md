@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/pathspec@1.1.*"
+sources:
+  - "https://github.com/cpburnz/python-pathspec"
+reviewed: "2026-10-15"
+tags:
+  - "pathspec"
+  - "gitignore"
+---
+
 # Code Library: Pathspec (Gitignore & Pattern Matching Engine)
 
 ## 1. Project References

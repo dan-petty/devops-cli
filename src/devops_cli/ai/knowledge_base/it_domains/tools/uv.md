@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:uv@0.9.*"
+sources:
+  - "https://astral.sh/uv"
+  - "https://github.com/astral-sh/uv"
+reviewed: "2026-10-15"
+tags:
+  - "uv"
+  - "packaging"
+  - "python"
+---
+
 # Knowledge Base: uv (Python Package & Project Manager)
 
 ## 1. Overview & Purpose

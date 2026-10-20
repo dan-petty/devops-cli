@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:dive@0.12.*"
+sources:
+  - "https://github.com/wagoodman/dive"
+reviewed: "2026-10-15"
+tags:
+  - "dive"
+  - "docker"
+  - "containers"
+---
+
 # Dive Tool Reference Manual
 
 ## 1. Overview & Operational Mandate

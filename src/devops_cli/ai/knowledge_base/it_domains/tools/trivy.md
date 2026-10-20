@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:trivy@0.75.*"
+sources:
+  - "https://trivy.dev/"
+  - "https://github.com/aquasecurity/trivy"
+reviewed: "2026-10-15"
+tags:
+  - "trivy"
+  - "security"
+  - "vulnerabilities"
+---
+
 # Knowledge Base: Trivy (Vulnerability & Security Scanner)
 
 ## 1. Overview & Purpose

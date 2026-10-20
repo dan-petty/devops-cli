@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:minikube@1.35.*"
+sources:
+  - "https://minikube.sigs.k8s.io/"
+  - "https://github.com/kubernetes/minikube"
+reviewed: "2026-10-15"
+tags:
+  - "minikube"
+  - "k8s"
+  - "kubernetes"
+---
+
 # Knowledge Base: Minikube (Local Kubernetes Engine)
 
 ## 1. Overview & Purpose

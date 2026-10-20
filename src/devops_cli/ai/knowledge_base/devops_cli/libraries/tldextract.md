@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/tldextract@5.3.*"
+sources:
+  - "https://github.com/john-kurkowski/tldextract"
+reviewed: "2026-10-15"
+tags:
+  - "tldextract"
+  - "domains"
+---
+
 # Code Library: TLDExtract (Domain Parsing & Network Reference Extraction)
 
 ## 1. Project References

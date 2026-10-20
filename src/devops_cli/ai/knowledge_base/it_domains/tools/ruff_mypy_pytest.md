@@ -1,3 +1,17 @@
+---
+applies_to:
+  - "pkg:pypi/ruff@0.16.*"
+sources:
+  - "https://astral.sh/ruff"
+  - "https://mypy.readthedocs.io/"
+  - "https://docs.pytest.org/"
+reviewed: "2026-10-15"
+tags:
+  - "ruff"
+  - "mypy"
+  - "pytest"
+---
+
 # Knowledge Base: Ruff, Mypy & Pytest (Python Engineering Quality Suite)
 
 ## 1. Overview & Purpose

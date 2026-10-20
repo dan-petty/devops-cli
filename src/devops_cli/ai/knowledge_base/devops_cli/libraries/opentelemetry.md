@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/opentelemetry-api@1.44.*"
+sources:
+  - "https://opentelemetry.io/docs/languages/python/"
+  - "https://grafana.com/docs/tempo/latest/"
+reviewed: "2026-10-15"
+tags:
+  - "opentelemetry"
+  - "tracing"
+  - "observability"
+---
+
 # Code Library: OpenTelemetry & Grafana Tempo (Distributed Tracing & APM)
 
 ## 1. Project References

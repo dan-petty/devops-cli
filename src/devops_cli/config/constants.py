@@ -4763,3 +4763,13 @@ CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
     "qdrant_client",
     "opentelemetry",
 )
+
+# ── Knowledge Base Version Grounding & Reference Tracking (#1149) ────────────
+CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
+    "devops_cli/libraries",
+    "it_domains/tools",
+    "it_domains/topics",
+)
+CONST_KB_REFERENCE_PREFIX: Final[str] = "kb:"
+CONST_KB_DATE_FORMAT: Final[str] = "%Y-%m-%d"
+CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16

@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://trivy.dev/"
+  - "https://github.com/PyCQA/bandit"
+reviewed: "2026-10-15"
+tags:
+  - "security"
+  - "compliance"
+  - "zero-trust"
+---
+
 # Knowledge Base Topic: Zero-Trust Security & Workstation Compliance
 
 ## 1. Overview & Domain Architecture

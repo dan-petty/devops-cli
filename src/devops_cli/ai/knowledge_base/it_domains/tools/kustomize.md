@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:kustomize@5.8.*"
+sources:
+  - "https://kubectl.docs.kubernetes.io/guides/introduction/kustomize/"
+  - "https://github.com/kubernetes-sigs/kustomize"
+reviewed: "2026-10-15"
+tags:
+  - "kustomize"
+  - "k8s"
+  - "kubernetes"
+---
+
 # Knowledge Base: Kustomize (Declarative Kubernetes Configuration)
 
 ## 1. Overview & Purpose

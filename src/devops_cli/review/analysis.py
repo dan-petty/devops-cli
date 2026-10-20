@@ -25,6 +25,12 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.kb import (
+    DriftManual,
+    MatchedManual,
+    filter_kb_manuals_for_group,
+    load_matched_kb_manuals,
+)
 from devops_cli.ai.review.ast_imports import (
     extract_imports_from_source,
     group_imports_by_package,
@@ -42,6 +48,7 @@ from devops_cli.config.constants import (
     CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED,
     CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED,
     CONST_FINISH_REASON_LENGTH,
+    CONST_KB_REFERENCE_PREFIX,
     CONST_REVIEW_ANALYSIS_FILENAME,
     CONST_SEVERITY_ORDER,
 )
@@ -130,6 +137,7 @@ class EnvironmentFacts(_StrictModel):
     locked_packages: dict[str, list[str]] = Field(default_factory=dict)
     advisory_fixed_versions: dict[str, list[str]] = Field(default_factory=dict)
     cyclonedx_inventory: dict[str, Any] = Field(default_factory=dict)
+    kubernetes_version: str = ""
 
 
 class AnalysisJobInput(_StrictModel):
@@ -269,6 +277,8 @@ class AnalysisReport(_StrictModel):
     rejections: dict[str, int]
     model_calls: int
     max_concurrency: int = DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+    drift_manuals: list[DriftManual] = Field(default_factory=list)
+    injected_manuals: list[str] = Field(default_factory=list)
 
 
 def _is_k8s_finding(finding: Finding) -> bool:
@@ -603,6 +613,7 @@ def default_environment_facts(
     findings: Sequence[Finding] = (),
     *,
     cyclonedx_inventory: dict[str, Any] | None = None,
+    kubernetes_version: str | None = None,
 ) -> EnvironmentFacts:
     """Build default EnvironmentFacts from `tools.lock`, findings metadata, and CycloneDX inventory (#1146)."""
     try:
@@ -644,6 +655,7 @@ def default_environment_facts(
         locked_packages=locked_packages,
         advisory_fixed_versions=advisory_fixed,
         cyclonedx_inventory=effective_cdx,
+        kubernetes_version=kubernetes_version or "",
     )
 
 
@@ -1376,6 +1388,7 @@ def run_group_analysis(
     concurrency: int | None = None,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
     plan_client: Any | None = None,
+    drift_manuals: Sequence[DriftManual] | None = None,
 ) -> AnalysisReport:
     """Group admitted findings, run model jobs, compute cross-group correlations, plan review, and save `analysis.json`."""
     contents = file_contents or {}
@@ -1390,12 +1403,22 @@ def run_group_analysis(
         DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     )
 
+    eff_matched_kb: list[Any] = []
+    eff_drift_kb: list[DriftManual] = list(drift_manuals or [])
+    if kb_manuals is None:
+        matched_kb, discovered_drift = load_matched_kb_manuals(environment=eff_env)
+        eff_matched_kb = matched_kb
+        if not eff_drift_kb:
+            eff_drift_kb = discovered_drift
+
     jobs = [
         build_analysis_job_input(
             group,
             file_contents=contents,
             rule_docs=rule_docs,
-            kb_manuals=kb_manuals,
+            kb_manuals=filter_kb_manuals_for_group(
+                group, kb_manuals if kb_manuals is not None else eff_matched_kb
+            ),
             neighbours=(neighbours_by_group or {}).get(group.group_id),
             environment=eff_env,
         )
@@ -1485,6 +1508,14 @@ def run_group_analysis(
 
     total_received = sum(len(j.received_keys) for j in jobs)
     total_needed = sum(len(j.needed_keys) for j in jobs)
+    injected_keys = sorted(
+        {
+            key
+            for job in jobs
+            for key in job.received_keys
+            if key.startswith(CONST_KB_REFERENCE_PREFIX)
+        }
+    )
     report = AnalysisReport(
         groups=records,
         correlation_table=correlation_table,
@@ -1494,6 +1525,8 @@ def run_group_analysis(
         rejections=rejections,
         model_calls=model_calls,
         max_concurrency=capped_concurrency,
+        drift_manuals=eff_drift_kb,
+        injected_manuals=injected_keys,
     )
     if session_dir is not None:
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -1585,7 +1618,9 @@ def _render_review_plan_markdown(plan_record: ReviewPlanRecord | None) -> list[s
 
 def render_model_analysis_markdown(report: AnalysisReport | None) -> list[str]:
     """Render the `## Model Analysis (Model-Written)` section for `review.md`."""
-    if report is None or (not report.groups and not report.correlation_table):
+    if report is None or (
+        not report.groups and not report.correlation_table and not report.drift_manuals
+    ):
         return []
     cov = report.reference_coverage
     cov_pct = (cov.numerator / cov.denominator) if cov.denominator else 1.0
@@ -1601,6 +1636,18 @@ def render_model_analysis_markdown(report: AnalysisReport | None) -> list[str]:
         rej_summary = ", ".join(f"`{k}`: {v}" for k, v in sorted(report.rejections.items()))
         lines.append(f"- **G10 Rejections**: {rej_summary}")
     lines.append("")
+    if report.injected_manuals:
+        lines.append("### Reference coverage: injected")
+        lines.append("")
+        for inj in sorted(report.injected_manuals):
+            lines.append(f"- `{inj}`")
+        lines.append("")
+    if report.drift_manuals:
+        lines.append("### Reference coverage: drift")
+        lines.append("")
+        for drift in sorted(report.drift_manuals, key=lambda d: d.path):
+            lines.append(f"- `{drift.path}`: {drift.reason}")
+        lines.append("")
     if report.correlation_table:
         lines.extend(_render_correlation_table_markdown(report.correlation_table))
     if report.plan is not None:
@@ -1618,11 +1665,13 @@ __all__ = [
     "CorrelationKeyKind",
     "DeferredFinding",
     "DocQuote",
+    "DriftManual",
     "EnvironmentFacts",
     "FindingGroup",
     "GroupAnalysisOutput",
     "GroupAnalysisRecord",
     "GroupKind",
+    "MatchedManual",
     "PlanStep",
     "RatioRecord",
     "RelatedItem",
@@ -1637,7 +1686,9 @@ __all__ = [
     "build_deterministic_review_plan",
     "default_environment_facts",
     "extract_finding_correlation_keys",
+    "filter_kb_manuals_for_group",
     "group_findings_for_analysis",
+    "load_matched_kb_manuals",
     "render_model_analysis_markdown",
     "run_group_analysis",
     "run_review_plan_job",

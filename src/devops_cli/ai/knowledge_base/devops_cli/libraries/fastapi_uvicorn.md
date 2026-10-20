@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/fastapi@0.142.*"
+sources:
+  - "https://fastapi.tiangolo.com/"
+  - "https://www.uvicorn.org/"
+reviewed: "2026-10-15"
+tags:
+  - "fastapi"
+  - "uvicorn"
+  - "rest"
+---
+
 # Code Library: FastAPI & Uvicorn (REST API & ASGI Service Engine)
 
 ## 1. Project References

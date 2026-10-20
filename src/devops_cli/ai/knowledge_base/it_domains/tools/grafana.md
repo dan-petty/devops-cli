@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:grafana@11.5.*"
+sources:
+  - "https://grafana.com/docs/"
+  - "https://github.com/grafana/grafana"
+reviewed: "2026-10-15"
+tags:
+  - "grafana"
+  - "observability"
+  - "telemetry"
+---
+
 # Knowledge Base: Grafana (Observability & Telemetry Visualization)
 
 ## 1. Overview & Purpose
