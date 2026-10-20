@@ -6,7 +6,8 @@ starting a real one (#1669).
 for a stdlib edge with no seam, and records each argv; the process it returns has pid 0, which
 the group stop refuses to signal, so nothing real is ever signalled. `refuse_nested_test_runs`
 makes a test that missed the double fail at once, rather than run the suite inside the suite;
-the tests that drive `devops ci test` ask for it, and #1666 makes such a refusal suite-wide.
+the tests that drive `devops ci test` ask for it. The suite's own refusal of real programs
+(#1666) names neither uv nor pytest.
 """
 
 from __future__ import annotations

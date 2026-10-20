@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding
 from devops_cli.ai.tools.builtin_tools import (
@@ -50,6 +52,7 @@ def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -
     assert res_popeye == "No security issues detected."
 
 
+@pytest.mark.usefixtures("scanner_fake")
 @patch("devops_cli.security.trivy.run_trivy_scan")
 @patch("devops_cli.security.kubelinter.run_kubelinter_scan")
 @patch("devops_cli.security.pluto.run_pluto_scan")
@@ -140,6 +143,7 @@ def test_pipeline_multi_scanner_aggregation(
     assert any("Removed API" in t for t in yaml_titles)
 
 
+@pytest.mark.usefixtures("scanner_fake")
 @patch("devops_cli.security.bandit.run_bandit_scan")
 def test_review_pipeline_admit_inline_suppression_added_by_change(
     mock_bandit: MagicMock,
