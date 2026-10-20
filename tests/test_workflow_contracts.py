@@ -374,7 +374,7 @@ def test_workflow_contract_fail_to_pass() -> None:
         [resolve_devops_argv(tokens) for tokens in commands],
     ) == (
         ["opened", "synchronize", "reopened", "edited", "labeled"],
-        ["main", "release/**"],
+        ["release/**"],
         True,
         True,
         True,
