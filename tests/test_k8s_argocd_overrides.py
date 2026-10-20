@@ -19,6 +19,7 @@ from devops_cli.k8s.argocd_overrides import (
     host_patches,
     render_at_revision,
 )
+from tests.k8s_manifests import kustomize
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -221,12 +222,6 @@ def test_a_revision_that_cannot_render_is_refused(
         )
 
 
-def _kustomize(directory: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["kubectl", "kustomize", str(directory)], capture_output=True, text=True, check=False
-    )
-
-
 def _hosts(rendered: str) -> list[str]:
     hosts = []
     for doc in yaml.safe_load_all(rendered):
@@ -252,8 +247,8 @@ def test_kustomize_applies_the_overrides_to_every_host_the_application_renders(
 ) -> None:
     manifest = yaml.safe_load((K8S_DIR / "argocd" / "apps" / f"{application}.yaml").read_text())
     source = REPO_ROOT / manifest["spec"]["source"]["path"]
-    before = _kustomize(source).stdout
-    after = _kustomize(_overlay(tmp_path, source, host_patches(before, DOMAIN)))
+    before = kustomize(source, check=False).stdout
+    after = kustomize(_overlay(tmp_path, source, host_patches(before, DOMAIN)), check=False)
     hosts = _hosts(after.stdout)
     assert (
         after.returncode,
@@ -277,5 +272,5 @@ def test_overrides_fail_the_build_when_git_moved_a_host_rather_than_route_it_els
     (source / "ingress.yaml").write_text(swapped.replace("SWAP", "example.com"), encoding="utf-8")
     overlay = tmp_path / "overlay"
     overlay.mkdir()
-    result = _kustomize(_overlay(overlay, source, patches))
+    result = kustomize(_overlay(overlay, source, patches), check=False)
     assert (result.returncode != 0, "test" in result.stderr.lower()) == (True, True)
