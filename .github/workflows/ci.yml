@@ -325,9 +325,11 @@ jobs:
   # Advisory: reruns the pull request's added or modified test files three times, one run after
   # another, each in a shuffled order, to catch tests that depend on the order they run in.
   # Shuffling the whole suite waits for thread-leak isolation.
+  # Not on the release pull request into main: every test the release touched has changed there,
+  # and each of its items already passed this job against the release branch.
   changed-tests:
     name: Changed-Test Independence
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref != 'main'
     runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
