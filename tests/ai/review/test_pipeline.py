@@ -9,6 +9,7 @@ a credential.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -20,6 +21,9 @@ from devops_cli.ai.review.pipeline import (
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.security.gitleaks import parse_gitleaks_json
 from devops_cli.security.trivy import parse_trivy_json
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 _REVIEW_TOML = """\
 [paths]
@@ -185,10 +189,11 @@ def test_a_review_caps_the_scanner_findings_it_reports(
 
 
 def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
 ) -> None:
     """Fake Semgrep and Bandit results with absolute paths come out as src/app.py:12 in
-    findings.json and review.md, with no absolute path in the description."""
+    findings.json and review.md, with no absolute path in the description. The report's group
+    analysis asks the model edge's fake, not a model server."""
     from devops_cli.ai.review_schema import FileReviewPayload
     from devops_cli.security.base import ScanOutcome
 
