@@ -480,8 +480,14 @@ def test_builtin_security_and_iac_tools(
         assert "No semantic matches found" in res_rag
 
 
-def test_rag_search_names_an_embedding_failure() -> None:
-    """A query the embedding model cannot embed returns the failure, as an unreachable store does."""
+def test_rag_search_names_an_embedding_failure(
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int, unserved_side_channel_port: int
+) -> None:
+    """A query the embedding model cannot embed returns the failure, as an unreachable store does.
+
+    The knowledge base check before the search finds Qdrant down, refused through
+    `refusing_port`, and its retry waits return at once; telemetry goes to the floor's collector.
+    """
     from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.ai.tools.builtin_tools import rag_search
     from devops_cli.config.settings import Settings
@@ -490,8 +496,12 @@ def test_rag_search_names_an_embedding_failure() -> None:
         "Embedding model bge-m3:latest produced no embeddings: "
         "https://example.com/v1/embeddings answered HTTP 400: model not loaded"
     )
+    settings = Settings()
+    settings.qdrant.url = f"http://127.0.0.1:{refusing_port}"
+    settings.telemetry.endpoint = f"http://127.0.0.1:{unserved_side_channel_port}"
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
     with (
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.config.settings.get_ai_api_key", return_value=None),
         patch("devops_cli.config.settings.get_qdrant_api_key", return_value=None),
         patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine._init_valkey", return_value=None),

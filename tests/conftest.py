@@ -91,17 +91,21 @@ def register_test_mock_provider():
 
 @pytest.fixture(autouse=True)
 def reset_rag_state_per_test() -> Iterator[None]:
-    """Ensure every unit test starts and ends with clean RAG verified collection models and no
+    """Ensure every unit test starts and ends with clean RAG verified collection models, no
     cached investigation retriever, whose Qdrant client would carry one test's address into the
-    next."""
+    next, and no knowledge-base check state, whose cooldown would let only the first test in a
+    process to reach Qdrant make the check."""
     from devops_cli.ai.rag.investigator import clear_investigation_cache
+    from devops_cli.ai.rag.kb_sync import reset_kb_sync_state
     from devops_cli.ai.rag.retriever import reset_search_verified_models
 
     reset_search_verified_models()
     clear_investigation_cache()
+    reset_kb_sync_state()
     yield
     reset_search_verified_models()
     clear_investigation_cache()
+    reset_kb_sync_state()
 
 
 def _is_loopback(host: str) -> bool:
