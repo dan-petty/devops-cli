@@ -5,20 +5,16 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from graphql import parse
-from graphql.language import (
-    FieldNode,
-    InlineFragmentNode,
-    OperationDefinitionNode,
-    SelectionSetNode,
-)
 from typer.testing import CliRunner
 
-from devops_cli.commands.pr import app as pr_app
+if TYPE_CHECKING:
+    from graphql.language import (
+        SelectionSetNode,
+    )
 from devops_cli.config.constants import CONST_PR_THREAD_FILED_MARKER
 from devops_cli.config.defaults import DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS
 from devops_cli.exceptions.git import GitHubOperationError
@@ -748,6 +744,8 @@ def _selected(value: Any, selection: SelectionSetNode | None) -> Any:
         return value
     if isinstance(value, list):
         return [_selected(item, selection) for item in value]
+    from graphql.language import FieldNode, InlineFragmentNode
+
     answer: dict[str, Any] = {}
     for node in selection.selections:
         if isinstance(node, InlineFragmentNode):
@@ -801,6 +799,9 @@ class _ThreadsGitHub:
             return self._open_issue(argv[4:])
         flags = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg in ("-f", "-F")]
         fields = dict(flag.split("=", 1) for flag in flags)
+        from graphql import parse
+        from graphql.language import OperationDefinitionNode
+
         operation = next(
             definition
             for definition in parse(fields["query"]).definitions
@@ -872,6 +873,8 @@ def _file_issues(gh: _ThreadsGitHub, *args: str, over_github: bool = False) -> A
         patch("devops_cli.github.pr_monitor.run_gh", side_effect=gh),
         patch.object(roadmap_module, "get_roadmap_store", open_store),
     ):
+        from devops_cli.commands.pr import app as pr_app
+
         return CliRunner().invoke(
             pr_app, ["threads", "file-issues", str(_PULL), "--repo", _REPO, *args]
         )

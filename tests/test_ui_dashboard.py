@@ -15,7 +15,6 @@ import devops_cli.commands.dashboard as dashboard_command
 import devops_cli.ui.data_providers as data_providers
 from devops_cli.commands.dashboard import app as dashboard_app
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
-from devops_cli.main import app as main_app
 from devops_cli.models.k8s import PodInfo
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
@@ -545,6 +544,8 @@ def test_the_summary_lists_unhealthy_pods_first_and_counts_the_rest(
 
 def test_cli_main_dashboard_command() -> None:
     """devops dashboard --summary through main entry point."""
+    from devops_cli.main import app as main_app
+
     res = runner.invoke(main_app, ["dashboard", "--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output
@@ -552,6 +553,8 @@ def test_cli_main_dashboard_command() -> None:
 
 def test_cli_tui_alias_command() -> None:
     """devops tui alias command behaves identically to devops dashboard."""
+    from devops_cli.main import app as main_app
+
     res = runner.invoke(main_app, ["tui", "--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output

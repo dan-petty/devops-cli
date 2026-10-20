@@ -15,9 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 import devops_cli.ui.data_providers as data_providers
-from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.commands.k8s.diagnostics import _build_pods_table
-from devops_cli.k8s.service import KubernetesService
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo, node_is_ready
 from devops_cli.output import Text
 from devops_cli.ui.projections import k8s_rows
@@ -441,6 +439,8 @@ def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
 
     service = MagicMock()
     service.list_pods.return_value = mixed_pods
+    from devops_cli.k8s.service import KubernetesService
+
     with patch.object(KubernetesService, "get_instance", return_value=service):
         table = _build_pods_table(None, None, all_namespaces=True)
     cli = [(_plain(row[2]), _plain(row[3])) for row in table.rows]
@@ -460,6 +460,8 @@ def test_k8s_pods_colours_a_status_by_health_not_by_phase() -> None:
     """A crashlooping pod in phase Running was printed green."""
     service = MagicMock()
     service.list_pods.return_value = [healthy_pod("api-0"), crashlooping_pod("exporter-0")]
+    from devops_cli.k8s.service import KubernetesService
+
     with patch.object(KubernetesService, "get_instance", return_value=service):
         table = _build_pods_table(None, None, all_namespaces=True)
     assert [row[2] for row in table.rows] == [
@@ -474,6 +476,9 @@ def test_watching_pods_prints_the_reason_a_container_gives(monkeypatch: pytest.M
     watcher.stream.return_value = [{"type": "MODIFIED", "object": crashlooping_pod("exporter-0")}]
     service = MagicMock()
     service.load_config.return_value = True
+    from devops_cli.commands.k8s import app as k8s_app
+    from devops_cli.k8s.service import KubernetesService
+
     with (
         patch("kubernetes.watch.Watch", return_value=watcher),
         patch.object(KubernetesService, "get_instance", return_value=service),

@@ -13,15 +13,9 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-import devops_cli.ai.personas  # noqa: F401
-from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.client import LLMClient
-from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.ai import app as ai_app
-from devops_cli.config.settings import Settings, load_settings
+from devops_cli.config.settings import Settings
 
-_ = load_settings()
-count_tokens("warmup")
 runner = CliRunner()
 
 
@@ -106,6 +100,7 @@ def test_ai_chat_model_task_and_cli_overrides() -> None:
 
 def test_llm_client_model_property() -> None:
     """Verify LLMClient.model exposes the active model identifier."""
+    from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import AIConfig
 
     client = LLMClient(config=AIConfig(model="gpt-oss:20b"))
@@ -684,6 +679,8 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
 
     captured_memory: list[AgentMemory] = []
 
+    from devops_cli.ai.agents.agent import PydanticAgent
+
     class WrappedAgent(PydanticAgent[Any]):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
@@ -721,6 +718,8 @@ def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
     client = MagicMock()
     client.chat_messages_stream = fake_stream
     client.chat_messages.return_value = "r1"
+
+    from devops_cli.ai.agents.agent import PydanticAgent
 
     agent = PydanticAgent(client=client, system_prompt="sys", tools=[])
 
