@@ -44,7 +44,12 @@ def test_support_fixtures_reach_a_nested_test_and_load_after_home_is_isolated(
     down a fixture that `tests.support.github_identity` defines, and that module, which imports
     devops-cli at its top, loads after HOME is isolated: devops-cli binds its config directory
     under the isolated HOME, which it would not had the module loaded through `pytest_plugins`
-    or `-p`, before `pytest_configure` (#1312)."""
+    or `-p`, before `pytest_configure` (#1312).
+
+    Runs in a subprocess because in-process pytester shares the host Python process where
+    `devops_cli.config.constants` is already imported and bound to the host HOME. Spawning
+    a clean interpreter and importing `tests.support` (including `pydantic_ai` in fakes and
+    `devops-cli`) takes ~6-7s (#1725)."""
     pytester.makeconftest(_BOOTSTRAP_CONFTEST)
     pytester.makepyfile(
         **{
@@ -65,7 +70,26 @@ def test_devops_cli_binds_its_config_directory_under_the_isolated_home() -> None
 """
         }
     )
-    res = pytester.runpytest_subprocess("-o", f"pythonpath={REPO_ROOT}")
+    res = pytester.runpytest_subprocess(
+        "-o",
+        f"pythonpath={REPO_ROOT}",
+        "-p",
+        "no:cov",
+        "-p",
+        "no:xdist",
+        "-p",
+        "no:hypothesis",
+        "-p",
+        "no:syrupy",
+        "-p",
+        "no:logfire",
+        "-p",
+        "no:pytest_logfire",
+        "-p",
+        "no:randomly",
+        "-o",
+        "asyncio_default_fixture_loop_scope=function",
+    )
     res.assert_outcomes(passed=2)
 
 
@@ -459,7 +483,12 @@ def test_worker_home_locations_and_leaks(tmp_path: Path) -> None:
 def test_tripwire_fails_when_test_writes_under_const_config_dir(
     pytester: pytest.Pytester,
 ) -> None:
-    """A pytester test shows a test that writes under CONST_CONFIG_DIR failing the session with that path (#1311)."""
+    """A pytester test shows a test that writes under CONST_CONFIG_DIR failing the session with that path (#1311).
+
+    Runs in a subprocess because `CONST_CONFIG_DIR` is evaluated at import time from
+    `Path.home()`. In-process execution would write into the outer test worker's home
+    rather than the nested run's isolated HOME, corrupting outer isolation. Spawning a
+    clean interpreter and importing `tests.support` plugins takes ~6-7s (#1725)."""
     pytester.makeconftest(_BOOTSTRAP_CONFTEST)
     pytester.makepyfile(
         """
@@ -472,7 +501,26 @@ def test_mutates_config_dir():
     leak.write_text("leaked: true\\n", encoding="utf-8")
 """
     )
-    res = pytester.runpytest_subprocess("-o", f"pythonpath={REPO_ROOT}")
+    res = pytester.runpytest_subprocess(
+        "-o",
+        f"pythonpath={REPO_ROOT}",
+        "-p",
+        "no:cov",
+        "-p",
+        "no:xdist",
+        "-p",
+        "no:hypothesis",
+        "-p",
+        "no:syrupy",
+        "-p",
+        "no:logfire",
+        "-p",
+        "no:pytest_logfire",
+        "-p",
+        "no:randomly",
+        "-o",
+        "asyncio_default_fixture_loop_scope=function",
+    )
     stdout = res.stdout.str()
     assert (
         res.ret == pytest.ExitCode.TESTS_FAILED,
@@ -483,9 +531,19 @@ def test_mutates_config_dir():
 
 def test_tripwire_passes_when_no_leaks(
     pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify tripwire succeeds when test creates no state in devops-cli locations (#1311)."""
+    """Verify tripwire succeeds when test creates no state in devops-cli locations (#1311).
+
+    Runs in-process with pytester because clean execution does not mutate `CONST_CONFIG_DIR`
+    or leak files into the worker home, cutting runtime from ~10s to ~0.3s (#1725)."""
+    monkeypatch.setenv("HOME", os.environ["HOME"])
     pytester.makeconftest(_BOOTSTRAP_CONFTEST)
     pytester.makepyfile("def test_clean(): pass\n")
-    res = pytester.runpytest_subprocess("-o", f"pythonpath={REPO_ROOT}")
+    res = pytester.runpytest(
+        "-o",
+        f"pythonpath={REPO_ROOT}",
+        "-o",
+        "asyncio_default_fixture_loop_scope=function",
+    )
     assert res.ret == pytest.ExitCode.OK
