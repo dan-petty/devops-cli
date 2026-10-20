@@ -148,7 +148,7 @@ prometheusOperatorObjects:
   collector: alloy-metrics
 
 prometheusMetricsReceiver:
-  enabled: true
+  enabled: false
   collector: alloy-metrics
 
 # Pods annotated for scraping (#1130): cloudflared, Traefik, Alertmanager and roadmap-service,
