@@ -983,8 +983,9 @@ class TestDevcontainerCli:
         (test_dir / "subfile.txt").write_text("hello", encoding="utf-8")
 
         # 1. Missing getuid / getgid
-        monkeypatch.setattr("os.getuid", lambda: None)
-        _ensure_path_ownership(test_dir)
+        with monkeypatch.context() as no_uid:
+            no_uid.delattr("os.getuid")
+            _ensure_path_ownership(test_dir)
 
         # 2. Non-existent path in stat
         non_existent = tmp_path / "non_existent"
