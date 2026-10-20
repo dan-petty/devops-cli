@@ -7,7 +7,7 @@ The vocabulary devops-cli's tests are designed and organised in, and the convent
 ### Test doubles
 
 **Edge**:
-A point where devops-cli reaches beyond its own process to something a test must not touch for real: another machine, a long-lived daemon, a program other than git or bwrap, the keyring, or the wall clock.
+A point where devops-cli reaches beyond its own process to something a test must not touch for real: another machine, a long-lived daemon, a program other than git, bwrap or kubectl's offline renderers, the keyring, or the wall clock.
 _Avoid_: boundary, external dependency, integration point
 
 **Seam**:
@@ -63,8 +63,8 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 ### Doubles
 
 - A test doubles only edges. Everything inside the process runs for real.
-- **Faked edges**: every program except git and bwrap (gh, kubectl, helm, minikube, the docker and podman CLIs, the scanners, and `uv run devops` calling itself), with `shutil.which` part of the process fake; all network, meaning HTTP on any client stack, raw sockets and DNS; GitHub's API, through the GitHub session or the PyGithub REST client; model and embedding providers; the Kubernetes API; the Docker engine; Valkey; Qdrant; outbound MCP servers; durable backends; OTLP export; the keyring and D-Bus.
-- **Real**: the filesystem under `tmp_path`; environment and config, through the hermetic floor and the `config` fixture *(target)*; git in temporary repositories; bwrap in live tests; in-process servers, such as FastAPI's `TestClient` and loopback servers; randomness; host identity; and stdin, through `CliRunner(input=...)`.
+- **Faked edges**: every program except git, bwrap and kubectl's offline renderers (gh, the rest of kubectl, helm, minikube, the docker and podman CLIs, the scanners, and `uv run devops` calling itself), with `shutil.which` part of the process fake; all network, meaning HTTP on any client stack, raw sockets and DNS; GitHub's API, through the GitHub session or the PyGithub REST client; model and embedding providers; the Kubernetes API; the Docker engine; Valkey; Qdrant; outbound MCP servers; durable backends; OTLP export; the keyring and D-Bus.
+- **Real**: the filesystem under `tmp_path`; environment and config, through the hermetic floor and the `config` fixture *(target)*; git in temporary repositories; kubectl's offline renderers, `kubectl kustomize` and `kubectl patch --local`, which read only files and reach no cluster; bwrap in live tests; in-process servers, such as FastAPI's `TestClient` and loopback servers; randomness; host identity; and stdin, through `CliRunner(input=...)`.
 - No test starts a real gh, which would act as the developer's own login: a gh command a test reaches goes to a fake, and the floor fails a test that starts gh *(target)*.
 - Each edge has one seam in `src/devops_cli`: a Protocol, plus the one place that supplies the real implementation *(target for most edges)*. The clock's seam is the sleep and clock parameters the libraries take, with no Protocol, as [Clock](#clock) describes. A test installs the edge's fake through the seam's fixture, or through a constructor or parameter the domain code already takes.
 - Each edge has one fake, in `tests/support/fakes/<edge>.py`, shared by every test that reaches the edge. A test does not build its own double of an edge.

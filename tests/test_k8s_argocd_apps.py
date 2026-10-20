@@ -16,6 +16,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from tests.k8s_manifests import kustomize, kustomized_objects
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -306,13 +307,8 @@ def test_rendered_raw_objects_single_ownership() -> None:
 
     for app_name, dir_path in raw_leaf_apps.items():
         assert app_name in apps
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(dir_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        docs = list(yaml.safe_load_all(proc.stdout))
+        proc = kustomize(dir_path)
+        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
         for doc in docs:
             if not doc:
                 continue
@@ -354,13 +350,8 @@ def test_namespace_and_pvc_data_safety() -> None:
     raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
 
     for dir_path in raw_leaf_apps:
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(dir_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        docs = list(yaml.safe_load_all(proc.stdout))
+        proc = kustomize(dir_path)
+        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
         for doc in docs:
             if not doc:
                 continue
@@ -423,8 +414,6 @@ def test_argocd_enables_the_web_terminal() -> None:
 
 def test_exactly_one_application_renders_argocd_default_perimeter() -> None:
     """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
-    from tests.k8s_manifests import kustomized_objects
-
     apps = _all_applications()
     rendering_apps: list[str] = []
     for name, app in apps.items():
@@ -463,15 +452,10 @@ def test_applicationset_controller_disabled_with_zero_replicas() -> None:
 def test_homelab_domain_overlays() -> None:
     for overlay in ("devops", "ingress"):
         overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(overlay_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        proc = kustomize(overlay_dir)
         assert proc.returncode == 0, f"Overlay {overlay} failed to build: {proc.stderr}"
 
-        docs = [d for d in yaml.safe_load_all(proc.stdout) if d]
+        docs = [d for d in yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader) if d]
         assert len(docs) > 0, f"No documents rendered for overlay {overlay}"
         for doc in docs:
             assert "kind" in doc
@@ -658,13 +642,12 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
 
 def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
     """The ConfigMap is rendered from the active config at deploy time, never from git."""
-    rendered = subprocess.run(
-        ["kubectl", "kustomize", str(K8S_DIR / "overlays" / "homelab" / "devops")],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
+    rendered = kustomize(K8S_DIR / "overlays" / "homelab" / "devops").stdout
+    objects = [
+        (d["kind"], d["metadata"]["name"])
+        for d in yaml.load_all(rendered, Loader=yaml.CSafeLoader)
+        if d
+    ]
     ignored = subprocess.run(
         ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
         cwd=REPO_ROOT,
