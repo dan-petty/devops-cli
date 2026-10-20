@@ -1,9 +1,6 @@
 # Task 211: Enforce Window-Budgeted Rate Pacing, Disk Quota Persistence, and Diff-Only Project Sync
 
 **Issue**: [#211](https://github.com/dan-petty/devops-cli/issues/211)
-**Status**: Done
-**Milestone**: `v0.2.18`
-**Priority**: `priority/p0-critical`
 **Scope**: `scope/github`, `scope/cli`
 
 ---

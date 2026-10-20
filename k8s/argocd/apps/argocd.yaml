@@ -15,6 +15,9 @@ spec:
   - repoURL: https://github.com/dan-petty/devops-cli
     targetRevision: main
     ref: values
+  - repoURL: https://github.com/dan-petty/devops-cli
+    targetRevision: main
+    path: k8s/argocd
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

@@ -1,8 +1,6 @@
 # Task: Branch and PR Reviews Compute Their Own Base-vs-Head Symbol Delta (#593)
 
 **Issue**: [#593](https://github.com/dan-petty/devops-cli/issues/593)
-**Status**: Done
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

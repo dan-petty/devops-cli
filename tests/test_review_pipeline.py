@@ -9,6 +9,7 @@ import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import FileAnalysisMeta
 
 
@@ -1175,6 +1176,97 @@ def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
         )
         assert mock_create.called
         assert mock_create.call_args.kwargs.get("concurrency") == 2
+
+
+def _file_pool_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    provider: str,
+    file_count: int,
+    concurrency: int | None,
+    gateway_enabled: bool = False,
+) -> int:
+    """The concurrency the persona stage sizes its file pool at, for a review of `file_count`
+    files by a client of `provider` with three Ollama nodes of two slots each."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = _create_mock_review_llm()
+    mock_llm._config = AIConfig(
+        provider=provider,
+        gateway_enabled=gateway_enabled,
+        ollama_urls=[f"http://example.com:{port}" for port in (11434, 11435, 11436)],
+        ollama_max_parallel=2,
+    )
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id=f"pool-size-{provider}-{concurrency}",
+        llm_client=mock_llm,
+        target_dir=tmp_path,
+        concurrency=concurrency,
+        parallel=True,
+    )
+    paths = [f"src/file_{n}.py" for n in range(file_count)]
+    payloads = [FileReviewPayload(file_path=path) for path in paths]
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={path: "x = 1" for path in paths},
+            personas=["devsecops"],
+        )
+    return int(mock_create.call_args.kwargs["concurrency"])
+
+
+def test_gateway_file_pool_is_the_slot_sum_whatever_the_ollama_nodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a gateway review's file pool is the gateway's slot sum, not Ollama nodes × slots."""
+    from devops_cli.config.defaults import DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+
+    pool_size = _file_pool_size(
+        tmp_path, monkeypatch, provider="gateway", file_count=6, concurrency=None
+    )
+
+    assert (pool_size, DEFAULT_GATEWAY_REVIEW_CONCURRENCY) == (3, 3)
+
+
+def test_gateway_concurrency_above_the_slot_sum_is_clamped_with_one_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify an explicit --concurrency above the gateway's slots is clamped, and one warning
+    names both numbers."""
+    pool_size = _file_pool_size(
+        tmp_path, monkeypatch, provider="gateway", file_count=6, concurrency=8
+    )
+    warning = "--concurrency 8 is above the gateway's 3 backend slots; using 3"
+
+    assert (pool_size, capsys.readouterr().out.count(warning)) == (3, 1)
+
+
+@pytest.mark.parametrize(
+    ("gateway_enabled", "concurrency", "expected_pool_size"),
+    [(False, 8, 8), (True, 8, 8), (True, None, 6)],
+    ids=["explicit", "explicit-with-gateway-enabled", "nodes-with-gateway-enabled"],
+)
+def test_ollama_review_keeps_its_node_sizing_and_an_explicit_concurrency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    gateway_enabled: bool,
+    concurrency: int | None,
+    expected_pool_size: int,
+) -> None:
+    """Verify an Ollama review is sized by its nodes and keeps an explicit --concurrency above
+    the gateway's slot sum, with no warning, even with `ai.gateway_enabled` set: that setting
+    sends no chat call to the gateway, so the review takes none of its slots."""
+    pool_size = _file_pool_size(
+        tmp_path,
+        monkeypatch,
+        provider="ollama",
+        file_count=10,
+        concurrency=concurrency,
+        gateway_enabled=gateway_enabled,
+    )
+
+    assert (pool_size, "backend slots" in capsys.readouterr().out) == (expected_pool_size, False)
 
 
 def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:

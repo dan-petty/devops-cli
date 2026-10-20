@@ -1,9 +1,6 @@
 # Task: A gh call at a quota window's reset waits out the reset second instead of failing (#1364)
 
 **Issue**: [#1364](https://github.com/dan-petty/devops-cli/issues/1364)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/github
 
 ## Description

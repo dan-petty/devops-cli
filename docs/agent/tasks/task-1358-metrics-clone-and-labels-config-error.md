@@ -1,9 +1,6 @@
 # Task: The metrics job walks its own clone's release tags, and intake stops on an unusable labels.yml before any model call (#1358)
 
 **Issue**: [#1358](https://github.com/dan-petty/devops-cli/issues/1358)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/telemetry, scope/github
 
 ## Description

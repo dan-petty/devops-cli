@@ -1,9 +1,6 @@
 # Task: deploy-stack Applies the LLM Gateway's NetworkPolicy, Whose Egress Admits Only the Gateway's Backends (#795)
 
 **Issue**: [#795](https://github.com/dan-petty/devops-cli/issues/795)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

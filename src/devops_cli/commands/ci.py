@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -20,16 +23,21 @@ from typer.core import TyperGroup
 
 from devops_cli.config.constants import (
     CONST_BANDIT_INI_NAME,
+    CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_EXIT_CANCELLED,
+    CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
     CONST_UV_EXIT_FAILURE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
+    DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
+    DEFAULT_CI_TEST_SERIAL_MAX_FILES,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -41,6 +49,7 @@ from devops_cli.output import print_error, print_info, print_success
 
 if TYPE_CHECKING:
     from devops_cli.ci.mutate import MutationTarget
+    from devops_cli.core.test_selection import SuiteImports
 
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
@@ -199,13 +208,84 @@ def _planned_request_for_cmd(
     )
 
 
+def _stop_signals_to_handle() -> list[signal.Signals]:
+    """The stop signals a run may take over: none off the main thread, which cannot set signal
+    handlers, and none this process ignores, as under `nohup`, where the ignore stands."""
+    if threading.current_thread() is not threading.main_thread():
+        return []
+    present = [
+        getattr(signal, name) for name in CONST_CI_RUN_STOP_SIGNAL_NAMES if hasattr(signal, name)
+    ]
+    return [sig for sig in present if signal.getsignal(sig) is not signal.SIG_IGN]
+
+
+@contextlib.contextmanager
+def _cancelled_by_stop_signals(cancel: Callable[[], object]) -> Iterator[None]:
+    """While it lasts, SIGTERM and SIGHUP call `cancel`, as Ctrl-C cancels `asyncio.run`'s task,
+    and the previous handlers come back after; one set outside Python, which Python cannot put
+    back, comes back as the default."""
+    previous = {
+        sig: signal.signal(sig, lambda _signum, _frame: cancel())
+        for sig in _stop_signals_to_handle()
+    }
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
+async def _run_in_own_session(
+    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
+) -> subprocess.CompletedProcess[str]:
+    """Run `cmd` in a session of its own, which a timeout, Ctrl-C, SIGTERM or SIGHUP stops as a
+    whole process group."""
+    task = asyncio.current_task()
+    loop = asyncio.get_running_loop()
+
+    def cancel() -> None:
+        if task is not None:
+            loop.call_soon_threadsafe(task.cancel)
+
+    with _cancelled_by_stop_signals(cancel):
+        result: subprocess.CompletedProcess[str] = await _get("run_subprocess_async")(
+            cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
+        )
+    return result
+
+
+def _session_returncode(
+    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
+) -> int:
+    """The exit code of `cmd` run in a session of its own (#1669). A timeout of `subprocess.run`
+    kills only `uv`, which left pytest running; stopping the session's whole group stops pytest
+    and its workers with it. A run past `timeout` fails, naming the command and timeout; one
+    stopped by SIGTERM or SIGHUP exits as cancelled, and one stopped by Ctrl-C raises
+    KeyboardInterrupt as before."""
+    try:
+        result = asyncio.run(_run_in_own_session(cmd, root, timeout, capture_output, env))
+    except subprocess.TimeoutExpired:
+        timed_out = MESSAGES.ci.run_timed_out.format(
+            command=shlex.join(cmd), timeout=f"{timeout:g}s"
+        )
+        _get("print_error")(timed_out, prefix=False, safe=True)
+        return CONST_EXIT_FAILURE
+    except asyncio.CancelledError:
+        raise typer.Exit(CONST_EXIT_CANCELLED) from None
+    return int(result.returncode)
+
+
 def _returncode(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
     env: dict[str, str] | None = None,
+    *,
+    own_session: bool = False,
 ) -> int:
-    """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run."""
+    """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run. With
+    `own_session`, the command runs in a session of its own and is stopped as a whole process
+    group."""
     if is_dry_run():
         req = _planned_request_for_cmd(cmd, env=env)
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
@@ -214,6 +294,8 @@ def _returncode(
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    if own_session:
+        return _session_returncode(full_cmd, root, timeout, capture_output, env)
     result = _get("run_subprocess")(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
@@ -225,9 +307,14 @@ def _run(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
     env: dict[str, str] | None = None,
+    *,
+    own_session: bool = False,
 ) -> bool:
     """Run a CI check subprocess synchronously; whether it passed."""
-    return _returncode(cmd, timeout=timeout, capture_output=capture_output, env=env) == 0
+    code = _returncode(
+        cmd, timeout=timeout, capture_output=capture_output, env=env, own_session=own_session
+    )
+    return code == 0
 
 
 def _section(title: str) -> None:
@@ -1187,17 +1274,16 @@ def _normalize_repo_rel_path(path: Path | str, root: Path) -> str:
             return p.resolve().relative_to(root.resolve()).as_posix()
         except ValueError, OSError:
             return p.as_posix()
-    return p.as_posix().lstrip("./")
+    return p.as_posix()
 
 
-def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
+def _check_trigger_files(all_paths: set[str], fallback: bool, imports: SuiteImports) -> bool:
     """Check if any trigger files are in the changed path set."""
-    from devops_cli.core.coverage_index import _FULL_RUN_TRIGGERS
+    from devops_cli.core.test_selection import forces_full_run
 
-    triggers = [p for p in sorted(all_paths) if Path(p).name in _FULL_RUN_TRIGGERS]
-    if not triggers:
+    first_trigger = next((p for p in sorted(all_paths) if forces_full_run(p, imports)), None)
+    if first_trigger is None:
         return True
-    first_trigger = triggers[0]
     if not fallback:
         _get("print_error")(
             MESSAGES.ci.selection_trigger_refusal.format(file=first_trigger),
@@ -1211,20 +1297,18 @@ def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
 def _map_test_tree_path(
     path: str,
     root: Path,
+    imports: SuiteImports,
     selected_tests: set[str],
     mapped_sources: dict[str, list[str]],
     unmapped_sources: list[str],
     source_selectors: dict[str, str],
 ) -> None:
-    """Handle a path under the tests/ directory."""
-    from devops_cli.config.constants import (
-        CONST_PYTHON_FILE_SUFFIX,
-        CONST_TEST_FILE_PREFIX,
-        CONST_TESTS_ROOT_DIR,
-    )
-    from devops_cli.core.coverage_index import _find_tests_importing_helper, _is_test_file
+    """Handle a path under the tests/ directory: a test module runs itself, and a helper module
+    the test modules that import it, directly or through other modules (#1312)."""
+    from devops_cli.config.constants import CONST_PYTHON_FILE_SUFFIX
+    from devops_cli.core.test_selection import is_test_module
 
-    if _is_test_file(path):
+    if is_test_module(path):
         if (root / path).is_file():
             selected_tests.add(path)
             mapped_sources[path] = [path]
@@ -1235,13 +1319,7 @@ def _map_test_tree_path(
         return
 
     if path.endswith(CONST_PYTHON_FILE_SUFFIX):
-        tests_dir = root / CONST_TESTS_ROOT_DIR
-        all_test_files = [
-            p.relative_to(root).as_posix()
-            for p in tests_dir.rglob(f"{CONST_TEST_FILE_PREFIX}*{CONST_PYTHON_FILE_SUFFIX}")
-            if p.is_file()
-        ]
-        importing = _find_tests_importing_helper(path, root, all_test_files)
+        importing = [str(test) for test in imports.importing_tests(Path(path))]
         source_selectors[path] = "text-based selector"
         if importing:
             selected_tests.update(importing)
@@ -1285,6 +1363,7 @@ def _map_changed_paths(
     root: Path,
     index: Any,
     has_index: bool,
+    imports: SuiteImports,
 ) -> tuple[list[str], dict[str, list[str]], list[str], dict[str, str]]:
     """Map each candidate path under src/ or tests/ onto test targets and selectors."""
     from devops_cli.config.constants import CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR
@@ -1298,7 +1377,13 @@ def _map_changed_paths(
         path = raw_path.replace("\\", "/")
         if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
             _map_test_tree_path(
-                path, root, selected_tests, mapped_sources, unmapped_sources, source_selectors
+                path,
+                root,
+                imports,
+                selected_tests,
+                mapped_sources,
+                unmapped_sources,
+                source_selectors,
             )
         elif path.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
             _map_src_tree_path(
@@ -1333,40 +1418,69 @@ def _report_selection(
         )
 
 
-def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
-    """Map changed files onto pytest targets using coverage index and text fallback."""
-    from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
-    from devops_cli.core.coverage_index import (
-        compute_index_drift,
-        load_index,
-    )
+def _index_drift(index: Any, root: Path, imports: SuiteImports) -> tuple[list[str], bool, set[str]]:
+    """The files changed since the coverage index was built; whether the index still maps them:
+    not when one of them forces a full run, since that file can change what any test covers, and
+    the text selector chooses until the index is rebuilt; and the helper modules under tests/
+    among them that are gone, deleted or renamed away, which force the full run themselves
+    (#1312)."""
+    from devops_cli.ci.cache import compute_worktree_blob_hashes
+    from devops_cli.core.coverage_index import compute_index_drift
+    from devops_cli.core.test_selection import forces_full_run
     from devops_cli.output import format_duration
 
-    root = _get_project_root()
-    index_path = resolve_coverage_index_path(root)
-    index = load_index(index_path)
-    has_index = not index.is_empty
+    drift_files = compute_index_drift(index, compute_worktree_blob_hashes(root))
+    age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
+    age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
+    _get("print_muted")(
+        MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
+    )
+    removed = {path for path in drift_files if imports.is_removed_helper(Path(path))}
+    if removed:
+        _get("print_warning")(MESSAGES.ci.coverage_index_helper_removed.format(file=min(removed)))
+        return drift_files, False, removed
+    stale = next((path for path in drift_files if forces_full_run(path, imports)), None)
+    if stale is None:
+        return drift_files, True, set()
+    _get("print_warning")(MESSAGES.ci.coverage_index_stale.format(file=stale))
+    return drift_files, False, set()
 
-    user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
-    all_paths = set(user_paths)
 
-    if has_index:
-        current_hashes = compute_worktree_blob_hashes(root)
-        drift_files = compute_index_drift(index, current_hashes)
-        all_paths.update(drift_files)
-        age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
-        age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
-        _get("print_muted")(
-            MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
-        )
-    else:
+def _drift_selection(
+    index: Any, root: Path, imports: SuiteImports
+) -> tuple[set[str], bool, set[str]]:
+    """The files changed since the coverage index was built to select beside the given ones,
+    none when the index is absent or stale; whether the index maps sources; and the helper
+    modules under tests/ among those files that are gone, deleted or renamed away (#1312)."""
+    if index.is_empty:
         _get("print_muted")(MESSAGES.ci.coverage_index_missing)
+        return set(), False, set()
+    drift_files, usable, removed = _index_drift(index, root, imports)
+    return (set(drift_files) if usable else set()), usable, removed
 
-    if not _check_trigger_files(all_paths, fallback):
+
+def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
+    """Map changed files onto pytest targets using coverage index and text fallback. Only a
+    trigger among the given files forces a full run; one that changed since the index was built
+    makes the index stale, and the text selector maps the given files instead. A helper module
+    under tests/ that is gone since then forces a full run too, since what it registered and
+    which tests imported it can no longer be read (#1312)."""
+    from devops_cli.ci.cache import resolve_coverage_index_path
+    from devops_cli.core.coverage_index import load_index
+    from devops_cli.core.test_selection import SuiteImports
+
+    root = _get_project_root()
+    index = load_index(resolve_coverage_index_path(root))
+    imports = SuiteImports(root)
+    user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
+    drift, has_index, removed = _drift_selection(index, root, imports)
+    all_paths = user_paths | drift
+
+    if not _check_trigger_files(user_paths | removed, fallback, imports):
         return None
 
     targets, mapped_sources, unmapped_sources, source_selectors = _map_changed_paths(
-        all_paths, root, index, has_index
+        all_paths, root, index, has_index, imports
     )
     _report_selection(mapped_sources, unmapped_sources, source_selectors)
 
@@ -1407,6 +1521,18 @@ def _build_test_cmd(
     return cmd
 
 
+def _narrowed_workers(targets: list[str] | None) -> str | None:
+    """The `-n` of a run given none (#1669): none for the full suite, so addopts' `-n logical`
+    applies; serial for a selection of up to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules,
+    where each xdist worker's start-up and collection cost more than it saves; and
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers above that."""
+    if targets is None:
+        return None
+    if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:
+        return "0"
+    return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
+
+
 def _head_seed(root: Path) -> int:
     """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
     result = _get("run_subprocess")(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
@@ -1428,7 +1554,7 @@ def _run_shuffled_repeats(
     first = _head_seed(_get_project_root()) if seed is None else seed
     for run, run_seed in enumerate(range(first, first + runs), start=1):
         cmd = [*base_cmd, "-p", "randomly", f"--randomly-seed={run_seed}", *targets]
-        if not _run(cmd):
+        if not _run(cmd, own_session=True):
             failed = MESSAGES.ci.repeat_failed.format(
                 run=run, runs=runs, seed=run_seed, command=shlex.join(cmd)
             )
@@ -1481,8 +1607,9 @@ def test(
         _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
         return
 
-    cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
-    if not _run(cmd):
+    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets)
+    cmd = _build_test_cmd(workers, verbose, k, x, targets)
+    if not _run(cmd, own_session=True):
         raise typer.Exit(1)
 
 
@@ -1995,6 +2122,7 @@ def fail_to_pass(
     output = format_fail_to_pass_report(report)
     _append_step_summary(output)
     if not report.satisfied:
-        _get("print_error")(output, prefix=False)
+        # Written raw: pytest's output in the report is neither markup nor emoji codes (#1669).
+        _get("write_stderr")(f"{output}\n")
         raise typer.Exit(1)
     _get("print_info")(output, prefix=False, safe=True)

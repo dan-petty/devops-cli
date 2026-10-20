@@ -380,7 +380,7 @@ class TestPydanticAIToolsetsSubsystem:
 
     def test_pydantic_agent_integration(self) -> None:
         """Verify PydanticAgent seamlessly absorbs and registers native toolsets."""
-        from devops_cli.ai.agents import PydanticAgent
+        from devops_cli.ai.agents.agent import PydanticAgent
 
         ts = FunctionToolset(instructions="Ensure release branches follow convention.")
 

@@ -59,6 +59,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "grafana-community": "https://grafana-community.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
+        "traefik": "https://traefik.github.io/charts",
     },
     "llm": {
         "open-webui": "https://open-webui.github.io/helm-charts",
@@ -143,6 +144,13 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
             "version": "2.3.1",
         },
+        {
+            "name": "traefik",
+            "chart": "traefik/traefik",
+            "namespace": "kube-system",
+            "values": str(DEFAULT_K8S_DIR / "ingress" / "traefik-values.yaml"),
+            "version": "41.6.0",
+        },
     ],
     "llm": [
         {
@@ -177,16 +185,22 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
         DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "otel" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "ingress" / "ingress-routes.yaml",
     ],
     "llm": [
         DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
+        DEFAULT_K8S_DIR / "llm" / "valkey-runs.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
+        DEFAULT_K8S_DIR / "llm" / "portkey" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "llm" / "portkey" / "deployment.yaml",
+        DEFAULT_K8S_DIR / "llm" / "portkey" / "service.yaml",
+        DEFAULT_K8S_DIR / "llm" / "portkey" / "networkpolicy.yaml",
     ],
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
@@ -200,6 +214,8 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "agents" / "serviceaccount.yaml",
+        DEFAULT_K8S_DIR / "agents" / "clusterrolebinding.yaml",
     ],
 }
 
@@ -208,7 +224,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 # `monitoring` Application alone owns its objects (#1279); a cluster without Argo CD gets the same
 # kustomization from here: the namespace's perimeter (#913) and the Grafana dashboards (#1297).
 _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
-    "infra": (Path("monitoring"),),
+    "infra": (Path("monitoring"), Path("gpu-feature-discovery")),
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
@@ -268,6 +284,13 @@ def _adopt_helm_resource_if_conflict(
         "invalid ownership metadata" not in error_output
         and "cannot be imported" not in error_output
     ):
+        return False
+
+    if release_name == "traefik":
+        print_warning(
+            "Traefik conflict detected: k3s must run with '--disable traefik' "
+            "rather than adopting pre-existing resources."
+        )
         return False
 
     matches = CONST_HELM_OWNERSHIP_CONFLICT_RE.findall(error_output)

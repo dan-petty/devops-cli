@@ -53,8 +53,9 @@ from devops_cli.exceptions import (
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
-from tests.conftest import PINNED_GITHUB_TOKEN, fail_the_github_lookup
-from tests.release_notes_examples import (
+from tests.support.github_identity import PINNED_GITHUB_TOKEN, fail_the_github_lookup
+from tests.support.paths import REPO_ROOT
+from tests.support.release_notes_examples import (
     SYNTHETIC_CATEGORIES,
     SYNTHETIC_ENTRY_COUNT,
     synthetic_entry_detail,
@@ -1664,7 +1665,7 @@ def test_a_release_commit_stages_changelog_d_only_where_it_exists(
 
 _SECTION_HEADING = "## [0.2.25] - 2026-10-03"
 _SECTION_URL = "https://github.com/dan-petty/devops-cli/blob/v0.2.25/CHANGELOG.md#0225---2026-10-03"
-_REPO_CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+_REPO_CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 
 
 def _with_section(project: Path, body: str) -> Path:
@@ -2155,6 +2156,65 @@ def test_a_bad_fragment_stops_the_automatic_cut_before_it_writes_or_pushes(
         _git_out(origin, "for-each-ref"),
         gh_calls,
     ) == (True, "release/v0.2.26", tip, "", refs, [])
+
+
+def test_an_argocd_gate_failure_stops_the_cut_before_it_writes_or_pushes(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """The cut verifies every Argo CD application at origin's release tip before writing or branching (#1343).
+
+    The clone stays on its original branch with nothing checked out or changed, and neither git
+    nor gh reaches origin.
+    """
+    origin, clone = git_release_repo
+    _git_out(clone, "checkout", "-q", "release/v0.2.26")
+    app_dir = clone / "k8s" / "argocd" / "apps"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    (app_dir / "bad-app.yaml").write_text(
+        "apiVersion: argoproj.io/v1alpha1\n"
+        "kind: Application\n"
+        "metadata:\n"
+        "  name: bad-app\n"
+        "spec:\n"
+        "  source:\n"
+        "    repoURL: https://github.com/dan-petty/devops-cli\n"
+        "    path: k8s/apps/bad-app\n",
+        encoding="utf-8",
+    )
+    bad_path = clone / "k8s" / "apps" / "bad-app"
+    bad_path.mkdir(parents=True, exist_ok=True)
+    (bad_path / "kustomization.yaml").write_text(
+        "resources:\n  - nonexistent.yaml\n", encoding="utf-8"
+    )
+    _git_out(clone, "add", "-A")
+    _git_out(clone, "commit", "-q", "-m", "feat: break bad-app")
+    _git_out(clone, "push", "-q", "origin", "release/v0.2.26")
+    _git_out(clone, "checkout", "-q", "feature/my-work")
+    clone_tip = _git_out(clone, "rev-parse", "HEAD")
+    refs = _git_out(origin, "for-each-ref")
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    from devops_cli.commands.release import cut_release
+    from devops_cli.exceptions.k8s import ArgoCDGateError
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
+        pytest.raises(ArgoCDGateError) as refused,
+    ):
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True, sync_docs=False)
+
+    assert (
+        "bad-app" in refused.value.message,
+        _git_out(clone, "branch", "--show-current"),
+        _git_out(clone, "rev-parse", "HEAD"),
+        _git_out(clone, "status", "--porcelain"),
+        _git_out(origin, "for-each-ref"),
+        gh_calls,
+    ) == (True, "feature/my-work", clone_tip, "", refs, [])
 
 
 @pytest.mark.parametrize(

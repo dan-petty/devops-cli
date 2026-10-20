@@ -1,9 +1,6 @@
 # Task 405: Per-Check Input Scoping for the CI Cache
 
 **Issue**: [#405](https://github.com/dan-petty/devops-cli/issues/405)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

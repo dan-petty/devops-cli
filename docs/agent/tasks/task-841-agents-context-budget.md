@@ -1,9 +1,6 @@
 # Task 841: AGENTS.md Fits a Context Budget and Claude Code Loads It
 
 **Issue**: [#841](https://github.com/dan-petty/devops-cli/issues/841)  
-**Status**: Done  
-**Milestone**: `v0.2.34`  
-**Priority**: `priority/p2-medium`  
 **Scope**: `type/docs`, `scope/ai`, `priority/p2-medium`  
 **Feasibility**: Verified that `AGENTS.md` was 116,655 characters (26,283 tokens), exceeding typical context budgets and inflating prompts across AI coding sessions, `RepoContext` system prompts, and review persona prompts. Replacing verbose procedural prose with concise principles, pointing to existing documentation (`docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`, `docs/TESTING.md`), pointing to existing automated checks (`devops ci`, `ruff`, `code_metrics`), and adding `@AGENTS.md` to `CLAUDE.md` establishes an authoritative, memory-friendly context surface.
 
@@ -82,7 +79,7 @@ Every moved, condensed, or replaced rule from the original 116k-character `AGENT
 | **§1. Core Engineering Philosophy & Objectives** | | | |
 | High Reliability & Quality First | Retained & Condensed | `AGENTS.md` §1 | Essential core philosophy. |
 | Strict Complexity & Nesting Caps ($M \le 10$, depth $\le 5$) | Retained & Condensed | `AGENTS.md` §1, enforced by Ruff `C901` and `structural-invariants` hook (`devops_cli.core.code_metrics`) | Critical invariant; procedural fluff replaced by pointer to enforcing hooks. |
-| Structural Tuple Equality Consolidation in Test Suites | Retained & Condensed | `AGENTS.md` §1 | Crucial guidance for mitigating assertion sprawl under $M \le 10$. |
+| Structural Tuple Equality Consolidation in Test Suites | Dropped (#1308) | How tests assert is set in [`docs/TESTING.md`](docs/TESTING.md) | Ruff's C901 does not count asserts, so the mandate rested on a false premise. |
 | Strict Prohibition of Brittle Pattern Subsets & Constants Placement | Retained & Condensed | `AGENTS.md` §1 | Architectural standard for parser-based extraction vs ad-hoc regex. |
 | Modern Python Ecosystem (Python 3.14+, Pydantic v2, uv) | Retained & Condensed | `AGENTS.md` §1 | Core technology baseline. |
 | Zero-Trust Security, Egress Safety, SSRF & Bounded Error Strings | Retained & Condensed | `AGENTS.md` §1 | High-priority security invariants. |
@@ -129,12 +126,12 @@ Every moved, condensed, or replaced rule from the original 116k-character `AGENT
 | Separation of Concerns & Clean Architecture | Retained & Condensed | `AGENTS.md` §4 | Core architectural pattern. |
 | Config & Defaults Separation | Retained & Condensed | `AGENTS.md` §4 | Separation of mutable config vs immutable constants. |
 | Strict Typing & Modern Idioms | Retained & Condensed | `AGENTS.md` §4, enforced by `mypy --strict` | Replaced duplicate prose with pointer to Mypy strict check. |
-| Deterministic Test Isolation & Bandit Security | Retained & Condensed | `AGENTS.md` §4, enforced by `.bandit` and `devops ci security` | Pointer to security gate. |
+| Deterministic Test Isolation & Bandit Security | Replaced (#1308) | Isolation: `AGENTS.md` §4 Test Conventions, pointing to the Doubles section of [`docs/TESTING.md`](docs/TESTING.md); Bandit: `AGENTS.md` §2, enforced by `.bandit` and `devops ci security` | Tests double only process edges, each through one shared fake, in place of mock isolation. |
 | Pure Markdown Prompt Tasks & Zero Inline Prompts | Retained & Condensed | `AGENTS.md` §4 | Prompt engineering rule. |
 | Output Formatting (No Hard Line Breaks, Canonical Locations) | Retained & Condensed | `AGENTS.md` §4 | Formatting standard. |
 | Modular Stage Pipeline & Provider Protocols | Retained & Condensed | `AGENTS.md` §4 | Design patterns. |
 | Standardized Domain Exception Taxonomy | Retained & Condensed | `AGENTS.md` §4 | Error handling standard. |
-| Test Collection Hygiene & Submodule Grouping | Retained & Condensed | `AGENTS.md` §4, details in [`docs/TESTING.md`](docs/TESTING.md) | Test organization standard. |
+| Test Collection Hygiene & Submodule Grouping | Dropped (#1308) | Where a test file goes is set in [`docs/TESTING.md`](docs/TESTING.md) | Tests sit in one file per behaviour, not per source module, and the helpers that needed `__test__ = False` belong in `tests/support/`, not product code. |
 | **§5. Agentic AI & Review System Guidelines** | | | |
 | Responsible Use of `devops ai` (Token Cost & Concurrency) | Retained & Condensed | `AGENTS.md` §5 | Token budget and local inference safety. |
 | Multi-Persona Code Review & DevSecOps Defaults | Retained & Condensed | `AGENTS.md` §5, details in [`docs/SELF_IMPROVEMENT.md`](docs/SELF_IMPROVEMENT.md) | AI review architecture. |

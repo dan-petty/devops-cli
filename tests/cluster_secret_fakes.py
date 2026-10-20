@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import base64
 import json
-import platform
 import socket
 import subprocess
 from dataclasses import dataclass, field
@@ -24,11 +23,6 @@ from keyring.backend import KeyringBackend
 from keyring.errors import KeyringLocked, PasswordDeleteError
 
 from devops_cli.config.constants import CONST_KEYRING_UNLOCK_PROBE_KEY
-
-# The tracer's resource names the platform, whose processor probe runs a local `uname -p` once
-# per process. Run it at import, before any test patches `subprocess.run`, so a fake cluster
-# and the no-request guard see only the commands under test, whichever test runs first.
-platform.platform()
 
 MACHINE_LOGIN = "machine-account"
 MACHINE_TOKEN = "ghp-machine-token-value-0001"

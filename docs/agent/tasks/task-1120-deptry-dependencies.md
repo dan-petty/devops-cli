@@ -1,9 +1,6 @@
 # Task: pyproject.toml Declares Every Package src Imports, and a deptry Step in devops ci Keeps It That Way (#1120)
 
 **Issue**: [#1120](https://github.com/dan-petty/devops-cli/issues/1120)  
-**Status**: Done  
-**Milestone**: v0.2.31  
-**Priority**: priority/p2-medium  
 **Scope**: scope/ai  
 
 ## Description

@@ -1,16 +1,22 @@
-"""The GitHub roadmap store: Releases, Items and board fields read and written through `gh`.
+"""The GitHub roadmap store: Releases, Items and board fields read and written through `gh`,
+and REST listings read through the GitHub session.
 
-Every command goes through an injected runner that defaults to `run_gh`. REST listings are read
-a full page at a time until a page is short, and each page must be a JSON list: `run_gh`'s own
-paging (`api --paginate`) ends a listing at a page that is empty or not JSON as if it were the
-last. The board comes from the store's own paged GraphQL query (`board_read`): each read passes
+Every gh command goes through an injected runner that defaults to `run_gh`. The REST listings
+(milestones, issues, events, comments, dependencies, pull requests, their files and GitHub
+Releases) are read through the session the store is given, else the process's, with its
+`paginate()` (#983): it follows GitHub's `Link: rel="next"`, raises on a page that holds no list
+and on a listing past its page cap, so a listing never ends short without saying so, and it
+requests a page only when the store reads on into it. The board comes from the store's own
+paged GraphQL query (`board_read`): each read passes
 a Projects filter at the source, leaves archived items out, checks the budget first and charges
 each page's reported points, and is checked against the total for the same filter, so a short
 read is caught; a count that changes during the read is read again once before the read fails.
-A poll reads three listings a page at a time, newest first, and stops after the first page that
-ends before the time it reads from (#1360): the issue events, the pull requests by their last
+A poll reads three listings newest first and stops at the first entry older than the time it
+reads from, requesting no later page (#1360): the issue events, the pull requests by their last
 update, for the cuts and un-cuts of release pull requests, and the GitHub Releases, for the
 ships, these two `DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE` at a time, since each entry is large.
+The GitHub Releases are ordered by their tags' times but judged by when each was published, so
+that read goes on to the end of the page it stops in, which GitHub has already sent.
 Every one is REST; the milestones are read only when a GitHub Release was published in that
 time, to find the Release its tag names.
 
@@ -63,7 +69,6 @@ from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field, Type
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
-    CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_ISSUE_EVENT_CHANGE_KINDS,
     CONST_GH_PROJECT_ITEM_ISSUE_TYPE,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
@@ -90,8 +95,14 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.github.projects import check_github_rate_limit_error
+from devops_cli.github.error_classifier import (
+    classify_gh_failure,
+    gh_http_status,
+    is_gh_owner_lookup_failure,
+)
+from devops_cli.github.owner_lookup import owner_lookup_failure
 from devops_cli.github.rate_limiter import gh_request_resource, run_gh
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
     BoardBudgetPayload,
@@ -185,6 +196,12 @@ class GhRunner(Protocol):
         quiet: bool = ...,
         use_cache: bool = ...,
     ) -> subprocess.CompletedProcess[str]: ...
+
+
+class ListingSession(Protocol):
+    """Reads a REST listing page by page, as `GitHubSession.paginate` does (#983)."""
+
+    def paginate(self, path: str, *, iterable_key: str | None = ...) -> Iterator[Any]: ...
 
 
 # ── Payloads gh returns ───────────────────────────────────────────────────────
@@ -744,10 +761,8 @@ class _UpdatedFieldPayload(BaseModel):
 
 
 _MILESTONE = TypeAdapter(_MilestonePayload)
-_MILESTONES = TypeAdapter(list[_MilestonePayload])
 _ISSUE = TypeAdapter(_IssuePayload)
-_ISSUES = TypeAdapter(list[_IssuePayload])
-_EVENTS = TypeAdapter(list[_EventPayload])
+_EVENT = TypeAdapter(_EventPayload)
 _BOARD_PAGE = TypeAdapter(BoardItemsPage)
 _BOARD_BUDGET = TypeAdapter(BoardBudgetPayload)
 _GRAPHQL_BUDGET = TypeAdapter(GraphQLBudgetPayload)
@@ -763,7 +778,7 @@ _PROJECTS = TypeAdapter(_ProjectListingPayload)
 _BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
 _WORKFLOWS = TypeAdapter(_WorkflowsPayload)
 _UPDATED_FIELD = TypeAdapter(_UpdatedFieldPayload)
-_DEPENDENCIES = TypeAdapter(list[_DependencyPayload])
+_DEPENDENCY = TypeAdapter(_DependencyPayload)
 _OPEN_PULL_REQUESTS = TypeAdapter(_OpenPullRequestsPayload)
 _RELEASE_PULL_REQUESTS = TypeAdapter(_ReleasePullRequestsPayload)
 _ISSUE_STATUS = TypeAdapter(_IssueStatusPayload)
@@ -771,11 +786,11 @@ _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
-_LISTED_RELEASES = TypeAdapter(list[_ListedReleasePayload])
-_UPDATED_PULL_REQUESTS = TypeAdapter(list[_UpdatedPullRequestPayload])
-_COMMENTS = TypeAdapter(list[_CommentPayload])
-_CLOSED_PULL_REQUESTS = TypeAdapter(list[_ClosedPullRequestPayload])
-_PULL_REQUEST_FILES = TypeAdapter(list[_PullRequestFilePayload])
+_LISTED_RELEASE = TypeAdapter(_ListedReleasePayload)
+_UPDATED_PULL_REQUEST = TypeAdapter(_UpdatedPullRequestPayload)
+_COMMENT = TypeAdapter(_CommentPayload)
+_CLOSED_PULL_REQUEST = TypeAdapter(_ClosedPullRequestPayload)
+_PULL_REQUEST_FILE = TypeAdapter(_PullRequestFilePayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
@@ -981,13 +996,11 @@ def issues_endpoint(repo: str, query: str = "state=all") -> str:
     return f"repos/{repo}/issues?{query}"
 
 
-def listing_page_args(
-    endpoint: str, page: int | str, per_page: int = DEFAULT_GH_REST_PER_PAGE
-) -> list[str]:
-    """The `gh` arguments that read page `page` of the REST listing `endpoint`, `per_page`
-    entries a page, a full page by default."""
+def listing_path(endpoint: str, per_page: int = DEFAULT_GH_REST_PER_PAGE) -> str:
+    """The path the GitHub session reads the REST listing `endpoint` from, `per_page` entries
+    a page, a full page by default; the session follows each page's `Link: rel="next"`."""
     separator = "&" if "?" in endpoint else "?"
-    return ["api", f"{endpoint}{separator}per_page={per_page}&page={page}"]
+    return f"/{endpoint}{separator}per_page={per_page}"
 
 
 # The argument builders below are pure: the store runs what they return, and a dry run's request
@@ -1380,9 +1393,12 @@ class GitHubRoadmapStore(RoadmapStore):
         board_owner: str | None = None,
         board_number: int | None = None,
         runner: GhRunner = run_gh,
+        session: ListingSession | None = None,
         board_filter: str = "",
     ) -> None:
         self._repo = repo
+        # The REST listings are read through this session, or the process's when it is None.
+        self._session = session
         self._board_filter = board_filter
         # The first and last GraphQL budgets a response reported, and what a board page cost.
         self._first_budget: GraphQLBudget | None = None
@@ -1402,7 +1418,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def releases(self) -> list[Release]:
         """Every Release, sorted by version; milestones that aren't versions are skipped."""
-        milestones = self._read_listing(milestones_endpoint(self._repo), _MILESTONES, "milestones")
+        milestones = self._listing(milestones_endpoint(self._repo), _MILESTONE, "milestones")
         return sorted(_releases_among(milestones), key=lambda release: release.version)
 
     def release(self, version: str) -> Release | None:
@@ -1495,15 +1511,15 @@ class GitHubRoadmapStore(RoadmapStore):
         no actor, is never left out."""
         cutoff = as_utc(since)
         skipped = except_actor or None
-        events = self._read_listing(
+        events = self._listing(
             repository_issue_events_endpoint(self._repo),
-            _EVENTS,
+            _EVENT,
             "issue events",
             ends=lambda event: event.created_at < cutoff,
         )
-        pull_requests = self._read_listing(
+        pull_requests = self._listing(
             updated_pull_requests_endpoint(self._repo),
-            _UPDATED_PULL_REQUESTS,
+            _UPDATED_PULL_REQUEST,
             "pull requests",
             ends=lambda pull_request: pull_request.updated_at < cutoff,
             per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
@@ -1622,8 +1638,8 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def release_changes(self, number: int) -> list[Change]:
         """Every time issue `number` joined or left a Release, from its own events."""
-        events = self._read_listing(
-            issue_events_endpoint(self._repo, number), _EVENTS, f"#{number} events"
+        events = self._listing(
+            issue_events_endpoint(self._repo, number), _EVENT, f"#{number} events"
         )
         moves = (ChangeKind.JOINED_RELEASE, ChangeKind.LEFT_RELEASE)
         changes = (event.model_copy(update={"number": number}).change() for event in events)
@@ -1686,8 +1702,8 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
-        listing = self._read_listing(
-            comments_endpoint(self._repo, number), _COMMENTS, f"#{number} comments"
+        listing = self._listing(
+            comments_endpoint(self._repo, number), _COMMENT, f"#{number} comments"
         )
         return [comment.body for comment in listing]
 
@@ -1761,8 +1777,7 @@ class GitHubRoadmapStore(RoadmapStore):
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
             return proc.stdout or ""
-        status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
-        if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+        if gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
             raise GitHubFileNotFoundError(
                 f"{self._repo} has no {where}.",
                 operation="roadmap.read",
@@ -1863,9 +1878,9 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def dependencies(self, number: int) -> list[Dependency]:
         """The issues issue `number` waits on through GitHub's blocked-by links."""
-        listing = self._read_listing(
+        listing = self._listing(
             dependencies_endpoint(self._repo, number),
-            _DEPENDENCIES,
+            _DEPENDENCY,
             f"#{number} dependencies",
         )
         return [payload.dependency() for payload in listing]
@@ -1915,19 +1930,19 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
         """Every pull request merged into `base`, oldest first, each with the paths it changed;
-        each listing is read a full page at a time, and a failed page raises."""
-        closed = self._read_listing(
+        each listing is read whole through the session, and a failed page raises."""
+        closed = self._listing(
             merged_pull_requests_endpoint(self._repo, base),
-            _CLOSED_PULL_REQUESTS,
+            _CLOSED_PULL_REQUEST,
             f"pull requests into {base}",
         )
         return [
             pull_request.merged(
                 [
                     changed.filename
-                    for changed in self._read_listing(
+                    for changed in self._listing(
                         pull_request_files_endpoint(self._repo, pull_request.number),
-                        _PULL_REQUEST_FILES,
+                        _PULL_REQUEST_FILE,
                         f"#{pull_request.number} files",
                     )
                 ]
@@ -2362,8 +2377,7 @@ class GitHubRoadmapStore(RoadmapStore):
         proc = self._run(args)
         if proc.returncode == 0:
             return self._validate(proc.stdout or "", adapter, what)
-        status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
-        if status is not None and int(status.group("status")) in absent:
+        if gh_http_status(proc.stderr or "") in absent:
             return None
         raise self._failure(proc, f"read {what}", "roadmap.read")
 
@@ -2431,13 +2445,16 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _ships_since(self, cutoff: datetime) -> list[Change]:
         """A ship for each GitHub Release published at or after `cutoff` whose tag names a
-        Release. The listing is ordered by its tags' times, so every page is judged by when
-        each was published, and the milestones are read only when one was published since."""
-        listed = self._read_listing(
+        Release. The listing is ordered by its tags' times, newest first, but a ship is judged by
+        when it was published, so it is read to the end of the page holding the first Release
+        created before `cutoff`, and every Release read is judged by when it was published. The
+        milestones are read only when one was published since."""
+        listed = self._listing(
             github_releases_endpoint(self._repo),
-            _LISTED_RELEASES,
+            _LISTED_RELEASE,
             "GitHub Releases",
             ends=lambda release: release.created_at < cutoff,
+            to_page_end=True,
             per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
         )
         shipped = [
@@ -2455,40 +2472,56 @@ class GitHubRoadmapStore(RoadmapStore):
         ]
 
     def _read_issues(self, query: str) -> list[IssueRecord]:
-        issues = self._read_listing(issues_endpoint(self._repo, query), _ISSUES, "issues")
+        issues = self._listing(issues_endpoint(self._repo, query), _ISSUE, "issues")
         return [issue.record() for issue in issues]
 
-    def _read_listing[EntryT](
+    def _listing[EntryT](
         self,
         endpoint: str,
-        adapter: TypeAdapter[list[EntryT]],
+        adapter: TypeAdapter[EntryT],
         what: str,
         *,
         ends: Callable[[EntryT], bool] | None = None,
+        to_page_end: bool = False,
         per_page: int = DEFAULT_GH_REST_PER_PAGE,
     ) -> list[EntryT]:
-        """Read every page of a REST listing, `per_page` entries at a time, until a page is
-        short, or, with `ends`, until a page whose last entry `ends` holds for: a listing read
-        newest first ends at the first page reaching back past the time it reads from (#1360).
+        """Every entry of the REST listing `endpoint`, read through the GitHub session,
+        `per_page` entries a page. With `ends`, the read stops at the first entry `ends` holds
+        for and requests no later page: a listing read newest first ends at the first entry
+        older than the time it reads from (#1360). With `to_page_end` as well, it reads on to
+        the end of the page that entry is on, which GitHub has already sent, since every page
+        but the last is full, so a listing ordered by one time and judged by another sees that
+        whole page.
 
-        Each page must be a JSON list, or the read raises, naming it: `api --paginate` would
-        end the listing at a page that is empty or not JSON, as a proxy's error page is, and
-        report what it read before as the whole of it.
+        The session follows each page's `Link: rel="next"` and raises on a failed page, a page
+        that holds no list and a listing past its page cap, so the listing is never taken as
+        whole when it is not; an entry that is not the shape `adapter` reads raises here.
         """
         listing: list[EntryT] = []
-        for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
-            entries = self._read(
-                listing_page_args(endpoint, page, per_page), adapter, f"{what} (page {page})"
-            )
-            listing.extend(entries)
-            if len(entries) < per_page or (ends is not None and ends(entries[-1])):
-                return listing
-        raise GitHubOperationError(
-            f"The {what} of {self._repo} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so "
-            "the read can't complete.",
-            operation="roadmap.read",
-            details={"repo": self._repo[:256], "read": what[:256]},
-        )
+        ended = False
+        for found in self._listing_session().paginate(listing_path(endpoint, per_page)):
+            entry = self._validate_entry(found, adapter, what)
+            listing.append(entry)
+            ended = ended or (ends is not None and ends(entry))
+            if ended and not (to_page_end and len(listing) % per_page):
+                break
+        return listing
+
+    def _listing_session(self) -> ListingSession:
+        """The session the REST listings are read through: the store's, else the process's."""
+        return get_github_session() if self._session is None else self._session
+
+    def _validate_entry[EntryT](
+        self, found: Any, adapter: TypeAdapter[EntryT], what: str
+    ) -> EntryT:
+        try:
+            return adapter.validate_python(found)
+        except MalformedPayloadError as exc:
+            raise GitHubOperationError(
+                f"GitHub returned malformed {what} for {self._repo}.",
+                operation="roadmap.read",
+                details={"repo": self._repo[:256], "error": str(exc)[:256]},
+            ) from exc
 
     def _read[PayloadT](
         self, args: list[str], adapter: TypeAdapter[PayloadT], what: str
@@ -2523,10 +2556,19 @@ class GitHubRoadmapStore(RoadmapStore):
     def _failure(
         self, proc: subprocess.CompletedProcess[str], action: str, operation: str
     ) -> GitHubOperationError:
-        """The error for a failed gh command; a rate limit raises `GitHubRateLimitError` instead."""
+        """The error for a failed gh command: the class the gh classifier names from gh's
+        stderr, such as `GitHubRateLimitError`, else a failure to do `action`. gh's stdout holds
+        GitHub's answer, possibly partial data with item titles, and is never classified."""
         output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-        check_github_rate_limit_error(output, operation=operation)
-        return GitHubOperationError(
+        stderr = proc.stderr or ""
+        classified = classify_gh_failure(stderr, exit_code=proc.returncode, operation=operation)
+        if classified is not None and is_gh_owner_lookup_failure(stderr):
+            # The store's `--owner <login>` commands have no `@me` fallback (#983).
+            failed = f"Could not {action} in {self._repo}"
+            return owner_lookup_failure(
+                classified, read=self._run, failed=failed, operation=operation
+            )
+        return classified or GitHubOperationError(
             f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},
@@ -2560,6 +2602,7 @@ __all__ = [
     "FieldListingPayload",
     "GhRunner",
     "GitHubRoadmapStore",
+    "ListingSession",
     "advisory_args",
     "board_fields_args",
     "board_query_args",
@@ -2597,7 +2640,7 @@ __all__ = [
     "item_edit_args",
     "item_unarchive_args",
     "label_args",
-    "listing_page_args",
+    "listing_path",
     "milestone_args",
     "milestones_endpoint",
     "open_pull_requests_args",

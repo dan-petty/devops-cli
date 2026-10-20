@@ -1,7 +1,6 @@
 # Task 875: One JSON Repair Seam Counting Repairs Per Entry Point
 
 **Issue**: [#875](https://github.com/dan-petty/devops-cli/issues/875)
-**Status**: Done
 **Feasibility**: Verified against `src/devops_cli/ai/response_repair.py`, `src/devops_cli/core/serialization.py`, `src/devops_cli/ai/client/structured.py`, and `src/devops_cli/telemetry/instruments.py` that routing all three JSON repair entry points (`repair_json_string`, `extract_json_block`, and `_parse_json_payload`) through `repair_json(text, *, source)` eliminates ad-hoc `{...}`/`[...]` slicing in `extract_json_block`, preserves top-level lists on unclosed markdown fences, and counts repairs via `devops_cli_ai_json_repairs_total` labeled by `source`.
 
 ## Deliverables

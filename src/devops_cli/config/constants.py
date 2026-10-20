@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -238,12 +239,474 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
 )
 CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR: Final[frozenset[str]] = frozenset(
     {
-        "argo_rollout_analyze",
+        "argo_rollouts_analyze",
         "docker_sign",
         "gh_project_reconcile",
-        "rag_drift",
+        "ai_rag_drift",
         "roadmap_render",
     }
+)
+
+# Command exposure table: (command_path, timeout_seconds, read_only, format_json)
+CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
+    (("ai", "ast", "graph"), 60.0, True, False),
+    (("ai", "ast", "parse"), 60.0, True, True),
+    (("ai", "benchmark"), 300.0, True, False),
+    (("ai", "chaos-model"), 300.0, False, False),
+    (("ai", "constellation"), 30.0, True, True),
+    (("ai", "cost", "report"), 30.0, True, True),
+    (("ai", "diagram"), 60.0, True, False),
+    (("ai", "failover"), 60.0, False, False),
+    (("ai", "gateway", "failover"), 30.0, False, True),
+    (("ai", "gateway", "probe-backend"), 30.0, True, True),
+    (("ai", "gateway", "routes"), 30.0, True, True),
+    (("ai", "gateway", "status"), 30.0, True, True),
+    (("ai", "harness", "offload"), 60.0, True, False),
+    (("ai", "harness", "status"), 30.0, True, False),
+    (("ai", "ingest", "library"), 300.0, False, True),
+    (("ai", "ingest", "query-library"), 60.0, True, True),
+    (("ai", "pack-context"), 60.0, True, True),
+    (("ai", "prewarm"), 600.0, False, False),
+    (("ai", "quiesce"), 60.0, False, False),
+    (("ai", "rag", "drift"), 60.0, False, True),
+    (("ai", "rag", "index"), 300.0, False, False),
+    (("ai", "rag", "query"), 60.0, True, False),
+    (("ai", "read"), 60.0, True, False),
+    (("ai", "repomap"), 60.0, True, False),
+    (("ai", "resume"), 60.0, False, False),
+    (("ai", "test-gen"), 300.0, True, False),
+    (("argo", "cd", "apps", "list"), 30.0, True, False),
+    (("argo", "cd", "apps", "status"), 30.0, True, False),
+    (("argo", "fleet", "sync"), 300.0, False, True),
+    (("argo", "rollouts", "analyze"), 300.0, False, True),
+    (("branches", "list"), 60.0, True, False),
+    (("ci",), 360.0, True, False),
+    (("config", "audit-keys"), 30.0, True, False),
+    (("config", "output"), 30.0, True, True),
+    (("config", "show"), 30.0, True, False),
+    (("docker", "images"), 30.0, True, False),
+    (("docker", "sandbox"), 300.0, False, False),
+    (("docker", "sign"), 300.0, False, False),
+    (("docker", "verify"), 300.0, True, False),
+    (("docs", "compact"), 60.0, False, False),
+    (("gh", "issues", "create"), 60.0, False, False),
+    (("gh", "issues", "edit"), 60.0, False, False),
+    (("gh", "issues", "list"), 60.0, True, False),
+    (("gh", "issues", "status"), 60.0, True, False),
+    (("gh", "issues", "triage"), 60.0, True, False),
+    (("gh", "labels", "list"), 60.0, True, False),
+    (("gh", "labels", "sync"), 300.0, False, False),
+    (("gh", "milestones", "close"), 60.0, False, False),
+    (("gh", "milestones", "edit"), 60.0, False, False),
+    (("gh", "milestones", "list"), 60.0, True, False),
+    (("gh", "pages", "build"), 60.0, False, False),
+    (("gh", "pages", "status"), 60.0, True, False),
+    (("gh", "pages", "verify"), 30.0, True, False),
+    (("gh", "project", "audit"), 60.0, True, False),
+    (("gh", "project", "list"), 60.0, True, False),
+    (("gh", "project", "reconcile"), 60.0, False, False),
+    (("gh", "project", "status"), 30.0, True, False),
+    (("gh", "project", "sync"), 300.0, False, False),
+    (("gh", "rate-limit"), 60.0, True, False),
+    (("gh", "runs", "list"), 60.0, True, False),
+    (("gh", "runs", "view"), 60.0, True, False),
+    (("gh", "views", "audit"), 60.0, True, False),
+    (("gh", "views", "spec"), 30.0, True, False),
+    (("gh", "views", "sync"), 300.0, False, False),
+    (("grafana", "dashboards", "list"), 30.0, True, False),
+    (("k8s", "audit"), 60.0, True, False),
+    (("k8s", "bootstrap"), 360.0, False, False),
+    (("k8s", "chaos"), 300.0, False, False),
+    (("k8s", "create-tls-secret"), 60.0, False, False),
+    (("k8s", "deploy-stack"), 360.0, False, False),
+    (("k8s", "diff-helm"), 60.0, True, False),
+    (("k8s", "doctor"), 60.0, True, True),
+    (("k8s", "enable-tls"), 60.0, False, False),
+    (("k8s", "lint"), 60.0, True, False),
+    (("k8s", "logs"), 300.0, True, True),
+    (("k8s", "pods"), 30.0, True, False),
+    (("k8s", "security-stream"), 60.0, True, True),
+    (("k8s", "status"), 60.0, True, False),
+    (("k8s", "teardown-stack"), 180.0, False, False),
+    (("k8s", "validate"), 60.0, True, False),
+    (("pr", "check-readiness"), 60.0, True, False),
+    (("pr", "checks"), 60.0, True, False),
+    (("pr", "close"), 60.0, False, False),
+    (("pr", "diff"), 60.0, True, False),
+    (("pr", "edit"), 60.0, False, False),
+    (("pr", "list"), 60.0, True, False),
+    (("pr", "monitor"), 210.0, True, False),
+    (("pr", "ready"), 180.0, False, False),
+    (("pr", "threads", "list"), 60.0, True, False),
+    (("pr", "threads", "reply"), 60.0, False, False),
+    (("pr", "threads", "resolve"), 60.0, False, False),
+    (("pr", "update"), 60.0, False, False),
+    (("prometheus", "query"), 30.0, True, False),
+    (("release", "status"), 30.0, True, False),
+    (("repos", "list"), 30.0, True, False),
+    (("repos", "sync"), 120.0, False, False),
+    (("review", "branch"), 300.0, True, False),
+    (("review", "export-feedback"), 60.0, False, False),
+    (("review", "findings"), 60.0, True, False),
+    (("review", "path"), 300.0, True, False),
+    (("review", "pr"), 300.0, False, False),
+    (("review", "stats"), 60.0, True, False),
+    (("roadmap", "close"), 300.0, True, False),
+    (("roadmap", "intake"), 300.0, False, False),
+    (("roadmap", "migrate"), 300.0, True, False),
+    (("roadmap", "refine"), 300.0, True, False),
+    (("roadmap", "render"), 300.0, False, False),
+    (("roadmap", "reprioritize"), 300.0, False, False),
+    (("roadmap", "run"), 300.0, True, False),
+    (("sandbox", "deploy"), 300.0, False, False),
+    (("sandbox", "exec"), 300.0, False, False),
+    (("sandbox", "network-policy"), 300.0, True, False),
+    (("sandbox", "status"), 30.0, True, True),
+    (("sandbox", "stop"), 60.0, False, False),
+    (("scan", "aibom"), 60.0, True, False),
+    (("scan", "complexity"), 60.0, True, False),
+    (("scan", "fix"), 300.0, False, False),
+    (("scan", "iac"), 300.0, True, False),
+    (("scan", "sast"), 300.0, True, False),
+    (("scan", "sbom"), 60.0, True, False),
+    (("scan", "secrets"), 300.0, True, False),
+    (("scan", "trivy"), 300.0, True, False),
+    (("ssh", "audit"), 30.0, True, False),
+    (("ssh", "status"), 30.0, True, False),
+    (("telemetry", "logfire"), 30.0, True, False),
+    (("telemetry", "profile"), 60.0, True, False),
+    (("telemetry", "status"), 30.0, True, False),
+    (("telemetry", "test"), 30.0, False, False),
+    (("tf", "apply"), 600.0, False, False),
+    (("tf", "cost", "breakdown"), 300.0, True, True),
+    (("tf", "notify-plan"), 60.0, True, False),
+    (("tf", "output"), 30.0, True, False),
+    (("tf", "plan"), 300.0, True, False),
+    (("tls", "ca"), 30.0, False, False),
+    (("tls", "cert"), 30.0, False, False),
+    (("tls", "inspect"), 30.0, True, False),
+    (("valkey", "flush"), 30.0, False, False),
+    (("valkey", "get"), 30.0, True, False),
+    (("valkey", "info"), 30.0, True, False),
+    (("valkey", "ping"), 30.0, True, False),
+    (("valkey", "set"), 30.0, False, False),
+    (("valkey", "stats"), 30.0, True, False),
+    (("vault", "get"), 60.0, True, False),
+    (("vault", "set"), 60.0, False, False),
+    (("vault", "status"), 30.0, True, False),
+    (("vault", "sync"), 60.0, False, False),
+)
+
+# Unexposed CLI leaf commands that must not be registered as MCP tools
+CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
+    (
+        ("ai", "agents"),
+        ("ai", "analyze", "branch"),
+        ("ai", "analyze", "path"),
+        ("ai", "analyze", "pr"),
+        ("ai", "audit-library-usage"),
+        ("ai", "bundle-models"),
+        ("ai", "cache", "clear"),
+        ("ai", "cache", "status"),
+        ("ai", "chat"),
+        ("ai", "config"),
+        ("ai", "cost", "list-pricing"),
+        ("ai", "cost", "prometheus"),
+        ("ai", "cost", "reset"),
+        ("ai", "cost", "roi"),
+        ("ai", "cost", "set-price"),
+        ("ai", "cost", "update-pricing"),
+        ("ai", "gateway", "connect"),
+        ("ai", "gateway", "load"),
+        ("ai", "gateway", "render"),
+        ("ai", "gateway", "tune"),
+        ("ai", "harness", "run"),
+        ("ai", "ingest", "docs"),
+        ("ai", "ingest", "index-libraries"),
+        ("ai", "models"),
+        ("ai", "pipeline"),
+        ("ai", "preload"),
+        ("ai", "prompt-eval"),
+        ("ai", "rag", "clear"),
+        ("ai", "rag", "index-kb"),
+        ("ai", "rag", "search"),
+        ("ai", "rag", "status"),
+        ("ai", "research", "analogies"),
+        ("ai", "research", "annotate"),
+        ("ai", "research", "forage"),
+        ("ai", "research", "model"),
+        ("ai", "research", "socratic"),
+        ("ai", "review", "benchmark"),
+        ("ai", "review", "branch"),
+        ("ai", "review", "corpus", "generate"),
+        ("ai", "review", "corpus", "score"),
+        ("ai", "review", "export-feedback"),
+        ("ai", "review", "findings"),
+        ("ai", "review", "path"),
+        ("ai", "review", "pr"),
+        ("ai", "review", "rules", "test"),
+        ("ai", "review", "samples", "fetch"),
+        ("ai", "review", "samples", "list"),
+        ("ai", "review", "samples", "validate"),
+        ("ai", "review", "score"),
+        ("ai", "review", "stats"),
+        ("ai", "review", "templates", "check"),
+        ("ai", "review", "templates", "list"),
+        ("ai", "review", "templates", "sweep"),
+        ("ai", "review", "verify"),
+        ("ai", "runs", "baseline", "list"),
+        ("ai", "runs", "baseline", "set"),
+        ("ai", "runs", "baseline", "show"),
+        ("ai", "runs", "check"),
+        ("ai", "runs", "compare"),
+        ("ai", "runs", "connect"),
+        ("ai", "runs", "list"),
+        ("ai", "runs", "reindex"),
+        ("ai", "runs", "show"),
+        ("ai", "spec"),
+        ("ai", "spend", "list-pricing"),
+        ("ai", "spend", "prometheus"),
+        ("ai", "spend", "report"),
+        ("ai", "spend", "reset"),
+        ("ai", "spend", "roi"),
+        ("ai", "spend", "set-price"),
+        ("ai", "spend", "update-pricing"),
+        ("ai", "test"),
+        ("ai", "token-count"),
+        ("argo", "cd", "apps", "bootstrap-gitops"),
+        ("argo", "cd", "apps", "sync"),
+        ("argo", "cd", "fleet", "sync"),
+        ("argo", "cd", "gitops", "drift"),
+        ("argo", "cd", "gitops", "sync"),
+        ("argo", "cd", "gitops", "watch"),
+        ("argo", "gitops", "drift"),
+        ("argo", "gitops", "sync"),
+        ("argo", "gitops", "watch"),
+        ("argo", "rollouts", "abort"),
+        ("argo", "rollouts", "list"),
+        ("argo", "rollouts", "promote"),
+        ("argo", "rollouts", "restart"),
+        ("argo", "rollouts", "status"),
+        ("argo", "sync"),
+        ("argo", "workflows", "list"),
+        ("argo", "workflows", "logs"),
+        ("argo", "workflows", "submit"),
+        ("branches", "clean"),
+        ("branches", "jira"),
+        ("branches", "sync"),
+        ("branches", "update"),
+        ("ci", "actionlint"),
+        ("ci", "audit"),
+        ("ci", "coverage"),
+        ("ci", "deps"),
+        ("ci", "devcontainer"),
+        ("ci", "docs"),
+        ("ci", "fail-to-pass"),
+        ("ci", "format"),
+        ("ci", "lint"),
+        ("ci", "lockfile"),
+        ("ci", "maintain"),
+        ("ci", "mutate"),
+        ("ci", "outdated"),
+        ("ci", "run"),
+        ("ci", "security"),
+        ("ci", "test"),
+        ("ci", "typecheck"),
+        ("ci", "uv-check"),
+        ("cloudflare", "access", "policies"),
+        ("cloudflare", "access", "status"),
+        ("cloudflare", "access", "sync"),
+        ("cloudflare", "dns", "delete"),
+        ("cloudflare", "dns", "list"),
+        ("cloudflare", "dns", "sync"),
+        ("cloudflare", "service-status"),
+        ("cloudflare", "status"),
+        ("cloudflare", "tunnel", "routes"),
+        ("cloudflare", "tunnel", "sync"),
+        ("config", "audit-stream"),
+        ("config", "auth-headless"),
+        ("config", "env"),
+        ("config", "env-vars"),
+        ("config", "get"),
+        ("config", "init"),
+        ("config", "set"),
+        ("dashboard",),
+        ("devcontainer", "bootstrap-k8s"),
+        ("devcontainer", "init"),
+        ("devcontainer", "list"),
+        ("devcontainer", "post-create"),
+        ("devcontainer", "post-start"),
+        ("devcontainer", "run-lifecycle"),
+        ("devcontainer", "unlock-keyring"),
+        ("devcontainer", "update"),
+        ("devcontainer", "validate"),
+        ("docker", "analyze-layers"),
+        ("docker", "build"),
+        ("docker", "cache"),
+        ("docker", "prune"),
+        ("docker", "push"),
+        ("docker", "stats"),
+        ("docs", "check"),
+        ("docs", "generate"),
+        ("docs", "sync-readme"),
+        ("format",),
+        ("gh", "api"),
+        ("gh", "branch-protection", "audit"),
+        ("gh", "branch-protection", "sync"),
+        ("gh", "labels", "audit"),
+        ("gh", "metrics"),
+        ("gh", "milestones", "status"),
+        ("gh", "pages", "builds"),
+        ("gh", "pr", "check-readiness"),
+        ("gh", "pr", "checks"),
+        ("gh", "pr", "close"),
+        ("gh", "pr", "copilot-pass"),
+        ("gh", "pr", "create"),
+        ("gh", "pr", "diff"),
+        ("gh", "pr", "edit"),
+        ("gh", "pr", "hardening-report"),
+        ("gh", "pr", "list"),
+        ("gh", "pr", "monitor"),
+        ("gh", "pr", "ready"),
+        ("gh", "pr", "threads", "file-issues"),
+        ("gh", "pr", "threads", "list"),
+        ("gh", "pr", "threads", "reply"),
+        ("gh", "pr", "threads", "resolve"),
+        ("gh", "pr", "threads", "resolve-all"),
+        ("gh", "pr", "threads", "unresolve"),
+        ("gh", "pr", "update"),
+        ("gh", "pr", "view"),
+        ("gh", "pr", "wait"),
+        ("gh", "project", "link"),
+        ("gh", "project", "template"),
+        ("gh", "project", "workflows", "list"),
+        ("gh", "secrets", "list"),
+        ("gh", "secrets", "sync"),
+        ("gh", "status"),
+        ("gh", "views", "list"),
+        ("grafana", "alerts"),
+        ("grafana", "dashboards", "export"),
+        ("grafana", "dashboards", "import"),
+        ("grafana", "dashboards", "lint"),
+        ("grafana", "dashboards", "sync"),
+        ("grafana", "datasources"),
+        ("grafana", "search"),
+        ("install-tools", "status"),
+        ("k8s", "apply"),
+        ("k8s", "bootstrap-openwebui"),
+        ("k8s", "check-deprecated"),
+        ("k8s", "configure-urls"),
+        ("k8s", "contexts"),
+        ("k8s", "gpu-matrix"),
+        ("k8s", "port-forward"),
+        ("k8s", "port-forward-status"),
+        ("k8s", "port-forward-stop"),
+        ("k8s", "push-secrets"),
+        ("k8s", "rbac-audit"),
+        ("k8s", "render"),
+        ("k8s", "run-job"),
+        ("k8s", "service-url"),
+        ("k8s", "stream-logs"),
+        ("k8s", "switch-context"),
+        ("k8s", "sync-secrets"),
+        ("k8s", "validate-policy"),
+        ("k8s", "volume", "reclaim"),
+        ("kustomize", "apply"),
+        ("kustomize", "build"),
+        ("kustomize", "diff"),
+        ("lint",),
+        ("mcp", "export-schemas"),
+        ("mcp", "serve"),
+        ("mcp", "tools"),
+        ("pipeline",),
+        ("pr", "copilot-pass"),
+        ("pr", "create"),
+        ("pr", "hardening-report"),
+        ("pr", "threads", "file-issues"),
+        ("pr", "threads", "resolve-all"),
+        ("pr", "threads", "unresolve"),
+        ("pr", "view"),
+        ("pr", "wait"),
+        ("prometheus", "analyze"),
+        ("prometheus", "query-range"),
+        ("prometheus", "rules"),
+        ("prometheus", "targets"),
+        ("release", "changelog"),
+        ("release", "check"),
+        ("release", "notes"),
+        ("release", "pr"),
+        ("release", "prepare"),
+        ("release", "sync-notes"),
+        ("release", "tag"),
+        ("repos", "clone"),
+        ("repos", "clone-org"),
+        ("repos", "update"),
+        ("repos", "worktrees", "prune"),
+        ("repos", "worktrees", "status"),
+        ("review", "benchmark"),
+        ("review", "corpus", "generate"),
+        ("review", "corpus", "score"),
+        ("review", "rules", "test"),
+        ("review", "samples", "fetch"),
+        ("review", "samples", "list"),
+        ("review", "samples", "validate"),
+        ("review", "score"),
+        ("review", "templates", "check"),
+        ("review", "templates", "list"),
+        ("review", "templates", "sweep"),
+        ("review", "verify"),
+        ("roadmap", "return"),
+        ("sandbox", "logs"),
+        ("sandbox", "metrics"),
+        ("sandbox", "probe"),
+        ("sandbox", "traces"),
+        ("scan", "report"),
+        ("scan", "sarif"),
+        ("scan", "workflows"),
+        ("serve",),
+        ("ssh", "generate"),
+        ("ssh", "list"),
+        ("ssh", "register"),
+        ("ssh", "rotate"),
+        ("status",),
+        ("telemetry", "connect"),
+        ("telemetry", "open-ui"),
+        ("telemetry", "semconv", "refresh"),
+        ("test", "load"),
+        ("test", "profile-memory"),
+        ("test", "run"),
+        ("test", "sandbox"),
+        ("tf", "cost", "diff"),
+        ("tf", "deploy-cloud"),
+        ("tf", "destroy"),
+        ("tf", "drift"),
+        ("tf", "fmt"),
+        ("tf", "graph"),
+        ("tf", "init"),
+        ("tf", "lint"),
+        ("tf", "status"),
+        ("tf", "validate"),
+        ("tls", "enable-k8s"),
+        ("tls", "homelab"),
+        ("tls", "verify"),
+        ("tui",),
+        ("uv", "lock"),
+        ("uv", "python-install"),
+        ("uv", "run"),
+        ("uv", "sync"),
+        ("valkey", "backup"),
+        ("valkey", "cli"),
+        ("valkey", "keys"),
+        ("vault", "audit"),
+        ("vault", "leases"),
+        ("vault", "login"),
+        ("vault", "logout"),
+        ("workspace", "add"),
+        ("workspace", "clean"),
+        ("workspace", "generate"),
+        ("workspace", "open"),
+        ("workspace", "remove"),
+    )
 )
 # The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
 # resolves every list literal under src/devops_cli that starts with one (#868). Such a list
@@ -420,7 +883,7 @@ CONST_RAG_DIR_NAME = "rag"
 CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
-# Test-only paths and environment variables that must be strictly isolated outside the project root
+# Test-only paths that must never appear in the project root; the workspace tripwire reports any
 CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "test_config.yaml",
     "test_data",
@@ -428,12 +891,6 @@ CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "gh-config",
     ".data/test_llm_cache",
     ".data/test_data",
-)
-CONST_ISOLATED_TEST_ENV_KEYS: Final[tuple[str, ...]] = (
-    "DEVOPS_CLI_CONFIG",
-    "DEVOPS_CLI_DATA_DIR",
-    "GH_CONFIG_DIR",
-    "XDG_RUNTIME_DIR",
 )
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
@@ -559,24 +1016,60 @@ CONST_GITHUB_SSH_URL_PREFIX = "ssh://git@github.com/"
 CONST_GITHUB_HTTP_PREFIX = "http://github.com/"
 CONST_GITHUB_HTTPS_PREFIX = "https://github.com/"
 CONST_GITHUB_REPO_SUFFIX = ".git"
+# ── What a failed gh command wrote (#983) ─────────────────────────────────────
+# gh reports a failure only as text on stderr and an exit status. This table, matched
+# lower-cased against gh's stderr and read only by `devops_cli.github.error_classifier`, is the
+# one place gh's failures are classified by its text. stdout holds GitHub's answer, which for a
+# failed GraphQL read may carry partial data such as item titles, and is never matched.
+# `_is_branch_unprotected_error` (github/branch_protection.py), `create_repository_issue`
+# (github/issues.py), `_report_create_failure` (commands/pr.py) and `extract_retry_after`
+# (github/rate_limiter.py) still match gh's text of their own. An HTTP answer the session
+# receives is classified by its status and headers instead.
+#
+# gh project's owner lookup (`OwnerIDAndType`, gh 2.102.0) writes this for any failed owner
+# lookup that is not a "not found" for both a user and an organization (a 401, a 403, a 5xx, a
+# network error or a rate limit), and drops the cause. `run_gh` does not retry it, and
+# `_run_project_cli` resends the command as `--owner @me` at once. A lookup that is not recovered
+# is classified as a rate limit, as the board lookup read it before #983.
+CONST_GH_UNKNOWN_OWNER_TYPE: Final[str] = "unknown owner type"
+# A primary or secondary rate limit, in GitHub's words as gh writes them.
 CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "rate limit exceeded",
     "rate limit already exceeded",
     "secondary rate limit",
-    "abuse-rate-limit",
     "too many requests",
     "http 429",
     "wait a few minutes before you try again",
-    "retry-after",
-    "retry after",
 )
 CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "secondary rate limit",
-    "abuse-rate-limit",
     "wait a few minutes before you try again",
     "please retry your request again later",
     "exceeded a secondary rate limit",
 )
+# A token without a scope the command needs: gh project's GraphQL message ("your authentication
+# token is missing required scopes"), gh api's scope suggestion ("This API operation needs the
+# ... scope"), GitHub's GraphQL refusal of a project field ("requires one of the following
+# scopes: ['read:project']") and gh gpg-key's "insufficient OAuth scopes".
+CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
+    "missing required scopes",
+    "this api operation needs the",
+    "read:project",
+    "oauth scope",
+)
+# No login, or one GitHub refused (HTTP 401).
+CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
+    "not logged in",
+    "http 401",
+    "bad credentials",
+)
+# gh's exit status for a command that requires authentication (`gh help exit-codes`).
+CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
+# The HTTP status gh names on stderr: `gh api` writes `<message> (HTTP <status>)` or
+# `HTTP <status>`, and its other commands go-gh's `HTTP <status>: <message> (<url>)`.
+CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
+# The scope gh project's commands need to create and edit boards; it includes read:project.
+CONST_GH_PROJECT_SCOPE: Final[str] = "project"
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
@@ -595,6 +1088,22 @@ CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 # names: no backend served it, so spend reports leave it out of their server counts (#816).
 CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
+# What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
+# naming the project or user, and the API version pins the REST contract the session reads.
+CONST_GITHUB_USER_AGENT: Final[str] = CONST_APP_NAME
+CONST_GITHUB_API_VERSION: Final[str] = "2022-11-28"
+CONST_GITHUB_HEADER_API_VERSION: Final[str] = "x-github-api-version"
+# The media type GitHub serves a pull request's unified diff as.
+CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
+# The characters that open and close an expression in a URI template (RFC 6570, section 2.2).
+# gidgethub expands every path as a template, so the session sends them percent-encoded.
+CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"
+# Response headers the session's error classifier and quota ledger read, named as GitHub's REST
+# documentation names them ("Rate limits for the REST API", "Scopes for OAuth apps").
+CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE: Final[str] = "x-ratelimit-resource"
+CONST_GITHUB_HEADER_RETRY_AFTER: Final[str] = "retry-after"
+CONST_GITHUB_HEADER_OAUTH_SCOPES: Final[str] = "x-oauth-scopes"
+CONST_GITHUB_HEADER_ACCEPTED_OAUTH_SCOPES: Final[str] = "x-accepted-oauth-scopes"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
@@ -678,6 +1187,17 @@ CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = ("devops", "ingress")
 """The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
+CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
+    "kustomization.yaml",
+    "kustomization.yml",
+    "Kustomization",
+)
+"""The standard file names Kustomize recognizes for a directory overlay."""
+CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
+    Path("k8s/argocd/apps"),
+    Path("k8s/argocd/bootstrap"),
+)
+"""Directories scanned for Argo CD Applications (#1343)."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
     "infra": ("ingress",),
     "devops": ("devops", "ingress"),
@@ -685,6 +1205,11 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
 """The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
 """How long fetching an Application's revision may take before deploy-stack gives up."""
+CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ: Final[str] = (
+    '.metadata.finalizers[] | select(startswith("pre-delete-finalizer.argocd.argoproj.io") '
+    'or startswith("post-delete-finalizer.argocd.argoproj.io"))'
+)
+"""JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
 CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_TERMINAL_PROMPT": "0",
     "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
@@ -1031,7 +1556,56 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 )
 # Hex characters of the token's SHA-256 that name an identity's cache directory.
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
+# Identities whose rate limiters a process keeps in memory at once; a process acts as one, and a
+# second session with another token adds one more. Older ones are read from disk again.
+CONST_GITHUB_IDENTITY_LIMITERS_KEPT: Final[int] = 4
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
+# How the session's HTTP failures are told apart (#983): a token without a scope the endpoint
+# needs, an answer that what was asked for does not exist, and no readable answer at all.
+CONST_GITHUB_SCOPE_ERROR_CODE: Final[str] = "GITHUB_SCOPE_MISSING"
+CONST_GITHUB_NOT_FOUND_ERROR_CODE: Final[str] = "GITHUB_NOT_FOUND"
+CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
+# Copilot code review is the GitHub App `copilot-pull-request-reviewer`, and GitHub names an app's
+# bot account `<slug>[bot]` (#1345). The reviews endpoint names the bot
+# `copilot-pull-request-reviewer[bot]`, and GraphQL names it `copilot-pull-request-reviewer`, gh's
+# `CopilotReviewerLogin` (gh 2.102.0, api/queries_repo.go): a review record is Copilot's only when
+# its author's login is exactly one of them. The issue timeline names the same account (id
+# 175728472) `Copilot`, type Bot, a login the Copilot coding agent shares, so a timeline `reviewed`
+# event is matched by the id of one of Copilot's reviews, never by login, and a review request by
+# the account's type and its app's page, `/apps/<slug>` (read on #1283's timeline).
+CONST_COPILOT_REVIEWER_APP_SLUG: Final[str] = "copilot-pull-request-reviewer"
+CONST_COPILOT_REVIEWER_LOGINS: Final[frozenset[str]] = frozenset(
+    {f"{CONST_COPILOT_REVIEWER_APP_SLUG}[bot]", CONST_COPILOT_REVIEWER_APP_SLUG}
+)
+CONST_COPILOT_REVIEWER_APP_PATH: Final[str] = f"/apps/{CONST_COPILOT_REVIEWER_APP_SLUG}"
+# The `type` GitHub gives an app's bot account.
+CONST_GITHUB_BOT_ACCOUNT_TYPE: Final[str] = "Bot"
+# The issue timeline events that request a review or withdraw the request, each with whether it
+# leaves the reviewer requested.
+CONST_GH_REVIEW_REQUEST_EVENTS: Final[dict[str, bool]] = {
+    "review_requested": True,
+    "review_request_removed": False,
+}
+# The keys a review record names its author under: `user` in a REST review, `author` in a
+# GraphQL one.
+CONST_GITHUB_REVIEW_AUTHOR_KEYS: Final[tuple[str, ...]] = ("user", "author")
+# The reviewer `gh pr edit --add-reviewer` requests a Copilot review with (gh 2.102.0).
+CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
+# A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
+# request, or once the release pull request's Copilot budget is spent (#1345).
+CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
+# The line `devops pr threads file-issues` ends the reply naming a thread's follow-up issue
+# with, and the pattern a line must match whole to be one, giving the issue's number (#1345). A
+# rerun counts it only in a reply the account running it wrote, never in the thread's first
+# comment, so a suggestion or another person's reply quoting it cannot resolve a thread.
+CONST_PR_THREAD_FILED_MARKER: Final[str] = "<!-- devops-cli: filed as #{issue} -->"
+CONST_PR_THREAD_FILED_MARKER_RE: Final[re.Pattern[str]] = re.compile(
+    r"<!-- devops-cli: filed as #([1-9][0-9]*) -->"
+)
+# The login GitHub shows for a deleted account, whose GraphQL `author` is null.
+CONST_GITHUB_GHOST_LOGIN: Final[str] = "ghost"
+# `devops pr threads file-issues` refuses any pull request but the open release pull request.
+CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, the margin
@@ -1209,6 +1783,9 @@ CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
     "Informational": "INFO",
 }
 CONST_EXIT_CANCELLED: int = 130
+# The signals besides Ctrl-C's SIGINT that cancel a `devops ci test` run, whose pytest runs in a
+# session of its own that no terminal hangup or supervisor's SIGTERM reaches (#1669).
+CONST_CI_RUN_STOP_SIGNAL_NAMES: Final[tuple[str, ...]] = ("SIGTERM", "SIGHUP")
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"
@@ -1720,6 +2297,21 @@ CONST_TESTS_ROOT_DIR: Final[str] = "tests"
 CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
 CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
+# A pytest fixture file: a change to one reaches every test beside and below it.
+CONST_CONFTEST_FILENAME: Final[str] = "conftest.py"
+# The prefix of every name pytest reads from a conftest as a hook, `pytest_plugins` included:
+# its plugin manager registers a module's `pytest_*` attributes and nothing else, and calls such a
+# hook for every test, so a conftest binding one reaches tests outside its directory (#1312).
+CONST_PYTEST_HOOK_PREFIX: Final[str] = "pytest_"
+# The name of pytest's fixture decorator, `pytest.fixture` or `from pytest import fixture`, and of
+# the plugins' that wrap it (`pytest_asyncio.fixture`): a test module's helper that names it may
+# register a fixture, which reaches tests that never import the helper (#1312).
+CONST_PYTEST_FIXTURE_NAME: Final[str] = "fixture"
+# Files whose change can alter the outcome of tests that never import them, so a change to one
+# defeats the coverage index and forces a full `devops ci` run.
+CONST_FULL_RUN_TRIGGER_NAMES: Final[frozenset[str]] = frozenset(
+    {CONST_CONFTEST_FILENAME, "pyproject.toml", "uv.lock", ".python-version"}
+)
 
 # ── Mutation Testing (mutmut 3.8, `devops ci mutate`) ────────────────────────
 # How mutmut names what it mutates, a closed domain it defines (`mangle_function_name`): a
@@ -1762,6 +2354,13 @@ CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
     "error": "errored",
     "skipped": "skipped",
 }
+# The root element pytest's `--junitxml` report closes last; a report that never closes it is
+# empty or was cut short, and holds no complete replay (#1669).
+CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG: Final[str] = "testsuites"
+# pytest's exit statuses (`pytest.ExitCode`) for a run that stopped before reporting the tests it
+# was given: interrupted (2), internal error (3) and usage error (4). A replay ending so could not
+# run on base; exit 5, no tests collected, is an empty replay (#1669).
+CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozenset({2, 3, 4})
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
@@ -2129,23 +2728,6 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
-CONST_REASONING_MODEL_SUBSTRINGS: Final[tuple[str, ...]] = (
-    "deepseek-r1",
-    "qwq",
-)
-CONST_REASONING_MODEL_PREFIXES: Final[tuple[str, ...]] = (
-    "gpt-5",
-    "o1",
-    "o3",
-    "o4",
-    "deepseek-r1",
-    "deepseek-reasoner",
-    "devops-reasoning",
-    "qwq",
-)
-CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
-    {"gpt-5", "o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
-)
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
 CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
@@ -2238,6 +2820,41 @@ CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
 # The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
 # decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
 CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
+# The punctuation prose leaves after a network target ("check 100.64.0.1."), which is never part
+# of an address, a URL's end or a name, so a target is classified without it.
+CONST_PROSE_TRAILING_PUNCTUATION: Final[str] = ".,;)>]\"'"
+# The address blocks set aside for documentation and benchmarking, which a network reference
+# report tags as documented examples and no threat-intel service is asked about. Python's
+# `ipaddress` folds them into `is_private`, so no library tells them from RFC 1918 space.
+CONST_DOCUMENTATION_IP_NETWORKS: Final[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+] = (
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
+    ipaddress.ip_network("3fff::/20"),  # Documentation (RFC 9637)
+    ipaddress.ip_network("198.18.0.0/15"),  # Benchmarking (RFC 2544)
+    ipaddress.ip_network("2001:2::/48"),  # Benchmarking (RFC 5180)
+)
+# Space IANA does not list as globally reachable but Python 3.14's `is_global` reads as global.
+# It is local, so no threat-intel service is asked about it. Delete a network when CPython
+# follows IANA, which `test_the_stdlib_still_reads_each_non_global_network_as_global` reports
+# by failing.
+CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL: Final[
+    tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+] = (
+    # The deprecated 6to4 relay anycast prefix (RFC 7526), whose one live entry in IANA's IPv4
+    # special-purpose registry, 192.88.99.2/32 (RFC 6751), is "Globally Reachable: False".
+    ipaddress.ip_network("192.88.99.0/24"),
+    # Site-local, IPv6's private space until RFC 3879 deprecated it; IANA's IPv6 address space
+    # registry lists it as reserved by the IETF.
+    ipaddress.ip_network("fec0::/10"),
+)
+# The name Docker Desktop and Podman give the container runtime's host gateway on the
+# workstation. A cluster pod cannot reach that gateway, so the sandbox local whitelist refuses
+# the name and asks for the address the cluster reaches the host on.
+CONST_DOCKER_HOST_GATEWAY_HOSTNAME: Final[str] = "host.docker.internal"
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
@@ -2347,6 +2964,17 @@ CONST_ROADMAP_PREMIGRATE_STATUSES: Final[frozenset[str]] = frozenset({"Backlog",
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
 # board's P0 Priority option and one of these `type/*` labels.
 CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"
+CONST_ROADMAP_P1_PRIORITY: Final[str] = "P1-High"
+CONST_ROADMAP_P2_PRIORITY: Final[str] = "P2-Medium"
+CONST_ROADMAP_P3_PRIORITY: Final[str] = "P3-Low"
+CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
+    {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
+)
+CONST_ROADMAP_P1_PRIORITIES: Final[frozenset[str]] = frozenset({"P1-High", "P1"})
+CONST_ROADMAP_HIGH_PRIORITIES: Final[frozenset[str]] = frozenset(
+    CONST_ROADMAP_P0_PRIORITIES | CONST_ROADMAP_P1_PRIORITIES
+)
+CONST_ROADMAP_P3_PRIORITIES: Final[frozenset[str]] = frozenset({"P3-Low", "P3"})
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # A person applies it to an item too big for one pull request; reprioritization descopes it.
 CONST_ROADMAP_NEEDS_SPLIT_LABEL: Final[str] = "needs-split"
@@ -2368,6 +2996,12 @@ CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: re
 CONST_ROADMAP_INTAKE_DUPLICATE_MARKER: Final[str] = "<!-- devops roadmap intake: duplicate -->"
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
+CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"
+CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS: Final[dict[str, str]] = {
+    "perf": "type/infra",
+    "build": "type/infra",
+    "ci": "type/infra",
+}
 # The agent filing quota's labels (#1153): an agent's candidate, and one opened beyond the allowance.
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
 CONST_ROADMAP_BORROWED_LABEL: Final[str] = "budget/borrowed"
@@ -2540,14 +3174,7 @@ CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}
 )
 CONST_LOCAL_TRANSPORT_LABELS: Final[frozenset[str]] = frozenset(
-    {"direct", "local", "in-process", "internal", "none"}
-)
-CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
-    ".local",
-    ".localhost",
-    ".cluster.local",
-    ".internal",
-    ".lan",
+    {"local", "in-process", "internal", "none"}
 )
 
 # ── Kubernetes Informer & Service Constants ──────────────────────────────────
@@ -2904,6 +3531,10 @@ CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
         "resolved",
     }
 )
+# The phrase a pull request body names an item with when it delivers part of it: an item planned
+# as several pull requests says `Part of #N` in each but the last, which closes it. GitHub gives
+# the phrase no meaning, so it closes nothing; it is matched case-insensitively, word by word.
+CONST_ISSUE_PART_PHRASE: Final[str] = "part of"
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
 CONST_GH_MILESTONE_STATE_ALL: Final[str] = "all"
@@ -2916,16 +3547,30 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
-# file. Two kinds of pull request deliver the release process rather than one item, and are
-# exempt: the release pull request, `release/vX.Y.Z` into `main`, and a release-process
-# pull request, `chore/open-vX.Y.Z`, optionally followed by `-<slug>`, from the same
-# repository into `release/vX.Y.Z`.
+# file. The release pull request, `release/vX.Y.Z` into `main`, delivers a release rather than
+# one item, and is exempt. So is a release-process pull request from the same repository into
+# `release/vX.Y.Z`, but only by the files it changes (#1344): the cut, `chore/cut-vX.Y.Z`, only
+# modifies the cut's files and removes changelog fragments, and the merge of `main`,
+# `chore/open-vX.Y.Z`, changes only the cut's files and what `main` changed since its merge
+# base with the release branch. Either head may end in `-<slug>`.
 CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
 CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     rf"{CONST_RELEASE_BRANCH_PREFIX}v(?P<version>\d+\.\d+\.\d+)"
 )
+CONST_RELEASE_PROCESS_CUT_KIND: Final[str] = "cut"
+CONST_RELEASE_PROCESS_OPEN_KIND: Final[str] = "open"
 CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+    rf"chore/(?P<kind>{CONST_RELEASE_PROCESS_CUT_KIND}|{CONST_RELEASE_PROCESS_OPEN_KIND})"
+    r"-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+)
+# The files the cut commit modifies, besides the `changelog.d/` fragments it removes: what
+# `devops roadmap close` lists for the cut, and all a cut pull request may modify.
+CONST_RELEASE_CUT_FILES: Final[tuple[str, ...]] = (
+    CONST_PYPROJECT_FILENAME,
+    str(CONST_INIT_PY_PATH),
+    CONST_UV_LOCK_FILENAME,
+    CONST_CHANGELOG_FILENAME,
+    CONST_ROADMAP_DOCUMENT_PATH,
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
 # open pull request conflict. The cut commit writes both: `CHANGELOG.md`'s section for the
@@ -2945,11 +3590,19 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
 # only) and unchanged. `modified` is an edit in place under the same name.
 CONST_PR_FILE_MODIFIED_STATUS: Final[str] = "modified"
+CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
 CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
     {"added", CONST_PR_FILE_MODIFIED_STATUS, "renamed"}
 )
 # The statuses under which a pull request adds, modifies, renames or removes the file.
-CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
+CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {
+    CONST_PR_FILE_REMOVED_STATUS
+}
+# `GET repos/{repo}/compare/{base}...{head}` lists the changed files on its first page only, at
+# most 300 for the whole comparison whatever the page size, so a list that long may be cut
+# short. One commit per page keeps the commits it also returns small.
+CONST_GH_COMPARE_FILES_CAP: Final[int] = 300
+CONST_GH_COMPARE_COMMITS_PER_PAGE: Final[int] = 1
 # The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
 # docs/ROADMAP.md is explicitly excluded because it is a generated view.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
@@ -2962,9 +3615,6 @@ CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
 CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
-# `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
-# when the response carries no message.
-CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
 
 # ── Cluster-Native Service Addressing ────────────────────────────────────────
 # A k8s:// URL names a Service rather than a host and port, so the same configuration
@@ -4052,4 +4702,17 @@ CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
     "unmatched-doc-quote",
     "unverified-version-or-package",
     "invalid-python-code-block",
+)
+CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
+CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
+CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
+
+# ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
+CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
+    "pydantic_ai",
+    "kubernetes",
+    "docker",
+    "fastmcp",
+    "qdrant_client",
+    "opentelemetry",
 )

@@ -17,7 +17,9 @@ from devops_cli.crypto.ssh_keys import (
     list_managed_keys,
     parse_key_date,
 )
+from devops_cli.github.session import GitHubSession
 from devops_cli.models.ssh import ManagedSSHKey
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 runner = CliRunner()
 
@@ -534,6 +536,32 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
         assert "registration failed" in res_rot_fail.output
         assert "ghp_secret" not in res_rot_fail.output
         assert "Check your GitHub token and network connectivity" in res_rot_fail.output
+
+
+def test_a_rotation_github_refuses_on_the_token_path_removes_the_new_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> None:
+    """gh's login is unusable, so the GitHub session registers the new key, and GitHub refuses
+    its signing key with a 422 the listing does not confirm: rotate warns, removes the key it
+    generated and exits 0, as it does on the gh path (#983)."""
+    old_key = tmp_path / "id_ed25519-20240101"
+    old_key.write_text("old_private")
+    (tmp_path / "id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
+    monkeypatch.setattr("devops_cli.github.ssh._register_with_gh", lambda pub, title: False)
+    monkeypatch.setattr(GitHubSession, "client", MagicMock(get_user_ssh_keys=lambda: []))
+    refusal = {"message": "Validation Failed", "errors": [{"message": "key is already in use"}]}
+    github_api.route("POST", "/user/ssh_signing_keys", github_json(refusal, status=422))
+    github_api.route("GET", "/user/ssh_signing_keys", github_json([]))
+    with patch("devops_cli.config.settings.load_settings") as load:
+        load.return_value.ssh.key_dir = tmp_path
+        load.return_value.ssh.key_prefix = None
+        load.return_value.ssh.rotation_days = 30
+        result = runner.invoke(ssh_app, ["rotate", "--force"])
+    assert (
+        result.exit_code,
+        "registration failed" in result.output,
+        sorted(path.name for path in tmp_path.glob("id_ed25519*")),
+    ) == (0, True, ["id_ed25519-20240101", "id_ed25519-20240101.pub"])
 
 
 def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:

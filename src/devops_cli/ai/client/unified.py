@@ -192,7 +192,6 @@ class LLMClient(
         self._api_key = api_key or ""
         self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
-        self._ollama_thinking_supported: bool | None = None
 
         cache_cfg = getattr(config, "cache", None)
         if cache_enabled is None:
@@ -665,16 +664,24 @@ class LLMClient(
                 # The HTTP transport is the single retry layer; do not retry dispatch exceptions.
                 span_h.record_exception(exc)
                 raise
-            except Exception as exc:
+            except httpx2.TransportError as exc:
                 err = self._connection_error(exc)
+                span_h.record_exception(err)
+                raise err from exc
+            except Exception as exc:
+                err = AIClientError(f"{type(exc).__name__}: {exc}")
                 span_h.record_exception(err)
                 raise err from exc
 
         if isinstance(last_exc, AIClientError):
             span_h.record_exception(last_exc)
             raise last_exc
-        if last_exc is not None:
+        if isinstance(last_exc, httpx2.TransportError):
             err = self._connection_error(last_exc)
+            span_h.record_exception(err)
+            raise err
+        if last_exc is not None:
+            err = AIClientError(f"{type(last_exc).__name__}: {last_exc}")
             span_h.record_exception(err)
             raise err
         fallback_err = AIClientError("AI request failed with no valid response.")
@@ -804,13 +811,22 @@ class LLMClient(
             priority=priority,
         )
 
+    @staticmethod
+    def _stream_seconds(t_start: float) -> float:
+        """Seconds a stream has run since `t_start`, less its wait for a gateway slot.
+
+        A plain call is timed from when it holds its slot, so a stream is too: a review starved
+        of slots must not read as slow inference. The wait is its own span and metric.
+        """
+        return time.perf_counter() - t_start - network.stream_slot_wait.get()
+
     def _record_first_token(
         self, span_h: Any, t_start: float, first_token_time: float | None
     ) -> float:
         """Record the time to the first chunk, in seconds, on the stream span once."""
         if first_token_time is not None:
             return first_token_time
-        ttft = time.perf_counter() - t_start
+        ttft = self._stream_seconds(t_start)
         span_h.set_attribute("gen_ai.response.time_to_first_chunk", ttft)
         return ttft
 
@@ -853,6 +869,7 @@ class LLMClient(
         ) as span_h:
             network.stream_served_by.set(None)
             network.stream_finish_reason.set(None)
+            network.stream_slot_wait.set(0.0)
             accumulated_chunks: list[str] = []
             try:
                 gen = self._dispatch_stream(
@@ -876,12 +893,12 @@ class LLMClient(
                         messages,
                         system,
                         "".join(accumulated_chunks),
-                        time.perf_counter() - t_start,
+                        self._stream_seconds(t_start),
                         CONST_FINISH_REASON_ERROR,
                     )
                 raise
 
-            total_dur = time.perf_counter() - t_start
+            total_dur = self._stream_seconds(t_start)
             finish_reason = network.stream_finish_reason.get()
             _set_finish_reason_attribute(span_h, finish_reason)
             span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
@@ -1031,7 +1048,12 @@ def model_request_sync(
     **kwargs: Any,
 ) -> LLMResponse:
     """Make a direct, synchronous request to a model without an agent wrapper."""
-    llm_client = client or LLMClient(config=AIConfig(model=model, **kwargs))
+    if client is not None:
+        llm_client = client
+    else:
+        from devops_cli.ai.client.factory import get_llm_client
+
+        llm_client = get_llm_client(model=model, **kwargs)
     if isinstance(prompt_or_messages, str):
         return llm_client.chat(system_prompt, prompt_or_messages, enable_thinking=enable_thinking)
     return llm_client.chat_messages(

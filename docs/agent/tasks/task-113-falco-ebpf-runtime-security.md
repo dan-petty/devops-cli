@@ -1,9 +1,6 @@
 # Task 113: Falco eBPF Runtime Security and Anomaly Streamer (`devops k8s security-stream`)
 
 **Issue**: [#113](https://github.com/dan-petty/devops-cli/issues/113)
-**Status**: Done
-**Milestone**: `v0.2.18`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/security`, `scope/k8s`, `scope/cli`
 
 ---

@@ -17,23 +17,26 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import tldextract
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
 from devops_cli.config.constants import (
     CONST_DEFAULT_LINE_NUMBER,
+    CONST_DOCUMENTATION_IP_NETWORKS,
     CONST_EXCLUDED_PUBLIC_REGISTRIES,
+    CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL,
+    CONST_PROSE_TRAILING_PUNCTUATION,
     CONST_RFC2606_RESERVED_DOMAINS,
     CONST_RFC2606_RESERVED_TLDS,
     CONST_SPECIAL_USE_TLDS,
 )
 from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
-from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+from devops_cli.core.dns_names import get_tld_extractor
+from devops_cli.core.validation import parse_numeric_ip
+from devops_cli.http.urls import extract_domain_target
+from devops_cli.models.vulnerability import DependencySpec, NetworkReference, NetworkTargetClass
 
 logger = logging.getLogger(__name__)
-
-_TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
 # Standard RFC 2606 and RFC 6761 reserved domain suffixes and TLDs
 _RFC2606_RESERVED_TLDS = CONST_RFC2606_RESERVED_TLDS
@@ -42,36 +45,8 @@ _SPECIAL_USE_TLDS = CONST_SPECIAL_USE_TLDS
 _RESERVED_DOMAINS = _RFC2606_RESERVED_TLDS | _RFC2606_RESERVED_DOMAINS
 _EXCLUDED_PUBLIC_REGISTRIES = CONST_EXCLUDED_PUBLIC_REGISTRIES
 
-# RFC 5737 and RFC 3849 documentation / example IP subnets
-_RFC5737_IPV4_EXAMPLE_NETWORKS = (
-    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
-    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
-    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
-)
-_RFC3849_IPV6_EXAMPLE_NETWORKS = (
-    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
-)
-
-# RFC 6890 / RFC 2544 / RFC 5180 / RFC 6666 / RFC 6598 special-purpose networks
-_RFC6890_IPV4_SPECIAL_NETWORKS = (
-    ipaddress.ip_network("0.0.0.0/8"),  # "This host on this network" (RFC 1122)
-    ipaddress.ip_network("100.64.0.0/10"),  # Shared Address Space / CGNAT (RFC 6598)
-    ipaddress.ip_network("192.0.0.0/24"),  # IETF Protocol Assignments (RFC 6890)
-    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
-    ipaddress.ip_network("192.88.99.0/24"),  # 6to4 Relay Anycast (RFC 3068 / RFC 7526)
-    ipaddress.ip_network("198.18.0.0/15"),  # Benchmarking (RFC 2544)
-    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
-    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
-    ipaddress.ip_network("240.0.0.0/4"),  # Reserved for future use (RFC 1112)
-    ipaddress.ip_network("255.255.255.255/32"),  # Limited Broadcast (RFC 919)
-)
-_RFC6890_IPV6_SPECIAL_NETWORKS = (
-    ipaddress.ip_network("100::/64"),  # Discard-Only (RFC 6666)
-    ipaddress.ip_network("2001::/23"),  # IETF Protocol Assignments (RFC 2928)
-    ipaddress.ip_network("2001:2::/48"),  # Benchmarking (RFC 5180)
-    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
-    ipaddress.ip_network("2002::/16"),  # 6to4 (RFC 3056)
-)
+_IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+_IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 _NANPA_EXAMPLE_PHONE_REGEX = re.compile(
     r"""^(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?555[-.\s]?01\d{2}$"""
@@ -82,53 +57,120 @@ _OFCOM_EXAMPLE_PHONE_REGEX = re.compile(
 
 
 __all__ = [
+    "classify_network_target",
     "deduplicate_network_references",
     "extract_dependencies_from_text",
     "extract_network_references",
     "is_example_ip",
     "is_example_or_invalid_domain",
     "is_example_or_invalid_network_target",
-    "is_example_or_reserved_ip",
     "is_example_phone_number",
     "is_local_or_reserved_domain",
     "is_lockfile_or_ignore_file",
     "is_private_or_local_ip",
     "is_public_ip",
     "is_trusted_registry_host",
+    "network_target_address",
     "sort_network_references",
 ]
 
 
-@functools.lru_cache(maxsize=4096)
-def is_example_ip(ip_or_str: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Check if an IP address belongs to RFC 5737 or RFC 3849 documentation/example subnets."""
-    try:
-        ip = ipaddress.ip_address(ip_or_str) if isinstance(ip_or_str, str) else ip_or_str
-        if ip.version == 4:
-            return any(ip in net for net in _RFC5737_IPV4_EXAMPLE_NETWORKS)
-        return any(ip in net for net in _RFC3849_IPV6_EXAMPLE_NETWORKS)
-    except ValueError:
-        return False
+def _strip_prose_punctuation(target: str) -> str:
+    """A target without surrounding whitespace and the punctuation prose leaves after it."""
+    return target.strip().rstrip(CONST_PROSE_TRAILING_PUNCTUATION)
+
+
+def _unmapped(ip: _IPAddress) -> _IPAddress:
+    """The IPv4 address an IPv4-mapped IPv6 address (`::ffff:192.0.2.1`) carries, else `ip`."""
+    mapped = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) else None
+    return ip if mapped is None else mapped
 
 
 @functools.lru_cache(maxsize=4096)
-def is_example_or_reserved_ip(
-    ip_or_str: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
-) -> bool:
-    """Check if an IP address belongs to RFC 6890 special-purpose, example, or benchmarking subnets."""
-    try:
-        ip = ipaddress.ip_address(ip_or_str) if isinstance(ip_or_str, str) else ip_or_str
-        if ip.version == 4:
-            return any(ip in net for net in _RFC6890_IPV4_SPECIAL_NETWORKS)
-        return any(ip in net for net in _RFC6890_IPV6_SPECIAL_NETWORKS)
-    except ValueError:
-        return False
+def network_target_address(target: str) -> _IPAddress | None:
+    """The address a network target names, as a resolver dials it, or None when it names none.
+
+    A URL or `host:port` names its host. The punctuation prose leaves after a target is not part
+    of it, and a trailing dot ends a fully qualified host, never an address. The legacy numeric
+    spellings `inet_aton` reads (`2130706433`, `127.1`, `0x7f.0.0.1`) name the address a resolver
+    dials, and an IPv4-mapped IPv6 address names the IPv4 address it carries. A target holding
+    whitespace names no address, though `inet_aton` reads one before trailing whitespace.
+    Nothing is looked up.
+    """
+    clean = _strip_prose_punctuation(target)
+    if not clean or any(char.isspace() for char in clean):
+        return None
+    ip = parse_numeric_ip(clean)
+    if ip is None:
+        ip = parse_numeric_ip((extract_domain_target(clean) or "").rstrip("."))
+    return None if ip is None else _unmapped(ip)
+
+
+def _parse_ip(ip_or_str: str | _IPAddress) -> _IPAddress | None:
+    """The address a string names (`network_target_address`), or an address as itself."""
+    if isinstance(ip_or_str, str):
+        return network_target_address(ip_or_str)
+    return _unmapped(ip_or_str)
+
+
+def _in_any(ip: _IPAddress, networks: tuple[_IPNetwork, ...]) -> bool:
+    """Whether an address lies in one of the networks; an address is never in the other family's."""
+    return any(ip in net for net in networks)
+
+
+def _is_documentation_address(ip: _IPAddress) -> bool:
+    """Whether an address is set aside for documentation or benchmarking."""
+    return _in_any(ip, CONST_DOCUMENTATION_IP_NETWORKS)
+
+
+def _is_public_address(ip: _IPAddress) -> bool:
+    """Whether an address is globally reachable: global, and neither reserved nor multicast.
+
+    `is_global` alone admits reserved space such as `64:ff9b::a00:1`, the NAT64 form of 10.0.0.1,
+    and multicast such as 224.0.0.1, so both are excluded, as is the space the stdlib still
+    reads as global against IANA (`CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL`: 6to4 relay
+    anycast and deprecated site-local fec0::/10).
+    """
+    return (
+        ip.is_global
+        and not ip.is_reserved
+        and not ip.is_multicast
+        and not _in_any(ip, CONST_NON_GLOBAL_NETWORKS_STDLIB_READS_GLOBAL)
+        and not _is_documentation_address(ip)
+    )
+
+
+def _address_class(ip: _IPAddress) -> NetworkTargetClass:
+    """The one class an address is in: unspecified, documentation, public or local."""
+    if ip.is_unspecified:
+        return NetworkTargetClass.UNSPECIFIED_ADDRESS
+    if _is_documentation_address(ip):
+        return NetworkTargetClass.DOCUMENTATION_ADDRESS
+    if _is_public_address(ip):
+        return NetworkTargetClass.PUBLIC_ADDRESS
+    return NetworkTargetClass.LOCAL_ADDRESS
+
+
+def _is_address_in_class(ip_or_str: str | _IPAddress, address_class: NetworkTargetClass) -> bool:
+    """Whether a target names an address (`network_target_address`) in `address_class`."""
+    ip = _parse_ip(ip_or_str)
+    return ip is not None and _address_class(ip) is address_class
+
+
+@functools.lru_cache(maxsize=4096)
+def is_example_ip(ip_or_str: str | _IPAddress) -> bool:
+    """Whether an address is a documented example: documentation or benchmarking space.
+
+    That is RFC 5737, RFC 3849 and RFC 9637 documentation space, and RFC 2544 and RFC 5180
+    benchmarking space (`CONST_DOCUMENTATION_IP_NETWORKS`).
+    """
+    return _is_address_in_class(ip_or_str, NetworkTargetClass.DOCUMENTATION_ADDRESS)
 
 
 @functools.lru_cache(maxsize=4096)
 def is_example_or_invalid_domain(target: str) -> bool:
     """Check if domain is an RFC 2606 reserved TLD, example domain, or invalid namespace."""
-    clean = target.strip().rstrip(".,;)>]\"'").lower()
+    clean = _strip_prose_punctuation(target).lower()
     if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
         return False
     if clean == "localhost" or clean.endswith(".localhost"):
@@ -141,7 +183,7 @@ def is_example_or_invalid_domain(target: str) -> bool:
         return True
     if any(clean.endswith("." + tld) for tld in _RFC2606_RESERVED_TLDS):
         return True
-    ext = _TLD_EXTRACTOR(clean)
+    ext = get_tld_extractor()(clean)
     if ext.suffix and ext.suffix.lower() in _RFC2606_RESERVED_TLDS:
         return True
     return False
@@ -165,74 +207,74 @@ def _is_unspecified_ip_host(target: str) -> bool:
         return False
 
 
+# The classes of a documented example or an unspecified address, which
+# `is_example_or_invalid_network_target` excludes.
+_EXAMPLE_TARGET_CLASSES: frozenset[NetworkTargetClass] = frozenset(
+    {
+        NetworkTargetClass.DOCUMENTATION_ADDRESS,
+        NetworkTargetClass.UNSPECIFIED_ADDRESS,
+        NetworkTargetClass.EXAMPLE_PHONE_NUMBER,
+        NetworkTargetClass.EXAMPLE_DOMAIN,
+    }
+)
+
+
 @functools.lru_cache(maxsize=4096)
-def is_example_or_invalid_network_target(target: str) -> bool:  # noqa: C901
-    """Check if any network target (URL, IP, domain, phone) is a documented example or invalid reference."""
-    clean = target.strip().rstrip(".,;)>]\"'")
-    if not clean:
-        return False
-    if clean.lower() == "localhost":
-        return False
+def classify_network_target(target: str) -> NetworkTargetClass:
+    """What a network target (URL, `host:port`, address, domain or phone number) names.
+
+    It is read without the punctuation prose leaves after it. A target that names an address
+    (`network_target_address`) is in that address's class; a URL or `host:port` is otherwise
+    in its host's. Nothing is looked up.
+    """
+    clean = _strip_prose_punctuation(target)
     if is_example_phone_number(clean):
-        return True
-    if "://" in clean:
-        try:
-            parsed = urllib.parse.urlsplit(clean)
-            if not (parsed.scheme and parsed.netloc):
-                return False
-            host = (parsed.hostname or "").lower()
-            if not host or host == "localhost":
-                return False
-            if _is_unspecified_ip_host(host):
-                return True
-            return is_example_or_reserved_ip(host) or is_example_or_invalid_domain(host)
-        except ValueError:
-            return False
-    if _is_unspecified_ip_host(clean):
-        return True
-    if is_example_or_reserved_ip(clean):
-        return True
-    return is_example_or_invalid_domain(clean)
+        return NetworkTargetClass.EXAMPLE_PHONE_NUMBER
+    ip = network_target_address(clean)
+    if ip is not None:
+        return _address_class(ip)
+    host = extract_domain_target(clean) or clean
+    if is_example_or_invalid_domain(host):
+        return NetworkTargetClass.EXAMPLE_DOMAIN
+    if is_local_or_reserved_domain(host):
+        return NetworkTargetClass.LOCAL_DOMAIN
+    return NetworkTargetClass.DOMAIN
+
+
+def is_example_or_invalid_network_target(target: str) -> bool:
+    """Whether a network target is a documented example or an unspecified address.
+
+    That is an example domain, a documentation or benchmarking address, a fictional phone
+    number, or an unspecified address (`classify_network_target`).
+    """
+    return classify_network_target(target) in _EXAMPLE_TARGET_CLASSES
 
 
 @functools.lru_cache(maxsize=4096)
 def is_public_ip(ip_str: str) -> bool:
-    """Check whether an IP string is a valid public, globally routable IP address."""
-    try:
-        ip = ipaddress.ip_address(ip_str.strip())
-        if is_example_or_reserved_ip(ip):
-            return False
-        return (
-            ip.is_global
-            and not ip.is_private
-            and not ip.is_loopback
-            and not ip.is_reserved
-            and not ip.is_multicast
-            and not ip.is_unspecified
-            and not ip.is_link_local
-        )
-    except ValueError:
-        return False
+    """Whether a target names a globally reachable address, the only kind sent to Shodan.
+
+    Every specified address is in exactly one of three classes: documented example
+    (`is_example_ip`), public, or local (`is_private_or_local_ip`). A target is read as
+    `network_target_address` reads it.
+    """
+    return _is_address_in_class(ip_str, NetworkTargetClass.PUBLIC_ADDRESS)
 
 
 @functools.lru_cache(maxsize=4096)
 def is_private_or_local_ip(ip_str: str) -> bool:
-    """Check whether an IP string is a private, loopback, link-local, or reserved IP address."""
-    try:
-        ip = ipaddress.ip_address(ip_str.strip())
-        if ip.is_unspecified:
-            return False
-        if is_example_or_reserved_ip(ip) or is_example_ip(ip):
-            return False
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-    except ValueError:
-        return False
+    """Whether a target names a local address: specified, and neither public nor an example.
+
+    That holds private, loopback, link-local, site-local, shared, reserved and multicast space.
+    An unspecified address (`0.0.0.0`, `::`) is in no class.
+    """
+    return _is_address_in_class(ip_str, NetworkTargetClass.LOCAL_ADDRESS)
 
 
 @functools.lru_cache(maxsize=4096)
 def is_local_or_reserved_domain(target: str) -> bool:
     """Check if domain or hostname is an RFC reserved, internal, or local network hostname."""
-    clean = target.strip().rstrip(".,;)>]\"'").lower()
+    clean = _strip_prose_punctuation(target).lower()
     if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
         return False
     if clean == "localhost":
@@ -243,7 +285,7 @@ def is_local_or_reserved_domain(target: str) -> bool:
         return False
     if any(clean.endswith("." + d) for d in _SPECIAL_USE_TLDS):
         return True
-    ext = _TLD_EXTRACTOR(clean)
+    ext = get_tld_extractor()(clean)
     if ext.suffix and ext.suffix.lower() in _SPECIAL_USE_TLDS:
         return True
     return False
@@ -478,7 +520,7 @@ def _extract_url_reference(
     if not valid_target:
         return None
     _parsed, host = valid_target
-    is_example = is_example_or_invalid_domain(host) or is_example_or_reserved_ip(host)
+    is_example = is_example_or_invalid_domain(host) or is_example_ip(host)
     if is_example and exclude_examples:
         return None
     is_local_host = _is_url_local_host(host, is_example, exclude_examples)
@@ -514,7 +556,7 @@ def _extract_ip_reference(
         ip_str = str(ip)
         if ip.is_unspecified:
             return None
-        is_example = is_example_or_reserved_ip(ip) or is_example_ip(ip)
+        is_example = is_example_ip(ip)
         if is_example and exclude_examples:
             return None
         if is_public_ip(clean_token):

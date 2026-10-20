@@ -10,18 +10,27 @@ import inspect
 import json
 import re
 from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import json_repair
 from pydantic import BaseModel, Field, TypeAdapter
-from pydantic_ai.messages import (
-    ModelResponse,
-    ModelResponsePart,
-    TextPart,
-    ThinkingPart,
-    ToolCallPart,
-)
-from pydantic_ai.usage import RequestUsage
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import (
+        ModelResponse,
+        ModelResponsePart,
+        TextPart,
+        ThinkingPart,
+        ToolCallPart,
+    )
+    from pydantic_ai.usage import RequestUsage
+else:
+    ModelResponse = Any
+    ModelResponsePart = Any
+    TextPart = Any
+    ThinkingPart = Any
+    ToolCallPart = Any
+    RequestUsage = Any
 
 from devops_cli.ai.text_utils import normalize_unicode_text, unique_lines
 from devops_cli.config.constants import CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING
@@ -310,6 +319,8 @@ def extract_tool_invocations(
 
 
 def _extract_thinking_parts(norm_text: str, raw_response: Any) -> list[ThinkingPart]:
+    from pydantic_ai.messages import ThinkingPart
+
     parts: list[ThinkingPart] = []
     seen: set[str] = set()
 
@@ -328,6 +339,8 @@ def _extract_thinking_parts(norm_text: str, raw_response: Any) -> list[ThinkingP
 
 
 def _extract_response_tool_parts(clean_text: str, norm_text: str) -> list[ToolCallPart]:
+    from pydantic_ai.messages import ToolCallPart
+
     tool_calls = extract_tool_invocations(clean_text)
     if not tool_calls and norm_text != clean_text:
         tool_calls = extract_tool_invocations(norm_text)
@@ -339,6 +352,12 @@ def parse_model_response(
     model_name: str | None = None,
 ) -> ModelResponse:
     """Parse raw response, string, or LLMResponse into standard pydantic_ai.messages.ModelResponse."""
+    from pydantic_ai.messages import (
+        ModelResponse,
+        TextPart,
+    )
+    from pydantic_ai.usage import RequestUsage
+
     if isinstance(raw_response, ModelResponse):
         return raw_response
 
@@ -364,6 +383,8 @@ def extract_model_response_parts(
     response: ModelResponse,
 ) -> tuple[str, str | None, list[ToolCallPart]]:
     """Extract clean content, isolated thinking, and tool calls from ModelResponse."""
+    from pydantic_ai.messages import TextPart, ThinkingPart, ToolCallPart
+
     texts = [p.content for p in response.parts if isinstance(p, TextPart) and p.has_content()]
     thinks = [p.content for p in response.parts if isinstance(p, ThinkingPart) and p.has_content()]
     tool_calls = [p for p in response.parts if isinstance(p, ToolCallPart)]
@@ -526,6 +547,8 @@ def fix_llm_response[T = Any](
     available_tools: list[str] | set[str] | None = None,
 ) -> FormattedLLMResponse[T]:
     """Universal AI/LLM response parser and formatter built on pydantic_ai.messages.ModelResponse."""
+    from pydantic_ai.messages import ThinkingPart
+
     resp = parse_model_response(raw_response)
     final_content, thinking_str, tool_parts = extract_model_response_parts(resp)
     tool_calls = _build_extracted_tool_calls(tool_parts, available_tools)
@@ -544,7 +567,9 @@ def fix_llm_response[T = Any](
         or (final_content.strip() != raw_str.strip())
     )
 
-    return FormattedLLMResponse[T](
+    # Not `FormattedLLMResponse[T]`: pydantic would build a parametrized class that it caches
+    # only weakly, and rebuild its whole schema for a reply after any garbage collection.
+    return FormattedLLMResponse(
         content=final_content,
         raw_content=raw_str,
         thoughts=thoughts,

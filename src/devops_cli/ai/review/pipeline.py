@@ -29,8 +29,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.analyze.symbols import (
@@ -39,8 +39,8 @@ from devops_cli.ai.analyze.symbols import (
     change_symbol_delta,
     with_symbol_delta,
 )
-from devops_cli.ai.client import LLMClient
-from devops_cli.ai.client.network import limit_completion_tokens
+from devops_cli.ai.client import get_llm_client
+from devops_cli.ai.client.network import limit_completion_tokens, uses_gateway_slots
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
 from devops_cli.ai.review.chunker import (
@@ -124,14 +124,18 @@ from devops_cli.config.constants import (
     CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_MAX_COMPLEXITY,
+    DEFAULT_REVIEW_CONCURRENCY,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
+    DEFAULT_REVIEW_MAX_CONCURRENCY,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_RETRY_ATTEMPTS,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.exceptions import SecurityError
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
 from devops_cli.models.vulnerability import (
@@ -150,6 +154,7 @@ from devops_cli.output import (
     print_panel,
     print_success,
     print_table,
+    print_warning,
 )
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
@@ -233,6 +238,46 @@ def _resolve_ollama_urls(config: Any) -> list[str]:
     if isinstance(raw_list, list) and raw_list:
         return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
     return ["http://localhost:11434"]
+
+
+def _review_batch_capacity(config: Any) -> int:
+    """How many files the persona stage reviews at once when no concurrency is requested.
+
+    Through the gateway it is the gateway's backend slot sum: every request goes to the one
+    gateway, so `ai.ollama_urls` adds no capacity. Otherwise it is every Ollama node's parallel
+    slots, and at least `DEFAULT_REVIEW_CONCURRENCY`.
+    """
+    if uses_gateway_slots(config):
+        return DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+    raw_par = getattr(config, "ollama_max_parallel", None)
+    max_par = raw_par if isinstance(raw_par, int) else 2
+    return max(DEFAULT_REVIEW_CONCURRENCY, len(_resolve_ollama_urls(config)) * max_par)
+
+
+def effective_review_concurrency(config: Any, requested: int | None) -> int | None:
+    """The file workers an explicit `--concurrency` gives a review, or None when none was asked.
+
+    A client whose chat calls take the gateway's backend slots gets at most the slot sum; any
+    other provider gets what it asked for.
+    """
+    if requested is None:
+        return None
+    wanted = max(1, requested)
+    return min(wanted, DEFAULT_GATEWAY_REVIEW_CONCURRENCY) if uses_gateway_slots(config) else wanted
+
+
+def _review_worker_count(
+    config: Any, total_files: int, requested: int | None
+) -> tuple[int, int | None]:
+    """The persona stage's file workers, and `requested` when the gateway's slot sum lowered it."""
+    effective = effective_review_concurrency(config, requested)
+    wanted = (
+        min(_review_batch_capacity(config), DEFAULT_REVIEW_MAX_CONCURRENCY)
+        if effective is None
+        else effective
+    )
+    lowered = requested is not None and effective is not None and effective < requested
+    return (min(total_files, wanted) if total_files > 0 else 1), (requested if lowered else None)
 
 
 def _append_step_thoughts(step: Any, thoughts_list: list[str]) -> None:
@@ -2427,7 +2472,7 @@ class ReviewPipelineOrchestrator:
         if not is_dry_run():
             self.session_dir.mkdir(parents=True, exist_ok=True)
             self.files_dir.mkdir(parents=True, exist_ok=True)
-        self.llm_client: ReviewLLMClient = llm_client or LLMClient()
+        self.llm_client: ReviewLLMClient = llm_client or get_llm_client(task="review")
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
@@ -3709,33 +3754,17 @@ class ReviewPipelineOrchestrator:
             )
 
             config = getattr(self.llm_client, "_config", None)
-            ollama_urls = _resolve_ollama_urls(config)
-            raw_par = getattr(config, "ollama_max_parallel", None)
-            max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            from devops_cli.config.defaults import (
-                DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-                DEFAULT_REVIEW_CONCURRENCY,
-                DEFAULT_REVIEW_MAX_CONCURRENCY,
-            )
-
-            is_gateway = bool(getattr(config, "gateway_enabled", False)) or (
-                getattr(config, "provider", None) == "gateway"
-            )
-            base_capacity = (
-                DEFAULT_GATEWAY_REVIEW_CONCURRENCY if is_gateway else DEFAULT_REVIEW_CONCURRENCY
-            )
-            batch_capacity = max(base_capacity, len(ollama_urls) * max_par)
-            if self.concurrency is not None:
-                n_workers = min(total_files, max(1, self.concurrency)) if total_files > 0 else 1
-            else:
-                n_workers = (
-                    min(total_files, batch_capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
-                    if total_files > 0
-                    else 1
+            n_workers, clamped_request = _review_worker_count(config, total_files, self.concurrency)
+            if clamped_request is not None:
+                print_warning(
+                    MESSAGES.review.gateway_concurrency_clamped.format(
+                        requested=clamped_request, slots=DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+                    ),
+                    prefix=False,
                 )
 
             stage_span.set_attribute("review.workers", n_workers)
-            stage_span.set_attribute("review.batch_capacity", batch_capacity)
+            stage_span.set_attribute("review.batch_capacity", _review_batch_capacity(config))
             stage_span.add_event(
                 "stage_3_started",
                 {"total_files": total_files, "workers": n_workers},

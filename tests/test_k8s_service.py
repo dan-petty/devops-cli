@@ -18,6 +18,7 @@ from devops_cli.config.defaults import DEFAULT_LOG_MAX_LINE_CHARS
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.informer import ResourceInformer
 from devops_cli.k8s.service import KubernetesService, PodLogStream
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 @pytest.fixture(autouse=True)
@@ -339,10 +340,12 @@ class _QuietResponse:
     def __init__(self) -> None:
         self.shut = threading.Event()
         self.calls: list[str] = []
+        self.ended_by_shutdown: bool | None = None
 
     def stream(self) -> Iterator[bytes]:
         yield b"first\n"
-        self.shut.wait(timeout=10)
+        # Whether the shut socket ended the read, not the bound running out on its own.
+        self.ended_by_shutdown = self.shut.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     def shutdown(self) -> None:
         self.calls.append("shutdown")
@@ -372,9 +375,10 @@ def test_closing_a_followed_log_ends_a_read_blocked_on_a_quiet_container() -> No
     reader = threading.Thread(target=lambda: lines.extend(stream), daemon=True)
     reader.start()
     stream.close()
-    reader.join(timeout=2)
-    assert (reader.is_alive(), lines, response.calls) == (
+    reader.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert (reader.is_alive(), response.ended_by_shutdown, lines, response.calls) == (
         False,
+        True,
         ["first"],
         ["shutdown", "close", "release_conn"],
     )

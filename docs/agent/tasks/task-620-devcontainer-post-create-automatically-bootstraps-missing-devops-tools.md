@@ -1,9 +1,6 @@
 # Task 620: DevContainer Post-Create Automatically Bootstraps Missing DevOps Tools
 
 **Issue**: [#620](https://github.com/dan-petty/devops-cli/issues/620)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

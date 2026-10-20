@@ -8,8 +8,9 @@ import re
 import time
 from collections.abc import Callable
 from http import HTTPStatus
+from pathlib import PurePosixPath
 from typing import Annotated, Any, NamedTuple, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import typer
 from packaging.version import Version
@@ -18,19 +19,26 @@ from devops_cli.config.constants import (
     CONST_AGENT_TASK_FILE_RE,
     CONST_AGENT_TASKS_DIR,
     CONST_CHANGELOG_FILENAME,
+    CONST_CHANGELOG_FRAGMENT_NAME_RE,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CI_WORKFLOW_FILE,
-    CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
+    CONST_GH_COMPARE_COMMITS_PER_PAGE,
+    CONST_GH_COMPARE_FILES_CAP,
     CONST_GH_RAW_CONTENT_ACCEPT,
+    CONST_ISSUE_STATE_OPEN,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PR_API_STATE_MAP,
     CONST_PR_FILE_CHANGED_STATUSES,
     CONST_PR_FILE_MODIFIED_STATUS,
+    CONST_PR_FILE_REMOVED_STATUS,
     CONST_PR_FILE_WRITTEN_STATUSES,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_RELEASE_BRANCH_RE,
+    CONST_RELEASE_CUT_FILES,
     CONST_RELEASE_PROCESS_BRANCH_RE,
+    CONST_RELEASE_PROCESS_CUT_KIND,
+    CONST_RELEASE_PROCESS_OPEN_KIND,
     CONST_RELEASE_SHARED_FILES,
 )
 from devops_cli.config.defaults import (
@@ -51,7 +59,14 @@ from devops_cli.github.defect_classifier import (
     audit_pr_hardening,
     classify_defect_pr,
 )
-from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.error_classifier import gh_http_status, is_gh_rate_limited
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
+from devops_cli.github.pr_branches import (
+    branch_ref,
+    default_branch,
+    is_release_pr,
+    same_repository,
+)
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -972,14 +987,16 @@ def create_pr(
 
 
 def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
-    """Handle and explain failures when marking a PR ready."""
+    """Handle and explain failures when marking a PR ready; a rate limit is what the gh
+    classifier calls one."""
     from devops_cli.security.sanitizer import mask_secrets
 
     clean_err = mask_secrets(stderr_text.strip()[:256])
-    if "rate limit" in clean_err.lower():
+    if is_gh_rate_limited(stderr_text):
+        # gh's rate-limit messages end with a period of their own.
         print_error(
-            f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded.\n"
-            f"Details: {clean_err}\n"
+            f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded. "
+            f"Details: {clean_err.removesuffix('.')}. "
             "Note: GitHub REST API PATCH /pulls does NOT support converting drafts. "
             "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI.",
             safe=True,
@@ -1371,47 +1388,49 @@ def _gh_failure(res: Any) -> str:
     ]
 
 
-def _changed_file(entry: Any) -> ChangedFile:
-    """Read one `pulls/{n}/files` entry, raising on one without a filename and status."""
+_PR_FILES_API = "the pull request files API"
+_COMPARE_API = "the compare API"
+
+
+def _changed_file(entry: Any, api: str) -> ChangedFile:
+    """Read one changed-file entry `api` returned, raising on one without a filename and status.
+
+    `pulls/{n}/files` and `compare/{base}...{head}` give each file the same shape.
+    """
     if not isinstance(entry, dict):
-        raise GitHubOperationError("the pull request files API returned a non-object entry")
+        raise GitHubOperationError(f"{api} returned a non-object entry")
     filename, status = entry.get("filename"), entry.get("status")
     if not isinstance(filename, str) or not isinstance(status, str):
-        raise GitHubOperationError(
-            "the pull request files API returned an entry without a filename or status"
-        )
+        raise GitHubOperationError(f"{api} returned an entry without a filename or status")
     previous = entry.get("previous_filename")
     return ChangedFile(filename, status, previous if isinstance(previous, str) else "")
 
 
-def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
-    """Read every file a pull request changes, raising when GitHub can't say which.
+def _changed_files(entries: Any, api: str) -> list[ChangedFile]:
+    """Read the changed-file entries `api` returned, raising when they are not a list."""
+    if not isinstance(entries, list):
+        raise GitHubOperationError(f"{api} returned no list")
+    return [_changed_file(entry, api) for entry in entries]
 
-    `run_gh` pages a `--paginate` request itself and stops at the first page shorter than the
-    URL's `per_page`, assuming 100 when the URL sets none. This endpoint's default page is 30,
-    so without `per_page=100` the read ended after 30 files.
-    """
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            f"repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}",
-        ],
-        check=False,
-        quiet=True,
-    )
+
+def _gh_json(res: Any, api: str) -> Any:
+    """The JSON a `gh api` call to `api` printed, raising when the call or the JSON failed."""
     if res.returncode != 0:
         raise GitHubOperationError(_gh_failure(res))
     try:
-        payload = json.loads(res.stdout or "null")
+        return json.loads(res.stdout or "null")
     except json.JSONDecodeError as exc:
-        raise GitHubOperationError(
-            f"malformed JSON from the pull request files API: {exc}"
-        ) from exc
-    if not isinstance(payload, list):
-        raise GitHubOperationError("the pull request files API returned no list")
-    return [_changed_file(entry) for entry in payload]
+        raise GitHubOperationError(f"malformed JSON from {api}: {exc}") from exc
+
+
+def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
+    """Read every file a pull request changes, page by linked page through the GitHub session,
+    raising when GitHub can't say which: a failed or malformed page raises, never a shorter
+    list."""
+    from devops_cli.github.session import get_github_session
+
+    files = f"/repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    return [_changed_file(entry, _PR_FILES_API) for entry in get_github_session().paginate(files)]
 
 
 def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead:
@@ -1442,44 +1461,180 @@ def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
         print_warning(format_covering_suppressions(covering))
 
 
-def _repo_full_name(side: dict[str, Any]) -> str:
-    """The `owner/repo` one side of a pull request lives in, lower-cased; empty when unknown."""
-    repo = side.get("repo")
-    return str(repo.get("full_name") or "").lower() if isinstance(repo, dict) else ""
+def _release_process_kind(pr_data: dict[str, Any]) -> str | None:
+    """The kind of release-process PR this is, `cut` or `open`; None for any other PR.
 
-
-def _same_repository(pr_data: dict[str, Any]) -> bool:
-    """Whether the PR's head lives in its base's repository rather than a fork."""
-    head, base = pr_data.get("head") or {}, pr_data.get("base") or {}
-    return _repo_full_name(head) != "" and _repo_full_name(head) == _repo_full_name(base)
-
-
-def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
-    """The branch name on one side (`head` or `base`) of a pull request."""
-    return str((pr_data.get(side) or {}).get("ref") or "")
-
-
-def _is_release_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
-    base = pr_data.get("base") or {}
-    default_branch = str((base.get("repo") or {}).get("default_branch") or "")
-    into_default = default_branch != "" and base.get("ref") == default_branch
-    head_ref = _branch_ref(pr_data, "head")
-    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(head_ref) is not None
-    return _same_repository(pr_data) and into_default and release_head
-
-
-def _is_release_process_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this PR opens a release cycle rather than delivering an item.
-
-    Its head is `chore/open-vX.Y.Z`, optionally followed by `-<slug>`,
+    Its head is `chore/cut-vX.Y.Z` or `chore/open-vX.Y.Z`, optionally followed by `-<slug>`,
     from the same repository, and its base is `release/vX.Y.Z` of the same version.
     """
-    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head"))
-    release = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "base"))
-    if process is None or release is None:
-        return False
-    return process["version"] == release["version"] and _same_repository(pr_data)
+    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(branch_ref(pr_data, "head"))
+    release = CONST_RELEASE_BRANCH_RE.fullmatch(branch_ref(pr_data, "base"))
+    if process is None or release is None or not same_repository(pr_data):
+        return None
+    return process["kind"] if process["version"] == release["version"] else None
+
+
+class _ReleaseProcessPR(NamedTuple):
+    """A release-process PR and the files it changes, read."""
+
+    pr_data: dict[str, Any]
+    pr_num: int
+    owner: str
+    repo_name: str
+    files: list[ChangedFile]
+
+
+class _DefaultBranchChanges(NamedTuple):
+    """The paths the default branch changed since its merge base with a PR's base, both paths
+    of a rename included, or why they could not be read."""
+
+    paths: frozenset[str]
+    error: str = ""
+
+
+def _paths(changed: ChangedFile) -> tuple[str, ...]:
+    """The path a change leaves the file at and, for a rename, the path it had before."""
+    return tuple(path for path in (changed.filename, changed.previous_filename) if path)
+
+
+def _paths_outside(files: list[ChangedFile], allowed: Callable[[str, str], bool]) -> list[str]:
+    """Every path these changes touch that `allowed` refuses for its status, in order, once."""
+    refused = (
+        path for changed in files for path in _paths(changed) if not allowed(path, changed.status)
+    )
+    return list(dict.fromkeys(refused))
+
+
+def _named_paths(paths: list[str]) -> str:
+    """The paths a blocker names, bounded, since GitHub supplies them."""
+    return ", ".join(paths)[:CONST_MAX_ERROR_DETAIL_LENGTH]
+
+
+def _is_changelog_fragment(path: str) -> bool:
+    """Whether the path is a changelog fragment, `changelog.d/<issue>.md`."""
+    location = PurePosixPath(path)
+    return (
+        str(location.parent) == CONST_CHANGELOG_FRAGMENTS_DIR
+        and CONST_CHANGELOG_FRAGMENT_NAME_RE.fullmatch(location.name) is not None
+    )
+
+
+def _cut_makes(path: str, status: str) -> bool:
+    """Whether the cut commit makes this change: it modifies the cut's files, and removes the
+    fragments it collects into CHANGELOG.md."""
+    if status == CONST_PR_FILE_MODIFIED_STATUS:
+        return path in CONST_RELEASE_CUT_FILES
+    return status == CONST_PR_FILE_REMOVED_STATUS and _is_changelog_fragment(path)
+
+
+def _is_cut_file(path: str, _status: str) -> bool:
+    """Whether the path is one of the files the cut commit modifies, whatever the change."""
+    return path in CONST_RELEASE_CUT_FILES
+
+
+def _cut_hold(process: _ReleaseProcessPR) -> list[str] | None:
+    """None for a cut that makes only the cut commit's changes, as `cut_release` writes them;
+    otherwise one blocker naming the rest."""
+    outside = _paths_outside(process.files, _cut_makes)
+    if not outside:
+        return None
+    blocker = MESSAGES.pr.grounding_cut_changes_more.format(
+        number=process.pr_num,
+        cut_files=", ".join(CONST_RELEASE_CUT_FILES),
+        fragments=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/<issue>.md",
+        head=branch_ref(process.pr_data, "head"),
+        outside=_named_paths(outside),
+    )
+    return [blocker]
+
+
+def _compare_entries(payload: Any) -> Any:
+    """The changed-file entries of a compare response; None when it holds none."""
+    return payload.get("files") if isinstance(payload, dict) else None
+
+
+def _fetch_default_branch_changes(process: _ReleaseProcessPR) -> list[ChangedFile]:
+    """Read the files the default branch changed since its merge base with the PR's base, in one
+    request, raising when GitHub can't say which.
+
+    `compare/{base}...{default branch}` lists the files changed from the merge base to the
+    default branch's tip.
+    """
+    base = process.pr_data.get("base") or {}
+    sides = (str(base.get("sha") or base.get("ref") or ""), default_branch(process.pr_data))
+    spec = "...".join(quote(side, safe="/") for side in sides)
+    query = urlencode({"per_page": CONST_GH_COMPARE_COMMITS_PER_PAGE})
+    endpoint = f"repos/{process.owner}/{process.repo_name}/compare/{spec}?{query}"
+    res = run_gh([CONST_GH_CLI, "api", endpoint], check=False, quiet=True)
+    return _changed_files(_compare_entries(_gh_json(res, _COMPARE_API)), _COMPARE_API)
+
+
+def _read_default_branch_changes(process: _ReleaseProcessPR) -> _DefaultBranchChanges:
+    """What the default branch changed since its merge base with the PR's base, or why that
+    was not read. A list as long as GitHub's cap may be cut short, so it shows nothing, and a
+    payload that names no default branch can't name the compare's side, so none is sent."""
+    if not default_branch(process.pr_data):
+        repo = f"{process.owner}/{process.repo_name}"
+        return _DefaultBranchChanges(
+            frozenset(), MESSAGES.pr.grounding_no_default_branch.format(repo=repo)
+        )
+    try:
+        files = _fetch_default_branch_changes(process)
+    except GitHubOperationError as exc:
+        return _DefaultBranchChanges(frozenset(), str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
+    if len(files) >= CONST_GH_COMPARE_FILES_CAP:
+        capped = MESSAGES.pr.grounding_merge_changes_capped.format(count=len(files))
+        return _DefaultBranchChanges(frozenset(), capped)
+    return _DefaultBranchChanges(frozenset(path for changed in files for path in _paths(changed)))
+
+
+def _merge_hold(process: _ReleaseProcessPR) -> list[str] | None:
+    """None for a merge of the default branch that changes only the cut's files and what the
+    default branch changed since its merge base with the PR's base; otherwise one blocker
+    naming the rest, or why the default branch's changes could not be read.
+
+    Those are read only when the PR changes a file that is not one of the cut's.
+    """
+    outside = _paths_outside(process.files, _is_cut_file)
+    if not outside:
+        return None
+    fields = {
+        "number": process.pr_num,
+        "default": default_branch(process.pr_data) or MESSAGES.pr.grounding_unnamed_default_branch,
+        "base": branch_ref(process.pr_data, "base"),
+        "head": branch_ref(process.pr_data, "head"),
+    }
+    default_changes = _read_default_branch_changes(process)
+    if default_changes.error:
+        error = default_changes.error
+        return [MESSAGES.pr.grounding_merge_changes_unread.format(**fields, error=error)]
+    own = [path for path in outside if path not in default_changes.paths]
+    if not own:
+        return None
+    return [MESSAGES.pr.grounding_merge_changes_more.format(**fields, outside=_named_paths(own))]
+
+
+# What each kind of release-process PR may change to be exempt from grounding (#1344).
+_RELEASE_PROCESS_HOLDS: dict[str, Callable[[_ReleaseProcessPR], list[str] | None]] = {
+    CONST_RELEASE_PROCESS_CUT_KIND: _cut_hold,
+    CONST_RELEASE_PROCESS_OPEN_KIND: _merge_hold,
+}
+
+
+def _release_process_hold(
+    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
+) -> list[str] | None:
+    """The blockers that hold a PR to grounding before its checks, or None for a release-process
+    PR that changes only what its kind may.
+
+    Any other PR is held with none, and so is a release-process PR whose files were not read,
+    since nothing shows what it changes; `_changed_files_were_read` names that.
+    """
+    kind = _release_process_kind(pr_data)
+    if kind is None or changed.error:
+        return []
+    process = _ReleaseProcessPR(pr_data, pr_num, owner, repo_name, changed.files)
+    return _RELEASE_PROCESS_HOLDS[kind](process)
 
 
 def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
@@ -1502,35 +1657,41 @@ def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) ->
     )
     if res.returncode == 0:
         return True
-    status = CONST_GH_API_HTTP_STATUS_RE.search(res.stderr or "")
-    if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+    if gh_http_status(res.stderr or "") == HTTPStatus.NOT_FOUND:
         return False
     raise GitHubOperationError(_gh_failure(res))
 
 
 def _grounding_scope(
-    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str
+    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> tuple[bool, list[str]]:
-    """Whether grounding applies to this PR, and the blocker a failed lookup leaves.
+    """Whether grounding applies to this PR, and the blockers that lead its checks.
 
-    A lookup that fails for any reason but a 404 can't rule grounding out, so the check still
-    applies and the failure is a blocker of its own.
+    The release PR is exempt before any lookup, and a release-process PR that changes only what
+    its kind may is exempt before the task-directory lookup; a merge of the default branch may
+    first read one compare request. A release-process PR that changes more leads with a blocker
+    naming the rest. A lookup that fails for any reason but a 404 can't rule grounding out, so
+    the check still applies and the failure is a blocker of its own.
     """
-    if _is_release_pr(pr_data) or _is_release_process_pr(pr_data):
+    if is_release_pr(pr_data):
+        return False, []
+    held = _release_process_hold(pr_data, pr_num, owner, repo_name, changed)
+    if held is None:
         return False, []
     try:
-        return _base_has_task_files(pr_data, owner, repo_name), []
+        return _base_has_task_files(pr_data, owner, repo_name), held
     except GitHubOperationError as exc:
         blocker = MESSAGES.pr.grounding_tasks_dir_unread.format(
             number=pr_num, path=CONST_AGENT_TASKS_DIR, error=exc
         )
-        return True, [blocker]
+        return True, [*held, blocker]
 
 
-class _ClosedItem(NamedTuple):
-    """The Release of the one issue a PR into `release/vX.Y.Z` closes, or why it wasn't read."""
+class _GroundedItem(NamedTuple):
+    """The Release and state of the one issue a PR is grounded on, or why it wasn't read."""
 
     release: str | None
+    state: str | None = None
     error: str = ""
 
 
@@ -1543,31 +1704,51 @@ class _BaseChangelog(NamedTuple):
 
 
 class _Grounding(NamedTuple):
-    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes,
-    and, into a release branch, the Release of the one issue it closes and, for a PR changing
-    CHANGELOG.md, whether the cut wrote the release's section there."""
+    """What the grounding checks judge: the PR's base, the issues it closes, the issues it delivers
+    part of, the files it changes, the Release and state of the one issue it is grounded on, read
+    into a release branch or for a part, and, for a PR changing CHANGELOG.md, whether the cut wrote
+    the release's section there."""
 
     pr_num: int
     repo: str
     base: str
     issues: list[int]
+    parts: list[int]
     changed: _ChangedFilesRead
-    item: _ClosedItem | None = None
+    item: _GroundedItem | None = None
     changelog: _BaseChangelog | None = None
 
+    @property
+    def issue(self) -> int | None:
+        """The one issue the PR is grounded on: the one it closes, or the one it delivers part of
+        when it closes none; None unless the body names exactly one of either."""
+        named = [*self.issues, *self.parts]
+        return named[0] if len(named) == 1 else None
 
-def _closes_one_issue(grounding: _Grounding) -> str | None:
-    """The body closes exactly one issue, read as `devops roadmap close` will act on it."""
-    if len(grounding.issues) == 1:
+
+def _issue_list(numbers: list[int]) -> str:
+    """Issue numbers as a body names them: `#1, #2`."""
+    return ", ".join(f"#{number}" for number in numbers)
+
+
+def _names_one_issue(grounding: _Grounding) -> str | None:
+    """The body closes exactly one issue, read as `devops roadmap close` will act on it, or,
+    closing none, delivers part of exactly one with `Part of #<issue>`."""
+    if grounding.issue is not None:
         return None
-    if not grounding.issues:
-        return MESSAGES.pr.grounding_closes_no_issue.format(
-            number=grounding.pr_num, repo=grounding.repo
+    texts, number = MESSAGES.pr, grounding.pr_num
+    if grounding.issues and grounding.parts:
+        return texts.grounding_closes_and_parts.format(
+            number=number, issues=_issue_list(grounding.issues), parts=_issue_list(grounding.parts)
         )
-    return MESSAGES.pr.grounding_closes_several_issues.format(
-        number=grounding.pr_num,
-        count=len(grounding.issues),
-        issues=", ".join(f"#{issue}" for issue in grounding.issues),
+    if grounding.parts:
+        return texts.grounding_several_parts.format(
+            number=number, count=len(grounding.parts), parts=_issue_list(grounding.parts)
+        )
+    if not grounding.issues:
+        return texts.grounding_closes_no_issue.format(number=number, repo=grounding.repo)
+    return texts.grounding_closes_several_issues.format(
+        number=number, count=len(grounding.issues), issues=_issue_list(grounding.issues)
     )
 
 
@@ -1591,10 +1772,10 @@ def _writes_task_file(changed: ChangedFile, issue: int) -> bool:
 
 
 def _changes_its_task_file(grounding: _Grounding) -> str | None:
-    """The PR adds, modifies or renames the task file of the one issue it closes."""
-    if len(grounding.issues) != 1 or grounding.changed.error:
+    """The PR adds, modifies or renames the task file of the one issue it is grounded on."""
+    issue = grounding.issue
+    if issue is None or grounding.changed.error:
         return None
-    issue = grounding.issues[0]
     if any(_writes_task_file(changed, issue) for changed in grounding.changed.files):
         return None
     return MESSAGES.pr.grounding_task_file_missing.format(
@@ -1641,7 +1822,7 @@ def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
     if not found:
         return None
     texts = MESSAGES.pr
-    issue = str(grounding.issues[0]) if len(grounding.issues) == 1 else "<issue>"
+    issue = "<issue>" if grounding.issue is None else str(grounding.issue)
     blocker = texts.grounding_release_files_changed.format(
         number=grounding.pr_num,
         files=" and ".join(path for path in CONST_RELEASE_SHARED_FILES if path in found),
@@ -1649,75 +1830,106 @@ def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
     )
     if cut:
         return blocker
-    return blocker + texts.grounding_release_files_fragment.format(
-        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md"
+    # Only the PR that closes an item adds its fragment, so a part PR's blocker names that PR.
+    hint = (
+        texts.grounding_release_files_part_fragment
+        if grounding.parts
+        else texts.grounding_release_files_fragment
+    )
+    return blocker + hint.format(
+        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md", issue=issue
     )
 
 
-def _closes_an_item_of_its_release(grounding: _Grounding) -> str | None:
-    """A PR into `release/vX.Y.Z` closes an item of release vX.Y.Z (#740).
+def _item_was_read(grounding: _Grounding) -> str | None:
+    """The issue the PR is grounded on was read, where its Release or state is judged."""
+    if grounding.item is None or not grounding.item.error:
+        return None
+    return MESSAGES.pr.grounding_item_unread.format(
+        number=grounding.pr_num, issue=grounding.issue, error=grounding.item.error
+    )
+
+
+def _delivers_an_item_of_its_release(grounding: _Grounding) -> str | None:
+    """A PR into `release/vX.Y.Z` closes, or delivers part of, an item of release vX.Y.Z (#740).
 
     The release's scope is fixed when it starts, so work on an item of another release, or of
-    the backlog, waits for that release. It judges the one issue the body closes, which
-    `_closes_one_issue` requires; a PR into the default branch is not judged.
+    the backlog, waits for that release. It judges the one issue the PR is grounded on, which
+    `_names_one_issue` requires; a PR into the default branch is not judged.
     """
     branch = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base)
-    if branch is None or grounding.item is None:
+    if branch is None or grounding.item is None or grounding.item.error:
         return None
-    issue = grounding.issues[0]
-    if grounding.item.error:
-        return MESSAGES.pr.grounding_item_unread.format(
-            number=grounding.pr_num, issue=issue, error=grounding.item.error
-        )
     version = Version(branch["version"])
     if in_release(grounding.item.release, version):
         return None
+    texts = MESSAGES.pr
     placement = (
-        MESSAGES.pr.grounding_item_in_release.format(release=grounding.item.release)
+        texts.grounding_item_in_release.format(release=grounding.item.release)
         if grounding.item.release
-        else MESSAGES.pr.grounding_item_in_backlog
+        else texts.grounding_item_in_backlog
     )
-    return MESSAGES.pr.grounding_item_not_in_release.format(
+    delivers = texts.grounding_item_part if grounding.parts else texts.grounding_item_closes
+    return texts.grounding_item_not_in_release.format(
         number=grounding.pr_num,
-        issue=issue,
+        delivers=delivers.format(issue=grounding.issue),
         placement=placement,
         release=f"v{version}",
         base=grounding.base,
     )
 
 
+def _delivers_part_of_an_open_item(grounding: _Grounding) -> str | None:
+    """A part PR's item is open: each part lands before the PR that closes the item, its last."""
+    item = grounding.item
+    if not grounding.parts or item is None or item.error or item.state == CONST_ISSUE_STATE_OPEN:
+        return None
+    return MESSAGES.pr.grounding_part_of_closed_item.format(
+        number=grounding.pr_num, issue=grounding.issue
+    )
+
+
 # Each check names what is missing, or returns None. A check that needs what an earlier one
 # found missing returns None, so each failure is one blocker. A new rule is one more entry.
 _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
-    _closes_one_issue,
+    _names_one_issue,
     _changed_files_were_read,
     _changes_its_task_file,
     _base_changelog_was_read,
     _leaves_release_files_to_the_cut,
-    _closes_an_item_of_its_release,
+    _item_was_read,
+    _delivers_an_item_of_its_release,
+    _delivers_part_of_an_open_item,
 )
 
 
-def _read_closed_item(
-    owner: str, repo_name: str, base: str, issues: list[int]
-) -> _ClosedItem | None:
-    """The Release of the one issue a PR into a release branch closes; None for any other PR."""
-    if CONST_RELEASE_BRANCH_RE.fullmatch(base) is None or len(issues) != 1:
+def _grounded_item(reply: object) -> _GroundedItem:
+    """The Release and state an `issues/{n}` reply names."""
+    issue = reply if isinstance(reply, dict) else {}
+    milestone, state = issue.get("milestone"), issue.get("state")
+    title = milestone.get("title") if isinstance(milestone, dict) else None
+    return _GroundedItem(
+        title if isinstance(title, str) else None, state if isinstance(state, str) else None
+    )
+
+
+def _read_grounded_item(owner: str, repo_name: str, grounding: _Grounding) -> _GroundedItem | None:
+    """The Release and state of the one issue a PR is grounded on, read into a release branch,
+    whose item is judged by its Release, or for a part, whose item must be open; None otherwise."""
+    into_release = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base) is not None
+    if grounding.issue is None or not (into_release or grounding.parts):
         return None
     res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{issues[0]}"],
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{grounding.issue}"],
         check=False,
         quiet=True,
     )
     if res.returncode != 0:
-        return _ClosedItem(None, _gh_failure(res))
+        return _GroundedItem(None, error=_gh_failure(res))
     try:
-        issue = json.loads(res.stdout or "")
+        return _grounded_item(json.loads(res.stdout or ""))
     except json.JSONDecodeError as exc:
-        return _ClosedItem(None, f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
-    milestone = issue.get("milestone") if isinstance(issue, dict) else None
-    title = milestone.get("title") if isinstance(milestone, dict) else None
-    return _ClosedItem(title if isinstance(title, str) else None)
+        return _GroundedItem(None, error=f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _edits_the_changelog(changed: ChangedFile) -> bool:
@@ -1761,15 +1973,16 @@ def _read_base_changelog(
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
-    """Require every item PR to close one issue, change its task file and leave the files the
-    cut writes alone (CHANGELOG.md until the cut has written its section), and a PR into
-    `release/vX.Y.Z` to close an item of that release.
+    """Require every item PR to close one issue, or deliver part of one open issue, change its
+    task file and leave the files the cut writes alone (CHANGELOG.md until the cut has written
+    its section), and a PR into `release/vX.Y.Z` to deliver an item of that release.
 
-    The release PR and release-process PRs deliver no single item and are exempt. It applies
-    where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
-    warning, since only the perimeter warning reads it.
+    The release PR delivers no single item and is exempt, and so is a release-process PR that
+    changes only what its kind may. It applies where the base holds `docs/agent/tasks/`. Where
+    it does not apply, an unread file list is a warning, since only the perimeter warning
+    reads it.
     """
-    applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name)
+    applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name, changed)
     if not applies:
         if changed.error:
             print_warning(
@@ -1777,12 +1990,14 @@ def _grounding_blockers(
             )
         return []
     repo = f"{owner}/{repo_name}"
-    linked = extract_linked_issues(str(pr_data.get("body") or ""), repo)
-    base = _branch_ref(pr_data, "base")
-    issues = [issue.number for issue in linked]
-    item = _read_closed_item(owner, repo_name, base, issues)
-    changelog = _read_base_changelog(owner, repo_name, base, changed)
-    grounding = _Grounding(pr_num, repo, base, issues, changed, item, changelog)
+    body = str(pr_data.get("body") or "")
+    base = branch_ref(pr_data, "base")
+    issues = [issue.number for issue in extract_linked_issues(body, repo)]
+    named = _Grounding(pr_num, repo, base, issues, extract_part_references(body, repo), changed)
+    grounding = named._replace(
+        item=_read_grounded_item(owner, repo_name, named),
+        changelog=_read_base_changelog(owner, repo_name, base, changed),
+    )
     return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
@@ -1932,14 +2147,23 @@ def check_readiness(
 ) -> None:
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
+    One of several PRs that deliver an item says Part of #<issue> instead of closing it. Grounding
+    judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+    that closes the item, its last, adds changelog.d/<issue>.md.
+
     Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-    and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
-    body closes exactly one issue, and it adds, modifies or renames that issue's
-    docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
-    the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
-    changelog.d/<issue>.md instead; a critical fix after the cut edits that section. Into
-    release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
-    docs/agent/tasks/ is exempt.
+    and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
+    (chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
+    CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/<issue>.md fragments. A merge of
+    the default branch (chore/open-vX.Y.Z) only changes those files and what the default
+    branch changed since its merge base, read with one compare request. Either head may end
+    in -<slug>. One that changes more is held, with a blocker naming the other files. Under
+    grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
+    issue's docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves
+    docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
+    section, adding changelog.d/<issue>.md instead; a critical fix after the cut edits that
+    section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
+    without docs/agent/tasks/ is exempt.
     """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)
@@ -2631,6 +2855,45 @@ def hardening_report_cmd(
 
 
 # =============================================================================
+# Command: devops pr copilot-pass
+# =============================================================================
+
+
+@app.command("copilot-pass", help=HELP.pr.copilot_pass)
+def copilot_pass(
+    number: Annotated[int | None, typer.Argument(help=HELP.pr.copilot_pass_number)] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Request one Copilot pass on the release pull request while its budget lasts (#1345)."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.github.copilot_budget import plan_copilot_pass, request_copilot_pass
+
+    _require_gh_cli()
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error(ERRORS.pr.invalid_target_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        plan = plan_copilot_pass(target_repo, number)
+        heading = MESSAGES.pr.copilot_pass_dry_run_heading
+        render_request_plan(heading, plan, (MESSAGES.dry_run.placeholders_note,))
+        return
+    owner, repo_name = target_repo.split("/", 1)
+    pr_number = _resolve_monitor_pr_number(number, owner, repo_name)
+    try:
+        passes = request_copilot_pass(owner, repo_name, pr_number)
+    except DevOpsCLIError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+    requested = MESSAGES.pr.copilot_pass_requested
+    print_success(
+        requested.format(pass_number=passes.used + 1, budget=passes.budget, number=pr_number)
+    )
+
+
+# =============================================================================
 # Command Group: devops pr threads
 # =============================================================================
 
@@ -2787,3 +3050,47 @@ def resolve_all_threads_cmd(
 
     successful = [r for r in results if r.success and r.is_resolved]
     print_success(f"Resolved {len(successful)}/{len(results)} review thread(s) on PR #{number}.")
+
+
+@threads_app.command("file-issues", help=HELP.pr.threads_file_issues)
+def file_thread_issues_cmd(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    keep: Annotated[list[str] | None, typer.Option("--keep", help=HELP.pr.threads_keep)] = None,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.pr.threads_confirm)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """File the release pull request's unresolved review threads as follow-up issues (#1345)."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.github.review_thread_issues import (
+        describe_filing,
+        file_thread_issues,
+        plan_thread_issues,
+    )
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error(ERRORS.pr.invalid_target_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        plan = plan_thread_issues(target_repo, number)
+        render_request_plan(
+            MESSAGES.pr.threads_dry_run_heading, plan, (MESSAGES.dry_run.placeholders_note,)
+        )
+        return
+    owner, repo_name = target_repo.split("/", 1)
+    shown = 0
+    try:
+        for filing in file_thread_issues(
+            owner, repo_name, number, keep=keep or (), confirm=confirm
+        ):
+            print_info(describe_filing(filing, confirm=confirm))
+            shown += 1
+    except DevOpsCLIError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+    if not shown:
+        print_success(MESSAGES.pr.threads_none.format(number=number))
+    elif not confirm:
+        print_info(MESSAGES.pr.threads_preview_note)

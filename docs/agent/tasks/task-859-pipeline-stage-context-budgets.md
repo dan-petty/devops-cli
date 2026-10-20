@@ -1,9 +1,6 @@
 # Task: Sequential Pipeline Stages Carry Budgeted Context With Single Scratchpad (#859)
 
 **Issue**: [#859](https://github.com/dan-petty/devops-cli/issues/859)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-important
 **Scope**: scope/ai
 
 ## Description

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +11,9 @@ import typer
 from devops_cli.config.commands import BIN_K6, build_k6_cmd
 from devops_cli.config.constants import (
     CONST_CURRENT_DIR,
+    CONST_GIT_MAIN_BRANCH,
     CONST_OUTPUT_FORMAT_TABLE,
+    CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_NETWORK,
@@ -21,6 +22,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root
+from devops_cli.core.test_selection import select_tests_for_sources
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -45,62 +47,48 @@ from devops_cli.telemetry.tracer import record_metric, trace_span
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
 
-def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Path]:  # noqa: C901
-    """Find test files corresponding to modified source files via git diff."""
-    clean_ref = base_ref.strip()
-    if clean_ref.startswith("-") or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", clean_ref):
-        clean_ref = "main"
+def _porcelain_path(line: str) -> str:
+    """The path a `git status --porcelain --no-renames` line names; empty if none."""
+    parts = line.strip().split(maxsplit=1)
+    if len(parts) != 2:
+        return ""
+    return parts[1].strip().strip('"')
 
-    changed_files: set[str] = set()
 
-    # 1. Diff against base ref (or HEAD~1 if base ref unavailable)
+def _changed_paths(repo_root: Path) -> list[str]:
+    """The files changed since the branch left `main`, committed or not, as git lists them,
+    each file of an untracked directory by its own path, and a rename as its old path deleted
+    and its new path added, so a helper renamed away reaches what it reached (#1312)."""
+    changed: set[str] = set()
     diff_proc = run_subprocess(
-        ["git", "diff", "--name-only", f"{clean_ref}...HEAD"],
+        ["git", "diff", "--name-only", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
         check=False,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
-        changed_files.update(diff_proc.stdout.strip().splitlines())
+        changed.update(diff_proc.stdout.strip().splitlines())
 
-    # 2. Unstaged and staged working tree diff
-    wt_proc = run_subprocess(["git", "status", "--porcelain"], cwd=repo_root, check=False)
+    status = ["git", "status", "--porcelain", "--no-renames", "--untracked-files=all"]
+    wt_proc = run_subprocess(status, cwd=repo_root, check=False)
     if wt_proc.returncode == 0 and wt_proc.stdout:
-        for line in wt_proc.stdout.strip().splitlines():
-            parts = line.strip().split(maxsplit=1)
-            if len(parts) == 2:
-                file_target = parts[1].strip()
-                if " -> " in file_target:
-                    file_target = file_target.split(" -> ")[-1].strip()
-                changed_files.add(file_target.strip('"'))
+        changed.update(_porcelain_path(line) for line in wt_proc.stdout.strip().splitlines())
+    return sorted(path for path in changed if path)
 
-    test_files: set[Path] = set()
-    all_tests_dir = repo_root / "tests"
-    available_tests = (
-        {p.name: p for p in all_tests_dir.glob("test_*.py")} if all_tests_dir.exists() else {}
-    )
 
-    for path_str in changed_files:
-        clean_path = path_str.strip()
-        if not clean_path.endswith(".py"):
-            continue
-
-        p = repo_root / clean_path
-        if clean_path.startswith("tests/") and p.exists():
-            test_files.add(p)
-            continue
-
-        stem = Path(clean_path).stem
-        # Map src/devops_cli/subsystem/name.py -> test_name.py or test_subsystem_name.py
-        candidate_names = [
-            f"test_{stem}.py",
-            f"test_{stem}_cmd.py",
-            f"test_commands_{stem}.py",
-        ]
-        for c_name in candidate_names:
-            if c_name in available_tests:
-                test_files.add(available_tests[c_name])
-
-    return sorted(test_files)
+def _changed_targets(repo_root: Path) -> list[str]:
+    """The pytest targets that cover what changed, as the shared selector maps it, naming
+    each changed source no test module covers; the whole suite when nothing maps."""
+    selection = select_tests_for_sources(_changed_paths(repo_root), repo_root)
+    for source in selection.unmapped_sources:
+        print_warning(MESSAGES.test.unmapped_source.format(source=source))
+    targets = [target for target in selection.pytest_targets() if (repo_root / target).exists()]
+    if not targets:
+        print_info(MESSAGES.test.changed_whole_suite)
+        return [CONST_TESTS_ROOT_DIR]
+    print_info(MESSAGES.test.changed_targets.format(count=len(targets)))
+    for target in targets:
+        print_muted(f"  • {target}")
+    return targets
 
 
 # =============================================================================
@@ -109,7 +97,7 @@ def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Pat
 
 
 @app.command("run")
-def run_test_cmd(  # noqa: C901
+def run_test_cmd(
     target: Annotated[
         Path | None,
         typer.Argument(help="Target test file or test directory."),
@@ -156,21 +144,9 @@ def run_test_cmd(  # noqa: C901
     if target:
         target_paths.append(str(target))
     elif changed:
-        changed_tests = find_changed_test_files(repo_root)
-        if not changed_tests:
-            print_info(
-                "No modified test files or source-associated tests detected. Running full suite."
-            )
-            target_paths.append("tests")
-        else:
-            print_info(
-                f"Targeting {len(changed_tests)} test file(s) impacted by git modifications:"
-            )
-            for t in changed_tests:
-                print_muted(f"  • {t.relative_to(repo_root)}")
-                target_paths.append(str(t.relative_to(repo_root)))
+        target_paths.extend(_changed_targets(repo_root))
     else:
-        target_paths.append("tests")
+        target_paths.append(CONST_TESTS_ROOT_DIR)
 
     test_args.extend(target_paths)
 

@@ -1,9 +1,6 @@
 # Task 254: Forward-Looking Project Management, Roadmap Reconstruction, Compactor Hardening & Issue Sync
 
 **Issue**: [#254](https://github.com/dan-petty/devops-cli/issues/254)
-**Status**: Done
-**Milestone**: `v0.2.20`
-**Priority**: `priority/p0-critical`
 **Scope**: `scope/github`, `scope/cli`, `scope/ai`
 
 ---

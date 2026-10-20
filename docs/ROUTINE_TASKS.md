@@ -28,7 +28,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 3 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en/` | No hardcoded string literals in command code |
 | **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 4 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
 | **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 5 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
-| **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run pytest tests/test_<module>.py` | Fast isolated testing of active features/fixes | Targeted tests pass |
+| **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run devops ci test <test-file>` | Fast isolated testing of active features/fixes, with xdist workers sized to the selection | Targeted tests pass |
 | **Inner Loop (Daily / Per Edit)** | Telemetry, Log & CLI Output Review | Step 7 | `devops telemetry status` / log inspection | Inspect CLI command outputs, `.data/logs/`, metrics, and tracing spans for performance bottlenecks, misconfigurations, and warnings | Clean logs, no warnings, nominal latencies |
 | **Final Pre-Commit / Pre-PR** | Documentation & README Sync | Step 1 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`-n logical`; `devops ci` caps workers at 8) | All tests pass |
@@ -52,7 +52,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type iac` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
-| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check .` && `pytest tests/test_architectural_invariants.py` | Ruff `C901` enforces complexity <= 10; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
+| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check .` && `uv run devops ci test tests/test_architectural_invariants.py` | Ruff `C901` enforces complexity <= 10; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
@@ -111,7 +111,7 @@ flowchart TD
      - `devops_cli.dry_run.decorator.dry_run_command` for state-mutating command dry-runs.
      - `devops_cli.security.base.BaseSecurityScanner` for security linters.
 5. **Write Tests First (Living Functional Specification)**:
-   - Create or update `tests/test_<feature>.py` to document the intended public interfaces, command-line arguments, expected return structures, edge cases, error conditions, and mocks.
+   - Write the tests that state the intended behaviour, edge cases and error conditions before the code, following [`docs/TESTING.md`](TESTING.md) for where they go, what they may double and what they assert.
 6. **Implement Feature Logic**:
    - Author clean, concise, domain-driven implementation code in `src/` specifically to satisfy the pre-written tests with zero extraneous boilerplate.
 7. **Format & Lint Target Files**:
@@ -125,7 +125,7 @@ flowchart TD
    ```
 9. **Run Targeted Unit Tests**:
    ```bash
-   uv run pytest tests/test_<feature>.py -k <test_name>
+   uv run devops ci test tests/test_<feature>.py -k <test_name>
    ```
 10. **Review CLI Command Outputs, Application Logs, Metrics & Tracing Data**:
    - Actively inspect terminal command outputs, application logs (under `.data/logs/`), metrics, and distributed tracing spans (`@trace_span` / Logfire / OpenTelemetry) emitted during execution.
@@ -232,7 +232,7 @@ sequenceDiagram
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/tasks/` must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
-  - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`) and possess taxonomy labels (`type/*`, `scope/*`). A PR gets no card: its progress shows on its issue's card.
+  - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`) and possess taxonomy labels (`type/*`, `scope/*`). A PR that delivers part of an item planned as several PRs says `Part of #<id>` instead, and the item's last PR closes it. A PR gets no card: its progress shows on its issue's card.
   - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile `Status` and `Priority` (when unset) on the cards already on the board; an open non-draft PR moves its issue's card to `In Review`. The board mirrors the milestone itself, and `Value` and `Effort` are set by hand.
   - Reconcile task state transitions (`New` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/tasks/`](agent/tasks/README.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
   - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`. Audit views via `devops gh views list`, `devops gh views audit`, and `devops gh views spec`.

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from string import ascii_uppercase
 
-ROUTINE_TASKS = Path(__file__).resolve().parents[1] / "docs" / "ROUTINE_TASKS.md"
+from tests.support.paths import REPO_ROOT
+
+ROUTINE_TASKS = REPO_ROOT / "docs" / "ROUTINE_TASKS.md"
 
 
 def test_each_cadence_letter_names_one_section_in_order() -> None:

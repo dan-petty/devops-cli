@@ -1,9 +1,6 @@
 # Task 258: Add Integrations to Keep GitHub Pull Requests Up to Date
 
 **Issue**: [#258](https://github.com/dan-petty/devops-cli/issues/258)
-**Status**: Done
-**Milestone**: `v0.2.20`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
 
 ---

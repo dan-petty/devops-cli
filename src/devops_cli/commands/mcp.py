@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
 from devops_cli.config.defaults import (
     DEFAULT_MCP_HOST,
     DEFAULT_MCP_PORT,
@@ -66,7 +66,8 @@ def serve_cmd(
         write_stderr(MESSAGES.mcp.starting_stdio)
 
     try:
-        run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
+        runner_fn = getattr(sys.modules[__name__], "run_mcp_server")
+        runner_fn(transport=transport, host=host, port=port, allow_remote=allow_remote)
     except ValueError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
@@ -75,7 +76,8 @@ def serve_cmd(
 @app.command("tools", help=HELP.mcp.tools)
 def tools_cmd() -> None:
     """List all registered FastMCP tools and descriptions."""
-    tools = list_mcp_tools()
+    lister_fn = getattr(sys.modules[__name__], "list_mcp_tools")
+    tools = lister_fn()
     table = render_table(
         title=MESSAGES.mcp.table_title_tools,
         columns=[(MESSAGES.mcp.col_tool_name, "cyan"), (MESSAGES.mcp.col_description, "white")],
@@ -134,3 +136,15 @@ def export_schemas_cmd(
         print_info(f"✓ Exported {count} tool schema(s) and instructions to {out_dir}")
     else:
         print_info(f"✓ Exported {count} tool schema(s) to {out_dir}")
+
+
+def __getattr__(name: str) -> Any:
+    if name == "run_mcp_server":
+        from devops_cli.ai.mcp.server import run_mcp_server
+
+        return run_mcp_server
+    if name == "list_mcp_tools":
+        from devops_cli.ai.mcp.server import list_mcp_tools
+
+        return list_mcp_tools
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

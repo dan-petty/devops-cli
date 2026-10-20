@@ -10,9 +10,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
+import dns.exception
+import dns.name
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
+    CONST_DOCKER_HOST_GATEWAY_HOSTNAME,
     CONST_HOST_SANDBOX_DEFAULT_ENV,
     CONST_HOST_SANDBOX_SYSTEM_DIRS,
     CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
@@ -41,8 +44,14 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.validation import (
     is_cloud_metadata_host,
+    is_loopback_host,
     is_loopback_or_private_host,
     is_non_public_ip,
+)
+from devops_cli.exceptions import SandboxValidationError
+
+_DOCKER_HOST_GATEWAY_DNS_NAME: Final[dns.name.Name] = dns.name.from_text(
+    CONST_DOCKER_HOST_GATEWAY_HOSTNAME
 )
 
 
@@ -152,17 +161,36 @@ def _validate_public_whitelist_item(item: str) -> None:
         )
 
 
+def _is_docker_host_gateway_name(host: str) -> bool:
+    """Whether `host` is the container runtime's host-gateway name, compared as DNS compares names.
+
+    Case and a trailing dot do not matter. A host that is not a DNS name is not that name.
+    """
+    try:
+        return bool(dns.name.from_text(host) == _DOCKER_HOST_GATEWAY_DNS_NAME)
+    except dns.exception.DNSException:
+        return False
+
+
 def _validate_local_whitelist_item(item: str) -> None:
-    """Ensure local whitelist entry targets local/private endpoints and not link-local metadata."""
+    """Ensure local whitelist entry targets local/private endpoints and not link-local metadata.
+
+    The host-gateway name is refused first, before any check that could resolve or admit it:
+    on the workstation it names the container runtime's gateway, which a cluster pod cannot
+    reach.
+    """
     host, _port = _parse_whitelist_entry(item)
+    if _is_docker_host_gateway_name(host):
+        raise SandboxValidationError(
+            f"Local whitelist entry '{item}' names the container runtime's host gateway "
+            f"({CONST_DOCKER_HOST_GATEWAY_HOSTNAME}) on the workstation, which a cluster pod "
+            "cannot reach; give the IP address or CIDR the cluster reaches the host on."
+        )
     if is_cloud_metadata_host(host, resolve_dns=False):
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
         )
-    if not is_loopback_or_private_host(host, resolve_dns=False) and host not in (
-        "localhost",
-        "host.docker.internal",
-    ):
+    if not is_loopback_or_private_host(host, resolve_dns=False):
         raise ValueError(
             f"Local whitelist entry '{item}' (host '{host}') must resolve to a private or loopback destination."
         )
@@ -263,10 +291,24 @@ def _resolve_local_dns(host: str) -> list[str]:
     return cidrs
 
 
+def _is_loopback_entry(host: str) -> bool:
+    """Whether a whitelist host is `localhost`, a loopback address or a loopback network."""
+    if is_loopback_host(host):
+        return True
+    try:
+        return ipaddress.ip_network(host, strict=False).is_loopback
+    except ValueError:
+        return False
+
+
 def _resolve_local_host(host: str) -> list[str]:
-    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings."""
-    if host in ("localhost", "host.docker.internal"):
-        return ["127.0.0.1/32"]
+    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings.
+
+    A loopback entry resolves to no address, without a lookup: NetworkPolicy never polices a
+    pod's loopback, so there is nothing to allow.
+    """
+    if _is_loopback_entry(host):
+        return []
     if is_cloud_metadata_host(host, resolve_dns=False):
         raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
     try:
@@ -285,17 +327,21 @@ def _build_whitelist_egress(
 ) -> list[dict[str, Any]]:
     """Build the kube-dns rule, then one rule per entry: its resolved addresses on its own port.
 
-    Entries never share a rule, so no address is opened on another entry's port.
+    Entries never share a rule, so no address is opened on another entry's port. An entry that
+    resolves to no address adds no rule, since a rule with an empty `to` allows every
+    destination on its port.
     """
     rules = [_build_dns_egress_rule()]
     for entry in entries:
         host, port = _parse_whitelist_entry(entry)
-        rules.append(
-            {
-                "to": [{"ipBlock": {"cidr": cidr}} for cidr in resolve_host(host)],
-                "ports": [{"protocol": "TCP", "port": port}],
-            }
-        )
+        cidrs = resolve_host(host)
+        if cidrs:
+            rules.append(
+                {
+                    "to": [{"ipBlock": {"cidr": cidr}} for cidr in cidrs],
+                    "ports": [{"protocol": "TCP", "port": port}],
+                }
+            )
     return rules
 
 

@@ -1,9 +1,6 @@
 # Task: The roadmap service stays at 0 replicas, and its development is blocked, while its machine account is suspended (#1562)
 
 **Issue**: [#1562](https://github.com/dan-petty/devops-cli/issues/1562)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: P0, set by the owner on 2026-10-11
 **Scope**: type/chore, scope/k8s, scope/roadmap
 **Feasibility**: Checked at release/v0.2.34 (3b563b2). Argo CD's `devops` Application syncs `k8s/overlays/homelab/devops`, which takes `k8s/devops`, from `main` with `selfHeal`. With sync re-enabled, it would restore the deployment's `replicas: 1`. `devops k8s deploy-stack --stack devops` would do the same. CronJob `devops-cli` is already `suspend: true`.
 

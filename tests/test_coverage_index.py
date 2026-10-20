@@ -214,6 +214,24 @@ def test_a_conftest_change_forces_a_full_run(tmp_path: Path) -> None:
     assert select_from_index(index, ["tests/conftest.py"], repo).needs_full_run is True
 
 
+def test_a_support_module_that_defines_a_fixture_forces_a_full_run(tmp_path: Path) -> None:
+    """A support module that defines a fixture registers it for tests that never import the
+    module, so the tests that do import it are not all it can change (#1312)."""
+    repo = _repo(tmp_path, ["test_a.py"])
+    (repo / "tests" / "support").mkdir()
+    (repo / "tests" / "support" / "identity.py").write_text(
+        "import pytest\n\n\n@pytest.fixture\ndef identity() -> str:\n    return 'nobody'\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_a.py").write_text(
+        "from tests.support.identity import identity\n", encoding="utf-8"
+    )
+    index = CoverageIndex(
+        covering_tests={"src/devops_cli/a.py": ["tests/test_a.py"]}, test_files=["tests/test_a.py"]
+    )
+    assert select_from_index(index, ["tests/support/identity.py"], repo).needs_full_run is True
+
+
 def test_a_dependency_change_forces_a_full_run(tmp_path: Path) -> None:
     """A different resolved version silently changes outcomes across the whole suite."""
     repo = _repo(tmp_path, ["test_a.py"])

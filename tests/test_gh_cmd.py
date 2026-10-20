@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,7 @@ from devops_cli.github.projects import MutationBudget
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -348,6 +350,7 @@ def _reconcile_cli(fake: ProjectGitHub, *args: str, limit: int = 25) -> Result:
     """`devops gh project reconcile -n 2 --repo o/r` against `fake`, standing in for `run_gh`."""
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=limit)),
     ):
         return runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, *args])
@@ -416,10 +419,11 @@ def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status() -> None:
     fake = _board_with_five_changes()
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.get_github_session", return_value=fake),
         patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=3)),
         pytest.raises(ToolError) as stopped,
     ):
-        gh_project_reconcile(project_number=2, repo=REPO, mode="write")
+        gh_project_reconcile(project_number=2, repo=REPO)
     message = _flat(str(stopped.value))
     assert (
         message.startswith("Command exited with status 1:"),
@@ -505,7 +509,7 @@ def _checkout(tmp_path: Path, with_template: bool = True) -> Path:
     """A fake checkout holding the repository's project template, and a subdirectory of it."""
     (tmp_path / ".git").mkdir()
     if with_template:
-        template = Path(__file__).parents[1] / ".github" / "project-template.json"
+        template = REPO_ROOT / ".github" / "project-template.json"
         (tmp_path / ".github").mkdir()
         (tmp_path / ".github" / "project-template.json").write_text(template.read_text())
     subdirectory = tmp_path / "src" / "pkg"
@@ -934,6 +938,59 @@ def test_gh_api_options_and_cache() -> None:
         assert mock_gh.call_args.kwargs["cache_ttl"] == 25.0
 
 
+def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged() -> None:
+    """`devops gh api --paginate -q` reaches gh as typed: gh follows the `Link` pages and applies
+    the filter itself, and what it prints is printed (#983)."""
+    from devops_cli.config.constants import CONST_GH_CLI
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    answer = subprocess.CompletedProcess([], 0, stdout="1\n2\n3\n", stderr="")
+    argv = ["api", "repos/:owner/:repo/issues", "--paginate", "-q", ".[].number"]
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
+    ):
+        result = runner.invoke(app, argv)
+    assert (result.exit_code, result.output, [call.args[0] for call in gh.call_args_list]) == (
+        0,
+        "1\n2\n3\n",
+        [[CONST_GH_CLI, *argv]],
+    )
+
+
+@pytest.mark.parametrize(
+    ("flags", "timeout_default"),
+    [
+        pytest.param(["--paginate"], "DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS", id="paginated"),
+        pytest.param([], "DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS", id="one-page"),
+    ],
+)
+def test_gh_api_gives_a_paginated_walk_the_listing_timeout(
+    flags: list[str], timeout_default: str
+) -> None:
+    """gh walks every `Link` page of a `--paginate` call in one process, so the whole walk gets
+    the listing's timeout rather than one request's."""
+    from devops_cli.config import defaults
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    answer = subprocess.CompletedProcess([], 0, stdout="[]\n", stderr="")
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
+    ):
+        result = runner.invoke(app, ["api", "repos/:owner/:repo/issues", *flags])
+    assert (result.exit_code, gh.call_args.kwargs["timeout"]) == (
+        0,
+        getattr(defaults, timeout_default),
+    )
+
+
 def test_gh_api_error_masked() -> None:
     """devops gh api masks sensitive tokens on request failure."""
     with (
@@ -971,3 +1028,70 @@ def test_gh_commands_report_no_identity_without_a_traceback(
         SystemExit,
         True,
     )
+
+
+def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -> None:
+    """`gh api rate_limit` fails `HTTP 401: Bad credentials` before `gh issue list` is paced:
+    the command prints the unauthenticated error, without a traceback, exits 1 and sends no
+    listing (#983)."""
+    from devops_cli.github import rate_limiter
+
+    refused = subprocess.CompletedProcess(
+        ["gh", "api", "rate_limit"], 1, "", "HTTP 401: Bad credentials"
+    )
+    with (
+        patch.object(rate_limiter, "run_subprocess", return_value=refused) as gh,
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    text = _flat(result.output)
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "gh has no GitHub login that GitHub accepts (HTTP 401: Bad credentials)" in text,
+        "gh auth login" in text,
+        "Failed to refresh rate limits" in text,
+        "Traceback" in result.output,
+        [call.args[0] for call in gh.call_args_list],
+    ) == (1, SystemExit, True, True, False, False, [["gh", "api", "rate_limit"]])
+
+
+def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error() -> None:
+    """`gh api rate_limit` runs past its timeout before `gh issue list` is paced: the command
+    prints the unread error, without a traceback, exits 1 and sends no listing (#983)."""
+    from devops_cli.github import rate_limiter
+
+    timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
+    with (
+        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "Failed to refresh rate limits from GitHub API: gh api rate_limit timed out after 10 "
+        "seconds" in _flat(result.output),
+        "Traceback" in result.output,
+    ) == (1, SystemExit, True, False)
+
+
+def test_views_sync_prints_gh_s_scope_list_as_gh_wrote_it() -> None:
+    """gh names the missing scope as `[read:project]`, which Rich would read as a markup tag and
+    drop; the warning prints gh's text as written (#983)."""
+    refused = subprocess.CompletedProcess(
+        ["gh", "project", "list"],
+        1,
+        "",
+        "error: your authentication token is missing required scopes [read:project]\n"
+        "To request it, run:  gh auth refresh -s read:project",
+    )
+    with patch("devops_cli.github.projects.run_gh", return_value=refused):
+        result = runner.invoke(app, ["views", "sync", "-R", "octo/repo"])
+    assert (result.exit_code, "[read:project]" in _flat(result.output)) == (0, True)

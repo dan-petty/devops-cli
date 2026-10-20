@@ -12,8 +12,17 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from itertools import takewhile
 from pathlib import Path
 from typing import Final
+
+if __spec__ is None:
+    # Run as a script, which has no `__spec__` and cannot import `tests`: name the command that
+    # runs the module, its dotted name read from its path up through each package (#1312).
+    _script = Path(sys.argv[0]).resolve()
+    _packages = takewhile(lambda directory: (directory / "__init__.py").is_file(), _script.parents)
+    _module = ".".join([*reversed([package.name for package in _packages]), _script.stem])
+    sys.exit(f"Usage: uv run python -m {_module} --lower")
 
 import pytest
 
@@ -21,11 +30,12 @@ from devops_cli.config.constants import (
     CONST_SWALLOWED_FAILURES_CHECK_ATTRS,
     CONST_SWALLOWED_FAILURES_RUFF_RULES,
 )
+from tests.support.paths import FIXTURES, REPO_ROOT
 
-CONST_CEILINGS_FIXTURE: Final[Path] = (
-    Path(__file__).resolve().parent / "fixtures" / "swallowed_failures_ceilings.json"
-)
-CONST_LOWER_COMMAND: Final[str] = "uv run python tests/test_swallowed_failures_ratchet.py --lower"
+CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
+# The module's dotted name is the same under pytest and under `python -m`, so the command follows
+# the module wherever it moves; run as a script, the module names this command and exits (#1312).
+CONST_LOWER_COMMAND: Final[str] = f"uv run python -m {__spec__.name} --lower"
 
 
 @dataclass(frozen=True)
@@ -331,9 +341,8 @@ def lower_ceilings(fixture_path: Path, repo_root: Path) -> dict[str, int]:
 
 def test_swallowed_failures_stay_under_or_equal_to_ceiling() -> None:
     """Ensure swallowed failure sites under src/ do not exceed their ceiling or stay under it."""
-    repo_root = Path(__file__).resolve().parents[1]
-    src_dir = repo_root / "src"
-    measured = collect_all_swallowed_failures(src_dir, repo_root)
+    src_dir = REPO_ROOT / "src"
+    measured = collect_all_swallowed_failures(src_dir, REPO_ROOT)
     ceilings = load_ceilings(CONST_CEILINGS_FIXTURE)
     over, under = evaluate_ratchet(measured, ceilings)
 
@@ -419,6 +428,26 @@ def test_read_check_false_is_not_flagged(tmp_path: Path) -> None:
     assert len(violations) == 0
 
 
+def test_run_as_a_script_it_names_the_module_command_and_exits_1() -> None:
+    """Python gives a script no `__spec__`, and from `tests/` it cannot import `tests.support`:
+    run so, the module prints the `-m` command that runs it and exits 1, with no traceback
+    (#1312)."""
+    script = REPO_ROOT.joinpath(*__spec__.name.split(".")).with_suffix(".py")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--lower"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert (proc.returncode, proc.stdout, proc.stderr.strip()) == (
+        1,
+        "",
+        f"Usage: {CONST_LOWER_COMMAND}",
+    )
+
+
 def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path: Path) -> None:
     """When a file has fewer violations than its ceiling, the ratchet fails with the command."""
     sample_file = tmp_path / "sample.py"
@@ -432,10 +461,8 @@ def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path
 
     assert (bool(over), bool(under)) == (False, True)
     err_msg = format_under_ceiling_error(under)
-    assert (CONST_LOWER_COMMAND in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (
-        True,
-        True,
-    )
+    lower = "uv run python -m tests.test_swallowed_failures_ratchet --lower"
+    assert (lower in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (True, True)
 
 
 def test_lower_ceilings_command_updates_fixture_and_removes_zeros(tmp_path: Path) -> None:
@@ -478,5 +505,5 @@ if __name__ == "__main__":
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
-        print(f"Usage: python {sys.argv[0]} --lower")
+        print(f"Usage: {CONST_LOWER_COMMAND}")
         sys.exit(1)

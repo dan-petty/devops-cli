@@ -1,9 +1,6 @@
 # Task: GenAI Span Attributes Checked Against the Pinned Semantic Conventions (#588)
 
 **Issue**: [#588](https://github.com/dan-petty/devops-cli/issues/588)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description

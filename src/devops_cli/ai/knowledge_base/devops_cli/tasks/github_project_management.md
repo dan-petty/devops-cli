@@ -151,7 +151,7 @@ devops gh milestones close v0.2.14
     - Without a matching issue: file the task as a candidate with `devops roadmap intake --title … --body-file … --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); intake files it unless it is a duplicate and gives it its type, Priority, Value, Effort and place.
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
-   - Keep each task file in `docs/agent/tasks/` and its issue's card in step across the 5 canonical lifecycle states; sync reads no task file, and the card's `In Review` comes from GitHub:
+   - Issue cards on the board progress across canonical lifecycle states (status lives on GitHub per ADR 0001; task files carry no status and are written only by the delivering PR):
      - `Backlog`: Queued deliverables and roadmap milestones awaiting assignment.
      - `Ready`: Scoped items with concrete acceptance criteria and tests designed.
      - `In Progress (WIP)`: Active implementation. **Move card to `In Progress` BEFORE making code edits in `src/`**.

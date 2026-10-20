@@ -12,8 +12,10 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import UNSUPPORTED_BEHAVIORAL_SKILL_FIELDS
 from devops_cli.exceptions.ai import HarnessValidationError
 

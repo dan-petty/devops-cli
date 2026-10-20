@@ -10,18 +10,24 @@ whereas missing the one test that covers a change gives a false green.
 
 from __future__ import annotations
 
+import ast
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cached_property, partial
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_CONFTEST_FILENAME,
+    CONST_FULL_RUN_TRIGGER_NAMES,
+    CONST_PYTEST_FIXTURE_NAME,
+    CONST_PYTEST_HOOK_PREFIX,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
-from devops_cli.core.coverage_index import _find_tests_importing_helper
+from devops_cli.core.import_graph import build_import_graph, module_name
 
 
 @dataclass
@@ -96,6 +102,269 @@ def _reference_pattern(module_path: str) -> re.Pattern[str]:
     return re.compile("|".join(alternatives))
 
 
+def _fixture_reach(rel_tests_path: Path, holds_tests: Callable[[Path], bool]) -> Path | None:
+    """The tests a change to a file under the tests root reaches without being imported: its own
+    directory for a conftest, whose fixtures reach every test beside and below it, and for a
+    package's `__init__.py`, which each test module in the package runs first, when a test
+    module lies there: a package that holds none, as a support package, is classified as a
+    helper, since pytest collects nothing from its directory; None for any other file."""
+    name = rel_tests_path.name
+    if name == CONST_CONFTEST_FILENAME:
+        return rel_tests_path.parent
+    is_package_init = name == f"__init__{CONST_PYTHON_FILE_SUFFIX}"
+    if is_package_init and holds_tests(rel_tests_path.parent):
+        return rel_tests_path.parent
+    return None
+
+
+def _bound_names(tree: ast.Module) -> list[str]:
+    """Every name the module binds by a definition, an import or an assignment, at any depth,
+    `*` for a star import, whose names cannot be known; a superset of its module-level names."""
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.append(node.name)
+        elif isinstance(node, ast.alias):
+            names.append(node.asname or node.name.split(".")[0])
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.append(node.id)
+    return names
+
+
+def _binds_pytest_name(tree: ast.Module) -> bool:
+    """Whether the module binds a name pytest reads as a hook, defined or imported, or imports
+    `*`, whose names cannot be known."""
+    return any(
+        name == "*" or name.startswith(CONST_PYTEST_HOOK_PREFIX) for name in _bound_names(tree)
+    )
+
+
+def _parse(path: Path) -> ast.Module | None:
+    """The module at `path`, or None when it cannot be read or parsed, as a deleted one cannot."""
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except OSError, SyntaxError, ValueError:
+        return None
+
+
+def _binds_hook(conftest: Path) -> bool:
+    """Whether the conftest binds a name pytest reads as a hook, which it calls for every test;
+    true when it cannot be read or parsed, so a change errs toward the whole suite."""
+    tree = _parse(conftest)
+    return tree is None or _binds_pytest_name(tree)
+
+
+def _names_the_fixture_decorator(node: ast.AST) -> bool:
+    """Whether a node names pytest's fixture decorator: `pytest.fixture`, or the name imported by
+    `from pytest import fixture`; a docstring or a variable that holds a fixture file does not."""
+    match node:
+        case ast.Attribute(attr=name) | ast.alias(name=name):
+            return name == CONST_PYTEST_FIXTURE_NAME
+    return False
+
+
+def _names_a_fixture_or_hook(tree: ast.Module) -> bool:
+    """Whether the module names pytest's fixture decorator or binds a `pytest_*` name."""
+    return _binds_pytest_name(tree) or any(map(_names_the_fixture_decorator, ast.walk(tree)))
+
+
+def defines_fixture_or_hook(path: Path) -> bool:
+    """Whether the module at `path` names pytest's fixture decorator or binds a `pytest_*` name,
+    by which `SuiteImports` takes a plugin to reach every test; true when it cannot be read or
+    parsed. The support registration holds every module it registers to this, so a fixture or
+    hook that pytest finds and this cannot see fails the run (#1312)."""
+    tree = _parse(path)
+    return tree is None or _names_a_fixture_or_hook(tree)
+
+
+def _reaches_every_test_itself(relative: Path, tree: ast.Module) -> bool:
+    """Whether a module under the tests root reaches every test with no test importing it: a
+    conftest, or a helper that defines a fixture or binds a `pytest_*` name, which pytest applies
+    to every test once the helper is a plugin, as every submodule and subpackage of
+    `tests.support` is, and as `pytest_plugins` or `-p` can make any other. A test module is
+    never a plugin."""
+    if relative.name == CONST_CONFTEST_FILENAME:
+        return True
+    if relative.name.startswith(CONST_TEST_FILE_PREFIX):
+        return False
+    return _names_a_fixture_or_hook(tree)
+
+
+def _dotted(relative: Path) -> str:
+    """The dotted module name of a Python file relative to the repository root."""
+    return module_name(relative, Path())
+
+
+def _helper_module(relative: Path) -> str | None:
+    """The dotted name of a helper module: a Python file under the tests root that is neither a
+    test module nor a conftest, a package's `__init__.py` included; None for any other path."""
+    under_tests = relative.parts[:1] == (CONST_TESTS_ROOT_DIR,)
+    if not under_tests or relative.suffix != CONST_PYTHON_FILE_SUFFIX:
+        return None
+    if relative.name.startswith(CONST_TEST_FILE_PREFIX) or relative.name == CONST_CONFTEST_FILENAME:
+        return None
+    return _dotted(relative)
+
+
+def _packages_of(module: str) -> set[str]:
+    """The packages whose `__init__.py` runs before the module does: `a` and `a.b` for `a.b.c`."""
+    parts = module.split(".")
+    return {".".join(parts[:end]) for end in range(1, len(parts))}
+
+
+def _closure(seeds: Iterable[str], edges: Mapping[str, set[str]]) -> set[str]:
+    """Every module reachable from `seeds` along `edges`, the seeds included."""
+    reached = set(seeds)
+    pending = list(reached)
+    while pending:
+        fresh = edges.get(pending.pop(), set()) - reached
+        reached |= fresh
+        pending.extend(fresh)
+    return reached
+
+
+@dataclass(frozen=True)
+class _ParsedSuite:
+    """The modules under the tests root that `ast` parsed, by dotted name with their paths
+    relative to the repository root; for each, the modules that import it when they run, a
+    package's own modules included; and the modules a change to which reaches every test."""
+
+    paths: Mapping[str, Path]
+    importers: Mapping[str, set[str]]
+    whole_suite: frozenset[str]
+
+
+def _parse_suite(root: Path) -> _ParsedSuite:
+    """Parse every Python file under the tests root once and link what each imports, inside its
+    functions too, since a fixture imports when it runs, and the packages each runs first."""
+    trees = {
+        path.relative_to(root): tree
+        for path in sorted((root / CONST_TESTS_ROOT_DIR).rglob(f"*{CONST_PYTHON_FILE_SUFFIX}"))
+        if (tree := _parse(path)) is not None
+    }
+    # Keyed relative to the root, the files name their modules from `tests` whatever the
+    # checkout's directory is called.
+    graph = build_import_graph(trees, root=Path(), function_bodies=True)
+    paths = {_dotted(relative): relative for relative in trees}
+    edges = {
+        module: targets | (_packages_of(module) & paths.keys())
+        for module, targets in graph.edges.items()
+    }
+    importers: dict[str, set[str]] = {module: set() for module in edges}
+    for module, targets in edges.items():
+        for target in targets:
+            importers[target].add(module)
+    roots = {module for module, rel in paths.items() if _reaches_every_test_itself(rel, trees[rel])}
+    return _ParsedSuite(paths, importers, frozenset(_closure(roots, edges)))
+
+
+class SuiteImports:
+    """Which tests a change to a helper module under the tests root reaches, from what the
+    modules there import when they run, read with `ast` on the first question and kept (#1312).
+
+    Every submodule and subpackage of `tests.support` is a plugin, imported at session start;
+    the package's own `__init__.py` is not. So a helper reaches every test when it defines a
+    fixture or binds a `pytest_*` name, or when a conftest or such a helper imports it, or one of
+    its modules, directly or through other modules. Any other helper reaches only the test
+    modules that import it that way; an import-time failure in it still fails every run, since
+    registration imports it. A helper `ast` cannot read, as one deleted or renamed away, reaches
+    every test, since what it registered cannot be known; that holds only where the old path is
+    among the changes. The registration fails a run in which pytest finds a fixture or hook that
+    `defines_fixture_or_hook` does not, and a run with a test module or conftest under
+    `tests.support`. An invariant holds a helper's top level and class bodies to docstrings,
+    imports at the top level, defs, classes, assignments to names alone and `if TYPE_CHECKING:`
+    blocks with no `else`. What still runs on import unchecked is each value bound to a name and
+    each decorator, default argument, base class and metaclass, and what they do to tests that
+    do not import the helper: a narrowed run does not see that, and the full gate does.
+    """
+
+    def __init__(self, repo_root: Path) -> None:
+        self._root = repo_root
+
+    def is_removed_helper(self, relative: Path) -> bool:
+        """Whether `relative`, from the repository root, names a helper module whose file is
+        gone, deleted or renamed away."""
+        return _helper_module(relative) is not None and not (self._root / relative).exists()
+
+    @cached_property
+    def _suite(self) -> _ParsedSuite:
+        return _parse_suite(self._root)
+
+    def reaches_every_test(self, relative: Path) -> bool:
+        """Whether a change to the file at `relative`, a path from the repository root, reaches
+        every test through the suite's imports; false for anything not a helper module."""
+        module = _helper_module(relative)
+        if module is None:
+            return False
+        return module not in self._suite.paths or module in self._suite.whole_suite
+
+    def importing_tests(self, relative: Path) -> list[Path]:
+        """The test modules that import the helper module at `relative` when they run, directly
+        or through other modules, as paths from the repository root; none for any other file."""
+        module = _helper_module(relative)
+        if module is None:
+            return []
+        suite = self._suite
+        reached = _closure({module}, suite.importers) & suite.paths.keys()
+        return sorted(
+            path for path in map(suite.paths.__getitem__, reached) if is_test_module(path)
+        )
+
+
+def is_test_module(path: Path | str) -> bool:
+    """Whether a path names a test module, a `test_*.py` file; the one test the selector, the
+    coverage index and `devops ci test` share."""
+    named = Path(path)
+    return (
+        named.name.startswith(CONST_TEST_FILE_PREFIX) and named.suffix == CONST_PYTHON_FILE_SUFFIX
+    )
+
+
+def forces_full_run(path: str, imports: SuiteImports) -> bool:
+    """Whether a change to `path`, from the repository root, can alter the outcome of tests that
+    never import it, so it defeats the coverage index and forces a full run: a fixture file, the
+    project's dependencies or interpreter, or a helper module under the tests root that reaches
+    every test (`SuiteImports`), which is read only for such a helper (#1312)."""
+    relative = Path(path.replace("\\", "/"))
+    return relative.name in CONST_FULL_RUN_TRIGGER_NAMES or imports.reaches_every_test(relative)
+
+
+def _repo_relative(raw: Path, root: Path) -> Path | None:
+    """`raw` from the repository root, or None for an absolute path outside it."""
+    try:
+        return raw.resolve().relative_to(root) if raw.is_absolute() else raw
+    except ValueError, OSError:
+        return None
+
+
+def _triggers_by_name(relative: Path, root: Path) -> bool:
+    """Whether a change reaches every test by what the file is: a full-run trigger name, except
+    that a conftest below the tests root does so only when it binds a `pytest_*` hook, and
+    otherwise reaches its own directory."""
+    tests_root = Path(CONST_TESTS_ROOT_DIR)
+    nested_conftest = (
+        relative.name == CONST_CONFTEST_FILENAME
+        and relative.parent != tests_root
+        and relative.is_relative_to(tests_root)
+    )
+    if nested_conftest:
+        return _binds_hook(root / relative)
+    return relative.name in CONST_FULL_RUN_TRIGGER_NAMES
+
+
+def _first_reaching_every_test(
+    candidates: Sequence[Path], root: Path, imports: SuiteImports
+) -> Path | None:
+    """The first change that reaches every test, those that do by their name found before any
+    module under the tests root is read for a helper that may reach every test by its imports."""
+    relative = [
+        (path, rel) for path in candidates if (rel := _repo_relative(path, root)) is not None
+    ]
+    by_name = (path for path, rel in relative if _triggers_by_name(rel, root))
+    by_imports = (path for path, rel in relative if imports.reaches_every_test(rel))
+    return next(by_name, None) or next(by_imports, None)
+
+
 def _iter_test_files(tests_root: Path) -> list[Path]:
     """List every test module under the tests root."""
     if not tests_root.is_dir():
@@ -111,31 +380,42 @@ def _referencing_tests(
     return {path for path in test_files if pattern.search(contents.get(path, ""))}
 
 
+def _holds_tests(directory: Path, root: Path, all_tests: Sequence[Path]) -> bool:
+    """Whether a test module lies in `directory`, a path from the repository root, or below it."""
+    return any(path.is_relative_to(root / directory) for path in all_tests)
+
+
 def _handle_test_tree_entry(
     candidate: Path,
     rel_tests_path: Path,
     root: Path,
-    all_tests: Sequence[Path],
+    imports: SuiteImports,
     selection: TestSelection,
+    all_tests: Sequence[Path],
 ) -> set[Path]:
-    """Handle a candidate path located under the tests/ directory."""
+    """Handle a candidate path under the tests root: a test module selects itself, a conftest
+    or a package's `__init__.py` its directory when a test module lies there, and a helper module
+    the test modules importing it, outside that directory for a package's `__init__.py`, whose
+    modules all run it."""
     display = str(candidate)
-    name = rel_tests_path.name
-    if name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(CONST_PYTHON_FILE_SUFFIX):
-        selection.passthrough_files.append(rel_tests_path)
-        selection.source_selectors[display] = "direct"
-        return set()
-    selection.source_selectors[display] = "text-based selector"
-    if name == "conftest.py" or not name.endswith(CONST_PYTHON_FILE_SUFFIX):
-        selection.unmapped_sources.append(display)
-        return set()
-    known_tests = [str(p.relative_to(root)) for p in all_tests]
-    importing = _find_tests_importing_helper(rel_tests_path.as_posix(), root, known_tests)
+    test_module = is_test_module(rel_tests_path)
+    holds_tests = partial(_holds_tests, root=root, all_tests=all_tests)
+    direct = _fixture_reach(rel_tests_path, holds_tests) or (
+        rel_tests_path if test_module else None
+    )
+    importing = [
+        path
+        for path in imports.importing_tests(rel_tests_path)
+        if direct is None or not path.is_relative_to(direct)
+    ]
+    if direct is not None:
+        selection.passthrough_files.append(direct)
+    selection.source_selectors[display] = "text-based selector" if direct is None else "direct"
     if importing:
-        selection.mapped_sources[display] = sorted(importing)
-        return {root / imp for imp in importing}
-    selection.unmapped_sources.append(display)
-    return set()
+        selection.mapped_sources[display] = [str(path) for path in importing]
+    elif direct is None:
+        selection.unmapped_sources.append(display)
+    return {root / path for path in importing}
 
 
 def select_tests_for_sources(
@@ -143,10 +423,26 @@ def select_tests_for_sources(
 ) -> TestSelection:
     """Select the test modules covering a set of changed files.
 
-    Paths already inside the tests tree pass straight through. Source modules are matched
-    both by naming convention and by which tests import them, and the union is run.
+    A change that reaches every test selects the whole suite at once: one that forces a full
+    `devops ci test` run by its name, found before any test module is listed or read, where a
+    conftest below the tests root counts only when it binds a `pytest_*` hook, then a helper
+    module under the tests root that reaches every test through the suite's imports
+    (`SuiteImports`). Paths already inside the tests tree pass straight through, except that a
+    conftest or a package's `__init__.py` selects its directory when a test module lies there,
+    and a helper module the test modules that import it. Source modules are matched by naming convention, at any depth, and
+    by which tests import them, and the union is run; a test module merely beside the module's
+    own does not run, since replayed over 15 commits none such ran the module (#1312).
     """
     root = (repo_root or Path.cwd()).resolve()
+    candidates = [Path(raw) for raw in paths]
+    imports = SuiteImports(root)
+    whole_suite = _first_reaching_every_test(candidates, root, imports)
+    if whole_suite is not None:
+        return TestSelection(
+            passthrough_files=[Path(CONST_TESTS_ROOT_DIR)],
+            source_selectors={str(whole_suite): "direct"},
+        )
+
     tests_root = root / CONST_TESTS_ROOT_DIR
     all_tests = _iter_test_files(tests_root)
     contents: dict[Path, str] = {}
@@ -154,8 +450,7 @@ def select_tests_for_sources(
     selection = TestSelection()
     selected: set[Path] = set()
 
-    for raw in paths:
-        candidate = Path(raw)
+    for candidate in candidates:
         absolute = candidate if candidate.is_absolute() else root / candidate
 
         # A path supplied under the tests tree
@@ -166,7 +461,7 @@ def select_tests_for_sources(
         if relative_to_tests is not None:
             rel_tests_path = Path(CONST_TESTS_ROOT_DIR) / relative_to_tests
             selected |= _handle_test_tree_entry(
-                candidate, rel_tests_path, root, all_tests, selection
+                candidate, rel_tests_path, root, imports, selection, all_tests
             )
             continue
 
@@ -199,7 +494,11 @@ def select_tests_for_sources(
 
 
 __all__ = [
+    "SuiteImports",
     "TestSelection",
+    "defines_fixture_or_hook",
+    "forces_full_run",
+    "is_test_module",
     "module_path_for_source",
     "select_tests_for_sources",
 ]

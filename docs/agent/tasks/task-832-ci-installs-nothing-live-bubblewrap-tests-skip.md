@@ -1,9 +1,6 @@
 # Task: CI Installs Nothing on the Runner, and Live Bubblewrap Tests Skip Where Bwrap Is Missing (#832)
 
 **Issue**: [#832](https://github.com/dan-petty/devops-cli/issues/832)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/refactor, type/infra, scope/github
 
 ## Description

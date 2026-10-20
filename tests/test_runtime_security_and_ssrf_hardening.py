@@ -9,7 +9,7 @@ import pytest
 
 from devops_cli.ai.agents.capabilities import WebFetch
 from devops_cli.ai.agents.media import DiskMediaStore
-from devops_cli.ai.agents.pydantic_agent import Tool
+from devops_cli.ai.agents.tools import Tool
 from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.ai.ext_langchain import _validate_langchain_kwargs

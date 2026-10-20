@@ -10,12 +10,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from graphql import build_schema, parse, validate
@@ -44,52 +41,15 @@ from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.reprioritize import plan_reprioritization
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
+from tests.support.fakes.github import RunnerSession
+from tests.support.paths import FIXTURES
+from tests.support.roadmap_board_replies import REPO, board_of, fields_reply, issues_of
 
-REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
-SCHEMA = Path(__file__).parent / "fixtures" / "roadmap" / "github-schema-board.graphql"
+SCHEMA = FIXTURES / "roadmap" / "github-schema-board.graphql"
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 # A quota far from spent and far from its reset, so `run_gh`'s pacing never waits on it.
 QUOTA = {"limit": 5000, "remaining": 5000, "used": 0, "reset": 4_000_000_000}
-
-
-def board_of(open_items: int, closed_items: int, *, archived: int = 0) -> dict[str, Any]:
-    """A board of this repository's issues #1..: the open ones first, then the closed ones,
-    then `archived` closed ones that are archived."""
-    items = []
-    for number in range(1, open_items + closed_items + archived + 1):
-        is_open = number <= open_items
-        items.append(
-            {
-                "id": f"PVTI_{number}",
-                "content": {
-                    "type": "Issue",
-                    "number": number,
-                    "repository": REPO,
-                    "title": f"#{number}",
-                    "url": f"https://github.com/{REPO}/issues/{number}",
-                    "state": "OPEN" if is_open else "CLOSED",
-                },
-                "status": "Ready" if is_open else "Done",
-                **({"isArchived": True} if number > open_items + closed_items else {}),
-            }
-        )
-    return {"items": items, "totalCount": len(items)}
-
-
-def issues_of(board: dict[str, Any]) -> list[dict[str, Any]]:
-    """The REST issues of every item on `board`."""
-    return [
-        {
-            "number": entry["content"]["number"],
-            "title": entry["content"]["title"],
-            "html_url": entry["content"]["url"],
-            "state": entry["content"]["state"].lower(),
-            "labels": [],
-            "milestone": None,
-        }
-        for entry in board["items"]
-    ]
 
 
 class Gh:
@@ -112,7 +72,9 @@ class Gh:
 
 def store_over(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, Gh]:
     gh = Gh(replies)
-    return GitHubRoadmapStore(REPO, board_owner=OWNER, board_number=2, runner=gh), gh
+    return GitHubRoadmapStore(
+        REPO, board_owner=OWNER, board_number=2, runner=gh, session=RunnerSession(gh)
+    ), gh
 
 
 def board_reads(gh: Gh) -> list[dict[str, str]]:
@@ -177,7 +139,12 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
         }
     )
     reprioritize = GitHubRoadmapStore(
-        REPO, board_owner=OWNER, board_number=2, runner=gh, board_filter="-status:Done"
+        REPO,
+        board_owner=OWNER,
+        board_number=2,
+        runner=gh,
+        board_filter="-status:Done",
+        session=RunnerSession(gh),
     )
     store.items()
     store.backlog()
@@ -275,16 +242,16 @@ def test_each_refusal_carries_its_budgets_reset_in_its_details() -> None:
     store, _ = store_over({BOARD_READ: BoardServer(board_of(3, 0), remaining=left)})
     with pytest.raises(GitHubRateLimitError) as read_refused:
         store.cards()
-    common = {"subcommand": "graphql", "remaining": str(left), "reset_at": reset.isoformat()}
+    common = {"subcommand": "graphql", "remaining": left, "reset_at": reset.isoformat()}
     assert (
         [refusal.details for refusal in refusals],
         [refusal_reset(refusal) for refusal in refusals],
         refusal_reset(read_refused.value),
     ) == (
         [
-            {"operation": "roadmap.read", **common, "cost": "3"},
+            {"operation": "roadmap.read", **common, "cost": 3},
             {"operation": "roadmap.write", **common},
-            {"operation": "roadmap.read", **common, "page": "2"},
+            {"operation": "roadmap.read", **common, "page": 2},
         ],
         [reset] * 3,
         datetime(2099, 1, 1, tzinfo=UTC),
@@ -313,30 +280,6 @@ def test_an_error_that_is_not_a_budget_refusal_names_no_reset(error: Exception) 
 # ── A reprioritize run ────────────────────────────────────────────────────────
 
 
-def _fields_reply() -> dict[str, Any]:
-    status = {
-        "id": "PVTSSF_status",
-        "name": "Status",
-        "dataType": "SINGLE_SELECT",
-        "options": [
-            {"id": f"o{i}", "name": name}
-            for i, name in enumerate(("New", "Ready", "Blocked", "Done"))
-        ],
-    }
-    record = {"id": "PVTF_jobrecord", "name": "Job record", "dataType": "TEXT"}
-    connection = {"totalCount": 2, "nodes": [status, record]}
-    return {"data": {"repositoryOwner": {"projectV2": {"id": "PVT_board", "fields": connection}}}}
-
-
-def _rest_pages(listing: list[dict[str, Any]]) -> Callable[[list[str]], Any]:
-    def page(args: list[str]) -> Any:
-        (number,) = parse_qs(urlsplit(args[-1]).query)["page"]
-        start = (int(number) - 1) * 100
-        return listing[start : start + 100]
-
-    return page
-
-
 def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     """The board of 2026-10-04: 931 items, 280 of them open, one more archived. Through `run_gh`,
     with gh's process stubbed, the run charges the GraphQL points its board read reports: one
@@ -347,9 +290,9 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     server = BoardServer(board)
     gh = Gh(
         {
-            "fields(first": _fields_reply(),
+            "fields(first": fields_reply(),
             BOARD_READ: server,
-            "issues?state=all": _rest_pages(issues_of(board)),
+            "issues?state=all": issues_of(board),
             "milestones?state=all": [],
             "defaultBranchRef": {
                 "data": {
@@ -375,7 +318,9 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
             ),
             patch("devops_cli.github.rate_limiter.time.sleep"),
         ):
-            store = GitHubRoadmapStore(REPO, board_owner=OWNER, board_number=2)
+            store = GitHubRoadmapStore(
+                REPO, board_owner=OWNER, board_number=2, session=RunnerSession(gh)
+            )
             plan = plan_reprioritization(store, repo=REPO, config=RoadmapConfig(board=2), now=NOW)
             spend = store.graphql_spend()
             charged = get_github_rate_limiter().points_charged("graphql")

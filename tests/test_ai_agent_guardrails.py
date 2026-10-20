@@ -6,13 +6,14 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.guardrails import (
     GuardrailAction,
     GuardrailCapability,
     GuardrailResult,
     InputGuardrail,
     OutputGuardrail,
-    RunContext,
+    PromptInjectionDefender,
     ToolGuardrail,
 )
 
@@ -175,7 +176,6 @@ def test_guardrail_capability_workflow() -> None:
 
 def test_prompt_injection_defender_scan_and_sanitize() -> None:
     """Verify PromptInjectionDefender scan_text and sanitize methods."""
-    from devops_cli.ai.agents import PromptInjectionDefender
 
     defender = PromptInjectionDefender(
         block_high_risk=True,
@@ -211,7 +211,6 @@ def test_prompt_injection_defender_scan_and_sanitize() -> None:
 
 def test_prompt_injection_defender_hooks() -> None:
     """Verify PromptInjectionDefender lifecycle hook attachments."""
-    from devops_cli.ai.agents import PromptInjectionDefender
 
     defender = PromptInjectionDefender(block_high_risk=True, replace_with_notice=False)
     hooks = defender.get_hooks()

@@ -1,9 +1,6 @@
 # Task 408: Cluster Deployment Health Diagnosis (`devops k8s doctor`)
 
 **Issue**: [#408](https://github.com/dan-petty/devops-cli/issues/408)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/k8s
 
 ---

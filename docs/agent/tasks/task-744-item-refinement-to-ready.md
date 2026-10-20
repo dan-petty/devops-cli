@@ -1,9 +1,6 @@
 # Task: Item refinement to ready with proposed design, tasks and acceptance criteria (`devops roadmap refine`) (#744)
 
 **Issue**: [#744](https://github.com/dan-petty/devops-cli/issues/744)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/roadmap, priority/p1-high
 
 ## Description

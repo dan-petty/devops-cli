@@ -1,9 +1,6 @@
 # Task: Stream-framing for pod logs (#864)
 
 **Issue**: [#864](https://github.com/dan-petty/devops-cli/issues/864)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/k8s, scope/argo, scope/ui, priority/p1-high
 
 ## Description

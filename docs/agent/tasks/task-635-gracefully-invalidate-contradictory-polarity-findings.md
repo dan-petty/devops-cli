@@ -1,9 +1,6 @@
 # Task 635: Gracefully Invalidate Contradictory Polarity Findings & Eliminate Escape Sequence Syntax Warnings
 
 **Issue**: [#635](https://github.com/dan-petty/devops-cli/issues/635)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

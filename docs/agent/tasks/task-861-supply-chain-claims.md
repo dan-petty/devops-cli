@@ -1,7 +1,6 @@
 # Task #861: Supply-Chain Claims Made True
 
 **Issue**: [#861](https://github.com/dan-petty/devops-cli/issues/861)
-**Status**: Done
 **Scope**: `docs/SDLC.md`, `src/devops_cli/commands/ci.py`, `src/devops_cli/commands/scan.py`, `src/devops_cli/security/zizmor.py`, `src/devops_cli/config/`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `pyproject.toml`, `uv.lock`, `tests/`
 **Feasibility**: Checked against the tree at `release/v0.2.36` (76dd52a), following the issue's 2026-10-08 refinement, which retired the Dependabot retarget (Renovate replaced it) and moved SARIF upload to #419. `uvx zizmor@1.30.1 --offline --format json .github/` reported six `template-injection` findings in `release.yml` (one High at the dispatched `version` input) and none for `unpinned-uses` or `excessive-permissions`. A YAML walk of `.github/` found seven `${{ }}` expressions in five `run:` blocks (`release.yml` and `ci.yml`). `uv audit --offline` exits 2 and a clean `uv audit` exits 0, uv's error and success statuses; 1 is a check that failed. No Renovate-authored issue or pull request exists in the repository.
 

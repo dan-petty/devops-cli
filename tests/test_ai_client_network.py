@@ -1,4 +1,5 @@
-"""The AI client reads a reply's body only up to its size limit, through every provider.
+"""The AI client reads a reply's body only up to its size limit, through every provider, and
+sends a gateway chat call only once it holds one of the gateway's backend slots.
 
 Replies are answered by httpx2's own `MockTransport` with bodies that record how many of their
 chunks were read, so no socket is opened. Hosts are `example.com`, as AGENTS.md requires.
@@ -10,7 +11,10 @@ import gzip
 import json
 import os
 import tempfile
-from collections.abc import Callable
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +24,11 @@ import pytest
 from devops_cli.ai.client import AIClientError, LLMClient, network
 from devops_cli.ai.client.network import request_limited_json, size_limit_text
 from devops_cli.ai.client.streaming import StreamingTokenProcessor
+from devops_cli.config.defaults import DEFAULT_GATEWAY_REVIEW_CONCURRENCY
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import RecordedBody, route_client
+from tests.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, route_client
+from tests.llm_stream_fakes import reply as stream_reply
 
 _LIMIT = 4096
 _KIB = b"x" * 1024
@@ -203,3 +209,133 @@ def test_ollama_round_robin_index_lives_under_data_dir(
         expected_file.exists(),
         temp_target.exists(),
     ) == (True, True, False)
+
+
+_GATEWAY = AIConfig(
+    provider="gateway", gateway_url="http://example.com/v1", allow_private_network=True
+)
+_CHAT_REPLY = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+# Each gateway chat call, plain and streamed.
+_GATEWAY_CHAT_CALLS: dict[str, Callable[[LLMClient], Any]] = {
+    "messages": lambda client: client._openai_compat_messages("sys", _MESSAGES),
+    "stream": lambda client: list(client._openai_compat_stream("sys", _MESSAGES)),
+}
+
+
+@pytest.fixture
+def short_slot_wait(monkeypatch: pytest.MonkeyPatch) -> float:
+    """Lower the wait for a gateway slot to a few milliseconds."""
+    monkeypatch.setattr(network, "DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS", 0.01)
+    return 0.01
+
+
+@contextmanager
+def _every_gateway_slot_held(but: int = 0) -> Iterator[None]:
+    """Hold every gateway slot but `but` of them in this thread for the block."""
+    with ExitStack() as slots:
+        for _ in range(DEFAULT_GATEWAY_REVIEW_CONCURRENCY - but):
+            slots.enter_context(network.acquire_gateway_slot())
+        yield
+
+
+def _a_further_request_is_refused() -> bool:
+    """Whether a request for a gateway slot now waits past the timeout and is refused."""
+    try:
+        with network.acquire_gateway_slot():
+            return False
+    except AIClientError:
+        return True
+
+
+def test_gateway_slots_never_admit_more_than_the_slot_sum() -> None:
+    """Verify eight threads through the gateway limiter never hold more than the slot sum."""
+    in_flight = peak = entered = 0
+    counter_lock = threading.Lock()
+
+    def hold_a_slot() -> None:
+        nonlocal in_flight, peak, entered
+        with network.acquire_gateway_slot():
+            with counter_lock:
+                in_flight += 1
+                entered += 1
+                peak = max(peak, in_flight)
+            time.sleep(0.02)
+            with counter_lock:
+                in_flight -= 1
+
+    threads = [threading.Thread(target=hold_a_slot) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert (peak, entered) == (min(peak, DEFAULT_GATEWAY_REVIEW_CONCURRENCY), 8)
+
+
+@pytest.mark.usefixtures("short_slot_wait")
+def test_a_wait_past_the_slot_timeout_names_the_slot_sum() -> None:
+    """Verify a request that finds every gateway slot held past the timeout raises, naming the cap."""
+    with _every_gateway_slot_held(), pytest.raises(AIClientError) as caught:
+        with network.acquire_gateway_slot():
+            pass
+
+    assert f"{DEFAULT_GATEWAY_REVIEW_CONCURRENCY} backend slots" in str(caught.value)
+
+
+@pytest.mark.parametrize("call", list(_GATEWAY_CHAT_CALLS))
+@pytest.mark.usefixtures("public_dns", "short_slot_wait")
+def test_a_gateway_chat_call_waits_for_a_gateway_slot(
+    call: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a gateway chat call, streamed or not, sends nothing while every slot is held."""
+    client = LLMClient(_GATEWAY, api_key="sk-test", cache_enabled=False)
+    sent = route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
+
+    with _every_gateway_slot_held(), pytest.raises(AIClientError, match="backend slots"):
+        _GATEWAY_CHAT_CALLS[call](client)
+
+    assert sent == []
+
+
+@pytest.mark.usefixtures("public_dns", "short_slot_wait")
+def test_a_gateway_stream_holds_its_slot_until_the_generator_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an open gateway stream keeps its slot after its first chunk, so with every other
+    slot held a further request is refused, and that closing the stream early gives it back."""
+    client = LLMClient(_GATEWAY, api_key="sk-test", cache_enabled=False)
+    route_client(
+        client,
+        monkeypatch,
+        lambda request: stream_reply([openai_chunk("a"), openai_chunk("b"), OPENAI_DONE]),
+    )
+
+    with _every_gateway_slot_held(but=1):
+        stream = client._openai_compat_stream("sys", _MESSAGES)
+        first_chunk = next(stream)
+        refused_while_open = _a_further_request_is_refused()
+        stream.close()
+        refused_once_closed = _a_further_request_is_refused()
+
+    assert (first_chunk, refused_while_open, refused_once_closed) == ("a", True, False)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [_OPENAI, _OPENAI.model_copy(update={"gateway_enabled": True})],
+    ids=["openai", "openai-with-gateway-enabled"],
+)
+@pytest.mark.usefixtures("public_dns", "short_slot_wait")
+def test_another_provider_sends_while_every_gateway_slot_is_held(
+    config: AIConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify an openai client's chat call takes no gateway slot, with `ai.gateway_enabled` set
+    too: only the `gateway` provider sends chat calls to the gateway."""
+    client = LLMClient(config, api_key="sk-test", cache_enabled=False)
+    sent = route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
+
+    with _every_gateway_slot_held():
+        reply = client._openai_compat_messages("sys", _MESSAGES)
+
+    assert (reply.content, len(sent)) == ("ok", 1)

@@ -1,9 +1,6 @@
 # Task: Record the Roadmap Service Decisions and the Machine-Account and Polling ADRs (#756)
 
 **Issue**: [#756](https://github.com/dan-petty/devops-cli/issues/756)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p1-high
 **Scope**: scope/docs
 
 ## Description

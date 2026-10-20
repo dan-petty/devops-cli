@@ -53,7 +53,7 @@ flowchart LR
 3. **PR Base Branch Targeting**: When opening Pull Requests, target the active release branch (`--base release/v<version>`). Only release branches target `main`.
 4. **Agent Non-Merge Rule**: Automated agents must update PR branches with new commits without autonomously merging. Merging is reserved for human maintainers.
 5. **No Commits to Merged/Unrelated Branches**: Never commit or push work to a topic branch that has already been merged or is unrelated to the current task. Always branch off fresh from the active release branch (`git checkout -b <type>/<name> origin/release/v<version>`).
-6. **Changelog Fragments**: Add the item's changelog entry as `changelog.d/<issue>.md` (see [`changelog.d/README.md`](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `docs/ROADMAP.md` in an item PR: the cut commit (the roadmap Service's `devops roadmap close`, or `devops release prepare`) collects the fragments into the version's section and deletes them, `devops roadmap render` regenerates the roadmap, and `devops pr check-readiness` blocks a PR into a release branch that changes either file. Only the release PR (`chore/cut-vX.Y.Z` into `main`) and cycle-open PRs (`chore/open-vX.Y.Z`, optionally followed by `-<slug>`, into `release/vX.Y.Z`) edit them. The one exception is a critical fix after the cut: it edits the version's section of `CHANGELOG.md` directly, with no fragment, and `devops pr check-readiness` accepts it once `release/vX.Y.Z` holds that section.
+6. **Changelog Fragments**: Add the item's changelog entry as `changelog.d/<issue>.md` (see [`changelog.d/README.md`](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `docs/ROADMAP.md` in an item PR: the cut commit (the roadmap Service's `devops roadmap close`, or `devops release prepare`) collects the fragments into the version's section and deletes them, `devops roadmap render` regenerates the roadmap, and `devops pr check-readiness` blocks a PR into a release branch that changes either file. Only three pull requests edit them, and none closes an issue: the release PR (`release/vX.Y.Z` into `main`), which carries the release branch as it stands; the cut PR (`chore/cut-vX.Y.Z` into `release/vX.Y.Z`), which only modifies the cut's files (`pyproject.toml`, `src/devops_cli/__init__.py`, `uv.lock`, `CHANGELOG.md`, `docs/ROADMAP.md`) and removes the fragments it collects; and the merge of `main` (`chore/open-vX.Y.Z-main` into `release/vX.Y.Z`), which changes only the cut's files and what `main` changed since its merge base with the release branch, as a Renovate or hotfix pull request into `main` leaves it. A `-<slug>` may follow the version in either head, as `-main` does. `devops pr check-readiness` holds a cut or merge PR that changes any other file to grounding, with a blocker naming the file. The one exception is a critical fix after the cut: it edits the version's section of `CHANGELOG.md` directly, with no fragment, and `devops pr check-readiness` accepts it once `release/vX.Y.Z` holds that section.
 
 
 
@@ -66,8 +66,8 @@ flowchart LR
   - Centralize user-facing help messages, summaries, and error logs in [`src/devops_cli/lang/`](src/devops_cli/lang/).
 - **Dry-Run Support**: All state-modifying subcommands must support the `--dry-run` flag via `devops_cli.dry_run`.
 
-### Stage 3: Automated Testing & Mocking Standards
-- **Mocking Policy**: All unit tests must isolate external side-effects using `unittest.mock`, `pytest-mock`, or generic mock placeholders (e.g., `http://node1.example.test`). Live provider calls or hardcoded personal credentials in tests are strictly prohibited.
+### Stage 3: Automated Testing
+- **Test Conventions**: Tests follow [`docs/TESTING.md`](docs/TESTING.md), which sets what a test may double, where its file goes, how it is named and what it asserts.
 - **Parallel Test Execution**: Run tests with `pytest-xdist`:
   ```bash
   uv run pytest
@@ -196,6 +196,19 @@ Use the unified `--create-pr` flag (or `devops release pr`) to automate version 
 uv run devops release prepare X.Y.Z --create-pr
 ```
 
+Before branching, modifying files, or creating the release commit, the cut runs a deterministic offline gate verifying that every Argo CD application in `k8s/argocd/apps/` and `k8s/argocd/bootstrap/` targeting this repository builds at the fetched remote release tip:
+- Each path application is built with Kustomize from an exported archive of the release head (`git archive`), ensuring that uncommitted or gitignored files cannot hide broken kustomizations.
+- Template domain placeholder values (`example.com`, `$DOMAIN`, etc.) are validated: placeholders are permitted only in host fields of homelab applications (`"devops"`, `"ingress"`), and are rejected anywhere else (ConfigMaps, non-host fields, Helm value files, or non-homelab applications).
+- If any application fails to build or contains invalid placeholders, the cut stops immediately with an `ArgoCDGateError` before any files are changed, any branch is checked out, or any git/gh commands reach origin.
+
+Immediately following the offline gate, the cut executes a live, non-blocking Argo CD diff and override report against the configured cluster:
+- If `argocd.url`, the Argo CD authentication token, or the `argocd` CLI binary is missing, a single warning is emitted and the cut proceeds without interruption.
+- When configured, each Application is diffed at the release tip SHA using `--grpc-web` (multi-source Applications use their git source position via `--source-positions`), with the authentication token passed strictly via environment variable `ARGOCD_AUTH_TOKEN` (never in `argv`).
+- Differences (exit code 1) are reported as "differs", command errors (exit code 2) are reported as "failed" with stderr truncated to `CONST_MAX_ERROR_DETAIL_LENGTH`, and neither condition halts the release cut.
+- For homelab applications (`devops`, `ingress`), any template domain placeholder host at the release tip that lacks a live `test` operation in the cluster's active patches is reported alongside the corrective stack deployment command (`devops k8s deploy-stack --stack <stack>`).
+
+
+
 ### Step 3: CI Quality Gate & PR Review Gate
 1. The opened Pull Request triggers `.github/workflows/ci.yml` which validates:
    - Python 3.14 runtime environment
@@ -208,6 +221,8 @@ uv run devops release prepare X.Y.Z --create-pr
    - On pull requests, the advisory **Changed-Test Independence** job: each added or modified test file runs three times, one run after another, each in a shuffled order (`devops ci test --repeat 3`)
 2. `ci.yml`'s **Service Image** job builds, smoke-tests and scans the release PR's image without pushing; `release.yml` publishes it after the merge (Step 5).
 3. Maintainers review the release diff, changelog, and documentation updates.
+4. Copilot reviews the release PR, and only it (ADR 0004). Its passes are held to `release_copilot_passes` in `.github/roadmap.toml`, 2 unless the file sets it: every Copilot review submitted on the release PR counts, whoever asked for it, the pass when it opens included, and so does a pass still running or requested and not yet started. Nothing is stored, so each release PR starts with the whole budget. A person requests a further pass, or the first when the ruleset gave none, with `uv run devops pr copilot-pass <pr>`; `--dry-run` lists the requests it would make. Once the passes are spent it requests nothing, prints `Copilot budget spent: N of N passes`, and exits 1. It also refuses a release PR that is merged or closed.
+5. **The stop rule**: once the budget is spent, a remaining Copilot comment blocks the release only if it is a regression the release introduces, which is fixed in the release branch before the release PR merges. Every other remaining comment becomes a follow-up issue. A person runs `uv run devops pr threads file-issues <pr> --keep <thread-id>` first, which lists what it would do with each unresolved thread and writes nothing, then the same command with the same `--keep` flags and `--confirm`. It files each unresolved thread not kept as one issue with no milestone, holding the thread's comments in a fence, its file and line and its link, and labelled `source/agent` when Copilot started the thread; it then replies in the thread with the issue's number and resolves it, so the release PR's unresolved threads are only the regressions, each kept with `--keep`. A `--keep` id that names no unresolved thread stops it before it writes anything. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and replies naming the open issue that already links a thread whose reply failed; a failed reply or resolve names the issue already opened. It refuses a release PR that is merged or closed, and `--dry-run` lists the requests it would make. `devops roadmap intake` places the issues later.
 
 ### A Critical Fix While the Release PR Is Open
 Opening the release PR cuts the release, and a critical fix (P0 with `type/bug` or `type/security`) still joins it, so the release branch holds every change before the release PR merges:

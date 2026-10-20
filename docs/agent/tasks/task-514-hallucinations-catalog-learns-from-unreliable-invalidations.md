@@ -1,9 +1,6 @@
 # Task 514: Hallucinations Catalog Learns From Unreliable Invalidations and Never Forgets
 
 **Issue**: [#514](https://github.com/dan-petty/devops-cli/issues/514)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

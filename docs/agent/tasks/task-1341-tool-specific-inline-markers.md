@@ -1,9 +1,6 @@
 # Task: An Inline Suppression Marker Hides Only Findings of the Tool It Belongs To (#1341)
 
 **Issue**: [#1341](https://github.com/dan-petty/devops-cli/issues/1341)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 613: Code-Reading AI, IaC and Scan Commands Use the Worktree They Run In
 
 **Issue**: [#613](https://github.com/dan-petty/devops-cli/issues/613)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/cli`, `priority/p1-high`
 
 ---

@@ -1,9 +1,6 @@
 # Task: The Slow Tier Keeps Its Embedding Model and qwen3-coder Loaded and Leaves Every Interactive Pool (#1064)
 
 **Issue**: [#1064](https://github.com/dan-petty/devops-cli/issues/1064)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 735: Remediate Review Findings 20260930-053418 and Harden Review Feedback Loop
 
 **Issue**: [#735](https://github.com/dan-petty/devops-cli/issues/735)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p1-high`
 **Scope**: `type/security`, `type/refactor`, `scope/review`, `priority/p1-high`
 
 ---

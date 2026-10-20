@@ -1,7 +1,6 @@
 # Task 1143: Review tools run at the project's declared language and platform versions and count only after their output on a canary matches the recorded expected output
 
 **Issue**: [#1143](https://github.com/dan-petty/devops-cli/issues/1143)
-**Status**: Done
 **Feasibility**: Verified against live pinned binaries (`semgrep` 1.179.0 vs 1.178.0, `ruff` 0.16.8, `bandit` 1.9.4, `mypy` 2.3.1, `kube-linter` 0.8.3, `pluto` 5.24.4) inside the container runtime: `ruff check --target-version py314`, `mypy --python-version 3.14`, and `pluto detect-files --target-versions k8s=v1.37.1` accept declared project versions; Semgrep 1.179.0 parses PEP 758 unparenthesized `except ValueError, TypeError as exc:` and emits `("canary-pep758-tuple", 17)` while Semgrep 1.178.0 fails the canary with `("canary-pep758-as-binding", 17)`.
 
 ## Summary

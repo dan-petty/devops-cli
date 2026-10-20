@@ -1,9 +1,6 @@
 # Task: Review Scans a Worktree of the Reviewed Revision (#1047)
 
 **Issue**: [#1047](https://github.com/dan-petty/devops-cli/issues/1047)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -7,7 +7,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
 )
 from devops_cli.release.notes_compaction import fit_release_notes
-from tests.release_notes_examples import (
+from tests.support.release_notes_examples import (
     SYNTHETIC_CATEGORIES,
     SYNTHETIC_ENTRY_COUNT,
     synthetic_entry_detail,

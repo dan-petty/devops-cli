@@ -1,9 +1,6 @@
 # Task: On-Demand Mutation Testing of Changed Functions (#853)
 
 **Issue**: [#853](https://github.com/dan-petty/devops-cli/issues/853)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p3-low
 **Scope**: type/feature, priority/p3-low, scope/cli, scope/ci
 
 ## Description

@@ -33,15 +33,8 @@ from devops_cli.config.settings import AIDurableConfig, Settings
 from devops_cli.exceptions import ConfigurationError
 
 
-def test_native_durable_reexports_and_availability_helpers() -> None:
-    """Verify BaseDurabilityCapability re-export and boolean availability checkers."""
-    from devops_cli.ai import BaseDurabilityCapability as ExportedBaseDurability
-    from devops_cli.ai import LocalDurabilityCapability as ExportedLocalDurability
-    from devops_cli.ai import resolve_durability_capability as exported_resolve
-
-    assert ExportedBaseDurability is BaseDurabilityCapability
-    assert ExportedLocalDurability is LocalDurabilityCapability
-    assert exported_resolve is resolve_durability_capability
+def test_native_durable_availability_helpers() -> None:
+    """Verify boolean availability checkers and engine registry."""
 
     assert isinstance(is_temporal_available(), bool)
     assert isinstance(is_dbos_available(), bool)
@@ -95,7 +88,8 @@ def test_local_durability_capability_unnamed_agent_raises() -> None:
         cap.for_agent(agent)
 
 
-def test_local_durability_capability_model_resolution() -> None:
+@pytest.mark.asyncio
+async def test_local_durability_capability_model_resolution() -> None:
     """Verify model registry lookup and resolution across durable boundaries."""
     default_model = TestModel(custom_output_text="default")
     extra_model = TestModel(custom_output_text="extra")
@@ -112,11 +106,11 @@ def test_local_durability_capability_model_resolution() -> None:
     ctx = ModelResolutionContext[Any](agent=agent, deps=None)
 
     # Resolution of registered extra model
-    resolved_extra = bound_cap.resolve_model_id_sync(cast(Any, ctx), model_id="custom_llm")
+    resolved_extra = await bound_cap.resolve_model_id(cast(Any, ctx), model_id="custom_llm")
     assert resolved_extra is extra_model
 
     # Resolution of unknown model defers
-    resolved_unknown = bound_cap.resolve_model_id_sync(cast(Any, ctx), model_id="unknown_model")
+    resolved_unknown = await bound_cap.resolve_model_id(cast(Any, ctx), model_id="unknown_model")
     assert resolved_unknown is None
 
 

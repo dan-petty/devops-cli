@@ -1,9 +1,6 @@
 # Task: Per-Model Review Quality Baseline for the devops-review Pool (#475)
 
 **Issue**: [#475](https://github.com/dan-petty/devops-cli/issues/475)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -1,9 +1,6 @@
 # Task 270: Harden Agent Instructions to Author Deliverables as Merged and Prohibit Administrative Tracking PRs
 
 **Issue**: [#270](https://github.com/dan-petty/devops-cli/issues/270)
-**Status**: Done
-**Milestone**: `v0.2.20`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
 
 ---

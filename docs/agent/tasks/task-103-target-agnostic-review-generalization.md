@@ -2,7 +2,6 @@
 
 **Issue**: [#103](https://github.com/dan-petty/devops-cli/issues/103)
 **Active Release Milestone**: `v0.2.15`
-**Status**: Done
 **Scope**: `src/devops_cli/ai/` (`personas/`, `tasks/`, `review/runner.py`, `review/pipeline.py`), `tests/test_review_path.py`
 
 ---

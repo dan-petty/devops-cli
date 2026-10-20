@@ -1,9 +1,6 @@
 # Task: Suppressed and Pre-existing Scanner Findings Reach Their review.md Sections, and profile.json Counts Admission Rejections (#1295)
 
 **Issue**: [#1295](https://github.com/dan-petty/devops-cli/issues/1295)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

@@ -1,9 +1,6 @@
 # Task: Vault commands use the token `devops vault login` stores (#709)
 
 **Issue**: [#709](https://github.com/dan-petty/devops-cli/issues/709)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/security, priority/p1-high
 
 ## Description

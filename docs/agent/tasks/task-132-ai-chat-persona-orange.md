@@ -1,9 +1,6 @@
 # Task 132: Render AI Chat Persona Title in Orange Styling
 
 **Issue**: [#132](https://github.com/dan-petty/devops-cli/issues/132)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`
 
 ---

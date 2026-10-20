@@ -1,9 +1,6 @@
 # Task: GitHub write pacing decided from the request gh sends (#1125)
 
 **Issue**: [#1125](https://github.com/dan-petty/devops-cli/issues/1125)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/github, priority/p1-high
 
 ## Description
@@ -16,7 +13,7 @@ GitHub asks for at least a second between mutative requests, and its secondary l
 - **Uncertain cases are writes**: an argv that doesn't parse, a document that doesn't parse, an `--input` body that isn't JSON, an unreadable `@file`, and several operations with no `operationName`.
 - **High-level commands**: classified by the verb in the verb position, the second word once an `argparse` parser (same settings) has skipped the `-R`/`--repo` and `--owner` flags gh takes before the verb. `CONST_GH_READ_VERBS` (`view`, `list`, `status`, `checks`, `diff`, `show`, `item-list`, `field-list`, shared with the response cache) and the `search` group read; every other verb writes. `CONST_GH_MUTATION_VERBS` is removed. `gh auth` stays outside the ledger.
 - **Across resources**: `_acquire_locked` schedules a write at least `mutation_min_interval` after the last write it scheduled, whatever its resource, so concurrent callers in one process share the spacing; `_last_mutation_epoch` is now read. Only the write moves to that slot: each resource's own schedule keeps its quota's pace, so reads are paced by their quota alone and never wait behind another resource's write or quota reset. Spacing across processes is not in this item.
-- **`--paginate`**: `run_gh` classifies before its cache and page-by-page paths; a write with `--paginate` goes to gh once, as given, paced as a write.
+- **`--paginate`**: `run_gh` classifies before its cache and page-by-page paths; a write with `--paginate` goes to gh once, as given, paced as a write. #983 later removed the page-by-page path: `run_gh` hands gh every `--paginate` request as given.
 - **Caching**: `_is_cacheable_api_call` uses the same parser, caching only a GET with no field or body. Reads cache as before; a call with a non-GET method in any form (`-X=POST`, `-XHEAD`), an attached field (`-ftitle=x`, `--field=k=v`) or an `--input` body, which the old token check let through, is no longer cached. `_is_api_mutation` and `_is_mutation_command` are removed.
 
 ## Acceptance Criteria
@@ -87,7 +84,7 @@ Built on #741 and #742. Stage 1 is the store and the limiter; stage 2 makes dry 
 - Narrower job filters (`is:open` plus a Release's closed members) need reprioritize and render to read closed members separately; the auto-archive workflow takes old closed items out of every read once it is on.
 
 - Write spacing across processes: the per-target schedule and the last write are not persisted (`_persist_to_disk_locked`); a shared write clock belongs with the per-identity session of #983.
-- `run_gh`'s page-by-page `--paginate` path rewrites a `gh api graphql --paginate` read to `graphql?page=1`; every paginated call in `src` is a REST GET, so gh's own GraphQL pagination is not used yet.
+- `run_gh`'s page-by-page `--paginate` path first rewrote a `gh api graphql --paginate` read to `graphql?page=1` and, from v0.2.29, refused it; #983 removed that path, so gh now pages such a query with its own `$endCursor` cursor.
 - argparse takes neither a `gh api` switch given a value (`--paginate=true`, `-i=true`) nor a value starting with a dash (`--jq -.a`), both of which gh accepts; such a call counts as a write, so it is paced as one and not cached. No call in `src` uses these forms.
 - A write slot comes after the last write scheduled, not from a gap between writes: with concurrent callers in one process, a write waiting out one resource's reset holds later writes on other resources until it goes.
 - `commands/pr.py::_run_gh_pr_command` has no caller.

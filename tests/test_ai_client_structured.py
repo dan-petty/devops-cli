@@ -350,7 +350,6 @@ def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
             "model": "demo-model",
             "stream": False,
             "messages": messages,
-            "think": False,
             "options": {"temperature": 0.1, "top_p": 0.95, "num_ctx": 32768},
             "format": schema,
         },

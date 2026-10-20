@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
 from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
+    _fetch_issues_rest,
     audit_issues_triage,
     create_repository_issue,
     get_issues_summary,
     get_repository_issues,
 )
+from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 
 
 def test_github_issue_model() -> None:
@@ -199,7 +207,9 @@ def test_create_repository_issue_failure_bounds_title_in_error_details() -> None
         assert err.details["title"] == huge_title[:256]
 
 
-def test_get_repository_issues_graphql_rate_limit_fallback_to_rest() -> None:
+def test_get_repository_issues_graphql_rate_limit_fallback_to_rest(
+    github_api: GitHubApiFake,
+) -> None:
     """Verify get_repository_issues falls back to REST API when gh issue list hits GraphQL rate limit."""
     mock_gh_cli_err = MagicMock(
         returncode=1,
@@ -225,9 +235,13 @@ def test_get_repository_issues_graphql_rate_limit_fallback_to_rest() -> None:
             "html_url": "https://example.com/dan-petty/devops-cli/pull/182",
         },
     ]
-    mock_rest_res = MagicMock(returncode=0, stdout=json.dumps(rest_issues_payload), stderr="")
+    github_api.route(
+        "GET",
+        "/repos/dan-petty/devops-cli/issues?state=open&per_page=100",
+        github_json(rest_issues_payload),
+    )
 
-    with patch("devops_cli.github.issues.run_gh", side_effect=[mock_gh_cli_err, mock_rest_res]):
+    with patch("devops_cli.github.issues.run_gh", side_effect=[mock_gh_cli_err]):
         issues = get_repository_issues("dan-petty/devops-cli", milestone="v0.2.17")
         assert len(issues) == 1
         assert issues[0].number == 180
@@ -273,43 +287,63 @@ def test_issue_parsing_helpers_edge_cases() -> None:
     assert issue.milestone == "v0.2.17"
 
 
-def test_fetch_issues_rest_filtering_and_limits() -> None:
-    """Verify _fetch_issues_rest honors labels, filters mismatched milestones, and enforces limit."""
-    from devops_cli.github.issues import _fetch_issues_rest
-
-    payload = [
-        {"number": 1, "title": "Issue 1", "milestone": {"title": "v0.2.17"}, "labels": []},
-        {"number": 2, "title": "Issue 2", "milestone": {"title": "v0.2.18"}, "labels": []},
-        {"number": 3, "title": "Issue 3", "milestone": {"title": "v0.2.17"}, "labels": []},
-    ]
-    mock_res = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
-    with patch("devops_cli.github.issues.run_gh", return_value=mock_res):
-        issues = _fetch_issues_rest(
-            "dan-petty/devops-cli",
-            milestone="v0.2.17",
-            labels=["type/bug"],
-            limit=1,
-        )
-        assert len(issues) == 1
-        assert issues[0].number == 1
+_REST_ISSUES = "/repos/octo/repo/issues?state=open&per_page=100"
 
 
-def test_fetch_issues_rest_errors_and_invalid_json() -> None:
-    """A failed read raises; output holding no issues reads as none."""
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.issues import _fetch_issues_rest
+def _issue(number: int, milestone: str) -> dict[str, Any]:
+    """An issue as the REST API lists it."""
+    return {"number": number, "title": f"Issue {number}", "milestone": {"title": milestone}}
 
-    mock_fail = MagicMock(returncode=1, stdout="", stderr="Error")
-    with (
-        patch("devops_cli.github.issues.run_gh", return_value=mock_fail),
-        pytest.raises(GitHubOperationError),
-    ):
-        _fetch_issues_rest("dan-petty/devops-cli")
 
-    mock_bad_json = MagicMock(returncode=0, stdout="not-json", stderr="")
-    with patch("devops_cli.github.issues.run_gh", return_value=mock_bad_json):
-        assert _fetch_issues_rest("dan-petty/devops-cli") == []
+def test_fetch_issues_rest_reads_every_page_and_filters(github_api: GitHubApiFake) -> None:
+    """The REST read follows the pages, asks for the labels, keeps the milestone's issues and
+    leaves out pull requests."""
+    second = "/repositories/1/issues?state=open&per_page=100&labels=type%2Fbug&page=2"
+    pull = {"number": 4, "title": "A pull request", "pull_request": {}, "milestone": None}
+    github_api.route(
+        "GET",
+        f"{_REST_ISSUES}&labels=type%2Fbug",
+        github_json([_issue(1, "v0.2.17"), _issue(2, "v0.2.18"), pull], headers=next_page(second)),
+    )
+    github_api.route("GET", second, github_json([_issue(3, "v0.2.17")]))
+    issues = _fetch_issues_rest("octo/repo", milestone="v0.2.17", labels=["type/bug"], limit=None)
+    assert ([issue.number for issue in issues], len(github_api.sent)) == ([1, 3], 2)
 
-    mock_not_list = MagicMock(returncode=0, stdout="{}", stderr="")
-    with patch("devops_cli.github.issues.run_gh", return_value=mock_not_list):
-        assert _fetch_issues_rest("dan-petty/devops-cli") == []
+
+def test_fetch_issues_rest_stops_reading_at_its_limit(github_api: GitHubApiFake) -> None:
+    """Once `limit` issues are read, no further page is requested."""
+    second = "/repositories/1/issues?state=open&per_page=100&page=2"
+    github_api.route(
+        "GET", _REST_ISSUES, github_json([_issue(1, "v0.2.17")], headers=next_page(second))
+    )
+    github_api.route("GET", second, github_json([_issue(2, "v0.2.17")]))
+    issues = _fetch_issues_rest("octo/repo", limit=1)
+    assert ([issue.number for issue in issues], len(github_api.sent)) == ([1], 1)
+
+
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        pytest.param(
+            github_json({"message": "Bad Gateway"}, status=502), GitHubUnreadError, id="5xx"
+        ),
+        pytest.param(
+            github_json({"message": "Not Found"}, status=404), GitHubNotFoundError, id="404"
+        ),
+        pytest.param(github_json({}), GitHubUnreadError, id="not-a-list"),
+        pytest.param(
+            httpx2.Response(200, headers={"content-type": JSON_TYPE}, content=b"not-json"),
+            GitHubUnreadError,
+            id="not-json",
+        ),
+    ],
+)
+def test_fetch_issues_rest_fails_closed(
+    github_api: GitHubApiFake, answer: httpx2.Response, error: type[Exception]
+) -> None:
+    """A read that fails, or an answer that is no list of issues, raises: it never reads as a
+    repository with no issues."""
+    github_api.route("GET", _REST_ISSUES, answer)
+    with pytest.raises(GitHubOperationError) as raised:
+        _fetch_issues_rest("octo/repo")
+    assert type(raised.value) is error

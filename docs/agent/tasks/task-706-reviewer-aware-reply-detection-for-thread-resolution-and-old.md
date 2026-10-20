@@ -1,9 +1,6 @@
 # Task 706: Reviewer-Aware Reply Detection for Thread Resolution and Oldest-First PR Updates
 
 **Issue**: [#706](https://github.com/dan-petty/devops-cli/issues/706)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/github`, `priority/p1-high`
 
 ---

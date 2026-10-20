@@ -1,9 +1,6 @@
 # Task 1123: Release-Start Trim and Cap Descope Pass Over Dependencies
 
 **Issue**: [#1123](https://github.com/dan-petty/devops-cli/issues/1123)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/github`, `priority/p2-medium`
 **Feasibility**: Verified against `reprioritize.py` (_fill_or_trim, _cap_decisions, TRANSITIONS, Event, Reason), `memory_store.py` (link_dependency, dependencies), `lang/en/messages.py`, `tests/test_roadmap_reprioritize.py`, and `tests/test_roadmap_lifecycle_properties.py`.
 

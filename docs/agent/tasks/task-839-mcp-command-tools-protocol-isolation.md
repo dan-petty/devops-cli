@@ -1,9 +1,6 @@
 # Task 839: MCP Command Tools Protocol Stream Isolation and Failure Semantics
 
 **Issue**: [#839](https://github.com/dan-petty/devops-cli/issues/839)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/ai
 
 ---

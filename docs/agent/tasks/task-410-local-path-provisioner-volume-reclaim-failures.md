@@ -1,9 +1,6 @@
 # Task 410: Local-Path Provisioner Volume Reclaim Failures (`devops k8s volume reclaim`)
 
 **Issue**: [#410](https://github.com/dan-petty/devops-cli/issues/410)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/k8s`, `scope/cli`, `priority/p2-medium`
 **Feasibility**: Verified against Kubernetes CoreV1Api, dry-run request planning, and CLI Typer runtime.
 

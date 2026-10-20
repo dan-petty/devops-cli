@@ -1089,6 +1089,13 @@ class DocGenerator:
             "- **Wrapper spans**: `ai.llm.chat`, `ai.client.chat_structured` and "
             "`pydantic_ai.direct.*` are INTERNAL and set no operation, usage or response keys, so "
             "each request is counted once.",
+            "- **Gateway slot wait**: A chat call to the LLM gateway first waits in the process "
+            "for one of the gateway's backend slots. The wait is an INTERNAL "
+            "`ai.llm.gateway_slot` span under the call's `ai.llm.dispatch` or `ai.llm.stream` "
+            "span, with `llm.gateway.slots` and `llm.gateway.slot_wait_seconds`, and an "
+            "observation of `devops_cli_ai_gateway_slot_wait_seconds`. The call's "
+            "`llm.wall_seconds`, its time to first chunk and its spend's duration start once it "
+            "holds the slot, so the wait is not counted as inference.",
             "- **Private keys**: Anything the conventions do not define is written under `llm.*`, "
             "such as `llm.request.priority`, `llm.tokens_per_second` and `llm.usage.cost_usd`, "
             "never under `gen_ai.*`.",

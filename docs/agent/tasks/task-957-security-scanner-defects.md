@@ -1,9 +1,6 @@
 # Task: Dive Invents Layers, the RBAC Audit Checks Nothing, and Checkov's Fallback and the Complexity Scan Miss Cases (#957)
 
 **Issue**: [#957](https://github.com/dan-petty/devops-cli/issues/957)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/security
 
 ## Description

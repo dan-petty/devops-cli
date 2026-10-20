@@ -1,9 +1,6 @@
 # Task: GitHub-Sourced Roadmap, Migration and Generated Roadmap View (#739)
 
 **Issue**: [#739](https://github.com/dan-petty/devops-cli/issues/739)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 ## Description

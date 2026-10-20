@@ -13,14 +13,11 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentHooks,
-    AgentTool,
-    BaseCapability,
-    RunContext,
-    Tool,
-)
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.context import AgentHooks
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import DEFAULT_PLANNING_GUIDANCE
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.exceptions.ai import HarnessValidationError

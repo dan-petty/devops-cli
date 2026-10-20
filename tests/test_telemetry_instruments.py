@@ -36,8 +36,9 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
+from tests.support.paths import REPO_ROOT
+from tests.support.telemetry_capture import Captured
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 SENT_SERIES = {series for instrument in INSTRUMENTS for series in instrument.series}
@@ -294,46 +295,6 @@ def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> No
     assert (len(duration_panels), missing) == (5, [])
 
 
-class Captured:
-    """Metric data points an enabled client would send, with their resource."""
-
-    def __init__(self) -> None:
-        self.payloads: list[dict[str, Any]] = []
-
-    def __call__(self, path: str, payload: dict[str, Any]) -> None:
-        # An LLM call also sends its spans; only the metrics are kept.
-        if "resourceMetrics" in payload:
-            self.payloads.append(payload)
-
-    @property
-    def metrics(self) -> list[dict[str, Any]]:
-        tracer_module.get_tracer().flush()
-        return [
-            metric
-            for payload in self.payloads
-            for resource in payload["resourceMetrics"]
-            for scope in resource["scopeMetrics"]
-            for metric in scope["metrics"]
-        ]
-
-    def points(self, name: str) -> list[tuple[dict[str, Any], float]]:
-        """Each data point of a metric, as (attributes, value)."""
-        found = []
-        for metric in self.metrics:
-            if metric["name"] != name:
-                continue
-            data = (
-                metric.get("sum")
-                or metric.get("exponentialHistogram")
-                or metric.get("histogram")
-                or metric["gauge"]
-            )
-            for point in data["dataPoints"]:
-                attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
-                found.append((attrs, point.get("asDouble", point.get("sum"))))
-        return found
-
-
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
     """An enabled telemetry client whose payloads are captured instead of sent."""
@@ -398,7 +359,7 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
         track_request_spend(
             provider="gateway",
             model="gpt-4o",
-            server="gateway.example:4000",
+            server="example.com:4000",
             served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
             prompt_tokens=1000,
             completion_tokens=200,

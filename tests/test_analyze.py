@@ -21,7 +21,7 @@ from devops_cli.commands.analyze import (
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
-from tests.conftest import fail_the_github_lookup
+from tests.support.github_identity import fail_the_github_lookup
 
 runner = CliRunner()
 

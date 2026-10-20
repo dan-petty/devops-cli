@@ -1,9 +1,6 @@
 # Task: Monitor GitHub and Cloudflare Published Service Status & Fix Grafana Value Panels (#1235)
 
 **Issue**: [#1235](https://github.com/dan-petty/devops-cli/issues/1235)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/telemetry, scope/cli, scope/k8s
 
 ## Description

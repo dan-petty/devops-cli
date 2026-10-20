@@ -240,24 +240,6 @@ class TestPydanticAIToolsSubsystem:
         assert t2.name == "custom_sql"
         assert t2.description == "Custom schema query"
 
-    def test_package_reexports(self) -> None:
-        """Verify tool symbols are cleanly exposed across public package tiers."""
-        import devops_cli.ai as ai
-        import devops_cli.ai.agents as agents
-        import devops_cli.ai.agents.pydantic_agent as pa
-        import devops_cli.ai.tools as tools
-
-        for target in (ai, agents, pa, tools):
-            assert hasattr(target, "Tool")
-            assert hasattr(target, "ToolDefinition")
-            assert hasattr(target, "DeferredToolRequests")
-            assert hasattr(target, "DeferredToolResults")
-            assert hasattr(target, "ToolApproved")
-            assert hasattr(target, "ToolDenied")
-            assert hasattr(target, "matches_tool_selector")
-            assert hasattr(target, "create_tool")
-            assert hasattr(target, "is_native_tool")
-
     def test_validate_args_unconditional_path_traversal(self) -> None:
         """Verify validate_args rejects path traversal even when parameters schema is empty."""
 

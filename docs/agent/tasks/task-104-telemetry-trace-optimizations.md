@@ -2,7 +2,6 @@
 
 **Issue**: [#104](https://github.com/dan-petty/devops-cli/issues/104)
 **Active Release Milestone**: `v0.2.15`
-**Status**: Done
 **Scope**: `k8s/otel/jaeger.yaml`, `src/devops_cli/telemetry/tracer.py`, `src/devops_cli/ai/rag/embeddings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `tests/test_telemetry.py`, `tests/test_rag_embeddings.py`
 
 ---

@@ -1,9 +1,6 @@
 # Task 995: Delete the Legacy Segment Engine and the Whole-File Reviewer
 
 **Issue**: [#995](https://github.com/dan-petty/devops-cli/issues/995)
-**Status**: Done
-**Milestone**: `v0.2.34`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/refactor`, `scope/review`, `priority/p2-medium`
 **Feasibility**: Verified that `ReviewPipelineOrchestrator` in `src/devops_cli/ai/review/pipeline.py` is the active production review engine, while `_run_persona_loop` and the legacy segment engine in `src/devops_cli/ai/review/runner.py` and `verification.py` are dead branches reached only via `type(clients.analysis).__name__ == "LLMClient"` checks and legacy test harnesses.
 

@@ -1,11 +1,11 @@
 """Tests verifying Valkey is configured as the key-value store across all Kubernetes stacks."""
 
-from pathlib import Path
 from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from tests.support.paths import REPO_ROOT
+
 K8S_DIR = REPO_ROOT / "k8s"
 
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import io
 import re
 import tokenize
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from graphlib import CycleError
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_C901_SUPPRESSION,
     CONST_COMPLEXITY_CAP_ROOTS,
     CONST_COMPLEXITY_LINT_RULES,
+    CONST_CONFTEST_FILENAME,
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
@@ -55,6 +57,8 @@ from devops_cli.config.constants import (
     CONST_SUPPRESSION_KINDS,
     CONST_SUPPRESSION_LINT_RULES,
     CONST_TEST_ASSERTION_LINT_RULES,
+    CONST_TEST_FILE_PREFIX,
+    CONST_TESTS_ROOT_DIR,
     CONST_TYPE_IGNORE_COMMENT_RE,
 )
 from devops_cli.config.defaults import (
@@ -69,9 +73,12 @@ from devops_cli.core.import_graph import (
     build_import_graph,
     import_cycle_violations,
     interface_layer_violations,
+    is_type_checking_guard,
+    module_name,
     verify_acyclic_imports,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
+from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -205,7 +212,7 @@ def test_test_model_pytest_collection_disabled() -> None:
 
 def _parse_src() -> dict[Path, ast.Module]:
     """Parse every module under src/devops_cli once, for the whole-tree invariants."""
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     return {
         path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for path in sorted(src.rglob("*.py"))
@@ -283,7 +290,7 @@ def test_no_module_runs_python_in_process() -> None:
     scripts this way were deleted rather than patched (#947). Model code that has to run
     belongs in the host sandbox (bwrap) instead.
     """
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = sorted(
         {
@@ -355,7 +362,7 @@ def test_finding_is_constructed_only_by_admission() -> None:
 
     assert Finding.model_config.get("frozen") is True
 
-    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = _find_review_finding_callers(src, texts)
     calls_outside_admit = _find_admission_calls_outside_admit(src)
@@ -496,13 +503,282 @@ def test_task_md_is_decommissioned() -> None:
     )
 
 
+def test_the_support_paths_are_the_repository_root_and_its_test_data_directories() -> None:
+    """Every test module reads the repository root and its test data from `tests.support.paths`,
+    which finds them from the `tests` package, so a module reads the same paths at any depth
+    (#1312)."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert (
+        pyproject["project"]["name"],
+        TESTS_ROOT == REPO_ROOT / "tests",
+        FIXTURES.is_dir(),
+        GOLDEN.is_dir(),
+    ) == ("devops-cli", True, True, True)
+
+
+def _binds_names_only(node: ast.stmt, *, in_class: bool) -> bool:
+    """Whether a statement of a module or class body does nothing on import but bind names: a
+    docstring, a def, an assignment to names alone, an `if TYPE_CHECKING:` block with no `else`,
+    an import at the top level, and `pass` in a class body. A class is checked by its body."""
+    match node:
+        case ast.Expr(value=ast.Constant(value=str())):
+            return True
+        case ast.Import() | ast.ImportFrom():
+            return not in_class
+        case ast.Pass():
+            return in_class
+        case ast.FunctionDef() | ast.AsyncFunctionDef():
+            return True
+        case ast.Assign(targets=targets):
+            return all(isinstance(target, ast.Name) for target in targets)
+        case ast.AnnAssign(target=ast.Name()):
+            return True
+        case ast.If(test=test, orelse=[]):
+            return is_type_checking_guard(test)
+    return False
+
+
+def _acting_statements(body: list[ast.stmt], *, in_class: bool = False) -> Iterator[ast.stmt]:
+    """Each statement of a module or class body, nested class bodies included, that does more on
+    import than bind names."""
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            yield from _acting_statements(node.body, in_class=True)
+        elif not _binds_names_only(node, in_class=in_class):
+            yield node
+
+
+def _helper_modules(tests_root: Path) -> list[Path]:
+    """Every Python file under the tests root that is neither a test module nor a conftest."""
+    return sorted(
+        path
+        for path in tests_root.rglob("*.py")
+        if not path.name.startswith(CONST_TEST_FILE_PREFIX) and path.name != CONST_CONFTEST_FILENAME
+    )
+
+
+def _acting_on_import(root: Path) -> list[str]:
+    """`path:line` of each statement of a helper module under `root`'s tests root, at its top
+    level or in a class body, that does more on import than bind names."""
+    return [
+        f"{path.relative_to(root).as_posix()}:{node.lineno}"
+        for path in _helper_modules(root / CONST_TESTS_ROOT_DIR)
+        for node in _acting_statements(ast.parse(path.read_text(encoding="utf-8")).body)
+    ]
+
+
+def test_no_helper_module_under_tests_acts_on_import() -> None:
+    """Registration imports every support module into every run, and any helper runs on import
+    for whichever test imports it first, so the top level of a helper under `tests/`, and each
+    class body in it, holds only docstrings, imports at the top level, defs, classes,
+    assignments to names alone and `if TYPE_CHECKING:` blocks with no `else`; the test selector
+    then reaches every test such a change can (#1312). What still runs on import unchecked is
+    each value bound to a name, each decorator, default argument, base class and metaclass, and
+    only the full gate catches what those do to tests that do not import the helper."""
+    assert _acting_on_import(REPO_ROOT) == []
+
+
+_BINDS_NAMES_ONLY = (
+    '"""A helper."""\n\nimport os\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n'
+    "    import sys\n\nVALUE = 1\nCOUNT: int = 2\n"
+    '"""The count."""\n\n\ndef read() -> int:\n    return VALUE\n\n\n'
+    "async def wait() -> None:\n    pass\n\n\nclass Holder:\n    pass\n\n\n"
+    'class Settings:\n    """Settings."""\n\n    LIMIT = 3\n    name: str = "x"\n\n'
+    "    if TYPE_CHECKING:\n        size: int\n\n    def read(self) -> int:\n"
+    "        return self.LIMIT\n\n    class Inner:\n        pass\n"
+)
+# Each form that acts on import, with the line within it that the check names.
+_ACTS_ON_IMPORT = (
+    ("os.getcwd()\n", 0),
+    ("os.environ['HOME'] = '/'\n", 0),
+    ("os.sep = '/'\n", 0),
+    ("VALUE += 1\n", 0),
+    ("with open('x'):\n    pass\n", 0),
+    ("for item in ():\n    pass\n", 0),
+    ("while False:\n    pass\n", 0),
+    ("try:\n    pass\nexcept OSError:\n    pass\n", 0),
+    ("match VALUE:\n    case _:\n        pass\n", 0),
+    ("if VALUE:\n    pass\n", 0),
+    ("if TYPE_CHECKING:\n    pass\nelse:\n    pass\n", 0),
+    ("del VALUE\n", 0),
+    ("global VALUE\n", 0),
+    ("FIRST, SECOND = 1, 2\n", 0),
+    ("class Patched:\n    LIMIT = 1\n    os.sep = '/'\n", 2),
+    ("class Imports:\n    import json\n", 1),
+    ("class Nested:\n    class Inner:\n        os.getcwd()\n", 2),
+)
+
+
+def test_a_helper_statement_that_acts_on_import_is_named_with_path_and_line(
+    tmp_path: Path,
+) -> None:
+    """Each form that acts on import, at the top level or in a class body, is reported as
+    `path:line` in a helper module, and neither the forms that only bind names nor a test
+    module or conftest are (#1312)."""
+    start = _BINDS_NAMES_ONLY.count("\n") + 1
+    lines = [
+        start + sum(form.count("\n") for form, _ in _ACTS_ON_IMPORT[:index]) + offset
+        for index, (_, offset) in enumerate(_ACTS_ON_IMPORT)
+    ]
+    tests_root = tmp_path / CONST_TESTS_ROOT_DIR
+    (tests_root / "support").mkdir(parents=True)
+    (tests_root / "support" / "helper.py").write_text(
+        _BINDS_NAMES_ONLY + "".join(form for form, _ in _ACTS_ON_IMPORT), encoding="utf-8"
+    )
+    for exempt in ("test_helper.py", CONST_CONFTEST_FILENAME):
+        (tests_root / exempt).write_text("import os\n\nos.getcwd()\n", encoding="utf-8")
+    assert _acting_on_import(tmp_path) == [f"tests/support/helper.py:{line}" for line in lines]
+
+
+_SUPPORT_PACKAGE = "tests.support"
+_SUPPORT_DIR = Path(*_SUPPORT_PACKAGE.split("."))
+# The calls that import a module named by a string, which no import statement shows.
+_DYNAMIC_IMPORTS = ("import_module", "__import__")
+
+
+def _support_packages(root: Path) -> frozenset[str]:
+    """`tests.support` and every package under it, by dotted name, from their `__init__.py`."""
+    return frozenset(
+        module_name(init.relative_to(root), Path())
+        for init in (root / _SUPPORT_DIR).rglob("__init__.py")
+    )
+
+
+def _tests_aliases(tree: ast.Module) -> dict[str, str]:
+    """Each name an `import` binds to a module of the tests package, with that module's dotted
+    name: `import tests.x` and `import tests` bind `tests`, and `import tests.x as y` binds `y`
+    to `tests.x`."""
+    tests_package = _SUPPORT_PACKAGE.partition(".")[0]
+    return {
+        alias.asname or tests_package: alias.name if alias.asname else tests_package
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name.partition(".")[0] == tests_package
+    }
+
+
+def _imports_dynamically(func: ast.expr) -> bool:
+    """Whether a call imports the module a string names: `importlib.import_module` or
+    `__import__`."""
+    match func:
+        case ast.Attribute(attr=name) | ast.Name(id=name):
+            return name in _DYNAMIC_IMPORTS
+    return False
+
+
+def _holds_a_support_package(
+    node: ast.AST, package: str, packages: frozenset[str], aliases: dict[str, str]
+) -> bool:
+    """Whether a node gets hold of `tests.support` or a package under it, through which a module
+    could read a module that registration loaded without importing it: by importing the package,
+    by reaching it as an attribute of a name bound to the tests package, or by a dynamic import
+    of anything under `tests.support`."""
+    match node:
+        case ast.ImportFrom(module=module, level=level, names=names):
+            try:
+                base = importlib.util.resolve_name("." * level + (module or ""), package)
+            except ImportError, ValueError:
+                return False
+            return any(f"{base}.{alias.name}" in packages for alias in names)
+        case ast.Import(names=names):
+            return any(alias.name in packages for alias in names)
+        case ast.Attribute(value=ast.Name(id=name), attr=attr):
+            return name in aliases and f"{aliases[name]}.{attr}" in packages
+        case ast.Call(func=func, args=[ast.Constant(value=str(target)), *_]):
+            return _imports_dynamically(func) and target.startswith(_SUPPORT_PACKAGE)
+    return False
+
+
+def _support_package_imports(root: Path, exempt: Path) -> list[str]:
+    """`path:line` of each module under `root`'s tests root, but `exempt`, that gets hold of a
+    support package; a module outside `tests/support/` is parsed only if it spells `support`,
+    which every such form outside it needs."""
+    packages = _support_packages(root)
+    found: list[str] = []
+    for path in sorted((root / CONST_TESTS_ROOT_DIR).rglob("*.py")):
+        relative = path.relative_to(root)
+        text = path.read_text(encoding="utf-8")
+        spelled = _SUPPORT_DIR.name in text or relative.is_relative_to(_SUPPORT_DIR)
+        if relative == exempt or not spelled:
+            continue
+        tree = ast.parse(text)
+        package = ".".join(relative.parent.parts)
+        aliases = _tests_aliases(tree)
+        found.extend(
+            f"{relative.as_posix()}:{node.lineno}"
+            for node in ast.walk(tree)
+            if _holds_a_support_package(node, package, packages, aliases)
+        )
+    return sorted(found)
+
+
+_BOOTSTRAP = Path(CONST_TESTS_ROOT_DIR, "support", "bootstrap.py")
+
+
+def test_only_bootstrap_imports_the_support_package_itself() -> None:
+    """Registration loads every support module, so a module holding the `tests.support` package,
+    or a package under it, could read one through it with no import of its own, which the test
+    selector would not see. A module imports from a support module with `from tests.support[.x]
+    import ...`, and only `bootstrap`, which registers them, holds a package (#1312)."""
+    assert _support_package_imports(REPO_ROOT, _BOOTSTRAP) == []
+
+
+def test_a_module_that_names_the_support_package_is_named_with_path_and_line(
+    tmp_path: Path,
+) -> None:
+    """Each way to hold `tests.support` or a package under it is reported as `path:line`:
+    `from tests import support`, `import tests.support`, a relative import, `support` reached
+    as an attribute of `tests` under any name, a subpackage imported by name, and a dynamic
+    import by `importlib.import_module` or `__import__`. An import from a support module, and
+    `bootstrap`, are not (#1312)."""
+    files = {
+        "tests/__init__.py": "",
+        "tests/support/__init__.py": "",
+        "tests/support/fakes/__init__.py": "",
+        "tests/support/bootstrap.py": "from tests import support\n",
+        "tests/support/builders.py": "from . import fakes\n",
+        "tests/test_a.py": "from tests import support\n",
+        "tests/test_b.py": "import tests.support\n",
+        "tests/test_c.py": "import tests\n\nFIXTURES = tests.support.paths.FIXTURES\n",
+        "tests/ai/test_d.py": "from .. import support\n",
+        "tests/test_alias.py": "import tests as t\n\nFIXTURES = t.support.paths.FIXTURES\n",
+        "tests/test_dotted.py": (
+            "import tests.support.paths\n\nFIXTURES = tests.support.paths.FIXTURES\n"
+        ),
+        "tests/test_fakes.py": "from tests.support import fakes\n\nSESSION = fakes.github\n",
+        "tests/test_import_module.py": (
+            "import importlib\n\nPATHS = importlib.import_module('tests.support.paths')\n"
+        ),
+        "tests/test_dunder.py": "PATHS = __import__('tests.support.paths')\n",
+        "tests/test_ok.py": (
+            "import tests\nfrom tests.support import paths\n"
+            "from tests.support.paths import FIXTURES\n\nROOT = tests.__file__\n"
+        ),
+    }
+    for relative, text in files.items():
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(text, encoding="utf-8")
+    assert _support_package_imports(tmp_path, _BOOTSTRAP) == [
+        "tests/ai/test_d.py:1",
+        "tests/support/builders.py:1",
+        "tests/test_a.py:1",
+        "tests/test_alias.py:3",
+        "tests/test_b.py:1",
+        "tests/test_c.py:3",
+        "tests/test_dotted.py:3",
+        "tests/test_dunder.py:1",
+        "tests/test_fakes.py:1",
+        "tests/test_import_module.py:3",
+    ]
+
+
 def test_no_stray_scripts_in_project_root() -> None:
     """Ensure no ad-hoc scratch scripts (*.py, *.sh) or stray scripts directories exist in the project root."""
-    root = Path(__file__).resolve().parents[1]
     stray_files = sorted(
-        f.name for f in root.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
+        f.name for f in REPO_ROOT.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
     )
-    assert (stray_files, (root / "scripts").exists()) == (
+    assert (stray_files, (REPO_ROOT / "scripts").exists()) == (
         [],
         False,
     )
@@ -553,11 +829,10 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     pulling a path the workflow's change detection does not watch, CI would skip the
     rebuild and publish a stale image while still reporting success.
     """
-    repo_root = Path(__file__).resolve().parents[1]
     watched = _ci_image_content_paths(
-        repo_root / ".github" / "workflows" / "ci.yml", job_name=job_name
+        REPO_ROOT / ".github" / "workflows" / "ci.yml", job_name=job_name
     )
-    sources = _dockerfile_build_context_sources(repo_root / dockerfile_rel)
+    sources = _dockerfile_build_context_sources(REPO_ROOT / dockerfile_rel)
 
     def _covered(path: str) -> bool:
         return any(path == w or path.startswith(f"{w}/") for w in watched)
@@ -608,14 +883,13 @@ def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str
 
 def test_workflows_never_mutate_runner_and_devcontainer_installs_bubblewrap() -> None:
     """CI workflows must never mutate runner environment, and bubblewrap is installed in devcontainer (#832)."""
-    repo_root = Path(__file__).resolve().parents[1]
     pattern = re.compile(r"\b(apt-get|sudo|sysctl)\b")
     mutations = [
         m
-        for path in sorted((repo_root / ".github" / "workflows").glob("*.yml"))
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
         for m in _find_workflow_runner_mutations(path, pattern)
     ]
-    dockerfile_text = (repo_root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile_text = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
     installs_bwrap = bool(re.search(r"\bbubblewrap\b", dockerfile_text))
 
     assert (mutations, installs_bwrap) == ([], True)
@@ -651,8 +925,7 @@ def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> N
     """No workflow may hold actions: write, and ci.yml must admit workflow_dispatch (#984, #1217)."""
     import yaml
 
-    repo_root = Path(__file__).resolve().parents[1]
-    workflows_dir = repo_root / ".github" / "workflows"
+    workflows_dir = REPO_ROOT / ".github" / "workflows"
 
     actions_write_jobs = {
         perm
@@ -716,8 +989,7 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
 
 def test_service_dockerfile_base_images_pinned_by_digest() -> None:
     """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt)."""
-    repo_root = Path(__file__).resolve().parents[1]
-    unpinned = _unpinned_dockerfile_images(repo_root / "Dockerfile")
+    unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
     assert unpinned == []
 
 
@@ -779,8 +1051,7 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
     Neither is visible in review -- both read as correct tests -- so the Ruff rules that
     catch them are pinned here beside the scan, and dropping either rule fails this test.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = config["tool"]["ruff"]["lint"]
     unenforced = sorted(
         rule
@@ -788,7 +1059,7 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
         if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
     )
 
-    assert (_blind_exception_assertions(repo_root / "tests"), unenforced) == ([], [])
+    assert (_blind_exception_assertions(REPO_ROOT / "tests"), unenforced) == ([], [])
 
 
 def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
@@ -821,8 +1092,7 @@ def test_a_broad_ignore_defeats_a_broad_select() -> None:
 
 def test_suppression_lint_rules_enforced() -> None:
     """Rules that audit suppressions (PGH003, RUF100) must remain enforced by Ruff configuration."""
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = config["tool"]["ruff"]["lint"]
     unenforced = sorted(
         rule
@@ -834,8 +1104,7 @@ def test_suppression_lint_rules_enforced() -> None:
 
 def test_mypy_ignore_without_code_enabled() -> None:
     """Mypy configuration must enforce ignore-without-code to reject blanket type ignores."""
-    repo_root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     enabled = config.get("tool", {}).get("mypy", {}).get("enable_error_code", [])
     assert "ignore-without-code" in enabled
 
@@ -1352,9 +1621,8 @@ def test_the_complexity_cap_has_no_escape() -> None:
     per-file waiver, a nested config, a file-level exemption, one of Ruff's own bracketed
     suppression comments or an ignore file would each pass it.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert _complexity_cap_escapes(pyproject, repo_root) == []
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert _complexity_cap_escapes(pyproject, REPO_ROOT) == []
 
 
 def test_c901_suppressions_stay_under_the_ceiling() -> None:
@@ -1363,8 +1631,7 @@ def test_c901_suppressions_stay_under_the_ceiling() -> None:
     Each carries a C901 marker that RUF100 reports once the function is back under the cap.
     A new marker takes the count past `DEFAULT_C901_SUPPRESSION_CEILING` and fails here.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    excess, files = _c901_suppressions_over(repo_root, DEFAULT_C901_SUPPRESSION_CEILING)
+    excess, files = _c901_suppressions_over(REPO_ROOT, DEFAULT_C901_SUPPRESSION_CEILING)
     assert (excess, files) == (0, []), (
         f"{excess} more C901 marker(s) than DEFAULT_C901_SUPPRESSION_CEILING allows, "
         f"among these files: {files}. Decompose the function the new marker sits on until "
@@ -1467,12 +1734,11 @@ def test_no_direct_data_dir_path_construction_in_src() -> None:
     """An invariant test fails on any Path built from a .data literal or from DEFAULT_DATA_DIR
     in src/ outside config/defaults.py that does not go through the helper (#1036).
     """
-    repo_root = Path(__file__).parent.parent
-    src_root = repo_root / "src"
+    src_root = REPO_ROOT / "src"
     violations = [
         v
         for py_file in sorted(src_root.rglob("*.py"))
-        for v in _file_data_path_violations(py_file, repo_root)
+        for v in _file_data_path_violations(py_file, REPO_ROOT)
     ]
     assert violations == [], (
         f"Found direct Path construction from .data literal or DEFAULT_DATA_DIR outside "
@@ -1510,7 +1776,7 @@ def _no_mutate_pragmas(root: Path) -> list[str]:
 
 def test_no_source_line_exempts_itself_from_mutation() -> None:
     """`devops ci mutate` reports what survives; a pragma under src would hide it (#853)."""
-    assert _no_mutate_pragmas(Path(__file__).resolve().parents[1]) == []
+    assert _no_mutate_pragmas(REPO_ROOT) == []
 
 
 def test_a_no_mutate_pragma_is_reported(tmp_path: Path) -> None:
@@ -1672,7 +1938,6 @@ def _suppression_ceiling_breaches(
 
 def test_suppressions_stay_under_their_ceilings() -> None:
     """Suppression comments in src/ and tests/ and waivers in pyproject.toml may not exceed ceilings (#849)."""
-    repo_root = Path(__file__).resolve().parents[1]
     assert (
         len(CONST_SUPPRESSION_KINDS),
         DEFAULT_SUPPRESSION_CEILINGS["src noqa: C901"],
@@ -1682,7 +1947,7 @@ def test_suppressions_stay_under_their_ceilings() -> None:
         DEFAULT_C901_SUPPRESSION_CEILING,
         DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
     )
-    breaches = _suppression_ceiling_breaches(repo_root)
+    breaches = _suppression_ceiling_breaches(REPO_ROOT)
     assert breaches == [], "\n".join(breaches)
 
 
@@ -1771,3 +2036,100 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
         "[[tool.mypy.overrides]]": {"pyproject.toml": 2},
         "coverage omit": {"pyproject.toml": 1},
     }
+
+
+def _find_package_submodules(pkg_dir: Path) -> set[str]:
+    """Return all valid Python submodule names inside a package directory."""
+    if not pkg_dir.is_dir():
+        return set()
+    return {
+        child.stem if child.is_file() else child.name
+        for child in pkg_dir.iterdir()
+        if (child.is_file() and child.name.endswith(".py") and child.name != "__init__.py")
+        or (child.is_dir() and (child / "__init__.py").exists())
+    }
+
+
+def _collect_facade_import_violations(
+    tree: ast.AST,
+    allowed_submodules: Mapping[str, set[str]],
+    origin: str,
+) -> list[str]:
+    """Find any ImportFrom node on facade packages importing a non-submodule name."""
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module not in allowed_submodules:
+            continue
+        allowed = allowed_submodules[node.module]
+        for alias in node.names:
+            if alias.name not in allowed:
+                violations.append(f"{origin}:{node.lineno}: from {node.module} import {alias.name}")
+    return violations
+
+
+def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
+    """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
+    init_paths = [
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "github" / "__init__.py",
+    ]
+    failures = []
+    for path in init_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        is_only_docstring = (
+            len(tree.body) == 1
+            and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)
+            and isinstance(tree.body[0].value.value, str)
+        )
+        if not is_only_docstring:
+            failures.append(str(path.relative_to(REPO_ROOT)))
+    assert failures == []
+
+
+def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
+    """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
+    facade_packages = {
+        "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
+        "devops_cli.ai.agents": REPO_ROOT / "src" / "devops_cli" / "ai" / "agents",
+        "devops_cli.ai.mcp": REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp",
+        "devops_cli.github": REPO_ROOT / "src" / "devops_cli" / "github",
+    }
+    allowed_submodules = {
+        pkg_name: _find_package_submodules(pkg_dir) for pkg_name, pkg_dir in facade_packages.items()
+    }
+    violations: list[str] = []
+
+    for search_dir in (REPO_ROOT / "src", REPO_ROOT / "tests"):
+        for py_file in search_dir.rglob("*.py"):
+            try:
+                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+                violations.extend(
+                    _collect_facade_import_violations(
+                        tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
+                    )
+                )
+            except SyntaxError:
+                continue
+
+    fenced_re = re.compile(r"```python\n(.*?)```", re.DOTALL)
+    kb_dir = REPO_ROOT / "src" / "devops_cli" / "ai" / "knowledge_base"
+    if kb_dir.is_dir():
+        for md_file in kb_dir.rglob("*.md"):
+            content = md_file.read_text(encoding="utf-8")
+            for idx, match in enumerate(fenced_re.finditer(content)):
+                try:
+                    tree = ast.parse(match.group(1))
+                    violations.extend(
+                        _collect_facade_import_violations(
+                            tree,
+                            allowed_submodules,
+                            f"{md_file.relative_to(REPO_ROOT)} (block {idx + 1})",
+                        )
+                    )
+                except SyntaxError:
+                    continue
+
+    assert violations == []

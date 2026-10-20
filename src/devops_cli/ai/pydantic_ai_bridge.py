@@ -16,8 +16,9 @@ from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.agents.pydantic_agent import BaseCapability, PydanticAgent
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.governance import TokenBucketGovernance, TokenBudgetConfig
 from devops_cli.ai.personas import PERSONAS, Persona
@@ -139,7 +140,10 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
         )
 
     try:
-        return infer_model(name, provider_factory=_provider_factory)
+        model_obj = infer_model(name, provider_factory=_provider_factory)
+        if active_settings.ai.provider == CONST_AI_GATEWAY_PROVIDER or _gateway_prefix(model_str):
+            setattr(model_obj, "served_by", base_url)
+        return model_obj
     except (InvalidURLError, SSRFBlockedError) as exc:
         reason = exc.details.get("reason", exc.message)
         raise ConfigurationError(
@@ -271,7 +275,7 @@ def _fallback_pydantic_agent(
     max_concurrency: AnyConcurrencyLimit,
 ) -> Any:
     """Construct fallback PydanticAgent when native PydanticAI Agent fails to initialize."""
-    active_client = client or LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    active_client = client or get_llm_client(settings=settings)
     name_suffix = target_model if target_model else "default"
     return PydanticAgent(
         client=active_client,

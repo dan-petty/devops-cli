@@ -6,6 +6,7 @@ introspection, and all 14 family model profile builders from pydantic_ai.profile
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import cast
 
@@ -37,6 +38,8 @@ from pydantic_ai.profiles.moonshotai import moonshotai_model_profile
 from pydantic_ai.profiles.openai import openai_model_profile, openai_realtime_model_profile
 from pydantic_ai.profiles.qwen import qwen_model_profile
 from pydantic_ai.profiles.zai import zai_model_profile
+
+logger = logging.getLogger(__name__)
 
 _FAMILY_BUILDERS: dict[str, Callable[[str], ModelProfile | None]] = {
     "amazon": amazon_model_profile,
@@ -73,6 +76,42 @@ def get_model_profile_builder(name: str) -> Callable[[str], ModelProfile | None]
     return _FAMILY_BUILDERS.get(name.lower().strip())
 
 
+def _build_or_infer_base_profile(
+    model_str: str, target_provider: str | None, target_model_name: str
+) -> ModelProfile:
+    """Build base ModelProfile via registered family builder or pydantic_ai infer."""
+    builder = get_model_profile_builder(target_provider) if target_provider else None
+    if builder is not None:
+        try:
+            built = builder(target_model_name)
+            if built is not None:
+                if target_provider == "openai":
+                    return cast(
+                        ModelProfile,
+                        {
+                            **built,
+                            "supports_thinking": False,
+                            "thinking_always_enabled": False,
+                            "thinking_enabled_by_default": False,
+                            "openai_supports_reasoning": False,
+                        },
+                    )
+                return built
+        except (KeyError, ValueError, AttributeError, TypeError) as exc:
+            logger.debug("Family builder failed for %s: %s", target_model_name, exc)
+        return cast(ModelProfile, dict(DEFAULT_PROFILE))
+
+    try:
+        from pydantic_ai.models import infer_model_profile
+
+        inferred = infer_model_profile(model_str)
+        if inferred:
+            return inferred
+    except (KeyError, ValueError, AttributeError, TypeError) as exc:
+        logger.debug("Model profile inference failed for %s: %s", model_str, exc)
+    return cast(ModelProfile, dict(DEFAULT_PROFILE))
+
+
 def resolve_model_profile(
     model: str | ModelProfileSpec | None = None,
     provider: str | None = None,
@@ -105,24 +144,7 @@ def resolve_model_profile(
         target_provider = parsed_prov.lower().strip()
         target_model_name = parsed_name.strip()
 
-    builder = get_model_profile_builder(target_provider) if target_provider else None
-    if builder is not None:
-        try:
-            built = builder(target_model_name)
-            if built is not None:
-                base = built
-        except Exception:
-            base = cast(ModelProfile, dict(DEFAULT_PROFILE))
-    else:
-        try:
-            from pydantic_ai.models import infer_model_profile
-
-            inferred = infer_model_profile(model_str)
-            if inferred:
-                base = inferred
-        except Exception:
-            base = cast(ModelProfile, dict(DEFAULT_PROFILE))
-
+    base = _build_or_infer_base_profile(model_str, target_provider, target_model_name)
     return _apply_profile_spec(base, overrides)
 
 

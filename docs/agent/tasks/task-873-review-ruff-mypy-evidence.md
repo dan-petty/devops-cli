@@ -2,9 +2,6 @@
 
 **Issue**: [#873](https://github.com/dan-petty/devops-cli/issues/873)
 **Feasibility**: Verified that Ruff outputs standard SARIF 2.1.0 with project pyproject.toml settings, mypy validates environment via uv.lock hash against checkout root, and McCabe complexity deltas calculate before/after per function via AST.
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

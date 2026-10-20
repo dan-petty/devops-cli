@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -27,9 +30,24 @@ from devops_cli.commands.ci import (
     resolve_selected_specs,
     resolve_step_rows,
 )
+from devops_cli.config.constants import CONST_EXIT_CANCELLED
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
+from tests.support.hung_children import (
+    fake_program,
+    interrupted_like_pytest,
+    mark_second_signal,
+    records_after_second_signal,
+    records_stop_signals,
+    watching,
+)
+from tests.support.paths import REPO_ROOT
+from tests.support.session_spawns import RecordedSpawn, record_spawns
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
+
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 runner = CliRunner()
 
@@ -147,17 +165,11 @@ def test_ci_typecheck_command(monkeypatch) -> None:
 
 
 def test_ci_test_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
+    spawns = record_spawns(monkeypatch)
 
     result = runner.invoke(app, ["test", "-v", "-k", "unit"])
     assert result.exit_code == 0
-    assert any("pytest" in c and "-v" in c and "-k" in c for c in called)
+    assert any("pytest" in s.argv and "-v" in s.argv and "-k" in s.argv for s in spawns)
 
 
 def test_ci_docs_command(monkeypatch) -> None:
@@ -347,17 +359,18 @@ def test_ci_additional_subcommands(monkeypatch) -> None:
         called.append(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
+    # 1. test subcommand, whose pytest starts through asyncio in a session of its own
+    spawns = record_spawns(monkeypatch)
+    res_test = runner.invoke(app, ["test", "-n", "2"])
+    assert res_test.exit_code == 0
+    assert any("pytest" in s.argv and "-n" in s.argv for s in spawns)
+
     monkeypatch.setattr("subprocess.run", mock_run)
 
-    # 1. format --fix
+    # 2. format --fix
     res_fmt_fix = runner.invoke(app, ["format", "--fix"])
     assert res_fmt_fix.exit_code == 0
     assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
-
-    # 2. test subcommand
-    res_test = runner.invoke(app, ["test", "-n", "2"])
-    assert res_test.exit_code == 0
-    assert any("pytest" in c and "-n" in c for c in called)
 
     # 3. docs subcommand
     res_docs = runner.invoke(app, ["docs"])
@@ -380,7 +393,7 @@ def test_ci_additional_subcommands(monkeypatch) -> None:
         assert res_run_fix.exit_code == 0
 
 
-def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
+def test_ci_helpers_and_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _run_all_checks, _print_failures, _clean_coverage_artifacts, and option parsing."""
     from devops_cli.commands.ci import (
         CheckResult,
@@ -441,6 +454,7 @@ def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
         called.append(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
+    spawns = record_spawns(monkeypatch)
     with patch("devops_cli.commands.ci.run_subprocess", side_effect=mock_run):
         res_sec_low = runner.invoke(app, ["security", "-s", "low"])
         assert res_sec_low.exit_code == 0
@@ -453,14 +467,16 @@ def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
         # test with -x and -v
         res_test_xv = runner.invoke(app, ["test", "-x", "-v"])
         assert res_test_xv.exit_code == 0
-        assert any("-x" in c and "-v" in c for c in called)
+        assert any("-x" in s.argv and "-v" in s.argv for s in spawns)
 
         # coverage default options
         res_cov = runner.invoke(app, ["coverage"])
         assert res_cov.exit_code == 0
 
 
-def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
+def test_ci_clean_coverage_and_extended_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify _clean_coverage_artifacts, coverage --html, and run command."""
     from devops_cli.commands.ci import _clean_coverage_artifacts
 
@@ -480,6 +496,7 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
         called.append(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
+    spawns = record_spawns(monkeypatch)
     with patch("devops_cli.commands.ci.run_subprocess", side_effect=mock_run):
         res_cov_html = runner.invoke(app, ["coverage", "--html"])
         assert res_cov_html.exit_code == 0
@@ -487,7 +504,7 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
 
         res_test_k = runner.invoke(app, ["test", "-k", "unit_test"])
         assert res_test_k.exit_code == 0
-        assert any("-k" in c and "unit_test" in c for c in called)
+        assert any("-k" in s.argv and "unit_test" in s.argv for s in spawns)
 
         # docs with --fix
         called.clear()
@@ -1199,11 +1216,7 @@ def _run_image_change_detection(repo: Path, base_ref: str) -> tuple[int, str, st
 
     import yaml
 
-    workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-    )
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     step = next(
         s for s in workflow["jobs"]["devcontainer"]["steps"] if s.get("id") == "image_changes"
     )
@@ -1634,8 +1647,10 @@ def test_staged_sources_select_the_worktrees_tests(
     messages: list[str] = []
     monkeypatch.chdir(nested)
     monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: messages.append(message))
+    spawns = record_spawns(monkeypatch)
     with patch.object(ci_module, "run_subprocess", record):
         result = runner.invoke(ci_module.app, ["test", "src/pkg/widget.py"])
+    calls.extend((spawn.argv, Path(spawn.kwargs["cwd"])) for spawn in spawns)
 
     assert (
         result.exit_code,
@@ -1724,6 +1739,15 @@ def test_a_single_checks_help_does_not_name_the_gate_root(
     assert (result.exit_code, "Usage:" in result.output, announced) == (0, True, [])
 
 
+def _refuse_to_start(what: str) -> Callable[..., Any]:
+    """A double of `asyncio.create_subprocess_exec` that fails the test if anything starts."""
+
+    async def refuse(*argv: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(f"no tests match, yet {what} started: {argv[:6]}")
+
+    return refuse
+
+
 def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
     nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1733,6 +1757,9 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
     announced: list[str] = []
     monkeypatch.chdir(nested)
     monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: announced.append(message))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", _refuse_to_start("a run in a session of its own")
+    )
     with patch.object(ci_module, "run_subprocess", side_effect=AssertionError("no tests match")):
         result = runner.invoke(ci_module.app, ["test", "--", "--help"])
 
@@ -2161,3 +2188,211 @@ def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
         "/devops-scan",
         "always()",
     )
+
+
+@pytest.fixture
+def narrowed_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A checked tree with one test module, the current directory, so `devops ci test` finds it
+    as its root and narrows a run to `tests/test_x.py`."""
+    project = tmp_path / "project"
+    (project / "tests").mkdir(parents=True)
+    (project / "tests" / "test_x.py").write_text("def test_x() -> None: ...\n", encoding="utf-8")
+    monkeypatch.chdir(project)
+    return project
+
+
+def test_a_test_run_past_its_timeout_fails_naming_its_command_and_timeout(
+    narrowed_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A narrowed run whose child outlives the run's timeout, here a double whose output never
+    comes, is stopped and fails, naming the command and the 1800 s timeout (#1669). The double's
+    pid is 0, which the group stop refuses to signal, so it kills the double alone."""
+
+    async def outlive_the_timeout(_spawn: RecordedSpawn) -> None:
+        raise TimeoutError
+
+    spawns = record_spawns(monkeypatch, on_communicate=outlive_the_timeout)
+    result = runner.invoke(app, ["test", "tests/test_x.py"])
+
+    timed_out = MESSAGES.ci.run_timed_out.format(
+        command=shlex.join(spawns[0].argv), timeout=f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}s"
+    )
+    assert (
+        result.exit_code,
+        " ".join(timed_out.split()) in " ".join(result.output.split()),
+        spawns[0].killed,
+    ) == (1, True, True)
+
+
+def _stop_handlers() -> tuple[Any, Any]:
+    return signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)
+
+
+def _run_recording_handlers(
+    monkeypatch: pytest.MonkeyPatch, *, fail: bool = False
+) -> tuple[int, list[tuple[Any, Any]]]:
+    """`devops ci test tests/test_x.py`'s exit code and the SIGTERM and SIGHUP handlers in place
+    while its child ran; with `fail`, the run's child fails to give its output."""
+    during: list[tuple[Any, Any]] = []
+
+    async def record_handlers(_spawn: RecordedSpawn) -> None:
+        during.append(_stop_handlers())
+        if fail:
+            raise OSError("the run's output could not be read")
+
+    record_spawns(monkeypatch, on_communicate=record_handlers)
+    return runner.invoke(app, ["test", "tests/test_x.py"]).exit_code, during
+
+
+@pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
+@pytest.mark.parametrize("fail", [False, True], ids=["run-ends", "run-raises"])
+def test_a_run_takes_over_sigterm_and_sighup_and_hands_them_back(
+    monkeypatch: pytest.MonkeyPatch, fail: bool
+) -> None:
+    """While the run lasts, SIGTERM and SIGHUP are its own, so they cancel it; after it, ended or
+    raising, the handlers in place before are back (#1669)."""
+    before = _stop_handlers()
+    exit_code, during = _run_recording_handlers(monkeypatch, fail=fail)
+
+    assert (
+        exit_code,
+        [handler is not previous for handler, previous in zip(during[0], before, strict=True)],
+        _stop_handlers(),
+    ) == (1 if fail else 0, [True, True], before)
+
+
+@pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
+def test_a_run_off_the_main_thread_sets_no_signal_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run from another thread, as the MCP server's thread pool makes one, completes and leaves
+    every handler as it was: only the main thread may set one (#1669)."""
+    before = _stop_handlers()
+    outcome: list[tuple[int, list[tuple[Any, Any]]]] = []
+    worker = threading.Thread(target=lambda: outcome.append(_run_recording_handlers(monkeypatch)))
+    worker.start()
+    worker.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    assert (outcome, _stop_handlers()) == ([(0, [before])], before)
+
+
+@pytest.fixture
+def hangup_ignored(default_signal_dispositions: None) -> Iterator[None]:
+    """SIGHUP ignored, as `nohup` leaves it, for the test's length."""
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGHUP, previous)
+
+
+@pytest.mark.usefixtures("narrowed_project", "hangup_ignored")
+def test_an_ignored_hangup_stays_ignored_through_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under `nohup`, which ignores SIGHUP, a run leaves the ignore alone, so a hangup does not
+    cancel it, and takes over SIGTERM alone (#1669)."""
+    before = _stop_handlers()
+    exit_code, during = _run_recording_handlers(monkeypatch)
+
+    assert (exit_code, during[0][1], during[0][0] is not before[0], _stop_handlers()) == (
+        0,
+        signal.SIG_IGN,
+        True,
+        before,
+    )
+
+
+def _devops_ci_test(project: Path, fake_uv: Path, log: Path) -> subprocess.Popen[bytes]:
+    """`devops ci test tests/test_x.py`, the real command in a process of its own, with `fake_uv`
+    first on PATH and telemetry off, so it opens no socket; its output goes to `log`. The tree
+    under test's `src` leads its PYTHONPATH, so it runs that tree's devops-cli, not whichever the
+    console script's install points at, as a replay on another tree would (#1669)."""
+    python_path = os.pathsep.join(
+        filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH")])
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{fake_uv.parent}{os.pathsep}{os.environ.get('PATH', '')}",
+        "PYTHONPATH": python_path,
+        "DEVOPS_CLI_TELEMETRY_ENABLED": "false",
+    }
+    devops = Path(sys.executable).with_name("devops")
+    with log.open("wb") as output:
+        return subprocess.Popen(
+            [str(devops), "ci", "test", "tests/test_x.py"],
+            cwd=project,
+            env=env,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
+
+
+def _stop_driver(driver: subprocess.Popen[bytes]) -> None:
+    """Kill the driver, this test's own child, if it outlived the test."""
+    if driver.poll() is None:
+        driver.kill()
+    driver.wait()
+
+
+# The signals that stop a `devops ci test` run: Ctrl-C's, a supervisor's and a closed terminal's.
+STOP_SIGNALS = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
+
+
+@pytest.mark.usefixtures("default_signal_dispositions")
+@pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
+def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
+    narrowed_project: Path, tmp_path: Path, stop_signal: signal.Signals
+) -> None:
+    """Ctrl-C, SIGTERM or SIGHUP to `devops ci test` forwards SIGINT to the run's group, which is
+    in a session of its own, so a pytest there runs its teardown, then stops the whole group,
+    and devops exits as cancelled, 130 (#1669). The run's `uv` is a fake on PATH that handles
+    SIGINT as pytest does: its teardown records itself and stops the grandchild it started."""
+    teardown = tmp_path / "teardown"
+    with watching(tmp_path / "pids") as watch:
+        script = interrupted_like_pytest(teardown)
+        fake_uv = fake_program(tmp_path / "bin" / "uv", watch.pid_file, script)
+        driver = _devops_ci_test(narrowed_project, fake_uv, tmp_path / "devops.log")
+        try:
+            started = wait_until(watch.started)
+            driver.send_signal(stop_signal)
+            driver.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        finally:
+            _stop_driver(driver)
+
+        assert (started, driver.returncode, wait_until(watch.stopped), teardown.is_file()) == (
+            True,
+            CONST_EXIT_CANCELLED,
+            True,
+            True,
+        )
+
+
+@pytest.mark.usefixtures("default_signal_dispositions")
+@pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
+def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
+    narrowed_project: Path, tmp_path: Path, stop_signal: signal.Signals
+) -> None:
+    """A second Ctrl-C, SIGTERM or SIGHUP while the stop waits out its grace, which a user or a
+    supervisor sends to a run that will not end, kills the group at once rather than leaving it
+    running (#1669). The fake `uv` and its grandchild ignore SIGINT and SIGTERM; the fake records
+    each SIGINT and SIGTERM it gets, and none of its records after the test marked its second
+    signal is a SIGTERM."""
+    signals = tmp_path / "signals"
+    with watching(tmp_path / "pids") as watch:
+        fake_uv = fake_program(
+            tmp_path / "bin" / "uv", watch.pid_file, records_stop_signals(signals)
+        )
+        driver = _devops_ci_test(narrowed_project, fake_uv, tmp_path / "devops.log")
+        try:
+            started = wait_until(watch.started)
+            driver.send_signal(stop_signal)
+            interrupted = wait_until(lambda: signals.is_file() and "int" in signals.read_text())
+            mark_second_signal(signals)
+            driver.send_signal(stop_signal)
+            driver.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        finally:
+            _stop_driver(driver)
+
+        assert (
+            started,
+            interrupted,
+            wait_until(watch.stopped),
+            "term" in records_after_second_signal(signals),
+        ) == (True, True, True, False)

@@ -1,9 +1,6 @@
 # Task: Remove Update PRs Workflow (#1217)
 
 **Issue**: [#1217](https://github.com/dan-petty/devops-cli/issues/1217)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/ci
 
 ## Description

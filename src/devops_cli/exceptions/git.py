@@ -5,12 +5,26 @@ from __future__ import annotations
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_COPILOT_PASS_REFUSED_ERROR_CODE,
     CONST_ERROR_CODE_GIT,
     CONST_EXIT_FAILURE,
+    CONST_GITHUB_NOT_FOUND_ERROR_CODE,
+    CONST_GITHUB_SCOPE_ERROR_CODE,
     CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
+    CONST_GITHUB_UNREAD_ERROR_CODE,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_MSG_BRANCH_INVALID,
+    CONST_THREAD_FILING_REFUSED_ERROR_CODE,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
+
+
+def _bounded_detail(value: Any) -> Any:
+    """A detail as an error carries it: a number as it is, anything else as text of at most
+    `CONST_MAX_ERROR_DETAIL_LENGTH` characters."""
+    if isinstance(value, int | float):
+        return value
+    return str(value)[:CONST_MAX_ERROR_DETAIL_LENGTH]
 
 
 class GitOperationError(DevOpsCLIError, ValueError):
@@ -94,7 +108,21 @@ class GitHubOperationError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
 
 
-class GitHubFileNotFoundError(GitHubOperationError):
+class GitHubNotFoundError(GitHubOperationError):
+    """Raised when GitHub answers that what it was asked for does not exist (HTTP 404)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "github_request",
+        error_code: str = CONST_GITHUB_NOT_FOUND_ERROR_CODE,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, operation=operation, error_code=error_code, details=details)
+
+
+class GitHubFileNotFoundError(GitHubNotFoundError):
     """Raised when a repository file GitHub was asked for does not exist on that ref."""
 
     def __init__(
@@ -109,13 +137,63 @@ class GitHubFileNotFoundError(GitHubOperationError):
         )
 
 
-class GitHubUnauthenticatedError(GitHubOperationError):
-    """Raised when `gh auth token` gives the process no GitHub identity to call GitHub as."""
+class GitHubScopeError(GitHubOperationError):
+    """Raised when GitHub refuses a request because the token lacks a scope the endpoint needs."""
 
-    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "github_request",
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(
             message,
-            operation="gh_auth_token",
+            operation=operation,
+            error_code=CONST_GITHUB_SCOPE_ERROR_CODE,
+            details=details,
+        )
+
+
+class GitHubUnreadError(GitHubOperationError):
+    """Raised when no answer from GitHub could be read, so what the request did is unknown.
+
+    The cause is no connection, a server error that outlasted the retries, a body that does not
+    decode, or a request to another origin that the session refused to send.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "github_request",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation=operation,
+            error_code=CONST_GITHUB_UNREAD_ERROR_CODE,
+            details=details,
+        )
+
+
+class GitHubUnauthenticatedError(GitHubOperationError):
+    """Raised when the process has no GitHub identity, or GitHub refused its token (HTTP 401).
+
+    `gh auth token` gives the process no token, or GitHub answers a request made with the one it
+    gave with a 401.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "gh_auth_token",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation=operation,
             error_code=CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
             details=details,
         )
@@ -132,14 +210,48 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
         operation: str = "rate_limit_resolve",
         details: dict[str, Any] | None = None,
     ) -> None:
-        err_details = {"subcommand": subcommand[:256]}
+        err_details: dict[str, Any] = {"subcommand": subcommand[:256]}
         if details:
-            err_details.update({k: str(v)[:256] for k, v in details.items()})
+            err_details.update({k: _bounded_detail(v) for k, v in details.items()})
         super().__init__(
             message,
             operation=operation,
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
+        )
+
+
+class CopilotPassRefusedError(GitHubOperationError):
+    """Raised when `devops pr copilot-pass` refuses to request a Copilot pass.
+
+    It refuses on a pull request that is merged or closed, on any pull request but the release
+    pull request, and once the release pull request's Copilot budget is spent. Each detail is
+    bounded to `CONST_MAX_ERROR_DETAIL_LENGTH` characters (#1345).
+    """
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message,
+            operation="copilot_pass",
+            error_code=CONST_COPILOT_PASS_REFUSED_ERROR_CODE,
+            details={key: _bounded_detail(value) for key, value in (details or {}).items()},
+        )
+
+
+class ThreadFilingRefusedError(GitHubOperationError):
+    """Raised when `devops pr threads file-issues` refuses to file a pull request's threads.
+
+    It refuses any pull request but the release pull request, whose threads the stop rule in
+    `RELEASE_CYCLE.md` governs. Each detail is bounded to `CONST_MAX_ERROR_DETAIL_LENGTH`
+    characters (#1345).
+    """
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message,
+            operation="threads_file_issues",
+            error_code=CONST_THREAD_FILING_REFUSED_ERROR_CODE,
+            details={key: _bounded_detail(value) for key, value in (details or {}).items()},
         )
 
 

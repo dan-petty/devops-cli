@@ -255,7 +255,7 @@ def test_logfire_fastmcp_tool_and_resource() -> None:
     from devops_cli.ai.mcp.server import list_mcp_tools, mcp
 
     tool_names = {t.name for t in list_mcp_tools()}
-    assert "telemetry_logfire_status" in tool_names
+    assert "telemetry_logfire" in tool_names
 
     resources = asyncio.run(mcp.list_resources())
     resource_uris = {str(r.uri) for r in resources}

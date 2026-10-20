@@ -1,9 +1,6 @@
 # Task: MCP Tools and Resources Call Commands and Options That Exist (#836)
 
 **Issue**: [#836](https://github.com/dan-petty/devops-cli/issues/836)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p0-critical
 **Scope**: scope/mcp
 
 ## Description

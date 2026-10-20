@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from devops_cli.argo.credentials import (
+    resolve_argocd_server_address,
+    resolve_argocd_server_and_token,
+)
 from devops_cli.argo.fleet import sync_fleet, sync_single_target
 from devops_cli.argo.gitops import (
     GitOpsWatcher,
@@ -22,6 +26,8 @@ __all__ = [
     "compute_manifest_state",
     "evaluate_rollout_gate",
     "promote_rollout",
+    "resolve_argocd_server_address",
+    "resolve_argocd_server_and_token",
     "restart_rollout",
     "scan_manifest_drift",
     "sync_fleet",

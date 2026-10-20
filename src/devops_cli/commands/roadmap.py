@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Annotated, NoReturn
 import typer
 
 from devops_cli.config.constants import (
+    CONST_RELEASE_CUT_FILES,
     CONST_ROADMAP_CONFIG_PATH,
     CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_INTAKE_BOARD_FILTER,
@@ -47,7 +48,6 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.output.file_writer import write_text_file
 from devops_cli.roadmap.close import (
-    CUT_FILES,
     Cut,
     apply_close,
     dry_run_close,
@@ -59,6 +59,7 @@ from devops_cli.roadmap.intake import (
     BorrowReason,
     Filer,
     NewCandidate,
+    Outcome,
     apply_intake,
     dry_run_intake,
     plan_intake,
@@ -390,11 +391,10 @@ def _intake(
     confirm: bool,
     opened: list[RoadmapStore],
 ) -> None:
-    meter = SpendMeter()
     with _exit_on_failure("Could not plan intake"):
-        target, config, store = _open_roadmap(
-            repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER, runner=meter.run
-        )
+        # Counts from here the requests the identity's ledger paces, gh's and the session's.
+        meter = SpendMeter()
+        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER)
         opened.append(store)
         plan = plan_intake(
             store,
@@ -410,6 +410,8 @@ def _intake(
         plan = replace(plan, spend=meter.spend())
     write_stdout(render_intake(plan, repo=target))
     if not plan.has_writes:
+        if new is not None and confirm and any(d.outcome is Outcome.SKIP for d in plan.decisions):
+            raise typer.Exit(1)
         return
     if not confirm:
         print_info(MESSAGES.roadmap.intake_preview)
@@ -443,7 +445,9 @@ def close_cmd(
     if dry_run or is_dry_run():
         target = _target(repo)
         plan = dry_run_close(target, ref=ref)
-        notes = [MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CUT_FILES))]
+        notes = [
+            MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CONST_RELEASE_CUT_FILES))
+        ]
         render_dry_run("close", target, plan.requests, plan.write_requests, notes=notes)
         return
     opened: list[RoadmapStore] = []

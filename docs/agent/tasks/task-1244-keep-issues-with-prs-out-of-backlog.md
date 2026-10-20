@@ -1,9 +1,6 @@
 # Task: Do Not Move Issues to Backlog If They Have an Open or Merged Pull Request (#1244)
 
 **Issue**: [#1244](https://github.com/dan-petty/devops-cli/issues/1244)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/github, type/feature
 
 ## Description

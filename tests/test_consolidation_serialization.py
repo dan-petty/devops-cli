@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from devops_cli.core.serialization import extract_json_block
+from tests.support.review_replies import FINDINGS, LINK, REVIEW, REVIEW_BLOCK
 
 
 def test_extract_json_block_raw_json() -> None:
@@ -77,21 +78,19 @@ def test_extract_json_block_unclosed_fence_one_item_list_returns_list() -> None:
 
 def test_extract_json_block_preserves_whole_answer_with_bracketed_prose() -> None:
     """Bracketed prose around fenced or unfenced replies yields each answer whole (#875)."""
-    from tests.test_ai_fixer import _FINDINGS, _LINK, _REVIEW, _REVIEW_BLOCK
-
     cases = [
-        ("Here is my review.\n\n" + _REVIEW_BLOCK, _REVIEW),
-        (_LINK + _REVIEW_BLOCK, _REVIEW),
+        ("Here is my review.\n\n" + REVIEW_BLOCK, REVIEW),
+        (LINK + REVIEW_BLOCK, REVIEW),
         (
-            "The handler reads `items[0]` without a bounds check.\n\n" + _REVIEW_BLOCK,
-            _REVIEW,
+            "The handler reads `items[0]` without a bounds check.\n\n" + REVIEW_BLOCK,
+            REVIEW,
         ),
         (
-            _REVIEW_BLOCK + '\n\nNote: `request.args["id"]` is user input.',
-            _REVIEW,
+            REVIEW_BLOCK + '\n\nNote: `request.args["id"]` is user input.',
+            REVIEW,
         ),
-        ("Here are my findings:\n" + json.dumps(_FINDINGS), _FINDINGS),
-        (_LINK + json.dumps(_REVIEW), _REVIEW),
+        ("Here are my findings:\n" + json.dumps(FINDINGS), FINDINGS),
+        (LINK + json.dumps(REVIEW), REVIEW),
     ]
     actual = [extract_json_block(reply) for reply, _ in cases]
     expected = [target for _, target in cases]

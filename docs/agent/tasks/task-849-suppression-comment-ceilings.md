@@ -1,7 +1,6 @@
 # Task: Suppression Comments May Not Grow Unnoticed (#849)
 
 **Issue**: [#849](https://github.com/dan-petty/devops-cli/issues/849)
-**Status**: Done
 **Feasibility**: Verified against Python 3.14 `tokenize.generate_tokens` (C-accelerated tokenizer), `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `pyproject.toml`, and `tests/test_architectural_invariants.py`; confirmed comment-token scanning with a raw-text pre-filter completes in ~0.48 s across all `src/` and `tests/` modules without false positives on string literals or `'nanosecond'` prose comments.
 
 ## Summary

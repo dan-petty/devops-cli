@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
-import urllib.parse
 from typing import TYPE_CHECKING, Any
 
-import httpx2
 from pydantic import BaseModel
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_URL_GITHUB_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import get_github_session
 from devops_cli.models.ssh import SSHKeyInfo
 
 logger = logging.getLogger(__name__)
@@ -42,7 +41,6 @@ class GitHubClient:
     def __init__(self, token: str) -> None:
         from github import Auth, Github
 
-        self._token = token
         self._gh = Github(auth=Auth.Token(token))
 
     def get_org_repos(
@@ -129,23 +127,19 @@ class GitHubClient:
             return None
 
     def get_pr_diff(self, repo: str, number: int) -> str:
-        """Fetch the raw unified diff for a pull request."""
-        url = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}"
-        headers = {
-            "Accept": "application/vnd.github.diff",
-            "Authorization": f"Bearer {self._token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        client_timeout = httpx2.Timeout(DEFAULT_HTTP_TIMEOUT_SECONDS, connect=1.0)
-        with httpx2.Client(timeout=client_timeout, follow_redirects=False) as c:
-            r = c.get(url, headers=headers)
-            if r.is_redirect:
-                target_url = r.headers.get("location", "")
-                parsed = urllib.parse.urlparse(target_url)
-                if parsed.scheme == "https" and parsed.netloc in ("api.github.com", "github.com"):
-                    r = c.get(target_url, headers=headers)
-            r.raise_for_status()
-            return r.text
+        """The pull request's unified diff, read through the GitHub session.
+
+        GitHub sends a diff as text; any other answer, JSON or a body without a content type,
+        raises `GitHubUnreadError`.
+        """
+        path = f"/repos/{repo}/pulls/{number}"
+        diff = get_github_session().rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+        if not isinstance(diff, str):
+            raise GitHubUnreadError(
+                f"GitHub's answer to GET {path} is no diff: {type(diff).__name__}",
+                details={"path": path[:CONST_MAX_ERROR_DETAIL_LENGTH]},
+            )
+        return diff
 
     def create_pr_review_comment(
         self,
@@ -279,31 +273,6 @@ class GitHubClient:
         return [b.model_dump() for b in builds]
 
 
-def parse_paginated_json(text: str) -> list[dict[str, Any]]:
-    """Parse one or multiple concatenated JSON documents or arrays from gh api --paginate."""
-    if not text or not text.strip():
-        return []
-    decoder = json.JSONDecoder()
-    items: list[dict[str, Any]] = []
-    idx = 0
-    length = len(text)
-    while idx < length:
-        while idx < length and text[idx].isspace():
-            idx += 1
-        if idx >= length:
-            break
-        try:
-            obj, end_idx = decoder.raw_decode(text, idx)
-            idx = end_idx
-            if isinstance(obj, list):
-                items.extend(item for item in obj if isinstance(item, dict))
-            elif isinstance(obj, dict):
-                items.append(obj)
-        except json.JSONDecodeError:
-            break
-    return items
-
-
 class GhCliClient:
     """GitHub client backed by the gh CLI tool for local operations without raw PATs."""
 
@@ -411,13 +380,9 @@ class GhCliClient:
         except Exception:
             return False
 
-    def api(self, endpoint: str, paginate: bool = False) -> str:
+    def api(self, endpoint: str) -> str:
         """Execute a GitHub API request via rate-managed run_gh."""
-        cmd = [CONST_GH_CLI, "api"]
-        if paginate:
-            cmd.append("--paginate")
-        cmd.append(endpoint)
-        res = run_gh(cmd, check=False, quiet=True)
+        res = run_gh([CONST_GH_CLI, "api", endpoint], check=False, quiet=True)
         if res.returncode != 0:
             raise GitHubOperationError(
                 f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",

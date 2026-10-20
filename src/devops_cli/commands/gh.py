@@ -20,7 +20,12 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_PROJECT_WORKFLOW_EXPECTATIONS,
 )
-from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_TABLE_FORMAT
+from devops_cli.config.defaults import (
+    DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
+    DEFAULT_GH_LABEL_LIST_LIMIT,
+    DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TABLE_FORMAT,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
@@ -828,7 +833,7 @@ def sync_views(
         else:
             print_warning(f"Could not sync views: {res.get('status', 'Project not found')}")
     except Exception as exc:
-        print_warning(f"Views sync skipped or failed: {exc}")
+        print_warning(f"Views sync skipped or failed: {exc}", safe=True)
 
     _display_issues_saved_views(target_repo)
 
@@ -1226,7 +1231,13 @@ def api_cmd(
     if ctx.args:
         args.extend(ctx.args)
 
-    res = run_gh(args, use_cache=cache, cache_ttl=cache_ttl)
+    # gh walks every `Link` page of a `--paginate` call in one process, under one timeout.
+    timeout = (
+        DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
+        if paginate
+        else DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS
+    )
+    res = run_gh(args, use_cache=cache, cache_ttl=cache_ttl, timeout=timeout)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 

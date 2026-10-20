@@ -93,15 +93,3 @@ class TestPydanticAITemplateSubsystem:
         assert (
             config.system_instruction.render({"target_branch": "main"}) == "Analyze diff for main"
         )
-
-    def test_package_reexports(self) -> None:
-        """Verify template symbols are exported across public package tiers."""
-        import devops_cli.ai as ai
-        import devops_cli.ai.agents as agents
-        import devops_cli.ai.agents.pydantic_agent as pa
-
-        for target in (ai, agents, pa):
-            assert hasattr(target, "TemplateStr")
-            assert hasattr(target, "create_template_str")
-            assert hasattr(target, "render_template")
-            assert hasattr(target, "is_template_str")

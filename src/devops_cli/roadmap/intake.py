@@ -10,11 +10,15 @@ gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as i
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
 also compared with the open agent issues off the board, which a run that stopped after filing
 leaves. Each text is embedded once, and the model judges the candidate against its nearest
-`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a
-duplicate of the original, with one comment, and stays off the board; a new candidate that is a
-duplicate is not filed. An unfinished item, and an issue whose timeline shows a duplicate close
-that a person reversed by reopening it, skip the check. A new candidate whose text holds what
-looks like a secret is refused before it reaches a model or GitHub.
+`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
+board; a new candidate that is a duplicate is not filed. An unfinished item, and an issue whose
+timeline shows a duplicate close that a person reversed by reopening it, skip the check. An
+existing issue a person planned (a milestone a person set, or a Priority a person set on its
+card or label) is never closed as a duplicate; intake reports it as a possible duplicate left for
+a person, places nothing else for it, and writes nothing (#1686). A duplicate pair closes the
+newer issue, never the older: when the model names an original newer than the candidate, intake
+reports the pair as a possible duplicate and closes nothing. A new candidate whose text holds
+what looks like a secret is refused before it reaches a model or GitHub.
 
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
 with a one-line reason, and optionally one piece of evidence. The types it may pick are the
@@ -114,6 +118,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITY,
+    CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
     CONST_ROADMAP_STATUS_NEW,
@@ -132,6 +137,7 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
@@ -156,6 +162,7 @@ from devops_cli.roadmap.reprioritize import (
     admission_event,
     current_release,
     decide,
+    placed_by_person,
     release_state,
 )
 from devops_cli.roadmap.store import (
@@ -371,11 +378,12 @@ class IntakeDecision:
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
     reasons: tuple[tuple[str, str, str], ...] = ()
+    held: bool = False
 
     @property
     def has_writes(self) -> bool:
         if self.outcome is Outcome.DUPLICATE:
-            return self.subject.number is not None
+            return self.subject.number is not None and not self.held
         return self.outcome is Outcome.PLACE
 
     @property
@@ -387,6 +395,8 @@ class IntakeDecision:
         """Each write, in the order intake makes it."""
         texts = MESSAGES.roadmap
         if self.outcome is Outcome.DUPLICATE:
+            if self.held:
+                return []
             close = texts.intake_write_close if self.comment else texts.intake_write_close_only
             return [close.format(original=self.original)]
         filing = ", ".join(self.filing_labels) or texts.intake_no_labels
@@ -515,6 +525,10 @@ class IntakeRecord(BaseModel):
 
 class _InvalidProposal(ValueError):
     """A proposal with a value off its list."""
+
+    def __init__(self, message: str, problems: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.problems = problems
 
 
 # ── Reading the roadmap ───────────────────────────────────────────────────────
@@ -736,6 +750,8 @@ class _Entry:
     body: str
     state: str
     item: bool = True
+    done: bool = False
+    release: str | None = None
 
     @property
     def text(self) -> str:
@@ -745,6 +761,14 @@ class _Entry:
         assert self.number is not None
         excerpt = self.body[:DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS]
         return Neighbour(number=self.number, title=self.title, state=self.state, excerpt=excerpt)
+
+
+def _is_done(issue: IssueRecord, run: _Run) -> bool:
+    """Whether `issue` is a completed/Done item on the board or in GitHub."""
+    if issue.state is GitHubState.CLOSED and issue.state_reason != CloseReason.NOT_PLANNED:
+        return True
+    card = run.board.get(issue.number)
+    return card is not None and card.status == "Done"
 
 
 def _compared(issue: IssueRecord, run: _Run, *, off_board: bool) -> bool:
@@ -761,10 +785,31 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
     """Every item, open or closed, and every issue closed as not planned; with `off_board`, for
     a new candidate, also the open agent issues off the board."""
     return [
-        _Entry(issue.number, issue.title, issue.body, issue.state.value, issue.number in run.board)
+        _Entry(
+            issue.number,
+            issue.title,
+            issue.body,
+            issue.state.value,
+            issue.number in run.board,
+            done=_is_done(issue, run),
+            release=issue.release,
+        )
         for issue in run.issues
         if _compared(issue, run, off_board=off_board)
     ]
+
+
+def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
+    """Add a regression reference to the candidate's body when it matches a Done item."""
+    ref = (
+        f"regression of #{entry.number}, shipped in {entry.release}"
+        if entry.release
+        else f"regression of #{entry.number}"
+    )
+    if ref in subject.body:
+        return subject
+    body = f"{subject.body}\n\n{ref}" if subject.body else ref
+    return replace(subject, body=body)
 
 
 def _reopened_after_duplicate(closures: Sequence[Closure]) -> bool:
@@ -858,8 +903,32 @@ def validate_proposal(raw: ModelProposal, types: Sequence[str], *, needs_type: b
         notes=tuple(notes),
     )
     if problems:
-        raise _InvalidProposal(MESSAGES.roadmap.intake_invalid.format(problems="; ".join(problems)))
+        raise _InvalidProposal(
+            MESSAGES.roadmap.intake_invalid.format(problems="; ".join(problems)),
+            problems=tuple(problems),
+        )
     return proposal
+
+
+def _resolve_raw(
+    raw: ModelProposal,
+    types: Sequence[str],
+    shortlist_entries: dict[int, _Entry],
+    subject: Subject,
+    *,
+    needs_type: bool,
+) -> tuple[int | None, str, Proposal | None, tuple[str, ...], Subject]:
+    named = _named_number(raw.duplicate_of)
+    rejected: tuple[str, ...] = ()
+    if named is not None and named in shortlist_entries:
+        entry = shortlist_entries[named]
+        if not entry.done:
+            return named, _line(raw.duplicate_reason), None, (), subject
+        subject = _with_regression_reference(subject, entry)
+    elif named is not None:
+        rejected = _rejected(named)
+    proposal = validate_proposal(raw, types, needs_type=needs_type)
+    return None, "", proposal, rejected, subject
 
 
 def _kind_name(evidence: Evidence) -> str:
@@ -1087,6 +1156,28 @@ def _rejected(named: int | None) -> tuple[str, ...]:
     return (MESSAGES.roadmap.intake_note_duplicate_rejected.format(number=named),)
 
 
+def _has_person_milestone(subject: Subject) -> bool:
+    if subject.item is not None:
+        return placed_by_person(subject.item)
+    return subject.release is not None
+
+
+def _has_person_priority(subject: Subject) -> bool:
+    if any(lb.lower().startswith(CONST_ROADMAP_PRIORITY_LABEL_PREFIX) for lb in subject.labels):
+        return True
+    if subject.item is not None and subject.item.priority is not None:
+        record = subject.item.job_record
+        return (
+            ItemField.PRIORITY not in record or record[ItemField.PRIORITY] != subject.item.priority
+        )
+    return False
+
+
+def _is_planned_by_person(subject: Subject) -> bool:
+    """Whether a person planned the candidate: set its milestone, or Priority on card or label."""
+    return _has_person_milestone(subject) or _has_person_priority(subject)
+
+
 @dataclass
 class _Planner:
     """Decides each candidate in turn; one it places joins the comparison set. With
@@ -1164,18 +1255,59 @@ class _Planner:
             shortlist=tuple(entry.neighbour() for entry in shortlist),
             types=self.run.types,
         )
+        return self._propose(subject, request, vector, shortlist)
+
+    def _propose(
+        self,
+        subject: Subject,
+        request: ProposalRequest,
+        vector: list[float] | None,
+        shortlist: list[_Entry],
+    ) -> IntakeDecision:
+        shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
+        needs_type = subject.type_label is None
         try:
             raw = self.run.model.propose(request)
+            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
+            )
         except UnusableProposalError as exc:
             return self._skipped(subject, str(exc), ())
-        named = _named_number(raw.duplicate_of)
-        if named is not None and named in {entry.number for entry in shortlist}:
-            return self._duplicate(subject, named, _line(raw.duplicate_reason))
-        rejected = _rejected(named)
+        except _InvalidProposal as first_exc:
+            return self._retry_proposal(
+                subject, request, vector, shortlist_entries, first_exc, needs_type=needs_type
+            )
+        if dup is not None:
+            return self._duplicate(subject, dup, dup_reason)
+        assert proposal is not None
+        nearest = self._nearest_item(vector, subject.number)
+        return self._place(subject, proposal, rejected + proposal.notes, nearest)
+
+    def _retry_proposal(
+        self,
+        subject: Subject,
+        request: ProposalRequest,
+        vector: list[float] | None,
+        shortlist_entries: dict[int, _Entry],
+        first_exc: _InvalidProposal,
+        *,
+        needs_type: bool,
+    ) -> IntakeDecision:
+        retry_request = replace(request, problem="; ".join(first_exc.problems))
         try:
-            proposal = validate_proposal(raw, self.run.types, needs_type=subject.type_label is None)
-        except _InvalidProposal as exc:
-            return self._skipped(subject, str(exc), rejected)
+            raw = self.run.model.propose(retry_request)
+            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
+            )
+        except UnusableProposalError as exc:
+            return self._skipped(subject, str(exc), ())
+        except _InvalidProposal as second_exc:
+            both = (*first_exc.problems, *second_exc.problems)
+            reason = MESSAGES.roadmap.intake_invalid.format(problems="; ".join(both))
+            return self._skipped(subject, reason, ())
+        if dup is not None:
+            return self._duplicate(subject, dup, dup_reason)
+        assert proposal is not None
         nearest = self._nearest_item(vector, subject.number)
         return self._place(subject, proposal, rejected + proposal.notes, nearest)
 
@@ -1187,6 +1319,17 @@ class _Planner:
     def _duplicate(self, subject: Subject, original: int, reason: str) -> IntakeDecision:
         """A duplicate, which for an agent's candidate is the quota's fold into its original;
         its comment is left out when a stopped run already left it."""
+        if subject.number is not None and (
+            _is_planned_by_person(subject) or subject.number < original
+        ):
+            return IntakeDecision(
+                subject,
+                Outcome.DUPLICATE,
+                quota=QuotaDecision.NOT_COUNTED,
+                original=original,
+                reason=reason,
+                held=True,
+            )
         marker = CONST_ROADMAP_INTAKE_DUPLICATE_MARKER
         comment = (
             None
@@ -1417,7 +1560,11 @@ def _apply_decision(
     store: RoadmapStore, decision: IntakeDecision, refine_hook: Callable[[RoadmapStore, int], Any]
 ) -> IntakeApplied:
     """One candidate's writes, and what they wrote."""
-    if decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
+    if (
+        decision.outcome is Outcome.DUPLICATE
+        and decision.subject.number is not None
+        and not decision.held
+    ):
         assert decision.original is not None
         store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
         return IntakeApplied(closed=1)
@@ -1445,15 +1592,16 @@ def apply_intake(
     refine: Callable[[RoadmapStore, int], Any] | None = None,
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time. A candidate whose write fails is
-    skipped and named in `failed`, and the others are still written (#1443). A rate limit or a
-    GraphQL budget refusal stops the round, since every later write would be refused too."""
+    skipped and named in `failed`, and the others are still written (#1443). A rate limit, a
+    GraphQL budget refusal or a token GitHub refuses stops the round, since every later write
+    would be refused too (#983)."""
     refine_hook = refine or refine_item
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
         try:
             written.append(_apply_decision(store, decision, refine_hook))
-        except GitHubRateLimitError:
+        except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
         except GitHubOperationError as exc:
             failed.append(_failed_placement(decision.subject, exc))
@@ -1535,6 +1683,12 @@ def _decision_lines(decision: IntakeDecision, standing: QuotaStanding) -> list[s
     if decision.outcome is Outcome.FOLD:
         return [_fold_line(decision, standing)]
     if decision.outcome is Outcome.DUPLICATE:
+        if decision.held:
+            return [
+                texts.intake_possible_duplicate_line.format(
+                    subject=subject, original=decision.original, reason=decision.reason
+                )
+            ]
         action = (
             texts.intake_duplicate_closes
             if decision.subject.number is not None

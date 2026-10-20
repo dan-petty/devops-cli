@@ -1,9 +1,6 @@
 # Task: Changed-Line Coverage on Pull Requests (diff-cover) (#850)
 
 **Issue**: [#850](https://github.com/dan-petty/devops-cli/issues/850)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: scope/ci, scope/github
 
 ## Description

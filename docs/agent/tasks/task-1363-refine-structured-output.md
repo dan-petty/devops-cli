@@ -1,9 +1,6 @@
 # Task: Refine sends the model the proposal schema and never caches a reply that fails it, and one failed item skips only that item (#1363)
 
 **Issue**: [#1363](https://github.com/dan-petty/devops-cli/issues/1363)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/bug, scope/ai, scope/github
 
 ## Description

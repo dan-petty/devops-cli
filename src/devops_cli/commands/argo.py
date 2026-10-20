@@ -160,25 +160,24 @@ def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
 
 
 def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
-    from devops_cli.config.settings import get_argocd_token
-    from devops_cli.k8s.credentials import get_or_mint_argocd_token
+    from devops_cli.argo.credentials import resolve_argocd_server_and_token
 
-    if not settings.argocd.url:
+    url, token = resolve_argocd_server_and_token(settings)
+    if not url:
         print_error(
             MESSAGES.argo.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
     try:
-        validate_service_url(settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network)
+        validate_service_url(url, "ArgoCD", allow=settings.ai.allow_private_network)
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return settings.argocd.url.rstrip("/"), headers
+    return url, headers
 
 
 # =============================================================================

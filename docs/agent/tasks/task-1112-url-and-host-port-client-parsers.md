@@ -1,9 +1,6 @@
 # Task: URL and host:port reads use the sending client's parser (#1112)
 
 **Issue**: [#1112](https://github.com/dan-petty/devops-cli/issues/1112)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p2-medium
 **Scope**: scope/security
 
 ## Description

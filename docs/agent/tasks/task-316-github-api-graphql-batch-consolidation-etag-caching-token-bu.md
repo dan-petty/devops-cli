@@ -1,9 +1,6 @@
 # Task 316: GitHub API GraphQL Batch Consolidation, ETag Caching & Token-Bucket Rate Optimization Research
 
 **Issue**: [#316](https://github.com/dan-petty/devops-cli/issues/316)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/github`, `priority/p0-critical`
 
 ---

@@ -1,9 +1,6 @@
 # Task: PR Monitor Reports Copilot as Idle or Completed When Its Timeline or Reviews Read Fails (#806)
 
 **Issue**: [#806](https://github.com/dan-petty/devops-cli/issues/806)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/github, type/bug
 
 ## Description

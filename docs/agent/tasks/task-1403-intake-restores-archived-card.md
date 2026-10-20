@@ -1,9 +1,6 @@
 # Task: Intake restores an issue's archived board card instead of failing every round (#1403)
 
 **Issue**: [#1403](https://github.com/dan-petty/devops-cli/issues/1403)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/github
 
 ## Description

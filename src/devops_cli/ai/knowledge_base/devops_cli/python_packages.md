@@ -123,7 +123,8 @@ from devops_cli.ai.review_schema import Finding
   - `devops_cli.ai.agents.tools.MCPToolset`: Connects external Model Context Protocol servers as native callable agent tools.
 
 ```python
-from devops_cli.ai.agents import PydanticAgent, AgentTool, MCPToolset
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.tools import AgentTool, MCPToolset
 
 async with MCPToolset(url="http://localhost:8000/sse") as mcp:
     agent = PydanticAgent(
@@ -255,6 +256,7 @@ The development environment leverages modern Python engineering tools managed vi
 | **`pytest-cov`** | `7.1.0` | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
 | **`pytest-xdist`** | `3.8.0` | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
 | **`pytest-randomly`** | `5.0.0` | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
+| **`pytest-timeout`** | `2.4.0` | Fails a test that hangs at the per-test bound in `[tool.pytest.ini_options]` (`timeout`, `timeout_method = "signal"`), so a stuck test fails in its own process and the run carries on. | `@pytest.mark.timeout(<seconds>)` for a test that needs longer |
 | **`bandit`** | `1.9.4` | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run bandit -r --ini .bandit --severity-level medium` |
 | **`actionlint-py`** | `1.7.12.25` | GitHub Actions workflow syntax and expression validation engine. | `uv run actionlint` |
 | **`pre-commit`** | `4.6.2` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |

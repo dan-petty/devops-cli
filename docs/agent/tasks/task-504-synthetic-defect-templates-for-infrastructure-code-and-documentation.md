@@ -1,9 +1,6 @@
 # Task 504: Synthetic Defect Templates for Infrastructure Code and Documentation
 
 **Issue**: [#504](https://github.com/dan-petty/devops-cli/issues/504)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/review`, `priority/p2-medium`
 
 ---

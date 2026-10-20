@@ -1,9 +1,6 @@
 # Task: Automated release cutting diagnoses ruleset refusals and raises typed errors (#1280)
 
 **Issue**: [#1280](https://github.com/dan-petty/devops-cli/issues/1280)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/release, scope/roadmap
 
 ## Description

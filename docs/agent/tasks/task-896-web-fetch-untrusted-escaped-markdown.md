@@ -1,9 +1,6 @@
 # Task 896: web_fetch Renders Pages as Untrusted, Escaped Markdown Within a Budget
 
 **Issue**: [#896](https://github.com/dan-petty/devops-cli/issues/896)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/security, scope/ai
 
 ---

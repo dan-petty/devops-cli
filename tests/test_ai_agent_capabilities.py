@@ -6,14 +6,14 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.capabilities import (
     BaseCapability,
     Capability,
     Instrumentation,
-    RunContext,
     SystemReminders,
-    Tool,
 )
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.tools import Tool
 
 
 def test_system_reminders_cadence_and_condition() -> None:
@@ -114,7 +114,7 @@ def test_use_thread_executor_capability() -> None:
     """Verify UseThreadExecutor and ThreadExecutor synchronous execution."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from devops_cli.ai.agents import ThreadExecutor, UseThreadExecutor
+    from devops_cli.ai.agents.capabilities import ThreadExecutor, UseThreadExecutor
 
     # 1. Default initialization
     cap = UseThreadExecutor(max_workers=4, thread_name_prefix="test-worker")
@@ -140,7 +140,8 @@ def test_use_thread_executor_capability() -> None:
 
 def test_select_model_capability() -> None:
     """Verify SelectModel dynamic runtime model selection."""
-    from devops_cli.ai.agents import ModelSelectionContext, RunContext, SelectModel
+    from devops_cli.ai.agents.capabilities import ModelSelectionContext, SelectModel
+    from devops_cli.ai.agents.context import RunContext
 
     def model_selector(ctx: ModelSelectionContext[dict[str, Any]]) -> str:
         deps = ctx.deps or {}
@@ -165,7 +166,8 @@ def test_select_model_capability() -> None:
 
 def test_resolve_model_id_capability() -> None:
     """Verify ResolveModelId custom alias and tenant-specific model resolution."""
-    from devops_cli.ai.agents import ModelResolutionContext, ResolveModelId, RunContext
+    from devops_cli.ai.agents.capabilities import ModelResolutionContext, ResolveModelId
+    from devops_cli.ai.agents.context import RunContext
 
     def custom_resolver(ctx: ModelResolutionContext[dict[str, Any]], model_id: str) -> str | None:
         if model_id.startswith("tenant:"):
@@ -198,7 +200,9 @@ def test_resolve_model_id_capability() -> None:
 
 def test_prepare_tools_capability() -> None:
     """Verify PrepareTools dynamic filtering and modification of tool definitions."""
-    from devops_cli.ai.agents import PrepareTools, RunContext, Tool
+    from devops_cli.ai.agents.capabilities import PrepareTools
+    from devops_cli.ai.agents.context import RunContext
+    from devops_cli.ai.agents.tools import Tool
 
     def filter_admin_tools(ctx: RunContext[dict[str, Any]], tools: list[Any]) -> list[Any]:
         is_admin = (ctx.deps or {}).get("is_admin", False)
@@ -228,7 +232,7 @@ def test_prepare_tools_capability() -> None:
 
 def test_prefix_tools_capability() -> None:
     """Verify PrefixTools namespacing capability and .prefix_tools() convenience method."""
-    from devops_cli.ai.agents import Capability, PrefixTools
+    from devops_cli.ai.agents.capabilities import Capability, PrefixTools
 
     cap = Capability()
 
@@ -260,7 +264,9 @@ def test_prefix_tools_capability() -> None:
 
 def test_include_tool_return_schemas_capability() -> None:
     """Verify IncludeToolReturnSchemas capability applying schema inclusion flag."""
-    from devops_cli.ai.agents import IncludeToolReturnSchemas, RunContext, Tool
+    from devops_cli.ai.agents.capabilities import IncludeToolReturnSchemas
+    from devops_cli.ai.agents.context import RunContext
+    from devops_cli.ai.agents.tools import Tool
 
     cap = IncludeToolReturnSchemas(include_return_schema=True)
     assert cap.id == "include_tool_return_schemas"
@@ -276,7 +282,9 @@ def test_include_tool_return_schemas_capability() -> None:
 
 def test_set_tool_metadata_capability() -> None:
     """Verify SetToolMetadata capability attaching custom tags/attributes to tools."""
-    from devops_cli.ai.agents import Capability, RunContext, SetToolMetadata, Tool
+    from devops_cli.ai.agents.capabilities import Capability, SetToolMetadata
+    from devops_cli.ai.agents.context import RunContext
+    from devops_cli.ai.agents.tools import Tool
 
     cap = Capability()
 
@@ -307,7 +315,7 @@ def test_set_tool_metadata_capability() -> None:
 
 def test_raise_content_filter_error_capability() -> None:
     """Verify RaiseContentFilterError capability detecting content safety block finish reasons."""
-    from devops_cli.ai.agents import RaiseContentFilterError
+    from devops_cli.ai.agents.capabilities import RaiseContentFilterError
     from devops_cli.exceptions.ai import ContentFilterError
 
     cap = RaiseContentFilterError()
@@ -332,7 +340,7 @@ def test_raise_content_filter_error_capability() -> None:
 
 def test_reinject_system_prompt_capability() -> None:
     """Verify ReinjectSystemPrompt capability ensuring agent system prompt presence."""
-    from devops_cli.ai.agents import ReinjectSystemPrompt
+    from devops_cli.ai.agents.capabilities import ReinjectSystemPrompt
 
     cap = ReinjectSystemPrompt()
     assert cap.id == "reinject_system_prompt"
@@ -363,7 +371,8 @@ def test_reinject_system_prompt_capability() -> None:
 
 def test_process_history_capability() -> None:
     """Verify ProcessHistory capability applying message history processors."""
-    from devops_cli.ai.agents import ProcessHistory, RunContext
+    from devops_cli.ai.agents.capabilities import ProcessHistory
+    from devops_cli.ai.agents.context import RunContext
 
     # 1. Trimming processor (keep last N messages)
     def keep_recent(messages: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -412,7 +421,8 @@ def test_process_history_capability() -> None:
 @pytest.mark.anyio
 async def test_process_event_stream_capability() -> None:
     """Verify ProcessEventStream capability handling streaming events and observers."""
-    from devops_cli.ai.agents import AgentStreamEvent, ProcessEventStream, RunContext
+    from devops_cli.ai.agents.capabilities import AgentStreamEvent, ProcessEventStream
+    from devops_cli.ai.agents.context import RunContext
 
     observed_events: list[AgentStreamEvent] = []
 
@@ -439,7 +449,7 @@ def test_subagents_usage_forwarding() -> None:
     """Verify SubAgents capability forwards usage tracking to child agents."""
     from unittest.mock import MagicMock
 
-    from devops_cli.ai.agents import AgentUsage, RunContext
+    from devops_cli.ai.agents.context import AgentUsage, RunContext
     from devops_cli.ai.harness.workflow import SubAgent, SubAgents
 
     child_agent = MagicMock()
@@ -473,7 +483,7 @@ def test_subagents_usage_forwarding() -> None:
 
 def test_agent_tool_args_validator() -> None:
     """Verify args_validator_func supports pre-execution argument validation and transformation."""
-    from devops_cli.ai.agents import FunctionToolset, Tool
+    from devops_cli.ai.agents.tools import FunctionToolset, Tool
 
     def sample_tool(ctx: Any, target: str, count: int) -> str:
         return f"{target}:{count}"
@@ -505,7 +515,8 @@ def test_agent_tool_args_validator() -> None:
 
 def test_abstract_custom_toolset() -> None:
     """Verify custom AbstractToolset subclasses integrate with PydanticAgent."""
-    from devops_cli.ai.agents import AbstractToolset, AgentTool, PydanticAgent, Tool
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.tools import AbstractToolset, AgentTool, Tool
 
     class DynamicMetricToolset(AbstractToolset):
         prefix: str = "metric_"
@@ -534,7 +545,7 @@ async def test_embedder_and_embedding_result() -> None:
     """Verify Embedder interface and EmbeddingResult container indexing and cost calculation."""
     from unittest.mock import MagicMock
 
-    from devops_cli.ai.agents import Embedder, EmbeddingResult
+    from devops_cli.ai.agents.embeddings import Embedder, EmbeddingResult
 
     mock_engine = MagicMock()
     mock_engine.embed_query.return_value = [0.1, 0.2, 0.3, 0.4]
@@ -587,7 +598,7 @@ async def test_embedder_and_embedding_result() -> None:
     # 6. Pydantic AI TestEmbeddingModel and EmbeddingSettings integration
     from pydantic_ai.embeddings import TestEmbeddingModel
 
-    from devops_cli.ai.agents import EmbeddingSettings
+    from devops_cli.ai.agents.embeddings import EmbeddingSettings
 
     test_embedder = Embedder(TestEmbeddingModel(), settings=EmbeddingSettings())
     res_test = test_embedder.embed_query_sync("Test query")
@@ -602,15 +613,15 @@ def test_testing_utilities_and_agent_override() -> None:
     import json
 
     import devops_cli.ai.agents.testing as testing_module
-    from devops_cli.ai.agents import (
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.testing import (
         AgentInfo,
         FunctionModel,
-        FunctionToolset,
         ModelNotAllowedError,
-        PydanticAgent,
         TestModel,
         capture_run_messages,
     )
+    from devops_cli.ai.agents.tools import FunctionToolset
 
     # 1. TestModel custom outputs
     tm1 = TestModel(custom_output_text="Custom Output")
@@ -679,14 +690,10 @@ def test_testing_utilities_and_agent_override() -> None:
 @pytest.mark.anyio
 async def test_mcp_toolset_and_capability() -> None:
     """Verify MCPToolset lifecycle, tool registration, and MCP capability adaptation."""
-    from devops_cli.ai.agents import (
-        MCP,
-        AgentTool,
-        MCPServerTool,
-        MCPToolset,
-        PydanticAgent,
-        TestModel,
-    )
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.capabilities import MCP, MCPServerTool
+    from devops_cli.ai.agents.testing import TestModel
+    from devops_cli.ai.agents.tools import AgentTool, MCPToolset
 
     # 1. MCPToolset instantiation and lifecycle
     tool1 = AgentTool(

@@ -272,22 +272,3 @@ def test_planning_harness_uses_format_as_xml() -> None:
     assert "Step 1: Test" in xml_out
     assert "Step 2: Code" in xml_out
     assert "</plan_reminder>" in xml_out
-
-
-def test_public_package_reexports() -> None:
-    """Verify format_as_xml and helpers are re-exported across public package tiers."""
-    import devops_cli.ai as ai
-    import devops_cli.ai.agents as agents
-    import devops_cli.ai.agents.pydantic_agent as pydantic_agent
-
-    assert hasattr(ai, "format_as_xml")
-    assert hasattr(ai, "format_prompt_data")
-    assert hasattr(ai, "format_examples_as_xml")
-    assert hasattr(ai, "format_rag_context_as_xml")
-    assert hasattr(ai, "format_findings_as_xml")
-    assert hasattr(ai, "format_plan_reminder_as_xml")
-    assert hasattr(ai, "format_metadata_as_xml")
-    assert hasattr(ai, "format_context_as_xml")
-
-    assert hasattr(agents, "format_as_xml")
-    assert hasattr(pydantic_agent, "format_as_xml")

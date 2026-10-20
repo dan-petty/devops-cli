@@ -295,7 +295,7 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
         dotted_set(s, "ai", "invalid")
 
     # get_llm_client instantiation
-    from devops_cli.config.settings import get_llm_client
+    from devops_cli.ai.client import get_llm_client
 
     client = get_llm_client(task="chat")
     assert client is not None

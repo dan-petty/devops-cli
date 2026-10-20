@@ -355,14 +355,15 @@ class UntrustedMarkdownConverter(MarkdownConverter):
         if strip_mode in ("strip", True):
             return text.strip("\r\n")
         if strip_mode == "strip_one":
-            if text.startswith("\r\n"):
-                text = text[2:]
-            elif text.startswith(("\n", "\r")):
-                text = text[1:]
-            if text.endswith("\r\n"):
-                text = text[:-2]
-            elif text.endswith(("\n", "\r")):
-                text = text[:-1]
+            for prefix in ("\r\n", "\n", "\r"):
+                if text.startswith(prefix):
+                    text = text.removeprefix(prefix)
+                    break
+            for suffix in ("\r\n", "\n", "\r"):
+                updated = text.removesuffix(suffix)
+                if updated != text:
+                    text = updated
+                    break
         return text
 
 
@@ -476,28 +477,31 @@ def render_untrusted_page(
 # =============================================================================
 
 
-def _canonical_host(name: str) -> str:
-    """Return a host or domain name lowercased and without its trailing dot, as DNS compares it."""
-    return name.lower().rstrip(".")
-
-
-def _in_domains(hostname: str, domains: list[str]) -> bool:
-    """Return True if `hostname` is one of `domains` or a subdomain of one."""
-    return any(hostname == d or hostname.endswith(f".{d}") for d in map(_canonical_host, domains))
-
-
 def _validate_fetch_domain(
     hostname: str,
     allowed_domains: list[str] | None,
     blocked_domains: list[str] | None,
 ) -> None:
     """Validate requested hostname against domain allow/block lists."""
-    hostname = _canonical_host(hostname)
-    if blocked_domains and _in_domains(hostname, blocked_domains):
-        raise ValueError(f"Domain '{hostname}' is in blocked_domains")
+    import dns.exception
 
-    if allowed_domains and not _in_domains(hostname, allowed_domains):
-        raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
+    from devops_cli.core.dns_names import is_at_or_under
+
+    if blocked_domains:
+        try:
+            blocked = any(is_at_or_under(hostname, d) for d in blocked_domains)
+        except dns.exception.DNSException as exc:
+            raise ValueError(f"Domain '{hostname}' is in blocked_domains") from exc
+        if blocked:
+            raise ValueError(f"Domain '{hostname}' is in blocked_domains")
+
+    if allowed_domains:
+        try:
+            allowed = any(is_at_or_under(hostname, d) for d in allowed_domains)
+        except dns.exception.DNSException as exc:
+            raise ValueError(f"Domain '{hostname}' is not in allowed_domains") from exc
+        if not allowed:
+            raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
 
 
 def _validate_fetch_hop(
@@ -527,7 +531,9 @@ def web_fetch_tool(
 ) -> Tool:
     """Create a Tool that fetches the content of a web page and converts it to markdown."""
     egress_policy = partial(
-        _validate_fetch_hop, allowed_domains=allowed_domains, blocked_domains=blocked_domains
+        _validate_fetch_hop,
+        allowed_domains=allowed_domains,
+        blocked_domains=blocked_domains,
     )
 
     def fetch_web_page(url: str) -> str:

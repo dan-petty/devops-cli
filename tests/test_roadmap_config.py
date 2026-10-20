@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.config import RoadmapConfig, parse_roadmap_config, read_roadmap_config
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 
 
 def test_omitted_keys_take_their_defaults() -> None:
@@ -27,7 +26,8 @@ def test_omitted_keys_take_their_defaults() -> None:
         config.release_credit_base,
         config.release_credit_per_delivered_item,
         config.release_item_target,
-    ) == (2, 12, 4, 24, 2, 14, 200, 0.8, 0.25, 10, 1, 50)
+        config.release_copilot_passes,
+    ) == (2, 12, 4, 24, 2, 14, 200, 0.8, 0.25, 10, 1, 50, 2)
 
 
 def test_a_missing_board_fails_and_names_the_key() -> None:
@@ -52,6 +52,23 @@ def test_a_negative_release_slots_fails_and_names_the_key() -> None:
     with pytest.raises(ConfigurationError, match="release_slots") as raised:
         parse_roadmap_config("board = 2\nrelease_slots = -1\n")
     assert raised.value.details["key"] == "release_slots"
+
+
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        pytest.param("release_copilot_passes = 0", "release_copilot_passes", id="below-one"),
+        pytest.param("release_copilot_pass = 2", "release_copilot_pass", id="unknown-key"),
+    ],
+)
+def test_a_copilot_budget_below_one_or_misspelt_fails_and_names_the_key(
+    line: str, key: str
+) -> None:
+    """A release pull request gets at least one Copilot pass, and a misspelt key is not read as
+    the default (#1345)."""
+    with pytest.raises(ConfigurationError, match=key) as raised:
+        parse_roadmap_config(f"board = 2\n{line}\n")
+    assert raised.value.details["key"] == key
 
 
 def test_a_releases_limit_is_its_cap_plus_its_slots() -> None:
@@ -84,6 +101,7 @@ def test_every_key_can_be_set() -> None:
         "planning_horizon = 1\nstall_days = 7\nopen_issue_limit = 150\n"
         "throttle_start_fraction = 0.75\noverage_step_fraction = 0.2\nrelease_credit_base = 5\n"
         "release_credit_per_delivered_item = 2\nrelease_item_target = 40\n"
+        "release_copilot_passes = 3\n"
     )
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=3,
@@ -98,11 +116,12 @@ def test_every_key_can_be_set() -> None:
         release_credit_base=5,
         release_credit_per_delivered_item=2,
         release_item_target=40,
+        release_copilot_passes=3,
     )
 
 
 def test_this_repositorys_file_names_board_2_and_declares_quota_keys() -> None:
-    text = (Path(__file__).parents[1] / ".github" / "roadmap.toml").read_text(encoding="utf-8")
+    text = (REPO_ROOT / ".github" / "roadmap.toml").read_text(encoding="utf-8")
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=2,
         planning_horizon=3,

@@ -1,9 +1,6 @@
 # Task 1115: A Sandbox Workspace Never Exposes the Engine Socket or the Runtime Directory
 
 **Issue**: [#1115](https://github.com/dan-petty/devops-cli/issues/1115)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: type/security, scope/security
 
 ## Description

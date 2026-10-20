@@ -10,10 +10,10 @@ import pydantic_ai.mcp as p_mcp
 import pytest
 from pydantic_ai.toolsets import PrefixedToolset
 
-from devops_cli.ai.agents import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.testing import TestModel
 from devops_cli.ai.agents.tools import MCPToolset as AgentMCPToolset
-from devops_cli.ai.mcp import (
+from devops_cli.ai.mcp.toolset import (
     EmbeddedResource,
     Icon,
     MCPError,
@@ -77,7 +77,7 @@ async def test_create_devops_mcp_toolset() -> None:
     # Gated domains appear once hydrated, and are absent before.
     gated = {
         "k8s_pods": "k8s",
-        "docker_stats": "docker",
+        "docker_images": "docker",
         "scan_trivy": "scan",
         "vault_set": "vault",
     }
@@ -100,7 +100,7 @@ async def test_create_devops_mcp_toolset() -> None:
     assert "resource://mcp/tools" in resource_uris
 
     # Direct tool call via in-process server
-    res = await ts.direct_call_tool("config_output", {"output_format": "json"})
+    res = await ts.direct_call_tool("config_output", {"json_output": True})
     assert isinstance(res, str)
     assert "DEVOPS_CLI_CONFIG" in res or "config" in res.lower()
 
@@ -203,25 +203,3 @@ async def test_pydantic_agent_with_native_mcp_toolset() -> None:
         with agent.override(model=TestModel(custom_output_text="MCP execution successful")):
             res = agent.run("Run cluster check")
             assert res.content == "MCP execution successful"
-
-
-def test_public_package_reexports() -> None:
-    """Verify MCP tools and types are re-exported across public package tiers."""
-    import devops_cli.ai as ai
-    import devops_cli.ai.agents as agents
-    import devops_cli.ai.agents.pydantic_agent as pydantic_agent
-    import devops_cli.ai.mcp as mcp_pkg
-
-    assert hasattr(mcp_pkg, "create_devops_mcp_toolset")
-    assert hasattr(mcp_pkg, "load_devops_mcp_toolsets")
-    assert hasattr(mcp_pkg, "MCPToolset")
-    assert hasattr(mcp_pkg, "load_mcp_toolsets")
-    assert hasattr(mcp_pkg, "MCPError")
-
-    assert hasattr(ai, "create_devops_mcp_toolset")
-    assert hasattr(ai, "load_mcp_toolsets")
-    assert hasattr(ai, "MCPError")
-
-    assert hasattr(agents, "create_devops_mcp_toolset")
-    assert hasattr(agents, "load_mcp_toolsets")
-    assert hasattr(pydantic_agent, "create_devops_mcp_toolset")

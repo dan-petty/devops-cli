@@ -1,9 +1,6 @@
 # Task 154: Remediate DevSecOps Review Findings & Enhance Self-Improvement Loop
 
 **Issue**: [#154](https://github.com/dan-petty/devops-cli/issues/154)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/ai`
 
 ---

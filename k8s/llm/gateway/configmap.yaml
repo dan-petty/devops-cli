@@ -88,6 +88,8 @@ data:
           model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           num_retries: 0
+        model_info:
+          supports_reasoning: true
 
       # One group per devops-review model, copying its deployments and weights exactly, so a
       # review can be pinned to one model and routed as the pool routes it. No max_input_tokens
@@ -108,6 +110,8 @@ data:
           model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           num_retries: 0
+        model_info:
+          supports_reasoning: true
 
       - model_name: gemma4:31b
         litellm_params:

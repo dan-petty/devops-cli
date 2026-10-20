@@ -22,8 +22,10 @@ AI_HARDWARE_COST_USD = "ai.hardware_cost_usd"
 AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
+AI_GATEWAY_URL = "ai.gateway_url"
 AI_API_KEY = "ai.api_key"
 AI_REASONING_EFFORT = "ai.reasoning_effort"
+AI_SUPPORTS_REASONING = "ai.supports_reasoning"
 AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
 AI_MAX_RETRIES = "ai.max_retries"
 
@@ -148,6 +150,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_OLLAMA_URLS,
     AI_OLLAMA_MAX_PARALLEL,
     AI_API_BASE_URL,
+    AI_GATEWAY_URL,
     AI_API_KEY,
     AI_REASONING_EFFORT,
     AI_ALLOW_PRIVATE_NETWORK,

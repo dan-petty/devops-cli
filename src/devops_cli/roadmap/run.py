@@ -234,12 +234,9 @@ def _write_intake_record(path: Path, record: IntakeRecord) -> None:
 
 def _get_session_login() -> str:
     """Account login of the process GitHub identity."""
-    try:
-        from devops_cli.github.session import get_github_session
+    from devops_cli.github.session import get_github_session
 
-        return get_github_session().login
-    except Exception:
-        return "devops-cli"
+    return get_github_session().login
 
 
 def _current_actor(store: RoadmapStore) -> str | None:

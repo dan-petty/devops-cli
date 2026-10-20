@@ -1,9 +1,6 @@
 # Task: A release keeps 4 slots above its cap of 12, so a start still fills to 12 and nothing is trimmed or descoped until it holds more than 16 (#1514)
 
 **Issue**: [#1514](https://github.com/dan-petty/devops-cli/issues/1514)
-**Status**: Done
-**Milestone**: v0.2.33
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/roadmap, priority/p1-high
 **Feasibility**: Confirmed against origin/release/v0.2.33 (b5ea6ff): `RoadmapConfig` had only `release_cap` (`extra="forbid"`, `roadmap/config.py:40-43`), and `_fill_or_trim` and `_cap_decisions` used it as both the fill target and the limit; `release_slots` is therefore a code default only, since an older Service would refuse the key in `.github/roadmap.toml`.
 

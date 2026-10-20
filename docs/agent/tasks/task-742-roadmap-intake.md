@@ -1,7 +1,6 @@
 # Task: Single-Entry Item Intake with Duplicate Detection, Placement and the Agent Filing Quota (#742)
 
 **Issue**: [#742](https://github.com/dan-petty/devops-cli/issues/742)
-**Status**: Done
 
 ## Description
 `devops roadmap intake` is the one way new work becomes an item. It takes every open issue not on the board, every board item intake left without a Priority, or one candidate that is not an issue yet (`--title` with `--body-file`, or the Python entry point `intake_candidate`). Each candidate is embedded with the comparison set (every board item and every issue closed as not planned) and judged by the model against its five nearest items; a duplicate is closed as a duplicate of the original, or, for a new candidate, not filed. The model's structured proposal (type, Priority P1-P3, Value, Effort, optional evidence, each with a reason) is checked by code. P0 needs evidence that appears in the text or was attached by the caller, that GitHub confirms, from a trusted source. A critical fix goes where #740's table admits it; everything else goes to the backlog. Writes come in a fixed order with Priority last, so a run that stops is finished by the next one. Intake also enforces the agent filing quota from #1153. It follows the dry-run rule (#412's amendment, 2026-10-04): `--dry-run` makes no request and prints the requests a run makes; `--plan`, which intake with no mode flag runs after a one-line note, reads GitHub and calls the model, writes nothing and reports its spend; `--confirm` writes.

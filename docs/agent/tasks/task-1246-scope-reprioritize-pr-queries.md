@@ -1,9 +1,6 @@
 # Task: Scope Roadmap Reprioritization Pull Request Queries (#1246)
 
 **Issue**: [#1246](https://github.com/dan-petty/devops-cli/issues/1246)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p0-critical
 **Scope**: scope/github, type/bug
 
 ## Description

@@ -31,10 +31,10 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.valkey import ValkeyError
-from devops_cli.valkey.client import ValkeyClient
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import AIConfig
+    from devops_cli.valkey.client import ValkeyClient
 
 INDEX_PREFIX = f"{CONST_CACHE_NAMESPACE_ROOT}:runs"
 # The figures a `devops review score` run records that a later run may not let fall, each with
@@ -252,6 +252,8 @@ class RunIndex:
     @classmethod
     def connect(cls, url: str, password: str | None) -> RunIndex:
         """The index in the Valkey at `url`, such as `valkey://host:port`."""
+        from devops_cli.valkey.client import ValkeyClient
+
         return cls(
             ValkeyClient(host=url, password=password, timeout=DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS)
         )

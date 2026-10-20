@@ -8,11 +8,11 @@ prompts from `benchmark_suite_system.md` and `benchmark_suite_user.md`, which ne
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 from devops_cli.ai.task_loader import load_task_prompt
+from tests.support.paths import REPO_ROOT
 
-_SRC = Path(__file__).resolve().parent.parent / "src" / "devops_cli"
+_SRC = REPO_ROOT / "src" / "devops_cli"
 
 
 def _named_prompts() -> dict[str, list[str]]:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -41,15 +42,19 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import (
     BOARD_BUDGET_OPERATION,
     BOARD_CARD_OPERATION,
     BOARD_ITEMS_OPERATION,
+    GRAPHQL_BUDGET_OPERATION,
 )
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -89,6 +94,7 @@ from devops_cli.roadmap.store import (
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
 from tests.roadmap_board_fake import GitHubFake, field_id
+from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -424,6 +430,62 @@ def test_a_duplicate_close_a_person_reopened_is_placed_without_a_duplicate_check
     ) == ([()], [], "New")
 
 
+def test_a_candidate_with_a_person_placed_milestone_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an existing candidate with a milestone placed by a person is held as a possible
+    duplicate, leaving it open and writing nothing (#1686)."""
+    original = roadmap.issue("Split work", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P1-High")
+    parent = roadmap.issue("Parent task", release=NEXT)
+    roadmap.run(FakeModel(duplicates={"Parent task": "Split work"}))
+    assert roadmap.store.closures(parent) == []
+    assert roadmap.comments(parent) == []
+    assert roadmap.store.item(parent) is None
+
+
+def test_a_candidate_with_a_person_priority_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an existing candidate with a person-set Priority label is held as a possible
+    duplicate, leaving it open and writing nothing (#1686)."""
+    original = roadmap.issue("Feature A", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
+    candidate = roadmap.issue("Feature A copy", labels=("priority/p1-high",))
+    roadmap.run(FakeModel(duplicates={"Feature A copy": "Feature A"}))
+    assert roadmap.store.closures(candidate) == []
+    assert roadmap.comments(candidate) == []
+
+
+def test_a_candidate_older_than_its_matched_original_is_held_as_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an older candidate matched to a newer original is held as a possible duplicate,
+    leaving it open and writing nothing (#1686)."""
+    parent = roadmap.issue("Older parent task")
+    split = roadmap.issue("Newer split task", on_board=True)
+    roadmap.store.set_field(roadmap.item(split), ItemField.PRIORITY, "P1-High")
+    roadmap.run(FakeModel(duplicates={"Older parent task": "Newer split task"}))
+    assert roadmap.store.closures(parent) == []
+    assert roadmap.comments(parent) == []
+
+
+def test_an_unplanned_newer_candidate_matched_to_an_older_original_is_closed_as_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """Verify an unplanned, newer candidate matched to an older original is closed as a duplicate (#1686)."""
+    original = roadmap.issue("Original feature", on_board=True)
+    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
+    copy = roadmap.issue("Duplicate feature")
+    roadmap.run(FakeModel(duplicates={"Duplicate feature": "Original feature"}))
+    closures = roadmap.store.closures(copy)
+    (comment,) = roadmap.comments(copy)
+    assert (
+        [(c.reason, c.duplicate_of) for c in closures],
+        f"#{original}" in comment,
+    ) == ([("duplicate", original)], True)
+
+
 # ── Priority and evidence ─────────────────────────────────────────────────────
 
 
@@ -702,12 +764,17 @@ def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
             operation="roadmap.write",
             details={CONST_GRAPHQL_REFUSAL_RESET_KEY: NOW.isoformat()},
         ),
+        GitHubUnauthenticatedError(
+            "gh has no GitHub login that GitHub accepts", operation="refresh_quota"
+        ),
     ],
+    ids=["rate-limit", "budget", "token-refused"],
 )
 def test_a_rate_limit_or_budget_refusal_stops_the_round_with_no_further_writes(
-    roadmap: Roadmap, refusal: GitHubRateLimitError
+    roadmap: Roadmap, refusal: GitHubOperationError
 ) -> None:
-    """Every later write would be refused too, so the round stops at the first (#1400)."""
+    """Every later write would be refused too, so the round stops at the first (#1400): a rate
+    limit, a GraphQL budget refusal or a token GitHub refuses (#983)."""
     first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
     tried: list[int] = []
 
@@ -716,9 +783,73 @@ def test_a_rate_limit_or_budget_refusal_stops_the_round_with_no_further_writes(
         raise refusal
 
     with patch.object(roadmap.store, "add_item", side_effect=refuse):
-        with pytest.raises(GitHubRateLimitError):
+        with pytest.raises(type(refusal)):
             roadmap.run(FakeModel())
     assert (tried, roadmap.store.item(second), _labels(roadmap, second)) == ([first], None, ())
+
+
+def test_a_quota_that_could_not_be_read_skips_the_candidate_and_writes_the_next(
+    roadmap: Roadmap,
+) -> None:
+    """An unread quota may be an outage that passes before the next candidate, so it skips the
+    candidate, names it, and writes the next (#983)."""
+    first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
+    add_item = roadmap.store.add_item
+
+    def unread_first(number: int) -> object:
+        if number == first:
+            raise GitHubUnreadError(
+                "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
+                operation="refresh_quota",
+            )
+        return add_item(number)
+
+    with patch.object(roadmap.store, "add_item", side_effect=unread_first):
+        with pytest.raises(RoadmapIntakeError) as raised:
+            roadmap.run(FakeModel())
+    assert (raised.value.failed_items, roadmap.store.item(second) is not None) == ((first,), True)
+
+
+@pytest.mark.parametrize(
+    ("refused", "error"),
+    [
+        pytest.param("gh: Bad credentials (HTTP 401)", GitHubUnauthenticatedError, id="401"),
+        pytest.param(
+            "gh: You have exceeded a secondary rate limit. (HTTP 403)",
+            GitHubRateLimitError,
+            id="rate-limited",
+        ),
+    ],
+)
+def test_a_quota_refresh_github_refuses_stops_the_round_after_one_refresh(
+    roadmap: Roadmap, refused: str, error: type[GitHubOperationError]
+) -> None:
+    """Each write goes through the real `run_gh`, whose ledger has no quota yet, and `gh api
+    rate_limit` is refused: a refused token or a rate limit stops the round at the first
+    candidate, so the refresh runs once (#983)."""
+    from devops_cli.github import rate_limiter
+
+    _, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
+
+    def write_through_gh(number: int) -> None:
+        rate_limiter.run_gh(["api", "--method", "POST", f"repos/{REPO}/issues/{number}/labels"])
+
+    refusal = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", refused)
+    with (
+        patch.object(roadmap.store, "add_item", side_effect=write_through_gh),
+        patch.object(rate_limiter, "run_subprocess", return_value=refusal) as gh,
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("time.sleep"),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        roadmap.run(FakeModel())
+    assert (
+        type(raised.value),
+        [call.args[0] for call in gh.call_args_list],
+        roadmap.store.item(second),
+    ) == (error, [["gh", "api", "rate_limit"]], None)
 
 
 def test_a_person_put_on_the_board_without_a_priority_gets_only_its_empty_fields(
@@ -1032,6 +1163,56 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
     ) == (True, True, True, True, True, 1, True)
 
 
+def test_intake_plan_reports_possible_duplicate_left_for_a_person(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """Verify devops roadmap intake --plan reports a person-planned candidate as a possible duplicate
+    held for a person rather than closing it as duplicate (#1686)."""
+    parent = board.issue("feat: parent issue", release=NEXT)
+    split = board.issue("feat: split issue", on_board=True)
+    board.store.set_field(board.item(split), ItemField.PRIORITY, "P1-High")
+    fake_model.duplicates["feat: parent issue"] = "feat: split issue"
+    output = _intake("--issue", str(parent), "--plan")
+    assert (
+        f"#{parent} feat: parent issue: possible duplicate of #{split}, left for a person" in output
+    )
+    assert "close as a duplicate" not in output
+    assert "writes:" not in output
+
+
+def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
+    board: Roadmap, fake_model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-10-18: `gh api rate_limit` ran past its timeout while intake read the board and
+    then its GraphQL spend, and `devops roadmap intake --plan` ended in a `TimeoutExpired`
+    traceback. The board read and the spend go through the real `run_gh` here, with gh faked:
+    the plan names the timed-out refresh and exits 1, and the spend is reported as unread
+    (#983)."""
+    from devops_cli.github import rate_limiter
+
+    board.issue("feat: previewed")
+    github = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=1)
+    monkeypatch.setattr(board.store, "items", github.items)
+    monkeypatch.setattr(board.store, "graphql_spend", github.graphql_spend)
+    timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
+    with (
+        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+    ):
+        result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "Could not plan intake: Failed to refresh rate limits from GitHub API: gh api rate_limit "
+        "timed out after 10 seconds" in output,
+        "Traceback" in result.output,
+        fake_model.requests,
+    ) == (1, SystemExit, True, False, [])
+
+
 def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
     board: Roadmap, fake_model: FakeModel
 ) -> None:
@@ -1096,7 +1277,7 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
     steps = [
         "Dry run: no request was made",
         f"gh api -H 'Accept: application/vnd.github.raw+json' repos/{REPO}/contents/.github/roadmap.toml",
-        f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
+        f"GET 'https://api.github.com/repos/{REPO}/milestones?state=all&per_page=100' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
         f"{REPO}/contents/.github/labels.yml",
@@ -1269,18 +1450,18 @@ def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
     replies = {"search/issues": '{"total_count": 0, "incomplete_results": false}'}
 
     def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        ran.append(("gh", *args))
+        ran.append(("GET", *args) if args[0].startswith(API) else ("gh", *args))
         stdout = next((reply for key, reply in replies.items() if key in args), "[]")
         return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
-    store = GitHubRoadmapStore(REPO, runner=gh)
+    store = GitHubRoadmapStore(REPO, runner=gh, session=RunnerSession(gh))
     store.repository_file(".github/roadmap.toml", ref="v0.2.26")
     store.releases()
     store.issues()
     store.count_issues(IssueQuery(state=GitHubState.OPEN))
     store.repository_file(".github/labels.yml", ref="v0.2.26")
     planned = dry_run_intake(REPO, ref="v0.2.26").requests
-    shown = {tuple(arg.replace("<n>", "1") for arg in r.argv) for r in planned if r.argv}
+    shown = {r.argv for r in planned if r.argv}
     assert (len(ran), set(ran) <= shown) == (5, True)
 
 
@@ -1332,27 +1513,33 @@ def test_the_mode_flags_exclude_each_other(no_requests: None, flags: tuple[str, 
     assert "one of --dry-run, --plan and --confirm" in _intake(*flags, exit_code=1)
 
 
-def test_the_spend_meter_counts_each_gh_request_by_api_and_each_model_call() -> None:
-    ran: list[list[str]] = []
+def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_call(
+    github_api: GitHubApiFake,
+) -> None:
+    """Every GitHub request a run makes waits its turn on the identity's ledger: a gh command
+    through `run_gh` and a request the GitHub session sends alike (#983). The meter reports the
+    requests paced since it started, by the resource they spend, and the embedding and proposal
+    calls; a request paced before it started is not the run's."""
+    from devops_cli.github import rate_limiter
 
-    def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        ran.append(args)
-        return subprocess.CompletedProcess(args, 0, "[]", "")
-
-    meter = SpendMeter(gh=gh)
-    for args in (
-        ["api", "repos/example/roadmap/issues?state=all&per_page=100&page=1"],
-        ["api", "-X", "GET", "search/issues", "-f", "q=repo:example/roadmap", "-F", "per_page=1"],
-        ["project", "item-list", "1", "--owner", "example", "--format", "json"],
-        ["api", "graphql", "-f", "query=query { viewer { login } }"],
-    ):
-        meter.run(args, check=False, quiet=True, use_cache=False)
+    limiter = rate_limiter.get_github_rate_limiter()
+    for resource in ("search", "graphql"):
+        limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 600)
+    limiter.acquire(subcommand="core")
+    meter = SpendMeter()
+    answered = subprocess.CompletedProcess(["gh"], 0, "[]", "")
+    with patch.object(rate_limiter, "_burst_protected_subprocess", return_value=answered):
+        rate_limiter.run_gh(["api", "repos/example/roadmap/issues/1"])
+        rate_limiter.run_gh(["api", "-X", "GET", "search/issues", "-f", "q=x", "-F", "per_page=1"])
+        rate_limiter.run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"])
+    listing = "/repos/example/roadmap/milestones?state=all&per_page=100"
+    github_api.route("GET", listing, github_json([]))
+    list(get_github_session().paginate(listing))
     model = meter.model(FakeModel())
     model.embed(["one", "two"])
     model.propose(ProposalRequest(title="t", body="b", shortlist=(), types=("type/bug",)))
-    assert (len(ran), meter.spend()) == (
-        4,
-        Spend(rest=1, search=1, graphql=2, embedding_calls=1, embedded_texts=2, model_calls=1),
+    assert meter.spend() == Spend(
+        rest=2, search=1, graphql=1, embedding_calls=1, embedded_texts=2, model_calls=1
     )
 
 
@@ -1367,10 +1554,12 @@ def test_open_roadmap_sends_every_github_request_through_the_given_runner(
         runners.append(options.get("runner"))
         return store
 
+    def runner(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, "", "")
+
     monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", open_store)
-    meter = SpendMeter()
-    open_roadmap(REPO, ref=None, runner=meter.run)
-    assert runners == [meter.run, meter.run]
+    open_roadmap(REPO, ref=None, runner=runner)
+    assert runners == [runner, runner]
 
 
 def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
@@ -1447,7 +1636,7 @@ def _in_process(exits: list[int], body_files: list[Path]) -> Callable[..., str]:
 
 
 def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accepts(
-    board: Roadmap, fake_model: FakeModel
+    board: Roadmap, fake_model: FakeModel, tmp_path: Path
 ) -> None:
     board.issue("feat: from mcp")
     tool = asyncio.run(mcp_server.mcp.get_tool("roadmap_intake"))
@@ -1455,31 +1644,36 @@ def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accep
     exits: list[int] = []
     body_files: list[Path] = []
     before = len(board.store.job_writes())
+    temp_body = tmp_path / "body.txt"
+    temp_body.write_text("text", encoding="utf-8")
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, body_files)):
         planned = mcp_server.roadmap_intake(repo=REPO)
-        mcp_server.roadmap_intake(repo=REPO, issues=[1])
+        mcp_server.roadmap_intake(repo=REPO, issue=[1])
         mcp_server.roadmap_intake(
-            repo=REPO, title="feat: via mcp", body="text", source=PARENT, borrow_reason="split"
+            repo=REPO,
+            title="feat: via mcp",
+            body_file=temp_body,
+            source=PARENT,
+            borrow_reason="split",
         )
         previewed = len(board.store.job_writes())
-        mcp_server.roadmap_intake(repo=REPO, mode="confirm")
+        mcp_server.roadmap_intake(repo=REPO, confirm=True)
     properties = tool.parameters["properties"] if tool else {}
     assert (
         "roadmap_intake" in names,
-        properties["mode"]["default"],
-        "confirm" in properties or "body_file" in properties or "filed_by" in properties,
+        "confirm" in properties,
         "proposal call(s)" in planned,
         exits,
         previewed - before,
         len(board.store.job_writes()) > previewed,
         [path.exists() for path in body_files],
-    ) == (True, "plan", False, True, [0, 0, 0, 0], 0, True, [False])
+    ) == (True, True, True, [0, 0, 0, 0], 0, True, [True])
 
 
 def test_the_mcp_mirror_dry_run_makes_no_request(no_requests: None) -> None:
     exits: list[int] = []
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, [])):
-        output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
+        output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     assert (exits, "Dry run: no request was made" in output) == ([0], True)
 
 
@@ -1509,11 +1703,11 @@ def test_a_dry_run_through_the_entry_point_exports_no_telemetry(
 def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     no_requests: None, exports: list[str]
 ) -> None:
-    output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
+    output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     get_tracer().shutdown()
     after_dry_run = list(exports)
     with pytest.raises(ToolError):
-        mcp_server.roadmap_intake(repo=REPO, mode="plan")
+        mcp_server.roadmap_intake(repo=REPO, plan_only=True)
     get_tracer().shutdown()
     assert (
         "Dry run: no request was made" in output,
@@ -1580,6 +1774,155 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
         roadmap.store.item(garbled),
         roadmap.fields(fine)[1],
     ) == ([Outcome.SKIP, Outcome.PLACE], True, None, "P2-Medium")
+
+
+def test_off_list_type_retries_once_and_files_valid_second_reply(roadmap: Roadmap) -> None:
+    """A proposal with an off-list type is retried once with feedback; a valid second reply
+    places the candidate after exactly two calls (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/infra"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("perf(ci): faster hook")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    assert (
+        decision.outcome,
+        decision.shown[0],
+        len(client.calls),
+        "type 'type/perf' is not one of" in client.calls[1],
+        "type/infra" in _labels(roadmap, issue),
+    ) == (Outcome.PLACE, "type/infra", 2, True, True)
+
+
+def test_two_off_list_replies_skip_candidate_with_both_problems_in_report(roadmap: Roadmap) -> None:
+    """Two off-list replies skip the candidate with both problems named in the report (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/unknown"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("perf(ci): bad type twice")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    report = render_intake(plan, repo=REPO)
+    assert (
+        decision.outcome,
+        len(client.calls),
+        "type 'type/perf' is not one of" in decision.reason,
+        "type 'type/unknown' is not one of" in decision.reason,
+        "type 'type/perf' is not one of" in report,
+        "type 'type/unknown' is not one of" in report,
+        roadmap.store.item(issue) is None,
+    ) == (Outcome.SKIP, 2, True, True, True, True, True)
+
+
+def test_off_list_value_or_effort_is_retried_the_same_way(roadmap: Roadmap) -> None:
+    """An off-list value or effort is retried once with feedback (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"value": "Enormous"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"value": "High"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    issue = roadmap.issue("feat: big thing")
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    apply_intake(roadmap.store, plan)
+    (decision,) = plan.decisions
+    assert (
+        decision.outcome,
+        decision.shown[2],
+        len(client.calls),
+        "value 'Enormous' is not one of" in client.calls[1],
+        roadmap.fields(issue)[2],
+    ) == (Outcome.PLACE, "High", 2, True, "High")
+
+
+def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
+    board: Roadmap, fake_model: FakeModel, tmp_path: Path
+) -> None:
+    """devops roadmap intake --title ... --body-file ... --confirm exits non-zero when the candidate
+    is skipped (#1677)."""
+    body_file = tmp_path / "body.md"
+    body_file.write_text("candidate body", encoding="utf-8")
+    fake_model.proposals["perf(ci): fail"] = {"type": "type/perf"}
+    output = _intake(
+        "--title",
+        "perf(ci): fail",
+        "--body-file",
+        str(body_file),
+        "--confirm",
+        exit_code=1,
+    )
+    assert "skipped, nothing written" in output
+
+
+def test_intake_confirm_over_existing_issues_exits_zero_when_skipped(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """A run over existing candidates keeps exit 0 and lists its skips (#1677)."""
+    issue = board.issue("perf(ci): existing issue")
+    fake_model.proposals["perf(ci): existing issue"] = {"type": "type/perf"}
+    output = _intake("--confirm", exit_code=0)
+    assert f"#{issue} perf(ci): existing issue: skipped, nothing written" in output
+
+
+def test_intake_plan_counts_retry_as_one_more_model_call(
+    board: Roadmap, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--plan counts retry as one more model call in spend line, and --dry-run makes no request (#1677)."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat_structured(
+            self, system: str, prompt: str, schema: type[ModelProposal]
+        ) -> ModelProposal:
+            self.calls.append(prompt)
+            if len(self.calls) == 1:
+                return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/perf"})
+            return schema.model_validate(DEFAULT_PROPOSAL | {"type": "type/infra"})
+
+    client = Client()
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
+    monkeypatch.setattr(roadmap_command, "build_intake_model", lambda: model)
+    board.issue("perf(ci): planned retry")
+    plan_output = _intake("--plan")
+    assert "2 proposal call(s)" in plan_output
+    assert len(client.calls) == 2
 
 
 def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: Roadmap) -> None:
@@ -1866,7 +2209,9 @@ def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadma
             card={"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"},
         )
     owner = REPO.split("/")[0]
-    return github, GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    return github, GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
 
 
 def _intake_on_github(
@@ -1980,7 +2325,9 @@ def test_an_issue_whose_card_a_person_archived_is_placed_in_one_round_on_that_ca
     placed = github.card(1) or {}
     second = len(github.calls)
     owner = REPO.split("/")[0]
-    later = GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    later = GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=github, session=RunnerSession(github)
+    )
     again, apply_again = _intake_on_github(later, FakeModel())
     assert (
         applied.placed,
@@ -2025,7 +2372,7 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         writes,
         [args for args in github.calls[start:] if "--method" in args or "-X" in args],
         (github.issues[1]["milestone"] or {}).get("title"),
-        github.comments.get(1),
+        github.comments.get(1, []),
         {key: restored.get(key) for key in ("status", "priority", "job record", "isArchived")},
         (applied.placed, applied.finished),
     ) == (
@@ -2033,10 +2380,38 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         [["project", "item-add"], ["project", "item-archive"]],
         [],
         CURRENT,
-        None,
+        [],
         {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
         (0, (1,)),
     )
+
+
+def test_an_owner_lookup_gh_drops_while_graphql_is_rate_limited_stops_the_round() -> None:
+    """The first candidate's `item-add` drops its owner lookup, and GraphQL refuses the budget
+    read that would tell why with a secondary rate limit: the error stays a rate limit, so the
+    round stops there instead of sending every later candidate's lookup into the limit (#983)."""
+    github, _ = on_github()
+    for number in (1, 2):
+        github.seed_issue(number, f"feat: new idea {number}")
+    adds: list[list[str]] = []
+
+    def gh(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if args[:2] == ["project", "item-add"]:
+            adds.append(args)
+            return subprocess.CompletedProcess(args, 1, "", "unknown owner type")
+        if adds and GRAPHQL_BUDGET_OPERATION in " ".join(args):
+            refused = "gh: You have exceeded a secondary rate limit. (HTTP 403)"
+            return subprocess.CompletedProcess(args, 1, "", refused)
+        return github(args, **kwargs)
+
+    owner = REPO.split("/")[0]
+    store = GitHubRoadmapStore(
+        REPO, board_owner=owner, board_number=1, runner=gh, session=RunnerSession(github)
+    )
+    _, apply = _intake_on_github(store, FakeModel())
+    with pytest.raises(GitHubRateLimitError):
+        apply()
+    assert len(adds) == 1
 
 
 def test_an_intake_of_three_placements_reads_the_board_once() -> None:
@@ -2053,3 +2428,82 @@ def test_an_intake_of_three_placements_reads_the_board_once() -> None:
         _sent(github, 0, BOARD_ITEMS_OPERATION),
         [(github.card(n) or {}).get("priority") for n in (251, 252, 253)],
     ) == (3, 1, 3, ["P2-Medium"] * 3)
+
+
+def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(
+    roadmap: Roadmap,
+) -> None:
+    """A candidate matching only a closed completed (Done) item is filed as a new issue whose
+    body references the Done item (#1671)."""
+    done = roadmap.issue(
+        "feat: tempo trace storage",
+        body="Store traces in tempo.",
+        state=GitHubState.CLOSED,
+        state_reason=CloseReason.COMPLETED,
+        release="v0.2.35",
+        on_board=True,
+    )
+    roadmap.store.set_field(roadmap.item(done), ItemField.STATUS, "Done")
+    model = FakeModel(
+        duplicates={"fix(k8s): tempo runs under otel namespace": "feat: tempo trace storage"}
+    )
+    candidate = NewCandidate(
+        title="fix(k8s): tempo runs under otel namespace",
+        body="Tempo fails to start under restricted pod security.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert decision.outcome is Outcome.PLACE
+    applied = apply_intake(roadmap.store, plan)
+    (filed_number,) = applied.filed
+    filed_issue = next(i for i in roadmap.store.issues() if i.number == filed_number)
+    assert f"regression of #{done}, shipped in v0.2.35" in filed_issue.body
+    assert "Tempo fails to start under restricted pod security." in filed_issue.body
+
+
+def test_candidate_matching_open_item_is_folded(roadmap: Roadmap) -> None:
+    """A candidate matching an open item folds into that item as duplicate (#1671)."""
+    open_item = roadmap.issue(
+        "feat: open feature",
+        body="Feature in progress.",
+        state=GitHubState.OPEN,
+        on_board=True,
+    )
+    model = FakeModel(duplicates={"feat: open feature copy": "feat: open feature"})
+    candidate = NewCandidate(
+        title="feat: open feature copy",
+        body="Duplicate feature.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert (decision.outcome, decision.quota, decision.original) == (
+        Outcome.DUPLICATE,
+        QuotaDecision.FOLD,
+        open_item,
+    )
+    applied = apply_intake(roadmap.store, plan)
+    assert applied.filed == ()
+
+
+def test_candidate_matching_item_closed_as_not_planned_is_folded(roadmap: Roadmap) -> None:
+    """A candidate matching an item closed as not planned folds into that decision (#1671)."""
+    not_planned = roadmap.issue(
+        "feat: rejected proposal",
+        body="Rejected idea.",
+        state=GitHubState.CLOSED,
+        state_reason=CloseReason.NOT_PLANNED,
+    )
+    model = FakeModel(duplicates={"feat: rejected proposal again": "feat: rejected proposal"})
+    candidate = NewCandidate(
+        title="feat: rejected proposal again",
+        body="Same idea again.",
+    )
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    (decision,) = plan.decisions
+    assert (decision.outcome, decision.quota, decision.original) == (
+        Outcome.DUPLICATE,
+        QuotaDecision.FOLD,
+        not_planned,
+    )
+    applied = apply_intake(roadmap.store, plan)
+    assert applied.filed == ()

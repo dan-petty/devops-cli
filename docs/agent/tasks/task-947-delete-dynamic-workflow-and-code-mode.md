@@ -1,9 +1,6 @@
 # Task: Delete the Dynamic Workflow and Code Mode Capabilities, Whose Sandboxes Let Model-Written Code Reach os and Start Processes (#947)
 
 **Issue**: [#947](https://github.com/dan-petty/devops-cli/issues/947)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

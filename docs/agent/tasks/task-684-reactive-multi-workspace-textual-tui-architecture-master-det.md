@@ -1,9 +1,6 @@
 # Task: Dashboard Keeps Its Place Across Refreshes and Shows a Finding Detail Pane (#684)
 
 **Issue**: [#684](https://github.com/dan-petty/devops-cli/issues/684)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description

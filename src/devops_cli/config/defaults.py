@@ -65,6 +65,7 @@ DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o-mini"
 DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
+DEFAULT_AI_SUPPORTS_REASONING: Final[bool] = False
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
 DEFAULT_AI_CONTEXT_WINDOW: int = 32768
@@ -293,6 +294,11 @@ DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
 # high (up to 3600s) to accommodate homelab performance and local AI/LLM inference.
 DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
+# The GitHub session's connect timeout (#983): api.github.com is reached over the public
+# internet, where Linux resends a lost SYN after 1, 2 and 4 s and a TLS handshake on a lossy link
+# runs longer, so the 1 s bound meant for local services failed live reads. It stays well under
+# the 30 s gh's own dialer allows.
+DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
@@ -428,6 +434,8 @@ DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
     "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
 }
 DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values())
+# The longest a gateway chat request waits for one of those slots, as long as an Ollama lease.
+DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_REVIEW_MAX_CONCURRENCY: int = 32
 DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
@@ -435,6 +443,16 @@ DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
 # `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
 DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
+# The workers of a narrowed `devops ci test <paths>` run given no `-n` (#1669): serial up to this
+# many test modules, then this many workers. The full suite keeps addopts' `-n logical`. Median of
+# 3 runs at load 7-30 on 16 CPUs, wall and CPU seconds at -n 0 / 4 / 16: 1 module 6 / 11 / 15 s
+# and 9 / 30 / 133 CPU-s; 8 modules 36 / 51 / 40 s and 37 / 101 / 303 CPU-s; 12 modules 79 / 82 /
+# 54 s and 84 / 193 / 358 CPU-s, so serial matched 4 workers at less than half their CPU; 19
+# modules 75 / 27 / 39 s and 75 / 89 / 357 CPU-s, so 4 workers ran 2.8 times faster than serial at
+# about the same CPU. A source module selects a median of 3 test modules and a p90 of 12; 90%
+# select at most 12.
+DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
+DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"
@@ -698,14 +716,14 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 51
+DEFAULT_C901_SUPPRESSION_CEILING: int = 47
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
 DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 91,
+    "src type: ignore": 89,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
     "src noqa: F401": 22,
@@ -775,6 +793,10 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
+# The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
+# --paginate` call (#983): sized for a listing of about DEFAULT_GH_MAX_PAGINATED_PAGES pages of
+# 100 items, not 100 pages of 30 s each.
+DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
 # `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).
@@ -786,8 +808,17 @@ DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
+# How long `gh api rate_limit` may run when the ledger refreshes a quota; past it the quota is
+# left unread (#983).
+DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
+# How many GET answers one GitHub session keeps with their ETags, in memory, for its next GET of
+# the same URL to be conditional (#983). An entry is one answer: a page that links a next one, at
+# most DEFAULT_GH_REST_PER_PAGE items, or a `rest()` GET's answer such as a pull request's diff; a
+# page that links none is not kept. A roadmap poll's listings and a PR monitor's reads fit well
+# inside it, and the URL read longest ago goes first.
+DEFAULT_GH_SESSION_ETAG_CACHE_SIZE: int = 64
 # A roadmap poll reads the pull requests and the GitHub Releases this many at a time: at 100 a
 # page the two pages ran to about 2 MB and 0.4 MB, and a poll needs the newest few (#1360).
 DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE: int = 20
@@ -849,9 +880,17 @@ DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION: float = 0.25
 DEFAULT_ROADMAP_RELEASE_CREDIT_BASE: int = 10
 DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM: int = 1
 DEFAULT_ROADMAP_RELEASE_ITEM_TARGET: int = 50
+# Copilot review passes one release pull request gets, the pass when it opens included. Once they
+# are spent, `devops pr copilot-pass` requests none (#1345).
+DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES: int = 2
+# The most characters of a review thread's comments its follow-up issue quotes (#1345).
+DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS: int = 4000
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
+# The least a read the GitHub session retries after a 5xx waits; jittered exponential backoff is
+# added to it. A server error is no rate limit, so it does not wait the secondary-limit floor.
+DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS: float = 1.0
 DEFAULT_GH_MAX_RATE_LIMIT_WAIT: float | None = None
 DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
 DEFAULT_SECRET_SOURCE: str = "keyring"
@@ -1005,3 +1044,13 @@ DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10
 DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS: Final[int] = 16000
 DEFAULT_ANALYSIS_SAMPLING_SEED: Final[int] = 42
 DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"
+
+# ── CLI Startup Structural Import Budgets (#1687) ───────────────────────────
+# Maximum number of unique modules imported during devops --help or --version startup.
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 550
+# Maximum number of devops_cli modules imported during devops --help or --version startup.
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 75
+# Maximum number of unique modules imported during devops <command> --help startup.
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP: Final[int] = 1100
+# Maximum number of devops_cli modules imported during devops <command> --help startup.
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP: Final[int] = 250

@@ -14,7 +14,6 @@ board before those edits; `roadmap` is the board once Backlog is New and Blocked
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -32,12 +31,11 @@ from devops_cli.roadmap.store import (
     GitHubState,
     ItemField,
 )
+from tests.support.paths import REPO_ROOT
 
 REPO = "example/roadmap"
 REF = "release/v0.2.25"
-TEMPLATE = (Path(__file__).parents[1] / ".github" / "project-template.json").read_text(
-    encoding="utf-8"
-)
+TEMPLATE = (REPO_ROOT / ".github" / "project-template.json").read_text(encoding="utf-8")
 ROADMAP = """# Strategic Roadmap
 
 ## Release Milestones (Chronological Order)

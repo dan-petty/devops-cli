@@ -620,7 +620,10 @@ class CICommandHelp:
     audit: str = "Audit installed dependencies for known vulnerabilities."
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
-    num_workers: str = "Number of parallel worker processes."
+    num_workers: str = (
+        "Number of parallel worker processes. Unset, a run narrowed to a few test files runs "
+        "serially, a larger selection on a few workers, and the full suite on every logical CPU."
+    )
     test_paths: str = (
         "Source or test files to verify. Narrows the run to covering tests; "
         "omit to run the full suite."
@@ -856,6 +859,22 @@ class PRCommandHelp:
     edit_milestone: str = "Set the milestone for this pull request."
     threads_app: str = "Manage and programmatically resolve PR review discussion threads."
     threads_list: str = "List PR review discussion threads, file locations, and comments."
+    threads_file_issues: str = (
+        "A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release "
+        "pull request's Copilot passes are spent. It files each unresolved review thread of the "
+        "open release pull request not named by --keep as a follow-up issue, which quotes the "
+        "thread in a fence, names its file and line, links it and has no milestone, labelled "
+        "source/agent when Copilot started the thread; then the thread gets a reply naming the "
+        "issue and is resolved. Without --confirm it makes the same reads and writes nothing: "
+        "run it so first, with the same --keep flags. A --keep id that names no unresolved "
+        "thread stops it before any write. A rerun opens no second issue for a thread: it "
+        "resolves a thread whose reply from the same account names its issue, and finds the "
+        "issue it opened for a thread whose reply failed by the thread's link."
+    )
+    threads_keep: str = "Leave this thread open, for a regression the release fixes; repeatable."
+    threads_confirm: str = (
+        "File the issues, reply in the threads and resolve them; without it, nothing is written."
+    )
     threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
     threads_resolve: str = (
         "Programmatically mark one or more PR review discussion threads as resolved."
@@ -910,6 +929,16 @@ class PRCommandHelp:
     hardening_report_pr: str = "Audit a specific pull request by number."
     hardening_report_fail_on_missing: str = (
         "Exit with non-zero exit code if hardening is missing on any audited defect pull request."
+    )
+    copilot_pass: str = (
+        "Request one Copilot review pass on the open release pull request while its passes, "
+        "every Copilot review submitted and one running or requested and not yet started, are "
+        "below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent "
+        "it requests nothing and exits 1. Any other pull request, and a merged or closed one, is "
+        "refused, since Copilot reviews only the open release pull request."
+    )
+    copilot_pass_number: str = (
+        "Release pull request number; the current branch's pull request when omitted."
     )
 
 
@@ -1366,7 +1395,10 @@ class ReviewCommandHelp:
         "MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, "
         "dependencies and network references one line each that points at review.md."
     )
-    concurrency: str = "Max concurrent workers for parallel review."
+    concurrency: str = (
+        "Max concurrent workers for parallel review. Through the gateway it is capped at the "
+        "gateway's backend slots."
+    )
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
 

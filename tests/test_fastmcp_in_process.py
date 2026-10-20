@@ -17,7 +17,7 @@ from devops_cli.ai.mcp.dispatcher import (
     get_mcp_dispatcher,
     resolve_tool_domain,
 )
-from devops_cli.ai.mcp.server import _run_mcp_cmd, _run_mcp_resource, ci_run, mcp
+from devops_cli.ai.mcp.server import _run_mcp_cmd, _run_mcp_resource, ci, mcp
 from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
 from devops_cli.main import app
 
@@ -117,19 +117,6 @@ def test_resource_subscription_manager() -> None:
     assert manager.subscriber_count("resource://config/active") == 0
 
 
-def test_in_process_dispatcher_functional_handler() -> None:
-    """Verify direct Python functional handler registration and invocation."""
-    dispatcher = InProcessDispatcher()
-
-    def mock_handler(*args: str) -> tuple[int, str]:
-        return 0, f"mocked response with {len(args)} args"
-
-    dispatcher.register_handler(("custom", "action"), mock_handler)
-    code, output = dispatcher.dispatch(["uv", "run", "devops", "custom", "action", "arg1", "arg2"])
-
-    assert (code, output) == (0, "mocked response with 2 args")
-
-
 def test_in_process_dispatcher_typer_dispatch() -> None:
     """Verify in-process execution via Typer CliRunner and execution latency."""
     dispatcher = InProcessDispatcher()
@@ -224,7 +211,7 @@ async def test_tool_failure_yields_is_error_with_status_and_diagnostic() -> None
             "dispatch",
             return_value=(1, "FAILED tests/test_ci.py::test_gate - Diagnostic details"),
         ):
-            res = await client.call_tool("ci_run", {"check": "test"}, raise_on_error=False)
+            res = await client.call_tool("ci", {"check": True}, raise_on_error=False)
             text = "\n".join(getattr(b, "text", "") for b in res.content)
             assert (
                 res.is_error,
@@ -243,30 +230,14 @@ def test_dispatcher_empty_output_fallback_for_success_and_failure() -> None:
         assert dispatcher.dispatch(["devops", "workspace", "list"]) == (1, "no output captured")
 
 
-def test_ci_run_argv_contains_check_and_timeout_exceeds_budget() -> None:
-    """The argv ci_run builds contains --check, and its timeout is at least CONST_CI_TEST_BUDGET_SECONDS."""
-    all_check_choices = [
-        "all",
-        "test",
-        "lint",
-        "format",
-        "typecheck",
-        "audit",
-        "security",
-        "actionlint",
-        "docs",
-        "uv-check",
-        "lockfile",
-        "outdated",
-        "devcontainer",
-    ]
+def test_ci_argv_contains_check_and_timeout_exceeds_budget() -> None:
+    """The argv ci builds contains --check, and its timeout is at least CONST_CI_TEST_BUDGET_SECONDS."""
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_run:
         mock_run.return_value = "Success"
-        for choice in all_check_choices:
-            ci_run(check=choice)  # type: ignore[arg-type]
-            call_args, call_kwargs = mock_run.call_args
-            cmd = call_args[0]
-            assert (
-                "--check" in cmd,
-                call_kwargs["timeout"] >= CONST_CI_TEST_BUDGET_SECONDS,
-            ) == (True, True)
+        ci(check=True)
+        call_args, call_kwargs = mock_run.call_args
+        cmd = call_args[0]
+        assert (
+            "--check" in cmd,
+            call_kwargs["timeout"] >= CONST_CI_TEST_BUDGET_SECONDS,
+        ) == (True, True)

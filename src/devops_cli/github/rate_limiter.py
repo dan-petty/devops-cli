@@ -12,8 +12,8 @@ No initial quotas, no hardcoded default windows, default request rate, or bursti
 
 from __future__ import annotations
 
-import asyncio
 import fcntl
+import functools
 import hashlib
 import json
 import logging
@@ -29,41 +29,45 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
-from aiolimiter import AsyncLimiter
 from ratelimit import limits, sleep_and_retry  # type: ignore[import-untyped]
 from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
-    CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
     CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS,
     CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
-    CONST_GITHUB_RATE_LIMIT_PATTERNS,
-    CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
+    CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
-    DEFAULT_GH_REST_PER_PAGE,
+    DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS,
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
 from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
-from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnreadError,
+)
+from devops_cli.github.error_classifier import (
+    classify_gh_failure,
+    gh_failure_details,
+    is_gh_rate_limited,
+    parse_retry_after,
+)
 from devops_cli.github.request_classifier import (
     gh_command_words,
-    incompatible_gh_api_paginate_flag,
     is_write_gh_command,
     parse_gh_api_args,
 )
@@ -507,6 +511,12 @@ def gh_request_resource(args: list[str]) -> str:
     return _detect_resource(_normalize_gh_args(args))
 
 
+def gh_request_is_paced(args: list[str]) -> bool:
+    """Whether `run_gh` paces a `gh` command: all but `gh api rate_limit`, which spends no quota,
+    and gh's local commands, which send no request."""
+    return not _is_rate_limit_exempt(_normalize_gh_args(args))
+
+
 def _parse_reset_epoch(reset_at: str | None) -> float | None:
     """Parse ISO resetAt string into epoch timestamp."""
     if not reset_at:
@@ -564,21 +574,6 @@ def _parse_float_safe(value: str, default: float | None = None) -> float | None:
         return default
 
 
-def _parse_retry_after_safe(value: str, default: float | None = None) -> float | None:
-    """Parse string Retry-After value safely as float seconds or HTTP-date."""
-    seconds = _parse_float_safe(value)
-    if seconds is not None:
-        return seconds
-    try:
-        from email.utils import parsedate_to_datetime
-
-        dt = parsedate_to_datetime(value.strip())
-        delay = dt.timestamp() - time.time()
-        return max(0.0, delay)
-    except ValueError, TypeError:
-        return default
-
-
 def _parse_header_line(line: str) -> tuple[str, str] | None:
     """Split and normalize header name and value if present."""
     if ":" not in line:
@@ -595,7 +590,7 @@ def _process_header_metrics(output: str) -> dict[str, Any]:
         "x-ratelimit-limit": ("limit", _parse_int_safe),
         "x-ratelimit-used": ("used", _parse_int_safe),
         "x-ratelimit-reset": ("reset_epoch", _parse_float_safe),
-        "retry-after": ("retry_after", _parse_retry_after_safe),
+        "retry-after": ("retry_after", parse_retry_after),
     }
     for line in output.splitlines():
         parsed = _parse_header_line(line)
@@ -663,6 +658,29 @@ def _handle_retry_after_wait(
 def _utc_text(epoch: float) -> str:
     """`epoch` as a UTC timestamp to the second."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+_REFRESH_OPERATION = "refresh_quota"
+
+
+def _refresh_failure(proc: subprocess.CompletedProcess[str]) -> GitHubOperationError:
+    """The error of a failed `gh api rate_limit`: the class the gh classifier names, such as
+    `GitHubUnauthenticatedError` when GitHub refused gh's login or gh had none, or
+    `GitHubRateLimitError`, which stops a caller such as intake as a refused write would; else
+    `GitHubUnreadError`, as no quota could be read.
+
+    gh writes the failure to stderr and GitHub's error body to stdout, so stderr alone is read.
+    """
+    stderr = proc.stderr or ""
+    details = gh_failure_details(stderr, exit_code=proc.returncode)
+    said = details["output"] or f"Process exited with code {proc.returncode}"
+    return classify_gh_failure(
+        stderr, exit_code=proc.returncode, operation=_REFRESH_OPERATION
+    ) or GitHubUnreadError(
+        f"Failed to refresh rate limits from GitHub API: {said}",
+        operation=_REFRESH_OPERATION,
+        details=details,
+    )
 
 
 def _unreported_resource_error(
@@ -804,10 +822,12 @@ class GitHubRateLimiter:
         self._cache: dict[str, _CacheEntry] = {}
         self._next_allowed_time: dict[str, float] = {}
         self._last_mutation_epoch: float = 0.0
-        self._async_limiters: dict[str, AsyncLimiter] = {}
         self._total_requests: int = 0
         # GraphQL points the responses reported, by resource (#1125).
         self._points_charged: dict[str, int] = {}
+        # The requests this process paced, by resource: every gh command and every request
+        # the GitHub session sends waits its turn here, each attempt once (#983).
+        self._requests_paced: dict[str, int] = {}
         self._last_request_epoch: float = 0.0
         self._last_disk_prune_epoch: float = 0.0
         self._total_throttles: int = 0
@@ -816,13 +836,6 @@ class GitHubRateLimiter:
         if persist_path:
             self._sync_from_disk_locked()
             self.prune_expired_cache()
-
-    def get_async_limiter(self, subcommand: str = "core") -> AsyncLimiter:
-        """Retrieve or create an aiolimiter.AsyncLimiter instance for the resource."""
-        with self._lock:
-            if subcommand not in self._async_limiters:
-                self._async_limiters[subcommand] = AsyncLimiter(max_rate=60, time_period=60)
-            return self._async_limiters[subcommand]
 
     def _sync_from_disk_locked(self) -> None:
         """Synchronize in-memory quotas and global request counts with disk."""
@@ -916,10 +929,10 @@ class GitHubRateLimiter:
 
         GitHub's fresh answer may still carry a reset at or before the clock, as it reports a
         window for a moment after the window ends; `calculate_delay` waits that reset out.
-        Raises GitHubRateLimitError when the refresh fails, when the answer has no `remaining`
-        and `reset` for `subcommand`, or when the clock, read before the refresh so its latency
-        never counts, is further past the reset it reported than
-        `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`.
+        A failed refresh raises what `_refresh_from_github` raises. Raises GitHubRateLimitError
+        when the answer has no `remaining` and `reset` for `subcommand`, or when the clock, read
+        before the refresh so its latency never counts, is further past the reset it reported
+        than `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`.
         """
         if self.persist_path:
             self._sync_from_disk_locked()
@@ -939,33 +952,32 @@ class GitHubRateLimiter:
         """Read GitHub's /rate_limit answer into the stored quotas.
 
         Returns the reset GitHub reported for each resource the answer gave both `remaining` and
-        `reset`. Raises GitHubRateLimitError if gh fails or the answer is empty or malformed, so
-        the underlying cause can be identified.
+        `reset`. When gh fails, it raises the class the gh classifier names, such as
+        `GitHubUnauthenticatedError` for a refused login or `GitHubRateLimitError`, and
+        `GitHubUnreadError` for any other failure, a run past
+        `DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS` or an empty answer. A malformed answer
+        raises GitHubRateLimitError, so the underlying cause can be identified.
         """
-        proc = run_subprocess(
-            [CONST_GH_CLI, "api", "rate_limit"],
-            check=False,
-            quiet=True,
-            timeout=10.0,
-        )
+        timeout = DEFAULT_GH_QUOTA_REFRESH_TIMEOUT_SECONDS
+        try:
+            proc = run_subprocess(
+                [CONST_GH_CLI, "api", "rate_limit"],
+                check=False,
+                quiet=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitHubUnreadError(
+                "Failed to refresh rate limits from GitHub API: gh api rate_limit timed out after "
+                f"{timeout:g} seconds",
+                operation=_REFRESH_OPERATION,
+                details={"timeout_seconds": timeout},
+            ) from exc
         if proc.returncode != 0:
-            err_msg = (
-                proc.stderr.strip()
-                if proc.stderr
-                else f"Process exited with code {proc.returncode}"
-            )
-            raise GitHubRateLimitError(
-                f"Failed to refresh rate limits from GitHub API: {err_msg}",
-                operation="refresh_quota",
-                details={
-                    "exit_code": proc.returncode,
-                    "stderr": proc.stderr[:256] if proc.stderr else "",
-                },
-            )
+            raise _refresh_failure(proc)
         if not proc.stdout:
-            raise GitHubRateLimitError(
-                "GitHub rate_limit API returned empty output",
-                operation="refresh_quota",
+            raise GitHubUnreadError(
+                "GitHub rate_limit API returned empty output", operation=_REFRESH_OPERATION
             )
         return _extract_rate_limit_endpoint_response(proc.stdout, self)
 
@@ -974,7 +986,8 @@ class GitHubRateLimiter:
 
         At a reset that has passed, the window has ended and the delay runs until
         `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` past it. Refreshes a quota that is not valid,
-        or raises GitHubRateLimitError so the underlying cause can be identified.
+        or raises a `GitHubOperationError` naming why it could not, so the underlying cause can
+        be identified.
         """
         with self._lock:
             if self.persist_path:
@@ -1042,6 +1055,7 @@ class GitHubRateLimiter:
         """
         target = resource or subcommand
         with self._lock:
+            self._requests_paced[target] = self._requests_paced.get(target, 0) + 1
             if self.persist_path:
                 with _disk_quota_lock(self.persist_path):
                     sleep_duration = self._acquire_locked(
@@ -1207,6 +1221,12 @@ class GitHubRateLimiter:
         with self._lock:
             return self._points_charged.get(subcommand, 0)
 
+    def requests_paced(self) -> dict[str, int]:
+        """The requests this process has paced on the ledger, by resource: gh commands and the
+        GitHub session's requests alike, each attempt once, a retry included (#983)."""
+        with self._lock:
+            return dict(self._requests_paced)
+
     def decrement_quota_estimate(self, subcommand: str, cost: int = 1) -> None:
         """Pessimistically decrement quota estimate when a command lacks rate limit headers."""
         self.record_utilization(subcommand, cost=cost)
@@ -1230,18 +1250,9 @@ class GitHubRateLimiter:
             )
 
     def is_rate_limit_error(self, message: str) -> bool:
-        """Detect whether an error output indicates primary or secondary GitHub rate limits."""
-        if not message:
-            return False
-        clean = message.lower()
-        return any(pattern in clean for pattern in CONST_GITHUB_RATE_LIMIT_PATTERNS)
-
-    def is_secondary_rate_limit(self, message: str) -> bool:
-        """Detect whether an error output indicates a secondary rate limit."""
-        if not message:
-            return False
-        clean = message.lower()
-        return any(pattern in clean for pattern in CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS)
+        """Whether gh's output names a primary or secondary rate limit, as the gh classifier
+        reads it."""
+        return is_gh_rate_limited(message)
 
     def calculate_backoff_delay(
         self, message: str, attempt: int = 1, subcommand: str = "core"
@@ -1249,8 +1260,22 @@ class GitHubRateLimiter:
         """Calculate backoff delay for primary, secondary, or Retry-After rate limits."""
         if not self.is_rate_limit_error(message):
             return 0.0
+        return self.retry_delay(
+            extract_retry_after(message), attempt=attempt, subcommand=subcommand
+        )
 
-        retry_after = extract_retry_after(message)
+    def retry_delay(
+        self,
+        retry_after: float | None,
+        *,
+        attempt: int = 1,
+        subcommand: str = "core",
+        floor: float | None = None,
+    ) -> float:
+        """The wait before retrying a refused request: the server's Retry-After, else until the
+        quota resets when it is spent, else jittered exponential backoff from `floor`, which is
+        `secondary_rate_wait` unless given. Raises GitHubRateLimitError for a wait longer than
+        `max_rate_limit_wait`."""
         if retry_after is not None and retry_after > 0.0:
             return _handle_retry_after_wait(retry_after, self.max_rate_limit_wait, subcommand)
 
@@ -1263,7 +1288,7 @@ class GitHubRateLimiter:
 
         return _calculate_secondary_delay(
             attempt,
-            floor=self.secondary_rate_wait,
+            floor=self.secondary_rate_wait if floor is None else floor,
             max_cap=self.secondary_max_cap,
             max_rate_limit_wait=self.max_rate_limit_wait,
             subcommand=subcommand,
@@ -1374,7 +1399,6 @@ def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
         pass
 
 
-_GLOBAL_RATE_LIMITER: GitHubRateLimiter | None = None
 _GLOBAL_LOCK = threading.RLock()
 
 
@@ -1396,21 +1420,29 @@ def resolve_quota_cache_path() -> Path:
     return resolve_identity_cache_dir(github_token()) / CONST_GH_QUOTA_CACHE_FILENAME
 
 
+@functools.lru_cache(maxsize=CONST_GITHUB_IDENTITY_LIMITERS_KEPT)
+def _ledger_limiter(persist_path: Path) -> GitHubRateLimiter:
+    """The one rate limiter over the quota ledger at `persist_path`."""
+    return GitHubRateLimiter(persist_path=persist_path)
+
+
 def reset_github_rate_limiter() -> None:
-    """Reset the global rate limiter instance (useful for test isolation)."""
-    global _GLOBAL_RATE_LIMITER
+    """Forget every identity's rate limiter, so the next one reads its ledger from disk again."""
     with _GLOBAL_LOCK:
-        _GLOBAL_RATE_LIMITER = None
+        _ledger_limiter.cache_clear()
+
+
+def identity_rate_limiter(token: str) -> GitHubRateLimiter:
+    """The rate limiter of the identity `token` is: its quota ledger and the pacing of its requests,
+    one per identity, which `run_gh` and that identity's session share."""
+    with _GLOBAL_LOCK:
+        return _ledger_limiter(resolve_identity_cache_dir(token) / CONST_GH_QUOTA_CACHE_FILENAME)
 
 
 def get_github_rate_limiter() -> GitHubRateLimiter:
-    """The rate limiter of the session's identity, keeping that identity's quota and cache."""
-    global _GLOBAL_RATE_LIMITER
-    persist_path = resolve_quota_cache_path()
+    """The rate limiter of the process's identity, keeping that identity's quota and cache."""
     with _GLOBAL_LOCK:
-        if _GLOBAL_RATE_LIMITER is None or _GLOBAL_RATE_LIMITER.persist_path != persist_path:
-            _GLOBAL_RATE_LIMITER = GitHubRateLimiter(persist_path=persist_path)
-        return _GLOBAL_RATE_LIMITER
+        return _ledger_limiter(resolve_quota_cache_path())
 
 
 def _is_sensitive_command(args: list[str]) -> bool:
@@ -1578,238 +1610,6 @@ def _extract_rate_limit_endpoint_response(
     return {r_name: reset for r_name, reset in resets.items() if reset is not None}
 
 
-def _extract_page_per_page(url_or_endpoint: str) -> int:
-    """Extract per_page from query string or default to DEFAULT_GH_REST_PER_PAGE."""
-    parts = urlsplit(url_or_endpoint)
-    query = parse_qs(parts.query)
-    per_page_vals = query.get("per_page")
-    if per_page_vals and per_page_vals[0].isdigit():
-        return int(per_page_vals[0])
-    return DEFAULT_GH_REST_PER_PAGE
-
-
-def _build_paginated_url(endpoint: str, page: int, per_page: int = DEFAULT_GH_REST_PER_PAGE) -> str:
-    """Append or update page and per_page query parameters in endpoint URL."""
-    parts = urlsplit(endpoint)
-    query = parse_qs(parts.query, keep_blank_values=True)
-    query["page"] = [str(page)]
-    if "per_page" not in query:
-        query["per_page"] = [str(per_page)]
-    new_query = urlencode(query, doseq=True)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
-
-
-def _find_api_endpoint_idx(args: list[str]) -> int:
-    """Find index of API endpoint path within gh api argument list."""
-    for idx, arg in enumerate(args):
-        if idx > 0 and not arg.startswith("-"):
-            return idx
-    return -1
-
-
-def _execute_single_page(
-    base_args: list[str],
-    endpoint_idx: int,
-    base_endpoint: str,
-    page: int,
-    per_page: int,
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-) -> subprocess.CompletedProcess[str]:
-    """Prepend calculated delay and execute a single page request."""
-    page_endpoint = _build_paginated_url(base_endpoint, page, per_page)
-    page_args = list(base_args)
-    page_args[endpoint_idx] = page_endpoint
-
-    limiter.acquire(subcommand=target_resource)
-    try:
-        proc = cast(
-            subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
-                [CONST_GH_CLI, *page_args],
-                cwd=cwd,
-                check=False,
-                quiet=quiet,
-                timeout=timeout,
-            ),
-        )
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(
-            args=[CONST_GH_CLI, *page_args],
-            returncode=124,
-            stdout="",
-            stderr=f"GitHub API request timed out after {timeout} seconds",
-        )
-    _post_process_run(proc, target_resource, limiter, cost=1)
-    return proc
-
-
-def _is_expected_page_shape(data: Any) -> bool:
-    """Return True if data is a list or a check-runs dict."""
-    if isinstance(data, list):
-        return True
-    return (
-        isinstance(data, dict) and "check_runs" in data and isinstance(data.get("check_runs"), list)
-    )
-
-
-def _append_paginated_data(combined_items: list[Any], data: Any, per_page: int) -> bool:
-    """Append page items and return True if more pages may exist."""
-    if isinstance(data, dict):
-        combined_items.append(data)
-        check_runs = data.get("check_runs", [])
-        total_count = data.get("total_count", 0)
-        return len(check_runs) >= per_page and len(combined_items) * per_page < total_count
-
-    if isinstance(data, list):
-        combined_items.extend(data)
-        return len(data) >= per_page
-
-    return False
-
-
-def _validate_page_payload(
-    proc: subprocess.CompletedProcess[str],
-    base_endpoint: str,
-    page: int,
-) -> tuple[Any, subprocess.CompletedProcess[str] | None]:
-    """Validate page stdout and return (data, None), or (None, error_proc) on failure."""
-    stdout_trimmed = (proc.stdout or "").strip()
-    if not stdout_trimmed:
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: empty response",
-        )
-        return None, err_proc
-
-    try:
-        data = json.loads(stdout_trimmed)
-    except (json.JSONDecodeError, ValueError) as exc:
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: malformed JSON ({exc})",
-        )
-        return None, err_proc
-
-    if not _is_expected_page_shape(data):
-        err_proc = subprocess.CompletedProcess(
-            args=proc.args,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: unexpected response shape",
-        )
-        return None, err_proc
-
-    return data, None
-
-
-def _fetch_all_pages(
-    args_no_paginate: list[str],
-    endpoint_idx: int,
-    base_endpoint: str,
-    per_page: int,
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-    max_pages: int,
-) -> tuple[subprocess.CompletedProcess[str] | None, list[Any], bool]:
-    """Execute pages up to max_pages and return (last_proc, combined_items, is_exhausted)."""
-    combined_items: list[Any] = []
-    page = 1
-    last_proc: subprocess.CompletedProcess[str] | None = None
-
-    while page <= max_pages:
-        proc = _execute_single_page(
-            args_no_paginate,
-            endpoint_idx,
-            base_endpoint,
-            page,
-            per_page,
-            limiter,
-            target_resource,
-            cwd,
-            quiet,
-            timeout,
-        )
-        last_proc = proc
-        if proc.returncode != 0:
-            return proc, combined_items, False
-
-        stdout_trimmed = (proc.stdout or "").strip()
-        if stdout_trimmed == "[]":
-            return last_proc, combined_items, True
-
-        data, err_proc = _validate_page_payload(proc, base_endpoint, page)
-        if err_proc is not None:
-            return err_proc, combined_items, False
-
-        if not _append_paginated_data(combined_items, data, per_page):
-            return last_proc, combined_items, True
-        page += 1
-
-    err_proc = subprocess.CompletedProcess(
-        args=last_proc.args if last_proc else [CONST_GH_CLI, *args_no_paginate],
-        returncode=1,
-        stdout="",
-        stderr=f"gh api: paginated read of '{base_endpoint}' exceeded page cap of {max_pages} pages",
-    )
-    return err_proc, combined_items, False
-
-
-def _run_gh_paginated(
-    clean_args: list[str],
-    limiter: GitHubRateLimiter,
-    target_resource: str,
-    cwd: Path | None = None,
-    quiet: bool = False,
-    timeout: float = 30.0,
-    max_pages: int = DEFAULT_GH_MAX_PAGINATED_PAGES,
-) -> subprocess.CompletedProcess[str]:
-    """Execute a paginated gh api request page-by-page with mandatory delay prepended."""
-    args_no_paginate = [a for a in clean_args if a not in ("--paginate", "--slurp")]
-    endpoint_idx = _find_api_endpoint_idx(args_no_paginate)
-    if endpoint_idx == -1:
-        return cast(
-            subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
-                [CONST_GH_CLI, *clean_args], cwd=cwd, check=False, quiet=quiet, timeout=timeout
-            ),
-        )
-
-    base_endpoint = args_no_paginate[endpoint_idx]
-    per_page = _extract_page_per_page(base_endpoint)
-    proc, items, ok = _fetch_all_pages(
-        args_no_paginate,
-        endpoint_idx,
-        base_endpoint,
-        per_page,
-        limiter,
-        target_resource,
-        cwd,
-        quiet,
-        timeout,
-        max_pages,
-    )
-    if not ok and proc is not None:
-        return proc
-
-    return subprocess.CompletedProcess(
-        args=[CONST_GH_CLI, *clean_args],
-        returncode=0,
-        stdout=json.dumps(items),
-        stderr=proc.stderr if proc else "",
-    )
-
-
 def _post_process_run(
     proc: subprocess.CompletedProcess[str],
     resource: str,
@@ -1818,9 +1618,15 @@ def _post_process_run(
     is_exempt: bool = False,
     cost: int = 1,
 ) -> None:
-    """Extract rate limit metrics from response headers or payload, or record quota utilization."""
-    if is_rate_limit_check and proc.stdout:
-        _extract_rate_limit_endpoint_response(proc.stdout, limiter)
+    """Extract rate limit metrics from response headers or payload, or record quota utilization.
+
+    A rate-limit check's answer is read only when gh succeeded: a failed `gh api rate_limit`
+    has GitHub's error body on stdout, and its caller reads the failure, as
+    `_refresh_from_github` does (#983).
+    """
+    if is_rate_limit_check:
+        if proc.returncode == 0 and proc.stdout:
+            _extract_rate_limit_endpoint_response(proc.stdout, limiter)
         return
     if is_exempt:
         return
@@ -1828,88 +1634,6 @@ def _post_process_run(
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
     if proc.stderr:
         _parse_rate_limit_from_output(proc.stderr, resource, limiter)
-
-
-def _validate_paginated_api_args(
-    clean_args: list[str], full_cmd: list[str], check: bool
-) -> subprocess.CompletedProcess[str] | None:
-    """Refuse incompatible flags or GraphQL queries when --paginate is passed."""
-    if not clean_args or clean_args[0] != "api" or "--paginate" not in clean_args:
-        return None
-    api_args = clean_args[1:]
-    incompatible_flag = incompatible_gh_api_paginate_flag(api_args)
-    if incompatible_flag is not None:
-        proc = subprocess.CompletedProcess(
-            args=full_cmd,
-            returncode=1,
-            stdout="",
-            stderr=f"gh api: cannot combine --paginate with {incompatible_flag}",
-        )
-        if check:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    parsed_api = parse_gh_api_args(api_args)
-    if parsed_api is not None and parsed_api.endpoint == CONST_GH_API_GRAPHQL_ENDPOINT:
-        proc = subprocess.CompletedProcess(
-            args=full_cmd,
-            returncode=1,
-            stdout="",
-            stderr="gh api: GraphQL queries do not support --paginate",
-        )
-        if check:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    return None
-
-
-def _handle_cached_or_paginated(
-    limiter: GitHubRateLimiter,
-    clean_args: list[str],
-    full_cmd: list[str],
-    input: str | None,
-    use_cache: bool,
-    cache_ttl: float,
-    cwd: Path | None,
-    quiet: bool,
-    timeout: float,
-    check: bool,
-    target_resource: str,
-    is_check: bool,
-    is_mutation: bool,
-) -> subprocess.CompletedProcess[str] | None:
-    """Check cache or execute paginated API request if applicable.
-
-    Page-by-page fetching is for reads; a write with `--paginate` goes to gh once, as given.
-    """
-    cached = _check_cached_result(limiter, clean_args, input, use_cache)
-    if cached is not None:
-        return cached
-
-    if not is_check and not is_mutation and "--paginate" in clean_args:
-        invalid_paginated = _validate_paginated_api_args(clean_args, full_cmd, check)
-        if invalid_paginated is not None:
-            return invalid_paginated
-
-        proc = _run_gh_paginated(
-            clean_args,
-            limiter=limiter,
-            target_resource=target_resource,
-            cwd=cwd,
-            quiet=quiet,
-            timeout=timeout,
-        )
-        if _should_cache(clean_args, use_cache, input) and proc.returncode == 0 and proc.stdout:
-            limiter.set_cached(_build_cache_key(clean_args, input), proc.stdout, ttl=cache_ttl)
-        if check and proc.returncode != 0:
-            raise subprocess.CalledProcessError(
-                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
-            )
-        return proc
-    return None
 
 
 def _execute_gh_single_attempt(
@@ -1967,9 +1691,14 @@ def _handle_attempt_backoff(
     max_retries: int,
     target_resource: str,
 ) -> bool:
-    """Evaluate and sleep backoff if rate limited, returning True if backoff performed."""
+    """Evaluate and sleep backoff if rate limited, returning True if backoff performed.
+
+    Whether gh was rate-limited is read from its stderr alone, where gh writes a failure; its
+    stdout holds GitHub's answer, which may carry item titles. The wait also reads stdout, for
+    the Retry-After header `gh api -i` prints there.
+    """
     combined_err = (proc.stderr or "") + " " + (proc.stdout or "")
-    if not limiter.is_rate_limit_error(combined_err) or attempt >= max_retries:
+    if not limiter.is_rate_limit_error(proc.stderr or "") or attempt >= max_retries:
         return False
 
     backoff = limiter.calculate_backoff_delay(
@@ -2098,23 +1827,9 @@ def run_gh(
     is_exempt = _is_rate_limit_exempt(clean_args)
     is_mutation = not is_exempt and is_write_gh_command(clean_args, input=input, cwd=valid_cwd)
 
-    early_res = _handle_cached_or_paginated(
-        limiter,
-        clean_args,
-        full_cmd,
-        input,
-        use_cache,
-        cache_ttl,
-        valid_cwd,
-        quiet,
-        timeout,
-        check,
-        target_resource,
-        is_check,
-        is_mutation,
-    )
-    if early_res is not None:
-        return early_res
+    cached = _check_cached_result(limiter, clean_args, input, use_cache)
+    if cached is not None:
+        return cached
 
     effective_cost = _calculate_effective_cost(clean_args, target_resource, cost)
 
@@ -2138,42 +1853,3 @@ def run_gh(
     )
     _raise_for_status(proc, full_cmd, check)
     return proc
-
-
-async def run_gh_async(
-    args: list[str],
-    *,
-    input: str | None = None,
-    cwd: Path | None = None,
-    check: bool = False,
-    quiet: bool = False,
-    use_cache: bool = False,
-    cache_ttl: float = DEFAULT_GH_CACHE_TTL_SECONDS,
-    timeout: float = 30.0,
-    max_retries: int = 2,
-    resource: str | None = None,
-    cost: int = 1,
-    capture_output: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Execute a GitHub CLI command asynchronously with aiolimiter token-bucket pacing."""
-    clean_args = _normalize_gh_args(args)
-    target_resource = resource or _detect_resource(clean_args)
-    limiter = get_github_rate_limiter()
-    async_limiter = limiter.get_async_limiter(target_resource)
-
-    async with async_limiter:
-        return await asyncio.to_thread(
-            run_gh,
-            args,
-            input=input,
-            cwd=cwd,
-            check=check,
-            quiet=quiet,
-            use_cache=use_cache,
-            cache_ttl=cache_ttl,
-            timeout=timeout,
-            max_retries=max_retries,
-            resource=target_resource,
-            cost=cost,
-            capture_output=capture_output,
-        )

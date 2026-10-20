@@ -1,12 +1,23 @@
-"""Shared test fixtures."""
+"""Shared test fixtures.
+
+The one `pytest_plugins` entry, `tests.support.bootstrap`, isolates HOME and then registers every
+submodule and subpackage of `tests.support` as a plugin (#1312). `tests.support` is marked for assertion
+rewriting before that, and this module imports it only inside functions: a support module
+imported earlier could not be rewritten, which `filterwarnings` turns into a failed run.
+"""
 
 from __future__ import annotations
+
+import os
+
+# OpenBLAS parks an idle thread per CPU in each process that loads numpy, against pids.max.
+# pytest-randomly (`devops ci test --repeat`) loads numpy before this line, so that run keeps them.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import errno
 import functools
 import ipaddress
 import json
-import os
 import socket
 import subprocess
 import sys
@@ -14,6 +25,7 @@ import threading
 import weakref
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import MagicMock, patch
@@ -25,7 +37,12 @@ if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
+    from tests.support.fakes.model import ModelFake
     from tests.web_fakes import StubWeb
+
+pytest.register_assert_rewrite("tests.support")
+
+pytest_plugins = ("tests.support.bootstrap",)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -234,7 +251,7 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     import httpx2
 
     from devops_cli.http import broker
-    from tests.web_fakes import StubWeb, egress_level_of
+    from tests.web_fakes import StubWeb, egress_level_of, install_async_client_fake
 
     web = StubWeb()
 
@@ -251,12 +268,14 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     class StubAsyncClient(httpx2.AsyncClient):
         """An httpx2.AsyncClient whose transport is always the stub's."""
 
+        fake_owner = "stub_web"
+
         def __init__(self, **kwargs: Any) -> None:
             transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
+    install_async_client_fake(monkeypatch, StubAsyncClient)
     monkeypatch.setattr(httpx2, "Client", StubClient)
-    monkeypatch.setattr(httpx2, "AsyncClient", StubAsyncClient)
     stub_broker = broker.HttpClientBroker()
     monkeypatch.setattr(broker, "DEFAULT_HTTP_BROKER", stub_broker)
     yield web
@@ -460,19 +479,18 @@ def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
 
 
-PINNED_GITHUB_TOKEN = "test-github-token"
-
-
 @pytest.fixture(autouse=True)
 def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """Give every test one fake GitHub identity, so no test runs a real `gh auth token`.
 
-    Every gh and git child a test starts gets this token as GH_TOKEN, never the developer's login.
-    A test of the lookup itself sets `devops_cli.core.process._github_token` back to None, and
-    `no_github_identity` makes every lookup fail. The session is dropped only once something has
-    imported it: importing it here would load all of `devops_cli.github` in every worker.
+    Every gh and git child a test starts gets `PINNED_GITHUB_TOKEN` as GH_TOKEN, never the
+    developer's login. A test of the lookup itself sets `devops_cli.core.process._github_token`
+    back to None, and `no_github_identity` makes every lookup fail. The session is dropped only
+    once something has imported it: importing it here would load all of `devops_cli.github` in
+    every worker.
     """
     from devops_cli.core import process
+    from tests.support.github_identity import PINNED_GITHUB_TOKEN
 
     def drop_session() -> None:
         session_module = sys.modules.get("devops_cli.github.session")
@@ -486,11 +504,31 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     drop_session()
 
 
+@pytest.fixture
+def model_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModelFake]:
+    """The model and embedding edge, faked for every AI client the test opens (ADR 0007, #1001).
+
+    Installs an in-memory `ModelFake` into the client factory seam. Any client built by
+    `get_llm_client` or `build_llm_client` routes to this fake, answering queued responses,
+    matching route patterns, or returning deterministic embeddings without network calls.
+    """
+    from devops_cli.ai.client import factory
+    from tests.support.fakes.model import ModelFake
+
+    fake = ModelFake()
+    monkeypatch.setattr(factory, "_client_override", fake)
+    yield fake
+
+
 @functools.lru_cache(maxsize=1)
 def _load_recorded_canary_outputs() -> dict[str, Any]:
-    """Load recorded canary outputs once per worker process for offline test isolation."""
-    fixture_path = Path(__file__).parent / "fixtures" / "review_canary" / "recorded_outputs.json"
-    data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    """Load recorded canary outputs once per worker process for offline test isolation.
+
+    They are read through the `tests` package, not `tests.support.paths`: a conftest that
+    imported the paths would make every change to them reach every test (#1312).
+    """
+    recorded = files("tests").joinpath("fixtures", "review_canary", "recorded_outputs.json")
+    data = json.loads(recorded.read_text(encoding="utf-8"))
     return data if isinstance(data, dict) else {}
 
 
@@ -513,22 +551,6 @@ def pin_review_tool_canaries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(canary_module, "run_subprocess", _recorded_canary_subprocess)
     yield
     canary_module.clear_canary_cache()
-
-
-def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make `gh auth token` print no token from now on, as when gh has no login."""
-    from devops_cli.core import process
-    from devops_cli.lang import ERRORS
-
-    unauthenticated = ERRORS.git.github_unauthenticated.format(status=1)
-    monkeypatch.setattr(process, "_github_token", None)
-    monkeypatch.setattr(process, "_lookup_github_token", lambda: ("", unauthenticated))
-
-
-@pytest.fixture
-def no_github_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The process has no GitHub identity: every lookup finds no token."""
-    fail_the_github_lookup(monkeypatch)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -583,12 +605,14 @@ def roadmap_store(
 
 @pytest.fixture
 def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Open the GitHub store over a `gh` that exits 1, as when GitHub can't be read.
+    """Open the GitHub store over a `gh` that exits 1, as when GitHub can't be read, and a
+    session whose listings that `gh` answers.
 
-    Returns the argv of every `gh` command the store ran.
+    Returns the argv of every `gh` command the store ran and every listing it read.
     """
     from devops_cli.roadmap import store as roadmap_module
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
+    from tests.support.fakes.github import RunnerSession
 
     calls: list[list[str]] = []
 
@@ -600,7 +624,9 @@ def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
         roadmap_module,
         "get_roadmap_store",
         # A runner the command passes (intake's spend meter) is replaced by the failing `gh`.
-        lambda repo, runner=None, **kwargs: GitHubRoadmapStore(repo, runner=gh_exits_1, **kwargs),
+        lambda repo, runner=None, **kwargs: GitHubRoadmapStore(
+            repo, runner=gh_exits_1, **kwargs, session=RunnerSession(gh_exits_1)
+        ),
     )
     return calls
 
@@ -682,36 +708,6 @@ def guard_live_rag_data() -> None:
 
     QdrantClient.__init__ = guarded_init
     NativeQdrantClient.__init__ = guarded_native_init
-
-
-def _check_test_paths_isolated(
-    test_paths: Sequence[Path | str],
-    repo_root: Path,
-) -> list[str]:
-    """Verify that all configured test paths are strictly outside the project directory."""
-    violations: list[str] = []
-    resolved_root = repo_root.resolve()
-    for p in test_paths:
-        resolved_p = Path(p).resolve()
-        if resolved_p.is_relative_to(resolved_root):
-            violations.append(f"Test path {resolved_p} is inside project directory {resolved_root}")
-    return violations
-
-
-@pytest.fixture(autouse=True)
-def verify_test_paths_isolated() -> None:
-    """Ensure all test environment paths are strictly outside the project repository."""
-    from devops_cli.config.constants import CONST_ISOLATED_TEST_ENV_KEYS
-
-    repo_root = Path(__file__).resolve().parent.parent.resolve()
-    test_paths: list[Path] = []
-    for env_key in CONST_ISOLATED_TEST_ENV_KEYS:
-        val = os.environ.get(env_key)
-        if val:
-            test_paths.append(Path(val))
-    violations = _check_test_paths_isolated(test_paths, repo_root)
-    if violations:
-        raise AssertionError("; ".join(violations))
 
 
 @pytest.fixture
@@ -988,198 +984,6 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_settings_cache()
 
 
-# =============================================================================
-# Workspace Isolation Tripwire (Issue #749)
-# =============================================================================
-
-
-def _is_xdist_worker(config: pytest.Config) -> bool:
-    """Report whether the pytest process is an xdist worker rather than the controller."""
-    return getattr(config, "workerinput", None) is not None
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_configure(config: pytest.Config) -> None:
-    """Isolate HOME into an empty directory under pytest basetemp before devops-cli is imported (#1311)."""
-    factory = getattr(config, "_tmp_path_factory", None)
-    if factory is None:
-        from _pytest.tmpdir import TempPathFactory
-
-        factory = TempPathFactory.from_config(config, _ispytest=True)
-        config._tmp_path_factory = factory  # type: ignore[attr-defined]
-
-    basetemp = factory.getbasetemp()
-    is_worker = _is_xdist_worker(config)
-    home_dir = basetemp / "home"
-    home_dir.mkdir(parents=True, exist_ok=True)
-    gitconfig = home_dir / ".gitconfig"
-    if not gitconfig.exists():
-        gitconfig.write_text(
-            "[user]\n\tname = Test User\n\temail = test@example.com\n",
-            encoding="utf-8",
-        )
-    os.environ["HOME"] = str(home_dir)
-
-    shared = basetemp.parent if is_worker else basetemp
-    config._tripwire_basetemp = shared  # type: ignore[attr-defined]
-    reg = shared / ".worker_homes"
-    try:
-        with open(reg, "a", encoding="utf-8") as f:
-            f.write(f"{home_dir}\n")
-    except OSError:
-        pass
-
-
-def _get_git_tracked_files(repo_root: Path) -> list[str]:
-    """Return relative paths of all git-tracked files in the repository."""
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    except Exception:
-        return []
-
-
-def _snapshot_tracked_files(
-    repo_root: Path, tracked_files: list[str]
-) -> dict[str, tuple[int, int]]:
-    """Capture mtime and size for all tracked files."""
-    stamps: dict[str, tuple[int, int]] = {}
-    for rel_path in tracked_files:
-        full_path = repo_root / rel_path
-        try:
-            st = full_path.stat()
-            stamps[rel_path] = (st.st_mtime_ns, st.st_size)
-        except OSError:
-            pass
-    return stamps
-
-
-def _check_config_diff(repo_root: Path, initial_bytes: bytes | None) -> str | None:
-    """Detect changes to workspace config.yaml."""
-    cfg = repo_root / "config.yaml"
-    curr = cfg.read_bytes() if cfg.exists() else None
-    if initial_bytes is None and curr is not None:
-        return "config.yaml (created by tests)"
-    if initial_bytes is not None and curr is None:
-        return "config.yaml (deleted by tests)"
-    if initial_bytes != curr:
-        return "config.yaml (content modified by tests)"
-    return None
-
-
-def _is_git_file_modified(repo_root: Path, rel_path: str) -> bool:
-    """Check if a tracked file has uncommitted changes relative to the git index.
-
-    git finds the index itself, also in a linked worktree, where `.git` is a file; a git error
-    exits non-zero and counts as a change.
-    """
-    try:
-        res = subprocess.run(
-            ["git", "-C", str(repo_root), "diff", "--quiet", "--", rel_path],
-            check=False,
-            capture_output=True,
-        )
-        return res.returncode != 0
-    except Exception:
-        return True
-
-
-def _check_tracked_diff(repo_root: Path, snapshot: dict[str, tuple[int, int]]) -> list[str]:
-    """Detect modifications or deletions in git-tracked files."""
-    diffs: list[str] = []
-    for rel_path, (init_mtime, init_size) in snapshot.items():
-        full = repo_root / rel_path
-        if not full.exists():
-            diffs.append(f"{rel_path} (deleted by tests)")
-            continue
-        try:
-            st = full.stat()
-            if (st.st_mtime_ns, st.st_size) != (init_mtime, init_size):
-                if _is_git_file_modified(repo_root, rel_path):
-                    diffs.append(f"{rel_path} (modified by tests)")
-        except OSError:
-            pass
-    return diffs
-
-
-def _check_forbidden_test_paths(repo_root: Path) -> list[str]:
-    """Detect explicit test-only paths created in the project repository."""
-    from devops_cli.config.constants import CONST_FORBIDDEN_PROJECT_TEST_PATHS
-
-    diffs: list[str] = []
-    for rel in CONST_FORBIDDEN_PROJECT_TEST_PATHS:
-        target = repo_root / rel
-        if target.exists():
-            diffs.append(f"{rel} (test path found in project directory)")
-    return diffs
-
-
-def _worker_home_locations(home: Path) -> tuple[Path, ...]:
-    """Return the devops-cli locations inside a worker home (#1311)."""
-    from devops_cli.config.constants import CONST_APP_NAME
-
-    return (
-        home / ".config" / CONST_APP_NAME,
-        home / ".local" / "share" / CONST_APP_NAME,
-        home / ".ssh",
-        home / ".local" / "bin",
-    )
-
-
-def _find_location_leaks(loc: Path) -> list[Path]:
-    """Find all files or non-empty directories left at *loc* (#1311)."""
-    if not loc.exists():
-        return []
-    if loc.is_file() or loc.is_symlink():
-        return [loc]
-    entries = sorted(p for p in loc.rglob("*") if not p.is_dir())
-    return entries or [loc]
-
-
-def _get_snapshot_homes(snapshot: dict[str, Any]) -> list[Path]:
-    """Retrieve list of unique worker home paths recorded during session (#1311)."""
-    if "worker_homes" in snapshot:
-        return [Path(h) for h in snapshot["worker_homes"]]
-    basetemp = snapshot.get("basetemp")
-    if not basetemp:
-        return []
-    reg = Path(basetemp) / ".worker_homes"
-    if not reg.exists():
-        return []
-    return [
-        Path(line.strip()) for line in reg.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
-
-
-def _check_worker_home_leaks(snapshot: dict[str, Any]) -> list[str]:
-    """Detect state left in devops-cli locations within worker homes (#1311)."""
-    homes = _get_snapshot_homes(snapshot)
-    diffs: list[str] = []
-    for home in sorted(set(homes)):
-        for loc in _worker_home_locations(home):
-            for leaked in _find_location_leaks(loc):
-                diffs.append(f"{leaked} (state left in worker home)")
-    return diffs
-
-
-def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
-    """Evaluate all workspace isolation tripwire checks against initial session snapshot."""
-    repo_root = snapshot["repo_root"]
-    failures: list[str] = []
-    cfg_diff = _check_config_diff(repo_root, snapshot.get("config_state"))
-    if cfg_diff is not None:
-        failures.append(cfg_diff)
-    failures.extend(_check_tracked_diff(repo_root, snapshot.get("tracked_snapshot", {})))
-    failures.extend(_check_forbidden_test_paths(repo_root))
-    failures.extend(_check_worker_home_leaks(snapshot))
-    return failures
-
-
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832, #1337)."""
     from devops_cli.sandbox.host import HostSandbox
@@ -1189,44 +993,3 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for item in items:
             if "bwrap" in item.keywords:
                 item.add_marker(skip_bwrap)
-
-
-def pytest_sessionstart(session: pytest.Session) -> None:
-    """Snapshot workspace config and tracked files on xdist controller."""
-    if _is_xdist_worker(session.config):
-        return
-    repo_root = Path(__file__).resolve().parent.parent
-    tracked = _get_git_tracked_files(repo_root)
-    cfg_path = repo_root / "config.yaml"
-    session.config._tripwire_snapshot = {  # type: ignore[attr-defined]
-        "repo_root": repo_root,
-        "config_state": cfg_path.read_bytes() if cfg_path.exists() else None,
-        "tracked_snapshot": _snapshot_tracked_files(repo_root, tracked),
-        "basetemp": getattr(session.config, "_tripwire_basetemp", None),
-    }
-
-
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
-    """Verify no tests wrote to workspace config, tracked files, or left test paths."""
-    if _is_xdist_worker(session.config):
-        return
-    snapshot = getattr(session.config, "_tripwire_snapshot", None)
-    if snapshot is None:
-        return
-    failures = _evaluate_workspace_tripwire(snapshot)
-    if failures:
-        session.config._tripwire_failures = failures  # type: ignore[attr-defined]
-        session.exitstatus = pytest.ExitCode.TESTS_FAILED
-
-
-def pytest_terminal_summary(terminalreporter: Any, exitstatus: Any, config: pytest.Config) -> None:
-    """Print prominent error section if test isolation tripwire detected leaks."""
-    if _is_xdist_worker(config):
-        return
-    failures = getattr(config, "_tripwire_failures", [])
-    if failures:
-        terminalreporter.section(
-            "TRIPWIRE FAILURE: Workspace mutated during test run", red=True, bold=True
-        )
-        for f in failures:
-            terminalreporter.write_line(f"  - {f}", red=True)

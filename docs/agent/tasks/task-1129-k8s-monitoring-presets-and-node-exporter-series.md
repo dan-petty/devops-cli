@@ -1,9 +1,6 @@
 # Task: k8s-monitoring Collectors Run in the Chart's Preset Shapes, and node-exporter Keeps the Series the Node Dashboards Read (#1129)
 
 **Issue**: [#1129](https://github.com/dan-petty/devops-cli/issues/1129)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: priority/p1-high
 **Scope**: scope/k8s, scope/telemetry
 
 ## Description

@@ -15,8 +15,8 @@ from devops_cli.config.constants import CONST_ALLOWED_CRITERIA_BINARIES
 from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
+from tests.support.paths import REPO_ROOT
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 
@@ -335,7 +335,7 @@ def test_terminate_process_group_guards_devcontainer() -> None:
 
 def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts() -> None:
     """Every allowlisted criteria binary is on the sandbox PATH at a path the sandbox binds (#847)."""
-    args = HostSandbox().build_bwrap_args(["true"], cwd=_PROJECT_ROOT)
+    args = HostSandbox().build_bwrap_args(["true"], cwd=REPO_ROOT)
     bound = _bound_paths(args)
     sandbox_path = _sandbox_path(args)
 

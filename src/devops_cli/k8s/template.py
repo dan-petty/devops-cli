@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_K8S_KUSTOMIZATION_NAMES,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
     CONST_K8S_TEMPLATE_DOMAIN_VARS,
@@ -17,8 +18,6 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.k8s import KubernetesContextError
-
-_KUSTOMIZATION_NAMES: tuple[str, ...] = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 
 
 def normalize_domain(domain: str) -> str:
@@ -56,6 +55,18 @@ def resolve_template_domain(domain_override: str | None = None) -> str:
     )
 
 
+def holds_template_domain_value(text: str) -> bool:
+    """Whether `text` contains the placeholder domain or a template domain variable (#1343)."""
+    if not text:
+        return False
+    if re.search(re.escape(CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER), text, re.IGNORECASE):
+        return True
+    return any(
+        f"${{{var_name}}}" in text or f"${var_name}" in text
+        for var_name in CONST_K8S_TEMPLATE_DOMAIN_VARS
+    )
+
+
 def render_manifest_template(
     content: str,
     domain: str,
@@ -84,12 +95,8 @@ def render_manifest_template(
     return rendered
 
 
-def _render_kustomize_dir(
-    target_dir: Path,
-    domain: str,
-    extra_vars: dict[str, str] | None = None,
-) -> str:
-    """Run kustomize build on a directory and substitute domain variables."""
+def _build_kustomize_dir(target_dir: Path) -> str:
+    """Run kustomize build on a directory without template substitution."""
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,
@@ -101,15 +108,11 @@ def _render_kustomize_dir(
     if proc.returncode != 0:
         err_msg = (proc.stderr or proc.stdout or "kubectl kustomize failed").strip()
         raise KubernetesContextError(f"Kustomize build failed for '{target_dir}': {err_msg}")
-    return render_manifest_template(proc.stdout or "", domain=domain, extra_vars=extra_vars)
+    return proc.stdout or ""
 
 
-def _render_yaml_dir(
-    target_dir: Path,
-    domain: str,
-    extra_vars: dict[str, str] | None = None,
-) -> str:
-    """Read all YAML files in a directory and render them as a combined stream."""
+def _build_yaml_dir(target_dir: Path) -> str:
+    """Read all YAML files in a directory and return them as a combined stream."""
     yaml_files = sorted(
         f
         for f in target_dir.iterdir()
@@ -119,8 +122,25 @@ def _render_yaml_dir(
         raise KubernetesContextError(f"No YAML manifests found in directory: {target_dir}")
 
     parts = [yf.read_text(encoding="utf-8") for yf in yaml_files]
-    combined = "\n---\n".join(parts)
-    return render_manifest_template(combined, domain=domain, extra_vars=extra_vars)
+    return "\n---\n".join(parts)
+
+
+def build_manifest_path(path: str | Path) -> str:
+    """Build a manifest file or directory without domain and template substitution (#1343)."""
+    target = Path(path).resolve()
+    if not target.exists():
+        raise KubernetesContextError(f"Manifest path not found: {path}")
+
+    if target.is_file():
+        return target.read_text(encoding="utf-8")
+
+    if target.is_dir():
+        has_kustomize = any((target / kf).exists() for kf in CONST_K8S_KUSTOMIZATION_NAMES)
+        if has_kustomize:
+            return _build_kustomize_dir(target)
+        return _build_yaml_dir(target)
+
+    raise KubernetesContextError(f"Invalid manifest target path: {path}")
 
 
 def render_manifest_path(
@@ -129,18 +149,5 @@ def render_manifest_path(
     extra_vars: dict[str, str] | None = None,
 ) -> str:
     """Render a manifest file or directory with domain and template variables substituted."""
-    target = Path(path).resolve()
-    if not target.exists():
-        raise KubernetesContextError(f"Manifest path not found: {path}")
-
-    if target.is_file():
-        raw_text = target.read_text(encoding="utf-8")
-        return render_manifest_template(raw_text, domain=domain, extra_vars=extra_vars)
-
-    if target.is_dir():
-        has_kustomize = any((target / kf).exists() for kf in _KUSTOMIZATION_NAMES)
-        if has_kustomize:
-            return _render_kustomize_dir(target, domain=domain, extra_vars=extra_vars)
-        return _render_yaml_dir(target, domain=domain, extra_vars=extra_vars)
-
-    raise KubernetesContextError(f"Invalid manifest target path: {path}")
+    raw = build_manifest_path(path)
+    return render_manifest_template(raw, domain=domain, extra_vars=extra_vars)

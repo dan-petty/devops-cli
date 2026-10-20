@@ -1,9 +1,6 @@
 # Task 248: Use pyproject.toml as Single Source of Truth for Version
 
 **Issue**: [#248](https://github.com/dan-petty/devops-cli/issues/248)
-**Status**: Done
-**Milestone**: `v0.2.20`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/cli`, `scope/config`
 
 ---

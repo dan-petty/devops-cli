@@ -70,8 +70,7 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
    - Use `from __future__ import annotations`.
    - Use union syntax `A | B` instead of `Union[A, B]` or `Optional[T]`.
    - Use standard collections `list[str]`, `dict[str, Any]`, `set[int]`.
-3. **Deterministic Test Isolation**:
-   - Mock all network I/O, subprocesses, and external LLM providers in unit tests.
+3. **Test Conventions**: What devops-cli's tests may double, where they go and what they assert is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
    - Use `tmp_path` fixtures for filesystem tests to prevent state leakage.
 4. **Zero Flakiness**: Ensure tests never depend on wall-clock timings or non-deterministic dictionary iterations.
 
@@ -87,7 +86,7 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
 ## 6. General Standards & Reference Guidelines
 
 - **Config File**: All tool configurations reside centrally in [`pyproject.toml`](../../../../../../pyproject.toml).
-- **Test File Naming**: All test modules must be named `tests/test_<feature>.py`.
+- **Test Conventions**: Where devops-cli's tests go, how they are named and what they may double is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
 
 ---
 

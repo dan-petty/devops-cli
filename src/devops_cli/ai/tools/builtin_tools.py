@@ -444,45 +444,79 @@ def scan_osv(
         return f"OSV vulnerability query error: {exc}"
 
 
+def _excluded_target_reply(target: str) -> str:
+    """The reply about a documented example or an unspecified address, which no service is asked."""
+    return (
+        f"Target {target} is a documented example or an unspecified address: "
+        "an example domain (RFC 2606 / RFC 6761), "
+        "a documentation address (RFC 5737 / RFC 3849 / RFC 9637), "
+        "a benchmarking address (RFC 2544 / RFC 5180), "
+        "a fictional phone number (ATIS-0300115 / Ofcom drama numbers) "
+        "or an unspecified address (RFC 1122 / RFC 4291). "
+        "Excluded from external threat intelligence scanning."
+    )
+
+
+def _local_address_reply(target: str, address: str) -> str:
+    """The reply about a local address, which no service is asked about."""
+    return (
+        f"Target {target} is a local address ({address}): private, loopback, link-local, "
+        "shared, site-local, multicast or reserved space, which is not globally reachable. "
+        "No threat intelligence service was asked."
+    )
+
+
+def _shodan_reply(address: str) -> str:
+    """The reply Shodan InternetDB gives about a public address."""
+    from devops_cli.security.vulnerability_lookup import ShodanInternetDBClient
+
+    rep = ShodanInternetDBClient().check_ip(address)
+    ports = ", ".join(str(p) for p in rep.ports) or "None detected"
+    vulns = ", ".join(rep.cves) or "None detected"
+    return (
+        f"Shodan Intelligence for IP {address}:\n"
+        f"- Hostnames: {', '.join(rep.hostnames) or 'None'}\n"
+        f"- Open Ports: {ports}\n"
+        f"- Known CVEs: {vulns}\n"
+        f"- Reputation Summary: {rep.reputation_summary}"
+    )
+
+
+def _radar_reply(domain: str) -> str:
+    """The reply Cloudflare Radar gives about a domain."""
+    from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
+
+    rep = CloudflareRadarClient().check_domain(domain)
+    return (
+        f"Cloudflare Radar Intelligence for Domain {domain}:\n"
+        f"- Threat Categories: {', '.join(rep.tags) or 'General'}\n"
+        f"- Reputation Summary: {rep.reputation_summary}"
+    )
+
+
 def check_threat_intel(target: str) -> str:
-    """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar."""
+    """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar.
+
+    A target that names an address (`network_target_address`), after prose punctuation, in a URL
+    or in a numeric spelling, is that address: Shodan is asked about a public one, and no service
+    about a local one, a documented example or an unspecified address. Radar is asked about the
+    rest, which are domains.
+    """
     try:
         from devops_cli.security.reference_extractor import (
             is_example_or_invalid_network_target,
             is_public_ip,
-        )
-        from devops_cli.security.vulnerability_lookup import (
-            CloudflareRadarClient,
-            ShodanInternetDBClient,
+            network_target_address,
         )
 
         if is_example_or_invalid_network_target(target):
-            return (
-                f"Target {target} is a documented example or reserved network space "
-                f"(RFC 2606 / RFC 6761 / RFC 5737 / RFC 6890 / RFC 3849). "
-                f"Excluded from external threat intelligence scanning."
-            )
-
-        if is_public_ip(target):
-            shodan = ShodanInternetDBClient()
-            rep = shodan.check_ip(target)
-            ports = ", ".join(str(p) for p in rep.ports) or "None detected"
-            vulns = ", ".join(rep.cves) or "None detected"
-            return (
-                f"Shodan Intelligence for IP {target}:\n"
-                f"- Hostnames: {', '.join(rep.hostnames) or 'None'}\n"
-                f"- Open Ports: {ports}\n"
-                f"- Known CVEs: {vulns}\n"
-                f"- Reputation Summary: {rep.reputation_summary}"
-            )
-        else:
-            radar = CloudflareRadarClient()
-            rep = radar.check_domain(target)
-            return (
-                f"Cloudflare Radar Intelligence for Domain {target}:\n"
-                f"- Threat Categories: {', '.join(rep.tags) or 'General'}\n"
-                f"- Reputation Summary: {rep.reputation_summary}"
-            )
+            return _excluded_target_reply(target)
+        address = network_target_address(target)
+        if address is None:
+            return _radar_reply(target)
+        if is_public_ip(str(address)):
+            return _shodan_reply(str(address))
+        return _local_address_reply(target, str(address))
     except Exception as exc:
         return f"Threat intelligence check error: {exc}"
 

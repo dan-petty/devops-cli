@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
     CONST_GENAI_PROVIDER_NAMES,
-    CONST_REASONING_MODEL_EXACT,
-    CONST_REASONING_MODEL_PREFIXES,
-    CONST_REASONING_MODEL_SUBSTRINGS,
 )
-from devops_cli.config.env import ENV_AI_API_KEY
+from devops_cli.config.env import ENV_AGENT_GRANT, ENV_AI_API_KEY
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.exceptions.ai import LLMInferenceError
 
@@ -97,6 +95,13 @@ def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredenti
 
     ``subject`` names what refused the request, e.g. "The gateway provider".
     """
+    grant_id = os.environ.get(ENV_AGENT_GRANT)
+    if grant_id:
+        bounded_grant = grant_id[:256]
+        return AICredentialsError(
+            f"{subject} rejected agent grant '{bounded_grant}' (HTTP {status}): "
+            "the grant expired or was revoked; a person issues a new grant."
+        )
     problem = (
         "rejected the configured API key"
         if has_key
@@ -256,13 +261,8 @@ def genai_provider_name(provider: str) -> str:
     return CONST_GENAI_PROVIDER_NAMES.get(provider, provider)
 
 
-def is_reasoning_model(model: str | None) -> bool:
-    """Return True if model is an OpenAI/Claude/DeepSeek reasoning or thinking model."""
-    if not model or not isinstance(model, str):
-        return False
-    m = model.strip().lower()
-    if ":thinking" in m:
-        return True
-    if any(sub in m for sub in CONST_REASONING_MODEL_SUBSTRINGS):
-        return True
-    return m in CONST_REASONING_MODEL_EXACT or m.startswith(CONST_REASONING_MODEL_PREFIXES)
+def is_reasoning_model(model: str | None = None, *, config: Any = None) -> bool:
+    """Return True if model is declared as a reasoning/thinking model via config or capability."""
+    if config is not None:
+        return bool(getattr(config, "supports_reasoning", False))
+    return False

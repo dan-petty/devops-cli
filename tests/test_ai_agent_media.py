@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.media import (
     BinaryContent,
     DiskMediaStore,
     InMemoryMediaStore,
     MediaExternalizer,
-    RunContext,
     SqliteMediaStore,
     externalize_media,
     restore_media,

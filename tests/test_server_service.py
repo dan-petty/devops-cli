@@ -55,6 +55,7 @@ from devops_cli.server.service import (
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import _from_otlp_any_value, get_tracer, reset_tracer
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 LANE = CONST_SERVICE_LANE_DEFAULT
 """The one lane of the tests that run one job per repository."""
@@ -120,6 +121,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
     job_unblock = threading.Event()
     job_2_done = threading.Event()
     received_batches: list[TriggerBatch] = []
+    unblocked: list[bool] = []
 
     def test_job(batch: TriggerBatch) -> None:
         if ("poll", "", "") in batch.counts and len(batch.counts) == 1:
@@ -127,7 +129,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
         received_batches.append(batch)
         if ("webhook", "issues", "opened") in batch.counts:
             job_started.set()
-            job_unblock.wait(timeout=2.0)
+            unblocked.append(job_unblock.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         elif ("webhook", "issues", "labeled") in batch.counts:
             job_2_done.set()
 
@@ -152,7 +154,7 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
         assert (res_1.status_code, res_1.json()["status"]) == (202, "accepted")
 
         # Wait until the job starts and is blocked
-        assert job_started.wait(timeout=1.0) is True
+        assert job_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         # Second delivery arriving while job 1 is running: must coalesce
         payload_2 = json.dumps(
@@ -173,9 +175,9 @@ def test_webhook_delivery_and_batch_coalescing() -> None:
 
         # Unblock first job and wait for worker to pick up coalesced batch
         job_unblock.set()
-        assert job_2_done.wait(timeout=1.0) is True
+        assert job_2_done.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
-    assert len(received_batches) == 2
+    assert (len(received_batches), unblocked) == (2, [True])
     b1, b2 = received_batches[0], received_batches[1]
     assert (
         b1.repo,
@@ -389,6 +391,8 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
 
     repo2_done = threading.Event()
     bulk_done = threading.Event()
+    repo1_released: list[bool] = []
+    repo1_running_beside_repo2: list[int] = []
 
     def concurrent_job(batch: TriggerBatch) -> None:
         nonlocal repo1_concurrency, max_repo1_concurrency
@@ -402,12 +406,14 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
             batches_by_repo[batch.repo].append(batch)
             if ("webhook", "issues", "initial") in batch.counts:
                 repo1_blocked.set()
-                repo1_release.wait(timeout=2.0)
+                repo1_released.append(repo1_release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             elif sum(batch.counts.values()) == 10:
                 bulk_done.set()
             with concurrency_lock:
                 repo1_concurrency -= 1
         else:
+            with concurrency_lock:
+                repo1_running_beside_repo2.append(repo1_concurrency)
             batches_by_repo[batch.repo].append(batch)
             repo2_done.set()
 
@@ -425,7 +431,7 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
             CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p1, "secret-1"),
         }
         client.post("/webhooks/github", content=p1, headers=h1)
-        assert repo1_blocked.wait(timeout=1.0) is True
+        assert repo1_blocked.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         # While Repo 1 is blocked, trigger Repo 2 (proves no cross-blocking)
         p2 = json.dumps(
@@ -438,7 +444,12 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
             CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p2, "secret-2"),
         }
         res_r2 = client.post("/webhooks/github", content=p2, headers=h2)
-        assert (res_r2.status_code, repo2_done.wait(timeout=1.0)) == (202, True)
+        # Repo 2's round ran while Repo 1's was still running, not after it ended.
+        assert (
+            res_r2.status_code,
+            repo2_done.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS),
+            repo1_running_beside_repo2,
+        ) == (202, True, [1])
         assert len(batches_by_repo["example-org/repo2"]) == 1
 
         # While Repo 1 is still blocked, send 10 concurrent triggers to Repo 1
@@ -457,9 +468,13 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
 
         # Release Repo 1
         repo1_release.set()
-        assert bulk_done.wait(timeout=1.0) is True
+        assert bulk_done.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
-    assert (len(batches_by_repo["example-org/repo1"]), max_repo1_concurrency) == (2, 1)
+    assert (len(batches_by_repo["example-org/repo1"]), max_repo1_concurrency, repo1_released) == (
+        2,
+        1,
+        [True],
+    )
     coalesced_batch = batches_by_repo["example-org/repo1"][1]
     assert sum(coalesced_batch.counts.values()) == 10
 
@@ -470,6 +485,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
     secrets = {"example-org/repo1": "secret-1"}
     tick_batches: list[TriggerBatch] = []
     tick_event = threading.Event()
+    job_ran = threading.Event()
 
     simulated_now = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
 
@@ -484,6 +500,7 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
 
     def tick_job(batch: TriggerBatch) -> None:
         tick_batches.append(batch)
+        job_ran.set()
 
     app = create_service_app(
         jobs={LANE: tick_job},
@@ -494,9 +511,13 @@ def test_polling_tick_advances_with_injected_fixtures() -> None:
     )
 
     with TestClient(app):
-        # Startup tick triggers immediately
-        time.sleep(0.1)
-        assert len(tick_batches) >= 1
+        # The startup tick runs the job on the lane's worker thread at once, and the loop then
+        # sleeps an interval. Both are awaited, not timed: a loaded machine overruns any fixed
+        # pause before the worker thread is scheduled.
+        assert (
+            job_ran.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS),
+            tick_event.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS),
+        ) == (True, True)
         assert tick_batches[0].counts[("poll", "", "")] >= 1
 
 
@@ -533,12 +554,18 @@ def test_job_error_handling_and_metrics() -> None:
         }
         # Run 1: will fail
         res1 = client.post("/webhooks/github", content=payload, headers=headers)
-        assert (res1.status_code, job_failed.wait(timeout=1.0)) == (202, True)
+        assert (res1.status_code, job_failed.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)) == (
+            202,
+            True,
+        )
 
         # Run 2: will succeed
         h2 = dict(headers, **{CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-err-2"})
         res2 = client.post("/webhooks/github", content=payload, headers=h2)
-        assert (res2.status_code, job_succeeded.wait(timeout=1.0)) == (202, True)
+        assert (res2.status_code, job_succeeded.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)) == (
+            202,
+            True,
+        )
 
     err_count = GLOBAL_METRICS.get_counter_value(
         CONST_SERVICE_METRIC_JOBS,
@@ -621,7 +648,9 @@ def test_prometheus_metrics_export() -> None:
             CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(payload, "secret-1"),
         }
         client.post("/webhooks/github", content=payload, headers=headers)
-        time.sleep(0.1)
+        # The delivery's round has run once every worker is idle, not after a fixed pause.
+        workers = app.state.service_manager.workers.values()
+        assert all(worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS) for worker in workers)
 
         res = client.get("/metrics")
         assert (res.status_code, res.headers["content-type"].startswith("text/plain")) == (
@@ -700,11 +729,14 @@ def test_json_log_formatter_zero_leakage() -> None:
 
 def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
     """Test that graceful shutdown drains follow-up deliveries enqueued while active batch was running."""
-    settings = _make_settings(repos=["example-org/repo1"], drain_timeout=5)
+    settings = _make_settings(
+        repos=["example-org/repo1"], drain_timeout=int(THREAD_HANDOFF_BOUND_SECONDS)
+    )
     secrets = {"example-org/repo1": "secret-1"}
     batch1_started = threading.Event()
     batch1_release = threading.Event()
     received_batches: list[TriggerBatch] = []
+    released: list[bool] = []
 
     def draining_job(batch: TriggerBatch) -> None:
         if ("poll", "", "") in batch.counts and len(batch.counts) == 1:
@@ -712,7 +744,7 @@ def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
         received_batches.append(batch)
         if ("webhook", "issues", "first") in batch.counts:
             batch1_started.set()
-            batch1_release.wait(timeout=2.0)
+            released.append(batch1_release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
 
     app = create_service_app(jobs={LANE: draining_job}, settings=settings, secrets=secrets)
 
@@ -729,7 +761,7 @@ def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
         }
         res1 = client.post("/webhooks/github", content=p1, headers=h1)
         assert res1.status_code == 202
-        assert batch1_started.wait(timeout=1.0) is True
+        assert batch1_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         # 2. Enqueue second webhook while first batch is executing
         p2 = json.dumps(
@@ -749,7 +781,12 @@ def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
 
     # 4. Context exit runs drain_and_stop(). Verify both batches were executed without loss
     actions = [action for batch in received_batches for (_, _, action) in batch.counts]
-    assert ("first" in actions, "second" in actions, len(received_batches)) == (True, True, 2)
+    assert ("first" in actions, "second" in actions, len(received_batches), released) == (
+        True,
+        True,
+        2,
+        [True],
+    )
 
 
 def test_service_tracing_middleware_adds_headers_and_skips_probes(
@@ -951,15 +988,19 @@ class _Rounds:
     def wait(self, count: int, manager: ServiceManager) -> list[str]:
         """The repositories of the next `count` rounds to finish, once every worker is idle, so
         a failed round's pause is in place."""
-        finished = sorted(self.done.get(timeout=1.0) for _ in range(count))
-        assert all(worker.wait_active(1.0) for worker in manager.workers.values())
+        finished = sorted(self.done.get(timeout=THREAD_HANDOFF_BOUND_SECONDS) for _ in range(count))
+        assert all(
+            worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS) for worker in manager.workers.values()
+        )
         return finished
 
     def held(self, manager: ServiceManager) -> bool:
         """Whether no round started for the triggers just enqueued: a worker whose batch may run
         is waited for until it has run, so an idle worker and no finished round mean the pause
         held every batch."""
-        assert all(worker.wait_active(1.0) for worker in manager.workers.values())
+        assert all(
+            worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS) for worker in manager.workers.values()
+        )
         return self.done.empty()
 
     def triggers(self) -> dict[str, list[int]]:
@@ -1041,8 +1082,18 @@ def test_every_worker_refused_for_one_reset_logs_one_wait_line(
 ) -> None:
     """Both repositories' rounds are refused for the same reset: one line. A's next round,
     refused for the next hour's reset, logs its own."""
-    refusals = iter([RESET, RESET, RESET + timedelta(hours=1)])
-    rounds = _Rounds(lambda: _refuse_read(next(refusals)), {REPO_A: 2, REPO_B: 1})
+    resets = iter([RESET, RESET, RESET + timedelta(hours=1)])
+    # A refusal holds every round that has not started yet, so the first two refusals wait until
+    # both repositories' rounds have started; otherwise the first could hold the other's round.
+    both_started = threading.Barrier(2, timeout=THREAD_HANDOFF_BOUND_SECONDS)
+
+    def refuse() -> None:
+        reset = next(resets)
+        if reset == RESET:
+            both_started.wait()
+        _refuse_read(reset)
+
+    rounds = _Rounds(refuse, {REPO_A: 2, REPO_B: 1})
     clock = _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
         manager = _service({LANE: rounds}, clock)
@@ -1052,7 +1103,13 @@ def test_every_worker_refused_for_one_reset_logs_one_wait_line(
         _trigger(manager, REPO_A)
         second = rounds.wait(1, manager)
         asyncio.run(manager.drain_and_stop())
-    assert (first, second, [line.split(",")[0] for line in _wait_lines(caplog)]) == (
+    assert (
+        both_started.broken,
+        first,
+        second,
+        [line.split(",")[0] for line in _wait_lines(caplog)],
+    ) == (
+        False,
         [REPO_A, REPO_B],
         [REPO_A],
         [
@@ -1185,6 +1242,7 @@ class _Lanes:
     def __init__(self) -> None:
         self.model_started = threading.Event()
         self.model_answers = threading.Event()
+        self.model_released: bool | None = None
         self.batches: dict[str, list[TriggerBatch]] = {RELEASE_LANE: [], MODEL_LANE: []}
         self.most_at_once = dict.fromkeys(self.batches, 0)
         self._running = dict.fromkeys(self.batches, 0)
@@ -1201,7 +1259,7 @@ class _Lanes:
         try:
             if lane == MODEL_LANE and len(self.batches[lane]) == 1:
                 self.model_started.set()
-                self.model_answers.wait(timeout=5.0)
+                self.model_released = self.model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         finally:
             with self._lock:
                 self._running[lane] -= 1
@@ -1239,14 +1297,17 @@ def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked(
     with TestClient(app) as client:
         workers = app.state.service_manager.workers
         release, model = workers[(REPO_A, RELEASE_LANE)], workers[(REPO_A, MODEL_LANE)]
-        assert lanes.model_started.wait(timeout=1.0)
+        assert lanes.model_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         statuses = [
             _post(client, event, action, f"lane-{n}")
             for n, (event, action) in enumerate(deliveries)
         ]
-        release_done, model_blocked = release.wait_active(1.0), model.is_active()
+        release_done, model_blocked = (
+            release.wait_active(THREAD_HANDOFF_BOUND_SECONDS),
+            model.is_active(),
+        )
         lanes.model_answers.set()
-        model_done = model.wait_active(1.0)
+        model_done = model.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
     pull_request_closed = ("webhook", "pull_request", "closed")
     triggers = {
         source: GLOBAL_METRICS.get_counter_value(
@@ -1258,6 +1319,7 @@ def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked(
         statuses,
         release_done,
         model_blocked,
+        lanes.model_released,
         model_done,
         any(pull_request_closed in batch.counts for batch in lanes.batches[RELEASE_LANE]),
         sum(sum(batch.counts.values()) for batch in lanes.batches[RELEASE_LANE]),
@@ -1266,6 +1328,7 @@ def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked(
         triggers,
     ) == (
         [202, 202, 202],
+        True,
         True,
         True,
         True,
@@ -1288,9 +1351,9 @@ def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
     app = _lanes_app(lanes)
     with TestClient(app) as client:
         release = app.state.service_manager.workers[(REPO_A, RELEASE_LANE)]
-        assert lanes.model_started.wait(timeout=1.0)
+        assert lanes.model_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         _post(client, "pull_request", "closed", "stalled-1")
-        assert release.wait_active(1.0)
+        assert release.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
         exported = client.get("/metrics").text.splitlines()
         lanes.model_answers.set()
     repo = f'repo="{REPO_A}"'
@@ -1305,14 +1368,24 @@ def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
         exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="release",{repo}'),
         exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="model",{repo}'),
         exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="model",{repo},result="success"'),
-    ) == (True, True, True, True, True, False)
+        lanes.model_released,
+    ) == (True, True, True, True, True, False, True)
 
 
 def test_a_budget_refusal_in_the_model_lane_holds_the_release_lane_too() -> None:
     """Both lanes spend the machine account's one GraphQL budget: the model lane's refused round
     holds the release lane's next round through the shared pause until 5 s after the reset, and
     then each lane runs one round with the trigger that waited (#1400)."""
-    model, release = _Rounds(_refuse_read, {REPO_A: 1}), _Rounds(lambda: None, {})
+    release = _Rounds(lambda: None, {})
+    release_started_first: list[bool] = []
+
+    def refuse_once_the_release_lane_started() -> None:
+        # A refusal holds every round that has not started yet, so it waits until the release
+        # lane's first round has started; otherwise it could hold that round too.
+        release_started_first.append(wait_until(lambda: bool(release.batches[REPO_A])))
+        _refuse_read()
+
+    model = _Rounds(refuse_once_the_release_lane_started, {REPO_A: 1})
     clock = _Clock(RESET - timedelta(minutes=20))
     manager = _service({RELEASE_LANE: release, MODEL_LANE: model}, clock)
     _trigger(manager, REPO_A)
@@ -1323,7 +1396,15 @@ def test_a_budget_refusal_in_the_model_lane_holds_the_release_lane_too() -> None
     clock.now = RESUME
     resumed = (release.wait(1, manager), model.wait(1, manager))
     asyncio.run(manager.drain_and_stop())
-    assert (first, held, resumed, release.triggers(), model.triggers()) == (
+    assert (
+        release_started_first,
+        first,
+        held,
+        resumed,
+        release.triggers(),
+        model.triggers(),
+    ) == (
+        [True],
         ([REPO_A], [REPO_A]),
         (True, True),
         ([REPO_A], [REPO_A]),

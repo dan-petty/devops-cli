@@ -1,7 +1,6 @@
 # Task #854: Reference Docs Fail Closed and Describe the Real Surface
 
 **Issue**: [#854](https://github.com/dan-petty/devops-cli/issues/854)
-**Status**: Done
 **Scope**: `src/devops_cli/docs/generator.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/settings.py`, `docs/`, `tests/test_docs.py`
 **Feasibility**: Verified against `src/devops_cli/docs/generator.py` (`_introspect_single_group`, `_fetch_mcp_tools`, `_extract_mcp_prop_type`, `generate_configuration_docs`, `generate_error_catalog_docs`), `src/devops_cli/config/settings.py` (`Settings.model_fields` and `_find_project_config_path`), and `config.example.yaml`.
 

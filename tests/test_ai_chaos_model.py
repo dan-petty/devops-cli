@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 import pytest
 from typer.testing import CliRunner
@@ -276,7 +279,9 @@ def test_cli_chaos_model_invalid_mode() -> None:
     assert result.exit_code != 0
 
 
-def test_injector_spans_and_max_retries(clean_telemetry: list[tuple[str, dict[str, Any]]]) -> None:
+def test_injector_spans_and_max_retries(
+    clean_telemetry: list[tuple[str, dict[str, Any]]], model_fake: ModelFake
+) -> None:
     """Verify child ai.chaos.inject spans and max_retries forwarding to AIConfig."""
     config = ChaosConfig(
         mode=ChaosMode.RATE_LIMIT,
@@ -297,13 +302,14 @@ def test_injector_spans_and_max_retries(clean_telemetry: list[tuple[str, dict[st
     # Test non-dry-run max_retries forwarding to AIConfig & chat
     real_config = ChaosConfig(mode=ChaosMode.RATE_LIMIT, dry_run=False, max_retries=4)
     real_injector = ModelChaosInjector(real_config)
-    with patch("devops_cli.ai.client.unified.LLMClient") as mock_client_cls:
-        mock_instance = mock_client_cls.return_value
-        mock_instance.chat.return_value = MagicMock(content="ok")
-        real_injector.execute()
-        ai_cfg_call = mock_client_cls.call_args[1]["config"]
-        assert ai_cfg_call.max_retries == 4
-        mock_instance.chat.assert_called_with(system="", user=real_config.prompt, max_retries=4)
+    model_fake.answer("ok")
+    real_injector.execute()
+    assert len(model_fake.factory_calls) >= 1
+    ai_cfg_call = model_fake.factory_calls[-1]["config"]
+    assert ai_cfg_call.max_retries == 4
+    assert model_fake.calls[-1].system_prompt == ""
+    assert model_fake.calls[-1].prompt == real_config.prompt
+    assert model_fake.calls[-1].max_retries == 4
 
 
 def test_injector_error_rate_thresholding() -> None:

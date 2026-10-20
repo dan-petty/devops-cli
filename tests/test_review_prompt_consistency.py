@@ -33,7 +33,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.mcp.server import code_review_prompt
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.classification import (
@@ -49,9 +49,9 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.config.defaults import DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS
 from devops_cli.security.sanitizer import mask_secrets
+from tests.support.paths import FIXTURES, REPO_ROOT
 
-_ROOT = Path(__file__).resolve().parents[1]
-_SRC = _ROOT / "src" / "devops_cli"
+_SRC = REPO_ROOT / "src" / "devops_cli"
 _AI = _SRC / "ai"
 _TASKS = _AI / "tasks"
 _PERSONAS = _AI / "personas"
@@ -59,7 +59,7 @@ _MCP_OUTPUT = "tasks/mcp_code_review_output.md"
 _DEVSECOPS = "personas/devsecops/prompt.md"
 _DOCS = "tasks/docs_review_prompt.md"
 _CONFIG = "tasks/config_review_prompt.md"
-_RECALL_SET = _ROOT / "tests" / "fixtures" / "review_recall" / "recall_set.json"
+_RECALL_SET = FIXTURES / "review_recall" / "recall_set.json"
 _MEASURING_951 = "#### Measuring the threat-model and evidence-bar prompts (#951)"
 _SCORING_RECALL = "#### Scoring recall on known findings (#1015)"
 
@@ -230,7 +230,7 @@ def _labels(text: str) -> set[str]:
 
 def _doc_section(heading: str) -> str:
     """A section of `docs/SELF_IMPROVEMENT.md`, up to the next heading of its level or above."""
-    text = (_ROOT / "docs" / "SELF_IMPROVEMENT.md").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md").read_text(encoding="utf-8")
     start = text.index(heading)
     end = re.compile(r"\n#{1,4} ").search(text, start + len(heading))
     return text[start : end.start() if end else len(text)]
@@ -261,7 +261,7 @@ def _recall_set() -> list[dict[str, Any]]:
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
     """Run git on this checkout. A partial clone may not fetch a missing object for it."""
     return subprocess.run(
-        ["git", "-C", str(_ROOT), *args],
+        ["git", "-C", str(REPO_ROOT), *args],
         capture_output=True,
         text=True,
         check=False,
@@ -610,7 +610,7 @@ def test_this_repositorys_review_conventions_state_its_threat_model_within_the_c
     beside "repositories under review" as untrusted left the verifier to refute, as trusted
     input, a defect where a review runs or reads the tree under review (#946).
     """
-    own = (_ROOT / ".devops" / "review.md").read_text(encoding="utf-8")
+    own = (REPO_ROOT / ".devops" / "review.md").read_text(encoding="utf-8")
 
     assert (
         "## Threat model" in own,

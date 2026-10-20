@@ -1,9 +1,6 @@
 # Task: CI jobs run on a named ubuntu-24.04 runner and always use uv's managed Python, never the runner's own Python (#1494)
 
 **Issue**: [#1494](https://github.com/dan-petty/devops-cli/issues/1494)
-**Status**: Done
-**Milestone**: v0.2.32
-**Priority**: P2-Medium (set by intake on 2026-10-09)
 **Scope**: type/bug, scope/ci
 
 ## Description

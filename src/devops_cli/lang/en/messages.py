@@ -22,6 +22,9 @@ class ReviewMessages:
     stage_metadata: str = "Analyzing metadata across {count} file(s)..."
     stage_segment: str = "Reviewing {count} file(s)..."
     stage_compose: str = "Composing final review..."
+    gateway_concurrency_clamped: str = (
+        "--concurrency {requested} is above the gateway's {slots} backend slots; using {slots}"
+    )
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed}"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
     total_elapsed: str = "  total {elapsed}"
@@ -624,14 +627,131 @@ class PRMessages:
     update_all_dry_run_heading: str = (
         r"[yellow]\[dry-run][/yellow] Planned external requests to update all open PRs:"
     )
+    # `devops pr copilot-pass` (#1345).
+    copilot_pass_requested: str = (
+        "Requested Copilot pass {pass_number} of {budget} on PR #{number}."
+    )
+    copilot_budget_spent: str = (
+        "Copilot budget spent: {used} of {budget} passes on PR #{number}, so no pass was "
+        "requested. Under the stop rule in RELEASE_CYCLE.md, a remaining comment blocks the "
+        "release only if it is a regression the release introduces."
+    )
+    copilot_pass_not_release_pr: str = (
+        "PR #{number} is not the release pull request ({head} into {base}): Copilot reviews only "
+        "release/vX.Y.Z into the default branch (ADR 0004), so no pass was requested."
+    )
+    copilot_pass_not_open: str = (
+        "PR #{number} is {state}, not open, so no pass was requested: a pass on it would spend "
+        "Copilot's budget on a release that is not open."
+    )
+    copilot_passes_unread: str = (
+        "Copilot's passes on PR #{number} could not be read, so no pass was requested: {reason}"
+    )
+    copilot_pass_request_failed: str = "Requesting a Copilot pass on PR #{number} failed: {error}"
+    # What a failed request is named by when gh says nothing.
+    copilot_pass_request_exit_code: str = "exit code {code}"
+    copilot_pass_dry_run_heading: str = (
+        "Dry run: no request was made. copilot-pass would make these requests, in order:"
+    )
+    copilot_pass_plan_branch_pr_fallback: str = "the REST read names no open pull request, or fails"
+    copilot_pass_plan_release: str = "PR #{number} is the open release pull request"
+    copilot_pass_plan_request: str = "Copilot's review of {repo} pull request {number}"
+    # `devops pr threads file-issues` (#1345).
+    thread_issue_title: str = "chore(review): follow up {location} from #{number}"
+    thread_issue_intro: str = (
+        "A review thread on #{number} that the stop rule in RELEASE_CYCLE.md Step 3 left for a "
+        "later release, once the release pull request's Copilot passes were spent:"
+    )
+    thread_issue_cut: str = "[cut at {chars} characters]"
+    thread_issue_source: str = "{location}, {url}"
+    # Where a thread on a whole file sits, which has no line: its first comment tells it from
+    # another such thread on the file.
+    thread_location_file: str = "{path}, comment {comment}"
+    thread_filed_reply: str = (
+        "Filed as #{issue}, a follow-up issue for a later release under the stop rule in "
+        "RELEASE_CYCLE.md Step 3."
+    )
+    threads_not_release_pr: str = (
+        "PR #{number} is not the release pull request ({head} into {base}): the stop rule "
+        "files the release pull request's threads, so none was filed."
+    )
+    threads_not_open: str = (
+        "PR #{number} is {state}, not open: the stop rule files the threads of the open release "
+        "pull request, so none was filed."
+    )
+    threads_unknown_keep: str = (
+        "--keep names {ids}, which is not an unresolved review thread of PR #{number}, so no "
+        "thread was filed or resolved: the thread it meant to keep would have been. Check the "
+        "ids with devops pr threads list {number} --unresolved-only."
+    )
+    threads_viewer_unread: str = (
+        "GitHub named no account for the GraphQL calls, so no reply could be told to be yours."
+    )
+    threads_none: str = "PR #{number} has no unresolved review thread."
+    thread_kept: str = "Kept {thread} ({location}) open."
+    thread_to_file: str = "Would file {thread} ({location}) as: {title}"
+    thread_filed: str = "Filed {thread} ({location}) as #{issue} and resolved it."
+    thread_to_reuse: str = (
+        "Would name #{issue}, which an earlier run opened for {thread} ({location}), in a reply "
+        "and resolve the thread."
+    )
+    thread_reused: str = (
+        "Named #{issue}, which an earlier run opened for {thread} ({location}), in a reply and "
+        "resolved the thread."
+    )
+    thread_seen_filed: str = (
+        "{thread} ({location}) was filed as #{issue} by an earlier run; --confirm resolves it."
+    )
+    thread_resolved_filed: str = (
+        "Resolved {thread} ({location}), filed as #{issue} by an earlier run."
+    )
+    thread_outdated: str = (
+        "It is outdated: a push after the comment changed its lines, which may have dealt with it."
+    )
+    thread_answer_failed: str = (
+        "{thread} ({location}) is filed as #{issue}, but replying in it or resolving it failed: "
+        "{error}. Run the command again: it finds #{issue} by the thread's link and opens no "
+        "second issue."
+    )
+    threads_preview_note: str = "Nothing was written. Run with --confirm to file them."
+    threads_dry_run_heading: str = (
+        "Dry run: no request was made. file-issues would make these requests, in order:"
+    )
+    threads_plan_release: str = "PR #{number} is the open release pull request"
+    threads_plan_more_comments: str = "a thread has more comments than its first page holds"
+    threads_plan_not_kept: str = "a thread is not kept"
+    threads_plan_unanswered: str = (
+        "a thread is not kept and holds no reply of yours naming its issue"
+    )
+    threads_plan_unlinked: str = (
+        "no open issue links the thread; labelled source/agent only when Copilot started it"
+    )
+    threads_plan_each: str = "for each such thread"
+    threads_plan_page: str = "per page, until the last"
+    threads_plan_comment_page: str = "per page of a thread's later comments, until the last"
+    copilot_pass_plan_below_budget: str = "its Copilot passes are below release_copilot_passes"
+    copilot_pass_plan_per_page: str = "per page, until the last"
     update_table_title: str = "Pull Request Branch Update Summary"
     grounding_closes_no_issue: str = (
-        "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "
-        "it delivers with a closing keyword: Closes #<issue>."
+        "PR #{number} is not grounded: its body closes no issue in {repo}, nor delivers part of "
+        "one. Name the one issue it delivers with a closing keyword, Closes #<issue>, or, for "
+        "one of several PRs that deliver an item, Part of #<issue>."
     )
     grounding_closes_several_issues: str = (
         "PR #{number} is not grounded: its body closes {count} issues ({issues}), and a PR "
         "delivers exactly one."
+    )
+    grounding_closes_and_parts: str = (
+        "PR #{number} is not grounded: its body closes {issues} and delivers part of {parts}, "
+        "and a PR either closes the one issue it delivers or delivers part of one."
+    )
+    grounding_several_parts: str = (
+        "PR #{number} is not grounded: its body delivers part of {count} issues ({parts}), and "
+        "a PR delivers part of exactly one."
+    )
+    grounding_part_of_closed_item: str = (
+        "PR #{number} is not grounded: it delivers part of #{issue}, which is not open. Each "
+        "part lands while its item is open, and the PR that closes the item is its last."
     )
     grounding_task_file_missing: str = (
         "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
@@ -642,24 +762,51 @@ class PRMessages:
     grounding_tasks_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
+    # A release-process PR changes more than its kind may, so it is held to grounding (#1344).
+    grounding_cut_changes_more: str = (
+        "PR #{number} is not grounded: a cut is exempt when it only modifies the cut's files "
+        "({cut_files}) and removes changelog fragments ({fragments}), as the cut commit does, "
+        "and {head} also changes {outside}."
+    )
+    grounding_merge_changes_more: str = (
+        "PR #{number} is not grounded: a merge of {default} is exempt when it only changes the "
+        "cut's files and the files {default} changed since its merge base with {base}, and "
+        "{head} also changes {outside}."
+    )
+    grounding_merge_changes_unread: str = (
+        "PR #{number} is not grounded: the files {default} changed since its merge base with "
+        "{base} could not be read, so nothing shows that {head} only merges {default} ({error})."
+    )
+    grounding_merge_changes_capped: str = (
+        "GitHub listed {count} files, its limit, so the list may be cut short"
+    )
+    # The PR payload names no default branch, so no compare is sent and the blocker names it.
+    grounding_unnamed_default_branch: str = "the default branch"
+    grounding_no_default_branch: str = "the pull request names no default branch for {repo}"
     grounding_release_files_changed: str = (
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
         "never conflict on them."
     )
     # Not after the cut, when a critical fix's entry goes in the version's CHANGELOG.md section.
     grounding_release_files_fragment: str = " Add its changelog entry as {fragment} instead."
+    # A part PR adds no fragment: the PR that closes the item adds it, so parts never conflict.
+    grounding_release_files_part_fragment: str = (
+        " The PR that closes #{issue} adds its changelog entry as {fragment}."
+    )
     grounding_changelog_unread: str = (
         "PR #{number} changes CHANGELOG.md, but {base}'s CHANGELOG.md could not be read to see "
         "whether the cut wrote its section ({error})."
     )
     grounding_item_not_in_release: str = (
-        "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
+        "PR #{number} {delivers}, which is {placement}, not in {release}: a PR into "
         "{base} delivers an item of {release}, whose scope was fixed when it started."
     )
+    grounding_item_closes: str = "closes #{issue}"
+    grounding_item_part: str = "delivers part of #{issue}"
     grounding_item_in_release: str = "in {release}"
     grounding_item_in_backlog: str = "in the backlog"
     grounding_item_unread: str = (
-        "PR #{number} is not grounded: the Release of #{issue} could not be read ({error})."
+        "PR #{number} is not grounded: #{issue} could not be read ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
@@ -895,6 +1042,9 @@ class CIMessages:
         "supported yet."
     )
     repeat_seed_unavailable: str = "Could not read HEAD to derive a shuffle seed; pass --seed."
+    run_timed_out: str = (
+        "{command} ran past its {timeout} timeout and was stopped with every process it started."
+    )
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"
@@ -949,6 +1099,15 @@ class CIMessages:
     coverage_index_missing: str = (
         "No coverage index found. Run `devops ci coverage --build-index` to build one."
     )
+    coverage_index_stale: str = (
+        "The coverage index is stale: {file} changed since it was built and can change what any "
+        "test covers, so tests are selected by name and import. Run `devops ci coverage "
+        "--build-index` to rebuild it."
+    )
+    coverage_index_helper_removed: str = (
+        "{file} is gone since the coverage index was built: what it registered, and which tests "
+        "imported it, can no longer be read, so no test selection can cover it."
+    )
     selection_trigger_full_run: str = (
         "{file} can change the outcome of tests that never import it. "
         "Running the full test suite. Run `devops ci coverage --build-index` to update."
@@ -986,6 +1145,12 @@ class CIMessages:
     fail_to_pass_none_failed: str = (
         "Defect PR requires at least one changed test to fail in the call phase on base ({tests})."
     )
+    fail_to_pass_could_not_run: str = (
+        "The fail-to-pass replay could not run on base: pytest exited with status {status} "
+        "replaying {files}. A pull request whose replay cannot run on its base can declare "
+        "'Fail-to-pass: not applicable: <reason>' in its body."
+    )
+    fail_to_pass_replay_output: str = "pytest's last output: {output}"
 
 
 @dataclass(frozen=True)
@@ -1130,6 +1295,12 @@ class TestMessages:
     load_test_success: str = "✓ Load test finished successfully ({duration}, {vus} VUs)."
     load_test_failed: str = "Load test failed with exit code {code}."
     k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
+    # `devops test run --changed` (#1312).
+    unmapped_source: str = (
+        "No test module covers {source}: no test module is named for it or imports it."
+    )
+    changed_whole_suite: str = "No changed file maps to a test module: running the whole suite."
+    changed_targets: str = "Running the {count} test target(s) the changes reach:"
 
 
 @dataclass(frozen=True)
@@ -1330,6 +1501,7 @@ class RoadmapMessages:
                 "unstarted item that no item staying in it depends on."
             ),
             "depended_on": "{detail} in {release} depends on it.",
+            "priority": "every open P0 and P1 item sits in an open release.",
         }
     )
     # What each action did, in the item's one-line comment; {reason} is one of `reasons`.
@@ -1479,16 +1651,17 @@ class RoadmapMessages:
     plan_dry_run_render: str = "Then render writes {path}, which makes no request."
     plan_dry_run_notes: tuple[str, ...] = (
         "A board read whose count changes while it is read reads it once more, from its first "
-        "page. run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+        "page. Pacing a request, whether gh runs it or the GitHub session sends it, may read "
+        "`gh api rate_limit`; that read costs no quota. A board command whose owner lookup gh "
+        "could not finish reads GraphQL's budget once, for about one point.",
     )
     plan_modes_exclusive: str = "Pass one of {modes}, not more."
-    plan_repeat_page: str = "per page, until a page is short"
+    plan_repeat_page: str = "per page, while GitHub links a next one"
     plan_repeat_board_page: str = "per page after the first, while GraphQL reports a next page"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "board": "<board>",
             "cursor": "<cursor>",
-            "page": "<n>",
             "number": "<number>",
             "milestone": "<milestone>",
             "release": "<release>",
@@ -1731,6 +1904,9 @@ class RoadmapMessages:
         "Quota: {quota}."
     )
     intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
+    intake_possible_duplicate_line: str = (
+        "- {subject}: possible duplicate of #{original}, left for a person: {reason}"
+    )
     intake_duplicate_closes: str = "It is closed as a duplicate."
     intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
     intake_fold_line: str = (
@@ -1845,7 +2021,6 @@ class RoadmapMessages:
     )
     intake_request_read: str = "read"
     intake_request_write: str = "write"
-    intake_repeat_page: str = "per page, until a page is short"
     intake_repeat_candidate: str = (
         "for each candidate: an open issue off the board or an item without a Priority"
     )
@@ -2058,8 +2233,6 @@ class ProjectMessages:
             "first": "the first page of board {board}'s items",
             "page": "the next page of board {board}'s items",
             "fields": "board {board}'s fields, for the options a change may set",
-            "issues": "the issues of {repo} in state {state}, every page",
-            "pulls": "the pull requests of {repo} in state {state}, every page",
             "edit": "set a planned field change on a card of board {board}",
         }
     )
@@ -2075,6 +2248,9 @@ class ProjectMessages:
     )
     request_repeat_owner_fallback: str = (
         "once more with --owner @me when GitHub answers 'unknown owner type'"
+    )
+    request_repeat_listing: str = (
+        "for each next page GitHub links, through the GitHub session, up to {max_pages} pages"
     )
     sync_done: str = "Project '{title}' (#{number}){linked}. Provisioned fields: {fields}."
     sync_linked: str = " linked to {repo}"

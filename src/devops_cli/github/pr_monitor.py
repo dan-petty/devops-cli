@@ -6,17 +6,28 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
-from typing import Any, cast
+from collections.abc import Callable, Iterable
+from typing import Any, NamedTuple, cast
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_COPILOT_REVIEWER_APP_PATH,
+    CONST_COPILOT_REVIEWER_LOGINS,
+    CONST_GH_CLI,
+    CONST_GH_REVIEW_REQUEST_EVENTS,
+    CONST_GITHUB_BOT_ACCOUNT_TYPE,
+    CONST_GITHUB_REVIEW_AUTHOR_KEYS,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+)
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import CheckBucket, classify_check_item
 from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +88,9 @@ class CopilotReviewStatus(BaseModel):
     unread_reason: str = ""
     message: str = ""
     last_review_at: str = ""
+    # A review requested of Copilot that it has not started: the Copilot budget counts it, and
+    # the monitor never waits on it, since Copilot may never take it up (#1345).
+    pass_requested: bool = False
     active_event: str = ""
 
 
@@ -166,22 +180,31 @@ def _resolve_current_git_branch(branch_name: str | None) -> str:
     return target
 
 
+def branch_pr_rest_argv(repo_full: str, branch: str) -> list[str]:
+    """The gh command that reads the number of `branch`'s open pull request in `owner/repo`
+    through the REST API."""
+    repo_owner = repo_full.split("/", 1)[0]
+    pulls = f"repos/{repo_full}/pulls?head={repo_owner}:{branch}&state=open"
+    return [CONST_GH_CLI, "api", pulls, "--jq", ".[0].number"]
+
+
+def branch_pr_view_argv(repo_full: str | None, branch: str) -> list[str]:
+    """The gh command that reads the number of `branch`'s pull request with `gh pr view`, which
+    gh answers over GraphQL, in `repo_full` or the checkout's repository."""
+    cmd = [CONST_GH_CLI, "pr", "view", branch, "--json", "number", "--jq", ".number"]
+    return [*cmd, "-R", repo_full] if repo_full else cmd
+
+
+def pr_details_argv(owner: str, repo_name: str, pr_number: int | str) -> list[str]:
+    """The gh command that reads pull request `pr_number` through the REST API."""
+    return [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
+
+
 def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int | None:
     """Attempt to resolve PR number using the REST API."""
     if not repo_full or "/" not in repo_full:
         return None
-    repo_owner, repo_name = repo_full.split("/", 1)
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            f"repos/{repo_owner}/{repo_name}/pulls?head={repo_owner}:{target_branch}&state=open",
-            "--jq",
-            ".[0].number",
-        ],
-        check=False,
-        quiet=True,
-    )
+    res = run_gh(branch_pr_rest_argv(repo_full, target_branch), check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip() and res.stdout.strip() != "null":
         try:
             return int(res.stdout.strip())
@@ -192,10 +215,7 @@ def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int |
 
 def _resolve_pr_via_gh_view(target_repo: str | None, target_branch: str) -> int:
     """Resolve PR number via gh pr view fallback."""
-    cmd = [CONST_GH_CLI, "pr", "view", target_branch, "--json", "number", "--jq", ".number"]
-    if target_repo:
-        cmd.extend(["-R", target_repo])
-    proc = run_gh(cmd, check=False, quiet=True)
+    proc = run_gh(branch_pr_view_argv(target_repo, target_branch), check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         raise GitHubOperationError(f"No open pull request found for branch '{target_branch}'.")
     try:
@@ -220,35 +240,6 @@ def resolve_branch_pr_number(
     return _resolve_pr_via_gh_view(target_repo, target_branch)
 
 
-def _safe_json_to_dicts(text: str) -> list[dict[str, Any]]:
-    """Convert a single JSON string or array to a list of dicts if valid."""
-    try:
-        data = json.loads(text)
-        items = data if isinstance(data, list) else [data]
-        return [item for item in items if isinstance(item, dict)]
-    except json.JSONDecodeError:
-        return []
-
-
-def _parse_ndjson_dicts(text: str) -> list[dict[str, Any]]:
-    """Parse newline-delimited JSON lines into dictionary items."""
-    results: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        line_str = line.strip()
-        if line_str:
-            results.extend(_safe_json_to_dicts(line_str))
-    return results
-
-
-def _extract_timeline_events(timeline_stdout: str) -> list[dict[str, Any]]:
-    """Extract timeline event dicts from JSON array, object, or NDJSON."""
-    stripped = timeline_stdout.strip()
-    if not stripped:
-        return []
-    top_dicts = _safe_json_to_dicts(stripped)
-    return top_dicts if top_dicts else _parse_ndjson_dicts(stripped)
-
-
 def _extract_timeline_author(evt: dict[str, Any]) -> str:
     """Extract actor or user login from timeline event dictionary."""
     actor = evt.get("actor")
@@ -265,35 +256,87 @@ def _extract_timeline_author(evt: dict[str, Any]) -> str:
     return ""
 
 
+class _CopilotTimeline(NamedTuple):
+    """What a pull request's issue timeline says of Copilot: whether a pass is running, the event
+    that says so, whether a pass is requested and not yet started, and why the timeline could not
+    be read, if it could not."""
+
+    working: bool = False
+    event: str = ""
+    requested: bool = False
+    error: str = ""
+
+
+def _requests_copilot(evt: dict[str, Any]) -> bool:
+    """Whether a review request event names Copilot code review: a bot account whose page is the
+    Copilot reviewer app's. The timeline's login for it, `Copilot`, is not its own (#1345)."""
+    reviewer = evt.get("requested_reviewer")
+    if not isinstance(reviewer, dict) or reviewer.get("type") != CONST_GITHUB_BOT_ACCOUNT_TYPE:
+        return False
+    return urlparse(str(reviewer.get("html_url") or "")).path == CONST_COPILOT_REVIEWER_APP_PATH
+
+
+def _ends_copilot_pass(evt: dict[str, Any], copilot_review_ids: frozenset[int]) -> bool:
+    """Whether a `reviewed` event ends Copilot's pass: it records one of Copilot's reviews, named
+    by the review's id, or names no author at all."""
+    review_id = evt.get("id")
+    names_copilot_review = type(review_id) is int and review_id in copilot_review_ids
+    return not _extract_timeline_author(evt) or names_copilot_review
+
+
 def _process_single_timeline_event(
-    evt: dict[str, Any], current_state: tuple[bool, str]
-) -> tuple[bool, str]:
-    """Update Copilot working state based on a single timeline event dictionary."""
-    evt_name = evt.get("event")
+    evt: dict[str, Any], state: _CopilotTimeline, copilot_review_ids: frozenset[int]
+) -> _CopilotTimeline:
+    """What the timeline says of Copilot once `evt` is read: its start event runs a pass, its
+    review's `reviewed` event ends it, and a review request to it is pending until it starts,
+    ends or is withdrawn."""
+    evt_name = str(evt.get("event") or "")
     if evt_name == "copilot_work_started":
-        return True, "copilot_work_started"
-    if evt_name == "reviewed":
-        evt_author = _extract_timeline_author(evt).lower()
-        if not evt_author or "copilot" in evt_author:
-            return False, "reviewed"
-    return current_state
-
-
-def _parse_timeline_copilot_state(timeline_stdout: str) -> tuple[bool, str]:
-    """Parse timeline events to determine if Copilot is actively working."""
-    state = (False, "")
-    for evt in _extract_timeline_events(timeline_stdout):
-        state = _process_single_timeline_event(evt, state)
+        return _CopilotTimeline(working=True, event=evt_name)
+    if evt_name == "reviewed" and _ends_copilot_pass(evt, copilot_review_ids):
+        return _CopilotTimeline(event=evt_name)
+    if evt_name in CONST_GH_REVIEW_REQUEST_EVENTS and _requests_copilot(evt):
+        return state._replace(requested=CONST_GH_REVIEW_REQUEST_EVENTS[evt_name])
     return state
 
 
-def _is_copilot_review_dict(r: Any) -> bool:
-    """Predicate determining whether a review record originates from Copilot."""
-    if not isinstance(r, dict):
+def _timeline_copilot_state(
+    events: Iterable[Any], copilot_review_ids: frozenset[int]
+) -> _CopilotTimeline:
+    """What a timeline's events, in order, say of Copilot, its own reviews named by
+    `copilot_review_ids`."""
+    state = _CopilotTimeline()
+    for evt in events:
+        if isinstance(evt, dict):
+            state = _process_single_timeline_event(evt, state, copilot_review_ids)
+    return state
+
+
+def is_copilot_login(login: str) -> bool:
+    """Whether a review record's author `login` is Copilot code review's bot: exactly one of the
+    logins the reviews endpoint and GraphQL give it, never any login that merely contains
+    "copilot" (#1345). The issue timeline names the bot otherwise, so its events never use this."""
+    return login in CONST_COPILOT_REVIEWER_LOGINS
+
+
+def _login_of(account: Any) -> str:
+    """The login of a REST `user` or GraphQL `author` object; empty when it names none."""
+    return str(account.get("login") or "") if isinstance(account, dict) else ""
+
+
+def is_copilot_review(review: Any) -> bool:
+    """Whether a review record is Copilot's: its REST `user` or GraphQL `author` is Copilot's."""
+    if not isinstance(review, dict):
         return False
-    author = str(r.get("author", {}).get("login", "")).lower()
-    user = str(r.get("user", {}).get("login", "")).lower()
-    return "copilot" in author or "copilot" in user
+    authors = (review.get(key) for key in CONST_GITHUB_REVIEW_AUTHOR_KEYS)
+    return any(is_copilot_login(_login_of(author)) for author in authors)
+
+
+def _copilot_review_ids(reviews: Iterable[Any]) -> frozenset[int]:
+    """The ids of Copilot's reviews among `reviews`: the issue timeline's `reviewed` event for a
+    review carries its id, the one way the timeline names a review as Copilot's."""
+    ids = (review.get("id") for review in reviews if is_copilot_review(review))
+    return frozenset(review_id for review_id in ids if type(review_id) is int)
 
 
 def _is_copilot_changes_recommended(body: str) -> bool:
@@ -324,7 +367,7 @@ def _extract_latest_copilot_review(
     reviews: list[dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, bool, str, str]:
     """Extract latest Copilot review and determine requested changes status."""
-    copilot_reviews = [r for r in reviews if _is_copilot_review_dict(r)]
+    copilot_reviews = [r for r in reviews if is_copilot_review(r)]
     copilot_reviews.sort(key=lambda r: str(r.get("submittedAt") or r.get("submitted_at") or ""))
     latest_review = copilot_reviews[-1] if copilot_reviews else None
     has_changes, latest_state, last_time = _check_review_changes_requested(latest_review)
@@ -340,31 +383,15 @@ def _extract_proc_error(proc: Any) -> str:
 
 
 def _query_timeline_copilot_state(
-    owner: str, repo_name: str, pr_number: int
-) -> tuple[bool, str, str]:
-    """Query issue timeline to detect active Copilot review events."""
-    cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page=100",
-    ]
-    proc = run_gh(cmd, check=False, quiet=True)
-    if proc.returncode == 0:
-        if proc.stdout.strip():
-            working, event = _parse_timeline_copilot_state(proc.stdout)
-            return working, event, ""
-        return False, "", ""
-    err = _extract_proc_error(proc)
-    return False, "", err
-
-
-def _resolve_timeline_query(owner: str, repo_name: str, pr_number: int) -> tuple[bool, str, str]:
-    """Query timeline events and return working flag, active event, and any error reason."""
-    res = _query_timeline_copilot_state(owner, repo_name, pr_number)
-    if len(res) == 3:
-        return res
-    return res[0], res[1], ""
+    owner: str, repo_name: str, pr_number: int, copilot_review_ids: frozenset[int]
+) -> _CopilotTimeline:
+    """Read every page of the pull request's issue timeline for Copilot's review events, its own
+    reviews named by `copilot_review_ids`, or why the timeline could not be read."""
+    timeline = f"/repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    try:
+        return _timeline_copilot_state(get_github_session().paginate(timeline), copilot_review_ids)
+    except GitHubOperationError as exc:
+        return _CopilotTimeline(error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _build_changes_status(
@@ -404,13 +431,31 @@ def _detect_copilot_status(
     unresolved_threads: list[ReviewThread] | None = None,
     reviews_err: str = "",
 ) -> CopilotReviewStatus:
-    """Inspect timeline events and review states to detect Copilot review activity."""
-    latest_review, has_changes, latest_state, last_time = _extract_latest_copilot_review(reviews)
-    copilot_working, active_event, timeline_err = _resolve_timeline_query(
-        owner, repo_name, pr_number
-    )
+    """Inspect timeline events and review states to detect Copilot review activity.
 
-    err = reviews_err or getattr(reviews, "error", "") or timeline_err
+    A timeline `reviewed` event ends Copilot's pass when it carries the id of one of Copilot's
+    reviews among `reviews`. A review Copilot submits between the reviews read and the timeline
+    read therefore reads as running for this one call: the Copilot budget still counts it once,
+    and the monitor sees the pass end on its next poll.
+    """
+    timeline = _query_timeline_copilot_state(
+        owner, repo_name, pr_number, _copilot_review_ids(reviews)
+    )
+    err = reviews_err or getattr(reviews, "error", "") or timeline.error
+    status = _copilot_review_status(reviews, timeline, unresolved_threads, err)
+    return status.model_copy(update={"pass_requested": timeline.requested})
+
+
+def _copilot_review_status(
+    reviews: list[dict[str, Any]],
+    timeline: _CopilotTimeline,
+    unresolved_threads: list[ReviewThread] | None,
+    err: str,
+) -> CopilotReviewStatus:
+    """Copilot's review state from its latest review and what the timeline says of it, or the
+    reason `err` that either could not be read."""
+    latest_review, has_changes, latest_state, last_time = _extract_latest_copilot_review(reviews)
+    copilot_working, active_event = timeline.working, timeline.event
     if err:
         return CopilotReviewStatus(
             is_active=False,
@@ -485,10 +530,9 @@ class RawReviewsList(list[dict[str, Any]]):
         self.error = error
 
 
-def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
+def fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
-    pr_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
-    pr_proc = run_gh(pr_cmd, check=False, quiet=True)
+    pr_proc = run_gh(pr_details_argv(owner, repo_name, pr_number), check=False, quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
         err = _extract_proc_error(pr_proc)
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")
@@ -500,21 +544,14 @@ def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, A
 
 
 def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> RawReviewsList:
-    """Fetch all review records for a PR."""
-    from devops_cli.github.client import parse_paginated_json
-
-    reviews_cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
-    ]
-    reviews_proc = run_gh(reviews_cmd, check=False, quiet=True)
-    if reviews_proc.returncode == 0:
-        items = parse_paginated_json(reviews_proc.stdout) if reviews_proc.stdout.strip() else []
-        return RawReviewsList(items, error="")
-    err = _extract_proc_error(reviews_proc)
-    return RawReviewsList([], error=err)
+    """Read every page of a PR's reviews, or none and the reason they could not be read."""
+    reviews = (
+        f"/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    )
+    try:
+        return RawReviewsList(list(get_github_session().paginate(reviews)), error="")
+    except GitHubOperationError as exc:
+        return RawReviewsList([], error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
 def _fetch_unresolved_threads(owner: str, repo_name: str, pr_number: int) -> list[ReviewThread]:
@@ -585,7 +622,7 @@ def _extract_latest_reviews_by_user(
     """Map each reviewer to their latest review state and target commit ID."""
     latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
-        if not isinstance(r, dict) or _is_copilot_review_dict(r):
+        if not isinstance(r, dict) or is_copilot_review(r):
             continue
         user = str(
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
@@ -627,7 +664,7 @@ def get_pr_monitoring_status(
 ) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
-    pr_data = _fetch_pr_details(owner, repo_name, pr_number)
+    pr_data = fetch_pr_details(owner, repo_name, pr_number)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
     is_draft = bool(pr_data.get("draft", False))
     mergeable = pr_data.get("mergeable")

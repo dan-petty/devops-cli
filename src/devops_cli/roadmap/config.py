@@ -20,6 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION,
     DEFAULT_ROADMAP_PLANNING_HORIZON,
     DEFAULT_ROADMAP_RELEASE_CAP,
+    DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES,
     DEFAULT_ROADMAP_RELEASE_CREDIT_BASE,
     DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM,
     DEFAULT_ROADMAP_RELEASE_ITEM_TARGET,
@@ -58,6 +59,7 @@ class RoadmapConfig(BaseModel):
         default=DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM, ge=0
     )
     release_item_target: int = Field(default=DEFAULT_ROADMAP_RELEASE_ITEM_TARGET, ge=1)
+    release_copilot_passes: int = Field(default=DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES, ge=1)
 
     @property
     def release_limit(self) -> int:

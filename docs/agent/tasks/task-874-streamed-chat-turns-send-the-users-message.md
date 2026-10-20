@@ -1,9 +1,6 @@
 # Task: Streamed Chat Turns Send User Message and Roll Back on Failure (#874)
 
 **Issue**: [#874](https://github.com/dan-petty/devops-cli/issues/874)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-important
 **Scope**: scope/ai
 
 ## Description

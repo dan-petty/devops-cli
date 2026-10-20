@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER, CONST_AI_PROVIDER_API_BASES
@@ -222,7 +222,9 @@ class BenchmarkRunner:
             updates["api_base_url"] = clean_endpoint
 
         cfg = self.settings.ai.model_copy(update=updates)
-        return LLMClient(cfg, api_key=_key_for_endpoint(self.settings, cfg))
+        return get_llm_client(
+            config=cfg, settings=self.settings, api_key=_key_for_endpoint(self.settings, cfg)
+        )
 
     def _simulate_response(
         self,

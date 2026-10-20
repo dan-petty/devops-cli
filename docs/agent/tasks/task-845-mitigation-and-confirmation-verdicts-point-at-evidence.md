@@ -1,9 +1,6 @@
 # Task: Mitigation and Confirmation Verdicts Must Point at Evidence That Exists (#845)
 
 **Issue**: [#845](https://github.com/dan-petty/devops-cli/issues/845)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

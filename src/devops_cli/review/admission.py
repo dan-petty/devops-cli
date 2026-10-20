@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.review.path_classes import classify_path
 from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.fingerprint import compute_fingerprint_v2
@@ -136,7 +135,12 @@ def admit(
         _record_rejection(rejection_counts, loc_res.rejection_reason or "path-not-in-commit")
         return None
 
-    p_class = classify_path(loc_res.normalized_path, path_classes) if path_classes else None
+    if path_classes:
+        from devops_cli.ai.review.path_classes import classify_path
+
+        p_class = classify_path(loc_res.normalized_path, path_classes)
+    else:
+        p_class = None
     eff_sev, derivation = derive_severity(
         security_severity=security_severity,
         rule_severity=rule_severity,

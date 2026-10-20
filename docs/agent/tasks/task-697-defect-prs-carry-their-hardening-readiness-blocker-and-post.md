@@ -1,9 +1,6 @@
 # Task 697: Defect PRs Carry Their Hardening Readiness Blocker and Post-Merge Audit
 
 **Issue**: [#697](https://github.com/dan-petty/devops-cli/issues/697)
-**Status**: Done
-**Milestone**: `v0.2.34`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/github`, `priority/p1-high`
 
 ---

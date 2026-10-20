@@ -1,9 +1,6 @@
 # Task: Item closure summaries and automatic release cut (`devops roadmap close`) (#743)
 
 **Issue**: [#743](https://github.com/dan-petty/devops-cli/issues/743)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/release, priority/p1-high
 
 ## Description

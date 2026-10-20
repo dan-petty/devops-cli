@@ -17,6 +17,7 @@ from devops_cli.release.changelog_fragments import (
     find_changelog_section,
     parse_changelog_categories,
     parse_changelog_entries,
+    parse_changelog_fragment,
     read_changelog_fragments,
 )
 
@@ -111,6 +112,22 @@ def test_a_misnamed_file_is_refused_by_name(fragments_dir: Path, name: str) -> N
     (fragments_dir / name).write_text("### Added\n- y.\n", encoding="utf-8")
     message = _refusal(lambda: read_changelog_fragments(fragments_dir))
     assert message.startswith(f"changelog.d/{name} is not a changelog fragment"), message
+
+
+def test_a_misnamed_file_is_refused_before_its_bytes_are_read(fragments_dir: Path) -> None:
+    """A file that is no fragment is refused by its name, whatever it holds: bytes that are no
+    UTF-8 never reach the decoder."""
+    (fragments_dir / "logo.png").write_bytes(b"\xff\xfe")
+    message = _refusal(lambda: read_changelog_fragments(fragments_dir))
+    assert message.startswith("changelog.d/logo.png is not a changelog fragment"), message
+
+
+def test_parsing_a_fragment_refuses_a_misnamed_path_by_name() -> None:
+    """`parse_changelog_fragment` checks the name as the reader does, before the text."""
+    message = _refusal(
+        lambda: parse_changelog_fragment(Path("changelog.d/notes.md"), "### Added\n- x.\n")
+    )
+    assert message.startswith("changelog.d/notes.md is not a changelog fragment"), message
 
 
 @pytest.mark.parametrize("kind", ["directory", "link"])

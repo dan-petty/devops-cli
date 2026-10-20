@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 runner = CliRunner()
 
@@ -325,6 +326,21 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="local-k3s")
     assert res is True
     assert mock_run.call_count == 2
+
+
+def test_adopt_helm_resource_warns_and_refuses_for_traefik() -> None:
+    """_adopt_helm_resource_if_conflict warns and refuses to adopt for traefik release (#1675)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
+
+    err = (
+        'Error: unable to continue with install: Service "traefik" in namespace "kube-system" exists '
+        "and cannot be imported into the current release: invalid ownership metadata; "
+        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    )
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
+        res = _adopt_helm_resource_if_conflict(err, "traefik", "kube-system", context="local-k3s")
+    assert res is False
+    assert mock_run.call_count == 0
 
 
 _OPERATOR_CRDS = tuple(
@@ -1153,10 +1169,9 @@ def test_k8s_deploy_stack_no_wait() -> None:
 
 def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
-    repo_root = Path(__file__).resolve().parent.parent
 
     # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
-    ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
+    ollama_path = REPO_ROOT / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
     dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     container = dep["spec"]["template"]["spec"]["containers"][0]
@@ -1209,7 +1224,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     # 2. Valkey: memory limit >= 2048Mi
     valkey_docs = list(
-        yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load_all((REPO_ROOT / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
     )
     valkey_dep = next(d for d in valkey_docs if d and d.get("kind") == "Deployment")
     valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
@@ -1217,14 +1232,14 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     # 3. Tempo: memory limit >= 2048Mi
     tempo_values = yaml.safe_load(
-        (repo_root / "k8s" / "otel" / "tempo-values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "otel" / "tempo-values.yaml").read_text(encoding="utf-8")
     )
     assert tempo_values["tempo"]["resources"]["limits"]["memory"] == "2048Mi"
 
     # 4. Registry: memory limit >= 2048Mi
     reg_docs = list(
         yaml.safe_load_all(
-            (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
+            (REPO_ROOT / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
         )
     )
     reg_dep = next(d for d in reg_docs if d and d.get("kind") == "Deployment")
@@ -1233,7 +1248,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     # 5. ArgoCD values: elevated memory limits
     argo_values = yaml.safe_load(
-        (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
     )
     assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
     assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "4096Mi"
@@ -1242,28 +1257,28 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     # 6. Open WebUI values: elevated CPU and memory limits
     webui_values = yaml.safe_load(
-        (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
     )
     assert webui_values["resources"]["limits"]["cpu"] == "4000m"
     assert webui_values["resources"]["limits"]["memory"] == "4Gi"
 
     # 7. OTel values: elevated CPU and memory limits
     otel_values = yaml.safe_load(
-        (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
     assert otel_values["resources"]["limits"]["cpu"] == "1000m"
     assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
 
     # 8. Loki values: elevated singleBinary limits
     loki_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
 
     # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
     k8s_mon_values = yaml.safe_load(
-        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+        (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -1289,7 +1304,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     # 11. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(
         yaml.safe_load_all(
-            (repo_root / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
+            (REPO_ROOT / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
                 encoding="utf-8"
             )
         )
@@ -1305,14 +1320,14 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     # 12. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
     coredns_values = yaml.safe_load(
-        (repo_root / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
     )
     assert coredns_values["resources"]["limits"]["memory"] == "384Mi"
     assert coredns_values["resources"]["requests"]["memory"] == "70Mi"
 
     coredns_patch_docs = list(
         yaml.safe_load_all(
-            (repo_root / "k8s" / "coredns" / "deployment-patch.yaml").read_text(encoding="utf-8")
+            (REPO_ROOT / "k8s" / "coredns" / "deployment-patch.yaml").read_text(encoding="utf-8")
         )
     )
     coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
@@ -1324,11 +1339,9 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 # Thirty Days Of Logs And Metrics (#550)
 # =============================================================================
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-
 
 def _repo_yaml(*parts: str) -> dict[str, Any]:
-    loaded: dict[str, Any] = yaml.safe_load(_REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
+    loaded: dict[str, Any] = yaml.safe_load(REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
     return loaded
 
 
@@ -1382,7 +1395,8 @@ def test_an_alert_fires_before_the_log_or_metric_volume_fills() -> None:
     """
     alerts = _volume_alerts()
     disk, cap = alerts["LogOrMetricVolumeDiskLow"], alerts["PrometheusNearRetentionSizeCap"]
-    served = _repo_yaml("tests", "fixtures", "metrics", "prometheus-server.yaml")["families"]
+    server = FIXTURES / "metrics" / "prometheus-server.yaml"
+    served = yaml.safe_load(server.read_text(encoding="utf-8"))["families"]
     cap_series = {selector.metric for selector in selectors(cap["expr"])}
     assert (
         sorted(alerts),
@@ -1405,11 +1419,10 @@ def test_an_alert_fires_before_the_log_or_metric_volume_fills() -> None:
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
     """Verify deploy-stack enforces --force-conflicts and k8s manifests meet security & chart contracts."""
-    repo_root = Path(__file__).resolve().parent.parent
 
     # 1. Namespaces: logging has baseline pod-security standard
     ns_docs = list(
-        yaml.safe_load_all((repo_root / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load_all((REPO_ROOT / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
     )
     logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
     assert (
@@ -1420,7 +1433,7 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
 
     # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
     loki_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
     assert (
         loki_values["read"]["replicas"],
@@ -1430,7 +1443,7 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
 
     # 3. Qdrant values: disabled unprivileged volume chown initContainer
     qdrant_values = yaml.safe_load(
-        (repo_root / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
+        (REPO_ROOT / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
     )
     assert qdrant_values["updateVolumeFsOwnership"] is False
 
@@ -2143,14 +2156,27 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> Non
         for cmd in (call.args[0] for call in mock_cmd.call_args_list)
         if cmd[:3] == ["kubectl", "apply", "-k"]
     ]
-    assert (res.exit_code, kustomize_targets) == (0, [Path("k8s"), Path("k8s", "monitoring")])
+    assert (res.exit_code, kustomize_targets) == (
+        0,
+        [
+            Path("k8s"),
+            Path("k8s", "monitoring"),
+            Path("k8s", "gpu-feature-discovery"),
+        ],
+    )
 
 
 @pytest.mark.parametrize(
     ("stack", "kustomizations"),
     [
-        ("infra", [str(Path("k8s", "monitoring"))]),
-        ("all", [str(Path("k8s", "monitoring"))]),
+        (
+            "infra",
+            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+        ),
+        (
+            "all",
+            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+        ),
         ("llm", []),
     ],
 )

@@ -1,9 +1,6 @@
 # Task 737: Restore Kubernetes CPU Metrics and Align Monitoring Dashboards to homelab-k3s
 
 **Issue**: [#737](https://github.com/dan-petty/devops-cli/issues/737)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p1-high`
 
 ---

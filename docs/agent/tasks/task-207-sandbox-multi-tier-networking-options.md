@@ -1,9 +1,6 @@
 # Task 207: Sandbox Multi-Tier Networking Configuration Options
 
 **Issue**: [#207](https://github.com/dan-petty/devops-cli/issues/207)
-**Status**: Done
-**Milestone**: `v0.2.18`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/security`, `scope/cli`
 
 ---
@@ -24,7 +21,7 @@ Implement multi-tier networking configuration options for workload sandboxes acr
    - Private RFC 1918 IPs, link-local, and cloud metadata (`169.254.169.254`) are strictly blocked.
    - Generates egress `NetworkPolicy` ipBlocks and validates domain destinations.
 4. **Access to explicitly whitelisted local URL/IP** (`local_whitelist`):
-   - Access permitted strictly to explicitly whitelisted local/private endpoints (e.g. `http://localhost:11434`, `http://192.0.2.50:8000`, `host.docker.internal`).
+   - Access permitted strictly to explicitly whitelisted local/private endpoints (e.g. `http://192.0.2.50:8000`). Since #1174, `host.docker.internal` is refused and a loopback entry such as `http://localhost:11434` adds no egress rule.
    - Arbitrary local port scanning or unlisted internal hosts are blocked.
    - In Docker: maps to `--add-host` host-gateway mappings for authorized endpoints.
 

@@ -10,10 +10,14 @@ from typing import Any
 
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import (
+    _HELM_RELEASES_BY_STACK,
+    _KUSTOMIZATIONS_BY_STACK,
+    _MANIFESTS_BY_STACK,
+)
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 ARGOCD_DIR = K8S_DIR / "argocd"
 APPS_DIR = ARGOCD_DIR / "apps"
@@ -80,65 +84,128 @@ def test_automated_sync_policies() -> None:
         assert retry.get("limit") == 5, f"{name} retry.limit is not 5"
 
 
-def test_git_sources_and_revisions() -> None:
-    apps = _all_applications()
+def _check_app_git_sources(name: str, spec: dict[str, Any]) -> None:
+    if "source" in spec:
+        source = spec["source"]
+        assert (source["repoURL"], source["targetRevision"]) == (
+            REPO_URL,
+            "main",
+        ), f"{name} bad revision {source.get('targetRevision')}"
+        return
+    git_sources = [s for s in spec.get("sources", []) if "chart" not in s]
+    expected_count = 2 if name == "argocd" else 1
+    assert len(git_sources) == expected_count, f"{name} expected {expected_count} git sources"
+    for git_s in git_sources:
+        assert (git_s["repoURL"], git_s["targetRevision"]) == (
+            REPO_URL,
+            "main",
+        ), f"{name} bad revision {git_s.get('targetRevision')}"
 
-    for name, app in apps.items():
-        spec = app["spec"]
-        if "source" in spec:
-            source = spec["source"]
-            assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main"), (
-                f"{name} bad revision {source.get('targetRevision')}"
-            )
-        elif "sources" in spec:
-            git_sources = [s for s in spec["sources"] if "chart" not in s]
-            assert len(git_sources) == 1, f"{name} expected 1 git source"
-            git_s = git_sources[0]
-            assert (git_s["repoURL"], git_s["ref"], git_s["targetRevision"]) == (
-                REPO_URL,
-                "values",
-                "main",
-            ), f"{name} bad revision {git_s.get('targetRevision')}"
+
+def test_git_sources_and_revisions() -> None:
+    for name, app in _all_applications().items():
+        _check_app_git_sources(name, app["spec"])
+
+
+def _assert_helm_app_matches_release(
+    app: dict[str, Any], release: dict[str, str], name: str
+) -> None:
+    semver_re = re.compile(r"^\d+\.\d+\.\d+$")
+    sources = app.get("spec", {}).get("sources", [])
+    helm_sources = [s for s in sources if "chart" in s]
+    assert len(helm_sources) == 1, f"{name} expected 1 Helm source"
+    h = helm_sources[0]
+
+    target_rev = str(h["targetRevision"])
+    assert semver_re.match(target_rev), f"{name} helm version {target_rev} not pinned semver"
+    assert target_rev == release["version"]
+
+    expected_chart_name = release["chart"].split("/")[-1]
+    assert h["chart"] == expected_chart_name
+    assert app["spec"]["destination"]["namespace"] == release["namespace"]
+
+    value_files = h.get("helm", {}).get("valueFiles", [])
+    raw_val = Path(release["values"])
+    rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
+    expected_rel_path = f"$values/{rel_val.as_posix()}"
+    assert value_files == [expected_rel_path]
+
+
+def _kustomization_manifest_files(kust_dir: Path) -> list[Path]:
+    """Find all concrete manifest files referenced by a kustomization recursively."""
+    kust_file = kust_dir / "kustomization.yaml"
+    if not kust_file.is_file():
+        return []
+    doc = yaml.safe_load(kust_file.read_text(encoding="utf-8")) or {}
+    files: list[Path] = []
+    for res in doc.get("resources", []):
+        res_path = (kust_dir / res).resolve()
+        if res_path.is_file():
+            files.append(res_path)
+        elif res_path.is_dir() and (res_path / "kustomization.yaml").is_file():
+            files.extend(_kustomization_manifest_files(res_path))
+    return files
 
 
 def test_helm_sources_pinned_versions() -> None:
     apps = _all_applications()
-    semver_re = re.compile(r"^\d+\.\d+\.\d+$")
-
-    helm_releases_map: dict[str, dict[str, str]] = {}
-    for releases in _HELM_RELEASES_BY_STACK.values():
-        for r in releases:
-            helm_releases_map[r["name"]] = r
-    helm_releases_map["traefik"] = {
-        "name": "traefik",
-        "chart": "traefik/traefik",
-        "namespace": "kube-system",
-        "values": "k8s/ingress/traefik-values.yaml",
-        "version": "41.6.0",
+    helm_releases_map: dict[str, dict[str, str]] = {
+        r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
     }
 
     for name, expected in helm_releases_map.items():
         assert name in apps, f"Missing Helm app {name}"
-        app = apps[name]
+        _assert_helm_app_matches_release(apps[name], expected, name)
+
+
+def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> None:
+    """Every Application in k8s/argocd/apps maps to a deploy-stack counterpart (#1675).
+
+    Each chart maps to a release with the same version and values file, and each path maps
+    to a deploy-stack manifest list or kustomization. argocd-image-updater is the only allowed
+    exception (k8s/README.md Service Image Updates; task-1485).
+    """
+    helm_releases_map: dict[str, dict[str, str]] = {
+        r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
+    }
+    deploy_stack_kustomizations = {
+        (REPO_ROOT / "k8s").resolve(),
+        *(
+            (REPO_ROOT / "k8s" / k).resolve()
+            for ks in _KUSTOMIZATIONS_BY_STACK.values()
+            for k in ks
+        ),
+    }
+    deploy_stack_manifests = {
+        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
+        for ms in _MANIFESTS_BY_STACK.values()
+        for p in ms
+    }
+
+    for app_path_file in sorted(APPS_DIR.glob("*.yaml")):
+        if app_path_file.name == "projects.yaml":
+            continue
+        app = _load_yaml(app_path_file)
+        name = app["metadata"]["name"]
+        if name == "argocd-image-updater":
+            continue
+
         spec = app["spec"]
-        sources = spec.get("sources", [])
-        helm_sources = [s for s in sources if "chart" in s]
-        assert len(helm_sources) == 1, f"{name} expected 1 Helm source"
-        h = helm_sources[0]
-
-        target_rev = str(h["targetRevision"])
-        assert semver_re.match(target_rev), f"{name} helm version {target_rev} not pinned semver"
-        assert target_rev == expected["version"]
-
-        expected_chart_name = expected["chart"].split("/")[-1]
-        assert h["chart"] == expected_chart_name
-        assert app["spec"]["destination"]["namespace"] == expected["namespace"]
-
-        value_files = h.get("helm", {}).get("valueFiles", [])
-        raw_val = Path(expected["values"])
-        rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
-        expected_rel_path = f"$values/{rel_val.as_posix()}"
-        assert value_files == [expected_rel_path]
+        if "sources" in spec:
+            assert name in helm_releases_map, f"{name} has no deploy-stack release"
+            _assert_helm_app_matches_release(app, helm_releases_map[name], name)
+        elif "source" in spec and "path" in spec["source"]:
+            target_path = (REPO_ROOT / spec["source"]["path"]).resolve()
+            if target_path in deploy_stack_kustomizations:
+                continue
+            manifests = _kustomization_manifest_files(target_path)
+            assert manifests, f"{name} path {target_path} contains no manifests"
+            missing = [
+                m.relative_to(REPO_ROOT).as_posix()
+                for m in manifests
+                if m not in deploy_stack_manifests
+            ]
+            assert not missing, f"{name} manifests missing from deploy-stack: {missing}"
 
 
 def _assert_kustomization_resources(p: Path, name: str) -> None:
@@ -204,28 +271,35 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
         ("", "Secret", "argocd-initial-admin-secret"),
         ("", "Secret", "argocd-redis"),
         ("", "Secret", "sh.helm.release.v1.*"),
+        ("", "Secret", "agent-grant-*"),
         ("", "PersistentVolumeClaim", ""),
         ("batch", "Job", "devops-cli-*"),
         ("argoproj.io", "AppProject", "default"),
     }
     assert expected_ignored.issubset(ignored_tuples)
 
+    destinations = {
+        (d.get("server", ""), d.get("namespace", "")) for d in homelab.get("destinations", [])
+    }
+    assert ("https://kubernetes.default.svc", "agents") in destinations
+
 
 # ── Ownership & No Duplicates ────────────────────────────────────────────────
 
 
+def test_this_repository_passes_the_argocd_gate() -> None:
+    """The repository passes the offline Argo CD gate, verifying all applications at the head (#1343)."""
+    from devops_cli.k8s.argocd_gate import check_argocd_gate
+
+    built = check_argocd_gate(REPO_ROOT)
+    assert len(built) >= 23
+
+
 def test_rendered_raw_objects_single_ownership() -> None:
+    from devops_cli.k8s.argocd_gate import discover_path_applications
+
     apps = _all_applications()
-    raw_leaf_apps = {
-        "base": K8S_DIR,
-        "monitoring": K8S_DIR / "monitoring",
-        "llm": K8S_DIR / "llm",
-        "otel": K8S_DIR / "otel",
-        "logging": K8S_DIR / "logging",
-        "devops": K8S_DIR / "overlays" / "homelab" / "devops",
-        "ingress": K8S_DIR / "overlays" / "homelab" / "ingress",
-        "gpu-feature-discovery": K8S_DIR / "gpu-feature-discovery",
-    }
+    raw_leaf_apps = discover_path_applications(REPO_ROOT, APPS_DIR)
 
     seen_objects: dict[tuple[str, str, str, str], str] = {}
     namespaces_declared: list[str] = []
@@ -275,16 +349,9 @@ def test_rendered_raw_objects_single_ownership() -> None:
 
 
 def test_namespace_and_pvc_data_safety() -> None:
-    raw_leaf_apps = [
-        K8S_DIR,
-        K8S_DIR / "monitoring",
-        K8S_DIR / "llm",
-        K8S_DIR / "otel",
-        K8S_DIR / "logging",
-        K8S_DIR / "overlays" / "homelab" / "devops",
-        K8S_DIR / "overlays" / "homelab" / "ingress",
-        K8S_DIR / "gpu-feature-discovery",
-    ]
+    from devops_cli.k8s.argocd_gate import discover_path_applications
+
+    raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
 
     for dir_path in raw_leaf_apps:
         proc = subprocess.run(
@@ -312,7 +379,10 @@ def test_namespace_and_pvc_data_safety() -> None:
 def test_chart_pvc_and_crd_safety_values() -> None:
     grafana_val = _load_yaml(K8S_DIR / "monitoring" / "grafana-values.yaml")
     grafana_opts = grafana_val["persistence"]["annotations"]["argocd.argoproj.io/sync-options"]
-    assert ("Prune=false" in grafana_opts, "Delete=false" in grafana_opts) == (True, True)
+    assert ("Prune=false" in grafana_opts, "Delete=false" in grafana_opts) == (
+        True,
+        True,
+    )
     assert grafana_val.get("admin", {}).get("existingSecret") == "grafana-admin"
     assert "adminPassword" not in grafana_val.get("admin", {})
 
@@ -351,22 +421,40 @@ def test_argocd_enables_the_web_terminal() -> None:
 # ── Perimeters & Network Policies ────────────────────────────────────────────
 
 
-def test_perimeters_in_applications() -> None:
+def test_exactly_one_application_renders_argocd_default_perimeter() -> None:
+    """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
+    from tests.k8s_manifests import kustomized_objects
+
     apps = _all_applications()
+    rendering_apps: list[str] = []
     for name, app in apps.items():
-        spec = app["spec"]
-        if "source" in spec and "path" in spec["source"]:
-            p = REPO_ROOT / spec["source"]["path"]
-            kust = p / "kustomization.yaml"
-            if kust.exists():
-                kust_data = _load_yaml(kust)
-                resources = kust_data.get("resources", [])
-                assert "networkpolicy.yaml" not in resources or name != "argocd", (
-                    "No app may sync k8s/argocd/networkpolicy.yaml"
-                )
+        spec = app.get("spec", {})
+        sources = list(spec.get("sources", []))
+        if "source" in spec and isinstance(spec["source"], dict):
+            sources.append(spec["source"])
+        for src in sources:
+            rel_path = src.get("path")
+            if not rel_path:
+                continue
+            p = REPO_ROOT / rel_path
+            if (p / "kustomization.yaml").is_file() or (p / "kustomization.yml").is_file():
+                policies = kustomized_objects(p, "NetworkPolicy")
+                if ("argocd", "argocd-default-perimeter") in policies:
+                    rendering_apps.append(name)
+    assert rendering_apps == ["argocd"]
 
     otel_kust = _load_yaml(K8S_DIR / "otel" / "kustomization.yaml")
     assert "networkpolicy.yaml" in otel_kust.get("resources", [])
+
+
+def test_applicationset_controller_disabled_with_zero_replicas() -> None:
+    """The ApplicationSet controller Deployment renders 0 replicas and avoids the obsolete enabled key (#1673)."""
+    values = _load_yaml(ARGOCD_DIR / "values.yaml")
+    appset = values.get("applicationSet", {})
+    assert (
+        appset.get("replicas"),
+        "enabled" in appset,
+    ) == (0, False)
 
 
 # ── Domain Overlays ──────────────────────────────────────────────────────────
@@ -394,9 +482,13 @@ def test_homelab_domain_overlays() -> None:
 
 
 def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applications() -> None:
-    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack."""
+    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack,
+    and leaves pre/post-delete finalizers to Argo CD (#1674)."""
     from devops_cli.config.constants import (
         CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
     )
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
@@ -413,9 +505,70 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
                 "jsonPointers": ["/spec/source/kustomize"],
             }
             for name in HOMELAB_APPLICATIONS
+        ]
+        + [
+            {
+                "group": "argoproj.io",
+                "kind": "Application",
+                "jqPathExpressions": [PRE_POST_DELETE_JQ],
+            }
         ],
         True,
     )
+
+
+def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None:
+    """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
+    import json
+    import shutil
+    import subprocess
+
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
+    )
+
+    spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
+    diff_entries = [
+        d
+        for d in spec.get("ignoreDifferences", [])
+        if d.get("group") == "argoproj.io"
+        and d.get("kind") == "Application"
+        and "jqPathExpressions" in d
+    ]
+    assert len(diff_entries) == 1
+    (entry,) = diff_entries
+    assert entry.get("jqPathExpressions") == [PRE_POST_DELETE_JQ]
+
+    jq_bin = shutil.which("jq")
+    if jq_bin:
+        sample_doc = {
+            "metadata": {
+                "finalizers": [
+                    "resources-finalizer.argocd.argoproj.io",
+                    "pre-delete-finalizer.argocd.argoproj.io",
+                    "pre-delete-finalizer.argocd.argoproj.io/cleanup",
+                    "post-delete-finalizer.argocd.argoproj.io",
+                    "post-delete-finalizer.argocd.argoproj.io/cleanup",
+                    "custom.example.com/finalizer",
+                ]
+            }
+        }
+        proc = subprocess.run(
+            [jq_bin, "-r", PRE_POST_DELETE_JQ],
+            input=json.dumps(sample_doc),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        selected = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        assert selected == [
+            "pre-delete-finalizer.argocd.argoproj.io",
+            "pre-delete-finalizer.argocd.argoproj.io/cleanup",
+            "post-delete-finalizer.argocd.argoproj.io",
+            "post-delete-finalizer.argocd.argoproj.io/cleanup",
+        ]
+        assert "resources-finalizer.argocd.argoproj.io" not in selected
+        assert "custom.example.com/finalizer" not in selected
 
 
 def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:
@@ -513,7 +666,9 @@ def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it
     ).stdout
     objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
     ignored = subprocess.run(
-        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"], cwd=REPO_ROOT, check=False
+        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        check=False,
     ).returncode
     tracked = subprocess.run(
         ["git", "ls-files", "k8s/devops/configmap.yaml"],
@@ -522,4 +677,8 @@ def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it
         text=True,
         check=True,
     ).stdout
-    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (False, 0, "")
+    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (
+        False,
+        0,
+        "",
+    )

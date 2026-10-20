@@ -1,9 +1,6 @@
 # Task: RAG Collection Records Embedding Model, Mismatch Fails, Ranking Keeps Cosine (#1066)
 
 **Issue**: [#1066](https://github.com/dan-petty/devops-cli/issues/1066)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 **Feasibility**: Feasible - Verified offline through unit tests and fakes that collection point metadata, pre-index checks, dimension mismatch exception mapping, and SearchResult cosine score attributes integrate cleanly with zero external API calls.
 

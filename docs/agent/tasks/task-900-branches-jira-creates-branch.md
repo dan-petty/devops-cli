@@ -1,9 +1,6 @@
 # Task: devops branches jira creates the branch instead of failing on checkout -b -- (#900)
 
 **Issue**: [#900](https://github.com/dan-petty/devops-cli/issues/900)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description

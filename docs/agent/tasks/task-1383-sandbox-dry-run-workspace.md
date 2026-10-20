@@ -1,9 +1,6 @@
 # Task: Docker sandbox and test sandbox dry runs check the workspace as the real run does (#1383)
 
 **Issue**: [#1383](https://github.com/dan-petty/devops-cli/issues/1383)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/bug, priority/p2-medium, scope/cli, scope/security
 
 ## Description

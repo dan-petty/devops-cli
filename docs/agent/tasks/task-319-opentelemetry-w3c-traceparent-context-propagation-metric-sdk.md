@@ -1,9 +1,6 @@
 # Task 319: OpenTelemetry W3C Traceparent Context Propagation, Metric SDK & Span Waterfall Optimization Research
 
 **Issue**: [#319](https://github.com/dan-petty/devops-cli/issues/319)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p1-high`
 
 ---

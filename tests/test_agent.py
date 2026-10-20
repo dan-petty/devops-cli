@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from devops_cli.ai.agents import AgentResponse, PydanticAgent
+from devops_cli.ai.agents.agent import PydanticAgent
+from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.client import LLMClient
 
 
@@ -65,9 +66,11 @@ def test_agent_stream() -> None:
     assert chunks == ["Hello", " ", "world!"]
 
 
-def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
+def test_ollama_stream_400_raises_client_error(mocker: MagicMock) -> None:
     import httpx2
+    import pytest
 
+    from devops_cli.ai.client import AIClientError
     from devops_cli.config.settings import AIConfig
 
     config = AIConfig(
@@ -85,19 +88,19 @@ def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
     mock_stream_req = mocker.patch.object(
         client,
         "_ollama_stream_request",
-        side_effect=[exc_400, iter(["Response ", "without ", "thinking"])],
+        side_effect=exc_400,
     )
 
-    chunks = list(
-        client._ollama_stream("sys", [{"role": "user", "content": "hi"}], enable_thinking=True)
-    )
-    assert "".join(chunks) == "Response without thinking"
-    assert client._ollama_thinking_supported is False
-    assert mock_stream_req.call_count == 2
+    with pytest.raises(AIClientError, match="HTTP 400"):
+        list(
+            client._ollama_stream("sys", [{"role": "user", "content": "hi"}], enable_thinking=True)
+        )
+    assert mock_stream_req.call_count == 1
 
 
 def test_multi_agent_pipeline() -> None:
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 
     client1 = MagicMock(spec=LLMClient)
     client1.chat_messages.return_value = "Scanner report: files look clean."
@@ -135,7 +138,7 @@ def test_get_default_tools_includes_mcp() -> None:
     assert "k8s_tempo_status" in tool_names
     assert "scan_osv" in tool_names
     assert "check_threat_intel" in tool_names
-    assert "ci_run" in tool_names
+    assert "ci" in tool_names
 
 
 def test_get_persona_tools_selection() -> None:
@@ -155,17 +158,18 @@ def test_get_persona_tools_selection() -> None:
     assert "argo_apps" in arch_tools
 
     qa_tools = [t.__name__ for t in get_persona_tools(Persona.QA)]
-    assert "ci_run" in qa_tools
+    assert "ci" in qa_tools
     assert "git_diff" in qa_tools
 
     pm_tools = [t.__name__ for t in get_persona_tools(Persona.PM)]
     assert "repos_list" in pm_tools
-    assert "repos_status" in pm_tools
+    assert "branches_list" in pm_tools
 
 
 def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:
     """Verify message_history=[] keeps an agent's earlier runs out of the next request."""
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 
     sent: list[list[str]] = []
 

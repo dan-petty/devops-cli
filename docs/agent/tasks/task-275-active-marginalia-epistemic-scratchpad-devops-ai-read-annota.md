@@ -1,9 +1,6 @@
 # Task 275: Active Marginalia & Epistemic Scratchpad (`devops ai research annotate`)
 
 **Issue**: [#275](https://github.com/dan-petty/devops-cli/issues/275)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 **Feasibility**: Verified against `devops_cli.ai.research` crawler, models, and CLI runtime.
 

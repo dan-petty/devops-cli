@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
     DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_SUPPORTS_REASONING,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
@@ -95,6 +96,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
+from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 
@@ -316,12 +318,12 @@ class SandboxConfig(BaseModel):
 
 
 class KubernetesConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
     context: str = Field(
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
     )
-    domain: str | None = Field(
+    domain: OptionalConfiguredDomain = Field(
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. example.com)",
     )
@@ -363,8 +365,8 @@ class CloudflareAccessConfig(BaseModel):
 
 
 class CloudflareConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    domain: str | None = Field(
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
+    domain: OptionalConfiguredDomain = Field(
         default=None,
         description="Root or zone domain name managed in Cloudflare (e.g. example.com)",
     )
@@ -425,6 +427,7 @@ class AITaskOverride(BaseModel):
     provider: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    supports_reasoning: bool | None = None
     temperature: float | None = None
     top_p: float | None = None
     context_window: int | None = None
@@ -459,6 +462,7 @@ class AIConfig(BaseModel):
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
     hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
+    supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
     temperature: float = DEFAULT_AI_TEMPERATURE
     top_p: float = DEFAULT_AI_TOP_P
     context_window: int = DEFAULT_AI_CONTEXT_WINDOW
@@ -549,6 +553,7 @@ class AIConfig(BaseModel):
                 "provider": override.provider,
                 "model": override.model,
                 "reasoning_effort": override.reasoning_effort,
+                "supports_reasoning": override.supports_reasoning,
                 "temperature": override.temperature,
                 "top_p": override.top_p,
                 "context_window": override.context_window,
@@ -1250,16 +1255,6 @@ def get_tavily_api_key(settings: Settings | None = None) -> str | None:
     """Resolve the Tavily search API key."""
     active_settings = settings or load_settings()
     return _resolve(opt.TAVILY_API_KEY, active_settings)
-
-
-def get_llm_client(task: str | None = None) -> Any:
-    """Instantiate a configured LLMClient instance based on active application settings."""
-    from devops_cli.ai.client import LLMClient
-
-    settings = load_settings()
-    config = settings.ai.for_task(task) if task else settings.ai
-    api_key = get_ai_api_key(settings)
-    return LLMClient(config, api_key=api_key)
 
 
 def dotted_get(settings: Settings, key: str) -> Any:

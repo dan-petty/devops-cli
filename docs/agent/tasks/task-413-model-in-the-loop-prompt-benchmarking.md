@@ -1,9 +1,6 @@
 # Task: Model-in-the-Loop Prompt Benchmarking (#413)
 
 **Issue**: [#413](https://github.com/dan-petty/devops-cli/issues/413)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

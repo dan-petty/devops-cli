@@ -18,24 +18,35 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_PROJECT_TEMPLATE_PATH
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_GH_PROJECT_SCOPE,
+    CONST_PROJECT_TEMPLATE_PATH,
+    CONST_URL_GITHUB_API_BASE,
+)
 from devops_cli.config.defaults import (
-    DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
     DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
+    DEFAULT_GH_REST_PER_PAGE,
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.github.client import parse_paginated_json
+from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
+from devops_cli.github.error_classifier import (
+    classify_gh_failure,
+    is_gh_owner_lookup_failure,
+    unlisted_entry,
+)
+from devops_cli.github.owner_lookup import owner_lookup_failure
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
     run_gh,
 )
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
     BoardBudgetPayload,
@@ -151,57 +162,35 @@ def load_project_template(template_path: Path | None = None) -> ProjectTemplate:
         ) from exc
 
 
-def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
-    """Raise `GitHubRateLimitError` if subprocess output indicates a GitHub API rate limit exhaustion."""
-    clean = output.lower()
-    rate_limit_indicators = (
-        "unknown owner type",
-        "api rate limit already exceeded",
-        "graphql_rate_limit",
-        "rate limit exceeded",
-    )
-    if any(ind in clean for ind in rate_limit_indicators):
-        raise GitHubRateLimitError(
-            "GitHub API rate limit is currently exhausted. Please wait for quota reset.",
-            operation=operation,
-            details={"output": output.strip()},
-        )
+def _gh_output(proc: subprocess.CompletedProcess[str]) -> str:
+    """What a failed gh command reported: gh writes a failure to stderr. Its stdout holds
+    GitHub's answer, possibly partial data with item titles, and is never classified."""
+    return (proc.stderr or "").strip()
 
 
 def verify_project_auth_scopes() -> None:
-    """Verify that the gh CLI has the necessary project/read:project OAuth scopes."""
+    """Verify that gh can list projects: a rate limit or no accepted login raises the class the
+    gh classifier names, a missing scope asks for the `project` scope board sync needs, and any
+    other failure is left to the command that follows."""
     proc = run_gh(
         [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
         check=False,
     )
-    if proc.returncode != 0:
-        err = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-        check_github_rate_limit_error(err, operation="verify_project_auth_scopes")
-        scope_error_patterns = (
-            "missing required scopes",
-            "insufficient_scopes",
-            "read:project",
-            "scope 'project'",
-            'scope "project"',
-            "project scope",
-            "oauth scope",
-            "requires additional permissions",
-            "requires the 'project' scope",
-            "need the 'project' scope",
-        )
-        if any(pattern in err for pattern in scope_error_patterns):
-            raise GitHubOperationError(
-                "GitHub authentication token lacks 'project' scope. "
-                "Please run: gh auth refresh -s project,read:project or configure GH_TOKEN with project scope.",
-                operation="verify_project_auth_scopes",
-                details={"raw_error": proc.stderr.strip() if proc.stderr else proc.stdout.strip()},
-            )
-        if "not logged in" in err or "authentication required" in err:
-            raise GitHubOperationError(
-                "GitHub CLI is not authenticated. Please run: gh auth login",
-                operation="verify_project_auth_scopes",
-                details={"raw_error": proc.stderr.strip() if proc.stderr else proc.stdout.strip()},
-            )
+    if proc.returncode == 0:
+        return
+    refused = classify_gh_failure(
+        _gh_output(proc), exit_code=proc.returncode, operation="verify_project_auth_scopes"
+    )
+    if isinstance(refused, GitHubScopeError):
+        raise GitHubScopeError(
+            f"The GitHub token lacks the `{CONST_GH_PROJECT_SCOPE}` scope that board sync needs "
+            f"({refused.details['output']}); run `gh auth refresh -s {CONST_GH_PROJECT_SCOPE}`, "
+            "which includes read:project",
+            operation="verify_project_auth_scopes",
+            details=refused.details,
+        ) from refused
+    if refused is not None:
+        raise refused
 
 
 def _find_project_in_list(projects: list[Any], target: str) -> dict[str, Any] | None:
@@ -300,8 +289,7 @@ def _run_project_cli(
     proc = run_gh(cmd, check=check, quiet=quiet)
     if proc.returncode == 0 or owner_arg == "@me":
         return proc
-    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-    if "unknown owner type" in err_output and "--owner" in cmd:
+    if is_gh_owner_lookup_failure(_gh_output(proc)) and "--owner" in cmd:
         fallback_cmd = list(cmd)
         owner_idx = fallback_cmd.index("--owner") + 1
         if owner_idx < len(fallback_cmd):
@@ -318,8 +306,11 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
     owner_arg = _resolve_project_owner_arg(owner)
     proc = _run_project_cli([CONST_GH_CLI, *_project_list_args(owner_arg)], owner_arg=owner_arg)
     if proc.returncode != 0:
-        err = f"{proc.stderr or ''} {proc.stdout or ''}"
-        check_github_rate_limit_error(err, operation="find_remote_project")
+        refused = classify_gh_failure(
+            _gh_output(proc), exit_code=proc.returncode, operation="find_remote_project"
+        )
+        if refused is not None:
+            raise refused
         return None
     data = extract_json_payload(proc.stdout)
     projects = (
@@ -596,15 +587,27 @@ def _project_login(owner: str) -> str:
 
 
 def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
-    """The error a read of `what` that exited non-zero raises: the rate limit's when its output
-    names one."""
-    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-    check_github_rate_limit_error(err_output, operation=operation)
-    return GitHubOperationError(
-        f"Failed to read {what} (exit {proc.returncode}): {err_output[:256]}",
+    """The error a read of `what` that exited non-zero raises: the class the gh classifier
+    names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
+    nothing to stderr. A board read's `--owner <login>` has no `@me` fallback, so an owner
+    lookup gh dropped the cause of is decided by GraphQL's own budget (#983)."""
+    err_output = _gh_output(proc)
+    said = err_output or (proc.stdout or "").strip()
+    classified = classify_gh_failure(err_output, exit_code=proc.returncode, operation=operation)
+    if classified is not None and is_gh_owner_lookup_failure(err_output):
+        return owner_lookup_failure(
+            classified, read=_gh_command, failed=f"Failed to read {what}", operation=operation
+        )
+    return classified or GitHubOperationError(
+        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
         operation=operation,
         details={"read": what[:256]},
     )
+
+
+def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """One gh command of a board read, through `run_gh`, never from its response cache."""
+    return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
 
 
 def _gh_read[Payload: BaseModel](
@@ -612,7 +615,7 @@ def _gh_read[Payload: BaseModel](
 ) -> Payload:
     """One read through `run_gh`, which charges a GraphQL reply the points its `rateLimit`
     reports; raises when GitHub can't be read or answers malformed."""
-    proc = run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
+    proc = _gh_command(args)
     if proc.returncode != 0:
         raise _read_failure(proc, what, operation)
     try:
@@ -722,29 +725,33 @@ def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str,
     return options
 
 
-def _repository_list_args(repo: str, kind: str, state: str) -> list[str]:
-    """Every page of `repo`'s issues or pull requests in `state`, as one `gh api --paginate`."""
-    return [
-        "api",
-        "--paginate",
-        f"repos/{repo}/{kind}?state={state}&per_page=100",
-        "-H",
-        "Accept: application/vnd.github+json",
-    ]
+def _repository_list_path(repo: str, kind: str, state: str) -> str:
+    """The REST listing of `repo`'s issues or pull requests in `state`, a full page at a time."""
+    return f"/repos/{repo}/{kind}?state={state}&per_page={DEFAULT_GH_REST_PER_PAGE}"
 
 
 def _fetch_repository_list(repo: str, kind: str, state: str) -> list[dict[str, Any]]:
-    """Fetch every page of a repository's issues or pull requests, raising if GitHub can't be read."""
-    res = run_gh(
-        [CONST_GH_CLI, *_repository_list_args(repo, kind, state)],
-        check=False,
-        quiet=True,
-        use_cache=True,
-        cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
+    """Read every linked page of a repository's issues or pull requests through the GitHub
+    session, raising when a page can't be read or holds no list, or an entry is not an object:
+    the read fails rather than return a shorter list."""
+    path = _repository_list_path(repo, kind, state)
+    items = list(get_github_session().paginate(path))
+    for item in items:
+        if not isinstance(item, dict):
+            raise unlisted_entry(item, path=path)
+    return items
+
+
+def _planned_listing(repo: str, kind: str, state: str) -> PlannedRequest:
+    """The session's read of one repository listing, as a dry run lists it."""
+    url = f"{CONST_URL_GITHUB_API_BASE}{_repository_list_path(repo, kind, state)}"
+    return PlannedRequest(
+        method="GET",
+        target=url,
+        repeat=MESSAGES.project.request_repeat_listing.format(
+            max_pages=DEFAULT_GH_MAX_PAGINATED_PAGES
+        ),
     )
-    if res.returncode != 0:
-        raise _read_failure(res, f"{kind} for {repo}", f"fetch_{kind}")
-    return parse_paginated_json(res.stdout or "")
 
 
 def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
@@ -1120,14 +1127,8 @@ def reconcile_dry_run(
                 repeat=MESSAGES.roadmap.plan_repeat_board_page,
             ),
             planned_gh(field_list_args(login, board), targets["fields"].format(board=board)),
-            planned_gh(
-                _repository_list_args(repo, "issues", state),
-                targets["issues"].format(state=state, repo=repo),
-            ),
-            planned_gh(
-                _repository_list_args(repo, "pulls", state),
-                targets["pulls"].format(state=state, repo=repo),
-            ),
+            _planned_listing(repo, "issues", state),
+            _planned_listing(repo, "pulls", state),
         ]
     )
     if writes:

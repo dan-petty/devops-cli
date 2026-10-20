@@ -1,17 +1,24 @@
-"""LLM spans carry the GenAI attributes the pinned semantic conventions define, once each."""
+"""LLM spans carry the GenAI attributes the pinned semantic conventions define, once each, and a
+gateway call's wait for a backend slot is a span and a metric of its own, outside the call's
+inference time."""
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
+import httpx2
 import pytest
 
 from devops_cli.ai import context_budget
+from devops_cli.ai.client import network
+from devops_cli.ai.client import openai as openai_client
+from devops_cli.ai.client import unified as unified_client
 from devops_cli.ai.client.models import LLMResponse, RequestPriority, genai_provider_name
 from devops_cli.ai.client.unified import LLMClient, _server_span_attributes
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, Instrument
 from devops_cli.telemetry.semconv import load_genai_snapshot
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_client
@@ -290,4 +297,113 @@ def test_a_complete_stream_names_the_reason_on_the_stream_span(
     assert (chunks, _attributes(stream).get("gen_ai.response.finish_reasons")) == (
         ["Hel", "lo"],
         ["length"],
+    )
+
+
+class _Clock:
+    """A clock that moves only when told to, read as monotonic and as perf_counter time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def perf_counter(self) -> float:
+        return self.now
+
+
+class _SlotsFreeAfter:
+    """Gateway slots that each take `wait` seconds of `clock` to come free."""
+
+    def __init__(self, clock: _Clock, wait: float) -> None:
+        self.clock, self.wait = clock, wait
+
+    def acquire(self, timeout: float | None = None) -> bool:
+        self.clock.advance(self.wait)
+        return True
+
+    def release(self) -> None:
+        """A slot that was never held needs no release."""
+
+
+_SLOT_WAIT_SECONDS, _REQUEST_SECONDS = 120.0, 2.0
+_HI = [ChatMessage(role="user", content="hi")]
+
+# Each gateway call: (its span, the call, the gateway's reply to it).
+_TIMED_GATEWAY_CALLS: dict[
+    str, tuple[str, Callable[[LLMClient], Any], Callable[[], httpx2.Response]]
+] = {
+    "plain": (
+        "ai.llm.dispatch",
+        lambda client: client._dispatch_messages("sys", _HI),
+        lambda: httpx2.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+    ),
+    "stream": (
+        "ai.llm.stream",
+        lambda client: list(client.chat_messages_stream("sys", _HI)),
+        lambda: reply([openai_chunk("ok", "stop"), OPENAI_DONE]),
+    ),
+}
+
+
+@pytest.mark.parametrize("call", list(_TIMED_GATEWAY_CALLS))
+@pytest.mark.usefixtures("public_dns")
+def test_a_gateway_call_is_timed_from_when_its_slot_is_held(
+    call: str, monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """A call that waits 120 s for a gateway slot and 2 s for its reply records the wait as an
+    `ai.llm.gateway_slot` span under the call's span and as one observation of the wait
+    histogram, and records 2 s, not 122 s, as its wall time and its spend's duration, streamed
+    or not."""
+    span_name, invoke, gateway_reply = _TIMED_GATEWAY_CALLS[call]
+    clock = _Clock()
+    for module in (network, openai_client, unified_client):
+        monkeypatch.setattr(module, "time", clock)
+    monkeypatch.setattr(network, "gateway_slots", _SlotsFreeAfter(clock, _SLOT_WAIT_SECONDS))
+    observed: list[tuple[str, float]] = []
+
+    def observe(instrument: Instrument, value: float, attributes: Any = None) -> None:
+        observed.append((instrument.name, value))
+
+    monkeypatch.setattr(network, "emit", observe)
+    durations: list[float] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: durations.append(kwargs["duration_seconds"]),
+    )
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    client = LLMClient(
+        AIConfig(
+            provider="gateway", gateway_url="http://example.com/v1", allow_private_network=True
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        clock.advance(_REQUEST_SECONDS)
+        return gateway_reply()
+
+    route_client(client, monkeypatch, answer)
+
+    invoke(client)
+
+    (slot_span,) = _spans(sent_spans, "ai.llm.gateway_slot")
+    (call_span,) = _spans(sent_spans, span_name)
+    assert (
+        observed,
+        _attributes(slot_span).get("llm.gateway.slot_wait_seconds"),
+        slot_span.get("parentSpanId") == call_span["spanId"],
+        _attributes(call_span).get("llm.wall_seconds"),
+        durations,
+    ) == (
+        [(AI_GATEWAY_SLOT_WAIT.name, _SLOT_WAIT_SECONDS)],
+        _SLOT_WAIT_SECONDS,
+        True,
+        _REQUEST_SECONDS,
+        [_REQUEST_SECONDS],
     )

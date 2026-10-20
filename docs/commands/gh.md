@@ -957,14 +957,23 @@ devops gh pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
+One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
+judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
+that closes the item, its last, adds changelog.d/\<issue\>.md.
+
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
-body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to
-the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding
-changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into
-release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without
-docs/agent/tasks/ is exempt.
+and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
+(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
+CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
+the default branch (chore/open-vX.Y.Z) only changes those files and what the default
+branch changed since its merge base, read with one compare request. Either head may end
+in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
+grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
+issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
+docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
+section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
+section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
+without docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
@@ -1029,6 +1038,27 @@ devops gh pr hardening-report [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
 | `--format`, `-f` | `string` | `table` | Output format (table, json) |
+
+### `devops gh pr copilot-pass`
+
+**Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request.**
+
+```bash
+devops gh pr copilot-pass [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Release pull request number; the current branch's pull request when omitted. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr threads`
 
@@ -1127,5 +1157,28 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 |---|---|---|---|
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr threads file-issues`
+
+**A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release pull request's Copilot passes are spent. It files each unresolved review thread of the open release pull request not named by --keep as a follow-up issue, which quotes the thread in a fence, names its file and line, links it and has no milestone, labelled source/agent when Copilot started the thread; then the thread gets a reply naming the issue and is resolved. Without --confirm it makes the same reads and writes nothing: run it so first, with the same --keep flags. A --keep id that names no unresolved thread stops it before any write. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and finds the issue it opened for a thread whose reply failed by the thread's link.**
+
+```bash
+devops gh pr threads file-issues [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--keep` | `string` | - | Leave this thread open, for a regression the release fixes; repeatable. |
+| `--confirm` | `boolean` | - | File the issues, reply in the threads and resolve them; without it, nothing is written. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

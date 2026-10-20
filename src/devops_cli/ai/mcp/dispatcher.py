@@ -47,11 +47,16 @@ _PREFIX_TO_DOMAIN: dict[str, str] = {
     "review": "review",
     "k8s": "k8s",
     "argo": "argo",
+    "ci": "ci",
     "docker": "docker",
+    "docs": "docs",
     "gh": "github",
     "pr": "github",
     "branches": "github",
     "repos": "github",
+    "release": "release",
+    "ssh": "ssh",
+    "tf": "tf",
     "vault": "secrets",
     "tls": "secrets",
     "telemetry": "telemetry",
@@ -266,7 +271,6 @@ class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
     def __init__(self) -> None:
-        self._functional_handlers: dict[tuple[str, ...], Callable[..., tuple[int, str]]] = {}
         self._hydrator = DomainSchemaHydrator()
         self._subscriptions = ResourceSubscriptionManager()
         self._lock = threading.Lock()
@@ -279,15 +283,6 @@ class InProcessDispatcher:
     def subscriptions(self) -> ResourceSubscriptionManager:
         return self._subscriptions
 
-    def register_handler(
-        self,
-        command_path: tuple[str, ...],
-        handler: Callable[..., tuple[int, str]],
-    ) -> None:
-        """Register a direct Python functional handler for a command path."""
-        with self._lock:
-            self._functional_handlers[command_path] = handler
-
     def dispatch(
         self,
         cmd: list[str],
@@ -299,38 +294,10 @@ class InProcessDispatcher:
         if sub_args is None:
             code, out = self._dispatch_subprocess(cmd, timeout=timeout, env=env)
         else:
-            handler_result = self._check_functional_handlers(sub_args)
-            if handler_result is not None:
-                code, out = handler_result
-            else:
-                code, out = self._dispatch_typer(sub_args, env=env)
+            code, out = self._dispatch_typer(sub_args, env=env)
 
         fallback = "Success" if code == 0 else "no output captured"
         return code, out or fallback
-
-    def _check_functional_handlers(self, sub_args: list[str]) -> tuple[int, str] | None:
-        """Attempt lookup and execution of registered direct functional handlers."""
-        with self._lock:
-            handlers_snapshot = dict(self._functional_handlers)
-
-        # Match 2-tuple (e.g. ("config", "show")) or 1-tuple (e.g. ("review",))
-        if len(sub_args) >= 2:
-            two_key = (sub_args[0], sub_args[1])
-            if two_key in handlers_snapshot:
-                try:
-                    return handlers_snapshot[two_key](*sub_args[2:])
-                except Exception as exc:
-                    logger.debug("Two-part functional handler failed: %s", type(exc).__name__)
-
-        if len(sub_args) >= 1:
-            one_key = (sub_args[0],)
-            if one_key in handlers_snapshot:
-                try:
-                    return handlers_snapshot[one_key](*sub_args[1:])
-                except Exception as exc:
-                    logger.debug("One-part functional handler failed: %s", type(exc).__name__)
-
-        return None
 
     def _dispatch_typer(
         self,
@@ -364,7 +331,8 @@ class InProcessDispatcher:
                 fallback = "Success" if res.exit_code == 0 else "no output captured"
                 return res.exit_code, out or fallback
             except Exception as exc:
-                return 1, f"In-process execution error: {exc}"
+                logger.debug("In-process dispatch failed: %s", type(exc).__name__)
+                return 1, f"In-process execution error: {type(exc).__name__}"
 
     def _dispatch_subprocess(
         self,

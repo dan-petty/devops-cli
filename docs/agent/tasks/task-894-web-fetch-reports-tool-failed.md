@@ -1,9 +1,6 @@
 # Task 894: web_fetch Reports Failed Fetch as Tool Failure, Not Page Text
 
 **Issue**: [#894](https://github.com/dan-petty/devops-cli/issues/894)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/ai
 
 ---

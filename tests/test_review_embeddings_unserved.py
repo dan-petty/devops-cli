@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import socket
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx2
 import pytest
@@ -18,8 +20,10 @@ from devops_cli.ai.review.pool import ReviewWorkerPool
 from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.config import settings as settings_mod
 from devops_cli.config.settings import AITaskOverride, Settings
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 GATEWAY = "https://example.com/v1"
+QDRANT_URL = "https://example.com:6333"
 WORKERS = 4
 
 
@@ -43,13 +47,24 @@ def embedding_posts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
         provider="gateway", model="bge-m3:latest", api_base_url=GATEWAY
     )
     st.ai.rag.enabled = True
-    st.qdrant.url = "https://example.com:6333"
+    st.qdrant.url = QDRANT_URL
     monkeypatch.setattr(settings_mod, "load_settings", lambda *a, **k: st)
     monkeypatch.setattr(settings_mod, "get_ai_api_key", lambda *a, **k: "test-key")
     monkeypatch.setattr(settings_mod, "get_qdrant_api_key", lambda *a, **k: None)
     monkeypatch.setattr("devops_cli.core.validation.validate_url", lambda url, *a, **k: url)
+    # A Qdrant whose collections hold one point embedded with the configured model: every call a
+    # lookup makes is answered here, so none reaches the network.
+    payload = {
+        "file_path": "src/x.py",
+        "content": "def x(): ...",
+        "embedding_model": "bge-m3:latest",
+    }
+    hit = {"id": 1, "score": 0.9, "payload": payload}
+    point = {"id": 1, "payload": payload, "vector": None}
+    info = {"status": "green", "points_count": 1, "vectors_count": 1, "vector_size": 3}
     monkeypatch.setattr(QdrantClient, "is_alive", lambda self, **k: True)
-    hit = {"id": 1, "score": 0.9, "payload": {"file_path": "src/x.py", "content": "def x(): ..."}}
+    monkeypatch.setattr(QdrantClient, "get_collection_info", lambda self, *a, **k: info)
+    monkeypatch.setattr(QdrantClient, "scroll_points", lambda self, *a, **k: [point])
     monkeypatch.setattr(QdrantClient, "search_points", lambda self, *a, **k: [hit])
     monkeypatch.setattr(httpx2.Client, "post", refuse)
     investigator.clear_investigation_cache()
@@ -57,8 +72,25 @@ def embedding_posts(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     investigator.clear_investigation_cache()
 
 
+def _serving(posts: list[str]) -> Callable[..., httpx2.Response]:
+    """A gateway whose backends serve the embedding model: every request gets a vector for each
+    of its inputs."""
+
+    def answer(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
+        posts.append(str(url))
+        texts = kwargs["json"]["input"]
+        data = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(texts))]
+        return httpx2.Response(200, json={"data": data}, request=httpx2.Request("POST", str(url)))
+
+    return answer
+
+
+def _is_embedding_request(url: str) -> bool:
+    return url.endswith("/embeddings")
+
+
 def _embedding_requests(posts: list[str]) -> list[str]:
-    return [url for url in posts if url.endswith("/embeddings")]
+    return [url for url in posts if _is_embedding_request(url)]
 
 
 def _resolve_file_context(index: int) -> tuple[str, str]:
@@ -74,9 +106,13 @@ def _resolve_files(n: int, start: int = 0) -> list[tuple[str, str]]:
     return [_resolve_file_context(index) for index in range(start, start + n)]
 
 
-def _hold_replies_until_lookups_start(monkeypatch: pytest.MonkeyPatch, lookups: int) -> list[str]:
-    """Hold each gateway reply until `lookups` RAG lookups have started; their queries."""
+def _hold_replies_until_lookups_start(
+    monkeypatch: pytest.MonkeyPatch, lookups: int
+) -> tuple[list[str], list[bool]]:
+    """Hold each gateway reply until `lookups` RAG lookups have started. Their queries, and for
+    each held reply whether the lookups starting let it go rather than the bound running out."""
     started: list[str] = []
+    released: list[bool] = []
     all_started = threading.Event()
     lock = threading.Lock()
     lookup = investigator.investigate_rag_context
@@ -90,12 +126,12 @@ def _hold_replies_until_lookups_start(monkeypatch: pytest.MonkeyPatch, lookups: 
         return lookup(query, **kwargs)
 
     def held(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
-        all_started.wait(timeout=2.0)
+        released.append(all_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         return reply(self, url, **kwargs)
 
     monkeypatch.setattr(investigator, "investigate_rag_context", counted)
     monkeypatch.setattr(httpx2.Client, "post", held)
-    return started
+    return started, released
 
 
 def test_a_review_asks_for_an_unserved_embedding_model_once(
@@ -163,7 +199,7 @@ def test_parallel_review_workers_ask_an_unserved_embedding_model_once(
     The gateway holds its reply until every worker has started its lookup, so no worker can
     learn of the stop from a reply that came back before it began.
     """
-    started = _hold_replies_until_lookups_start(monkeypatch, WORKERS)
+    started, released = _hold_replies_until_lookups_start(monkeypatch, WORKERS)
 
     with caplog.at_level(logging.WARNING):
         contexts = ReviewWorkerPool.create(concurrency=WORKERS).run_sync_all(
@@ -175,8 +211,15 @@ def test_parallel_review_workers_ask_an_unserved_embedding_model_once(
         for record in caplog.records
         if record.levelno >= logging.WARNING and record.name.startswith("devops_cli")
     ]
-    assert (len(started), len(_embedding_requests(embedding_posts)), contexts, warnings) == (
+    assert (
+        len(started),
+        bool(released) and all(released),
+        len(_embedding_requests(embedding_posts)),
+        contexts,
+        warnings,
+    ) == (
         WORKERS,
+        True,
         1,
         [("", "")] * WORKERS,
         [("devops_cli.ai.rag.investigator", "WARNING")],
@@ -192,16 +235,15 @@ def test_once_the_model_answers_lookups_stop_taking_turns(
     request has arrived. That happens only when the workers' requests are in flight together.
     """
 
-    def answer(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
-        embedding_posts.append(str(url))
-        texts = kwargs["json"]["input"]
-        data = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(texts))]
-        return httpx2.Response(200, json={"data": data}, request=httpx2.Request("POST", str(url)))
-
-    together = threading.Barrier(WORKERS, timeout=2.0)
+    answer = _serving(embedding_posts)
+    together = threading.Barrier(WORKERS, timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     def held(self: httpx2.Client, url: Any, **kwargs: Any) -> httpx2.Response:
-        together.wait()
+        # Only the workers' embedding requests meet at the barrier. The tracer's exporter
+        # threads post through this same patched method, and a trace export that took a
+        # worker's place left that worker's request waiting at the barrier until it broke.
+        if _is_embedding_request(str(url)):
+            together.wait()
         return answer(self, url, **kwargs)
 
     monkeypatch.setattr(httpx2.Client, "post", answer)
@@ -226,3 +268,26 @@ def test_clearing_the_investigation_cache_lifts_the_stop(embedding_posts: list[s
     _resolve_files(1, start=1)
 
     assert len(_embedding_requests(embedding_posts)) == 2
+
+
+def test_a_served_lookup_looks_up_no_service_host(
+    embedding_posts: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fixture's Qdrant answers every call a lookup makes, so a lookup reaches no network.
+
+    Its collection-info read went to the real client, which looked up the Qdrant host (refused by
+    the suite's guard) and slept through about 3 s of retries.
+    """
+    looked_up: list[str] = []
+    resolve = socket.getaddrinfo
+
+    def recording(host: Any, *args: Any, **kwargs: Any) -> Any:
+        looked_up.append(str(host))
+        return resolve(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", recording)
+    monkeypatch.setattr(httpx2.Client, "post", _serving(embedding_posts))
+    context = _resolve_file_context(0)
+
+    service_hosts = {urlsplit(GATEWAY).hostname, urlsplit(QDRANT_URL).hostname}
+    assert (bool(context[0]), [host for host in looked_up if host in service_hosts]) == (True, [])

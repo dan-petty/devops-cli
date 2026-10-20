@@ -13,6 +13,13 @@ admits a critical fix, whose own pull request then merges into the release branc
 release's does (#1294); once that pull request has merged, a critical fix goes first into the
 next release, the merged release's one row.
 
+Every run sweeps open P0 and P1 items in the backlog into open planned releases holding fewer
+than `release_cap + release_slots` (16) items (#882). A P0 meeting a full release displaces the
+lowest-ranked unimplemented P3 item in it, which moves to the next release with room or to the
+backlog; a P1 never displaces anything and moves to the next release with room. When all planned
+releases are full, the run creates the next patch release. A P0 or P1 item a person took out of a
+release stays in the backlog. At a start, New and Blocked P0/P1 items go to the next planned release.
+
 Intake (#742) asks the same table what an item joining the current release meets: it finds the
 release with `current_release`, its state with `release_state`, the item's event with
 `admission_event`, and the transition with `decide(state, event)`. `ADMIT` keeps the item and
@@ -181,8 +188,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_FIX_LABELS,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
+    CONST_ROADMAP_HIGH_PRIORITIES,
     CONST_ROADMAP_LEFT_BACKLOG,
     CONST_ROADMAP_NEEDS_SPLIT_LABEL,
+    CONST_ROADMAP_P0_PRIORITIES,
+    CONST_ROADMAP_P1_PRIORITIES,
+    CONST_ROADMAP_P3_PRIORITIES,
     CONST_ROADMAP_PREMIGRATE_STATUSES,
     CONST_ROADMAP_RUN_RECORD_TITLE,
     CONST_ROADMAP_STARTED_STATUSES,
@@ -196,7 +207,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STALL_CHECK_HOURS
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.store import (
@@ -276,6 +287,9 @@ class Event(StrEnum):
     CANDIDATE = "candidate"
     OVER_CAP_AT_START = "over_cap_at_start"
     DEPENDED_ON_AT_START = "depended_on_at_start"
+    PRIORITY_IN_BACKLOG = "priority_in_backlog"
+    PRIORITY_NEW_AT_START = "priority_new_at_start"
+    PRIORITY_BLOCKED_AT_START = "priority_blocked_at_start"
 
 
 class Action(StrEnum):
@@ -318,6 +332,7 @@ class Reason(StrEnum):
     TOP_UP = "top_up"
     TRIM = "trim"
     DEPENDED_ON = "depended_on"
+    PRIORITY = "priority"
 
 
 class GrowthGroup(StrEnum):
@@ -350,6 +365,7 @@ REASON_GROWTH_GROUPS: Mapping[Reason, GrowthGroup] = MappingProxyType(
         Reason.BLOCKED_AT_START: GrowthGroup.START,
         Reason.FIX_STALLED: GrowthGroup.KEPT,
         Reason.REVIEW_IDLE: GrowthGroup.KEPT,
+        Reason.PRIORITY: GrowthGroup.JOINED,
     }
 )
 
@@ -437,6 +453,10 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_P, Event.PR_JOINED): Transition(Action.KEEP, Reason.PULL_REQUEST),
         (_P, Event.OVER_CAP_AT_START): Transition(Action.TO_NEXT, Reason.TRIM),
         (_P, Event.DEPENDED_ON_AT_START): Transition(Action.KEEP, Reason.DEPENDED_ON),
+        (_P, Event.PRIORITY_IN_BACKLOG): Transition(Action.PULL_IN, Reason.PRIORITY),
+        (_P, Event.PRIORITY_NEW_AT_START): Transition(Action.TO_NEXT, Reason.NOT_READY_AT_START),
+        (_P, Event.PRIORITY_BLOCKED_AT_START): Transition(Action.TO_NEXT, Reason.BLOCKED_AT_START),
+        (_P, Event.OVER_CAP): Transition(Action.TO_NEXT, Reason.CAP),
     }
 )
 # A state without a row of its own for an event takes the row of the state it inherits from.
@@ -469,6 +489,26 @@ def is_critical_fix(item: Item) -> bool:
     return item.priority == CONST_ROADMAP_CRITICAL_PRIORITY and not (
         CONST_ROADMAP_CRITICAL_FIX_LABELS.isdisjoint(item.labels)
     )
+
+
+def is_p0(item: Item) -> bool:
+    """Whether the item is P0 (P0-Critical or P0)."""
+    return item.priority in CONST_ROADMAP_P0_PRIORITIES
+
+
+def is_p1(item: Item) -> bool:
+    """Whether the item is P1 (P1-High or P1)."""
+    return item.priority in CONST_ROADMAP_P1_PRIORITIES
+
+
+def is_p0_or_p1(item: Item) -> bool:
+    """Whether the item is P0 or P1."""
+    return item.priority in CONST_ROADMAP_HIGH_PRIORITIES
+
+
+def is_p3(item: Item) -> bool:
+    """Whether the item is P3 (P3-Low or P3)."""
+    return item.priority in CONST_ROADMAP_P3_PRIORITIES
 
 
 def is_p0_feature(item: Item) -> bool:
@@ -1055,6 +1095,12 @@ def _rank(options: Sequence[str], value: str | None) -> int:
     return options.index(value) if value in options else len(options)
 
 
+def _delivered_issues(body: str, repo: str) -> set[int]:
+    """The issues a pull request body closes or delivers part of, each once."""
+    closed = {linked.number for linked in extract_linked_issues(body, repo)}
+    return closed | set(extract_part_references(body, repo))
+
+
 @dataclass
 class _Run:
     """What one run reads once, and the reads it makes only when a rule needs them.
@@ -1132,12 +1178,18 @@ class _Run:
         return self.store.status_changed_at(number)
 
     def linked_pull_requests(self, number: int) -> list[PullRequest]:
-        """The open or merged pull requests whose bodies close issue `number`, read once per run."""
+        """The open or merged pull requests whose bodies close issue `number` or deliver part of
+        it, read once per run.
+
+        An item delivered in several pull requests stays In Progress across its parts, so their
+        updates are its activity for the stall window, and a merged part protects it from a trim
+        as the closing pull request does.
+        """
         if self._linked is None:
             self._linked = {}
             for pull_request in self.store.open_pull_requests():
-                for linked in extract_linked_issues(pull_request.body, self.repo):
-                    self._linked.setdefault(linked.number, []).append(pull_request)
+                for issue in _delivered_issues(pull_request.body, self.repo):
+                    self._linked.setdefault(issue, []).append(pull_request)
         return self._linked.get(number, [])
 
     def dependencies(self, number: int) -> list[Dependency]:
@@ -1886,7 +1938,7 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
         if joining.action is Action.ADMIT and last.action is not Action.ADMIT and not last.leaves:
             decisions[number] = replace(last, admits=True, joined=joining.joined)
     ordered = tuple(decisions[number] for number in sorted(decisions))
-    return ReprioritizationPlan(
+    plan = ReprioritizationPlan(
         repo=run.repo,
         now=run.now,
         current=current.title,
@@ -1897,6 +1949,7 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
         released=_released(run, current.title),
         left=_left(run, current, _moved((*run.finishing, *ordered))),
     )
+    return _sweep_backlog_priority(run, plan, current)
 
 
 # ── Release start ─────────────────────────────────────────────────────────────
@@ -1908,9 +1961,17 @@ def _start_event(item: Item, *, has_pr: bool = False) -> Event | None:
         return None
     fix = is_critical_fix(item)
     if item.status == CONST_ROADMAP_STATUS_NEW:
-        return Event.FIX_NEW_AT_START if fix else Event.NEW_AT_START
+        if fix:
+            return Event.FIX_NEW_AT_START
+        if is_p0_or_p1(item):
+            return Event.PRIORITY_NEW_AT_START
+        return Event.NEW_AT_START
     if item.status == CONST_ROADMAP_STATUS_BLOCKED:
-        return Event.FIX_BLOCKED_AT_START if fix else Event.BLOCKED_AT_START
+        if fix:
+            return Event.FIX_BLOCKED_AT_START
+        if is_p0_or_p1(item):
+            return Event.PRIORITY_BLOCKED_AT_START
+        return Event.BLOCKED_AT_START
     return None
 
 
@@ -2103,7 +2164,7 @@ def _plan_start(
             if d.action is not Action.KEEP or d.event is Event.DEPENDED_ON_AT_START
         ),
     ]
-    return ReprioritizationPlan(
+    plan = ReprioritizationPlan(
         repo=run.repo,
         now=run.now,
         current=current.title,
@@ -2124,6 +2185,282 @@ def _plan_start(
         record=starting,
         size=len(kept) - len(trimmed) + pulled,
         existing_sizes=sizes_at_start(run.record),
+    )
+    return _sweep_backlog_priority(run, plan, starting)
+
+
+# ── Backlog priority sweep (#882) ─────────────────────────────────────────────
+
+
+def nearest_planned_release(
+    releases: Sequence[Release],
+    items: Iterable[Item],
+    *,
+    after: Release | str,
+    limit: int,
+) -> Release | None:
+    """The nearest open planned release after `after` holding fewer than `limit` open items, or None."""
+    after_version = after.version if isinstance(after, Release) else Version(after)
+    candidates = sorted(
+        (r for r in releases if r.state is GitHubState.OPEN and r.version > after_version),
+        key=lambda r: r.version,
+    )
+    items_list = list(items)
+    for release in candidates:
+        count = sum(
+            1
+            for item in items_list
+            if item.state is GitHubState.OPEN and in_release(item.release, release.version)
+        )
+        if count < limit:
+            return release
+    return None
+
+
+def _backlog_priority_candidates(run: _Run, plan: ReprioritizationPlan) -> list[Item]:
+    """Open P0/P1 items in the backlog that no person took out of a release."""
+    decided_targets = {d.item.number for d in plan.decisions if d.action in _TO_TARGET}
+    candidates: list[Item] = []
+    for item in run.items:
+        if item.state is not GitHubState.OPEN or not is_p0_or_p1(item):
+            continue
+        if item.release is not None or item.number in decided_targets:
+            continue
+        history = _history(run, item)
+        if not placed_by_person(item, history):
+            candidates.append(item)
+    return sorted(candidates, key=run.ranks.first)
+
+
+def _initial_planned_releases(
+    run: _Run, plan: ReprioritizationPlan, base_version: Version
+) -> list[Release]:
+    """The open planned releases after `base_version`, including any created in `plan`."""
+    known: dict[str, Release] = {
+        r.title: r for r in run.releases if r.state is GitHubState.OPEN and r.version > base_version
+    }
+    for write in plan.release_writes:
+        if write.text.startswith("create Release "):
+            title = write.text.split()[-1]
+            if is_release_title(title):
+                v = Version(title)
+                if v > base_version and title not in known:
+                    known[title] = Release(number=0, title=title)
+    return sorted(known.values(), key=lambda r: r.version)
+
+
+def _items_by_planned_release(
+    run: _Run, plan: ReprioritizationPlan, planned: Sequence[Release]
+) -> dict[str, list[Item]]:
+    """The current open items in each planned release, adjusted for `plan` decisions."""
+    result: dict[str, list[Item]] = {}
+    for r in planned:
+        leaving = {d.item.number for d in plan.decisions if d.release == r.title and d.leaves}
+        members = [it for it in run.members(r.title) if it.number not in leaving]
+        entering = [
+            d.item for d in plan.decisions if d.target == r.title and d.action in _TO_TARGET
+        ]
+        result[r.title] = members + entering
+    return result
+
+
+def _ensure_planned_release_with_room(
+    run: _Run,
+    planned: list[Release],
+    items_by_release: dict[str, list[Item]],
+    all_known: list[Release],
+    release_writes: list[ReleaseWrite],
+    base_version: Version,
+) -> Release:
+    """Find the nearest planned release with room, or create the next patch release."""
+    limit = run.config.release_limit
+    for r in planned:
+        if len(items_by_release[r.title]) < limit:
+            return r
+    floor = max((r.version for r in all_known), default=base_version)
+    title = _patch_bump(all_known, floor)
+    new_release = Release(number=0, title=title)
+    all_known.append(new_release)
+    planned.append(new_release)
+    items_by_release[title] = []
+    release_writes.append(_create_release(title))
+    return new_release
+
+
+def _find_p0_release_and_victim(
+    run: _Run,
+    planned: list[Release],
+    items_by_release: dict[str, list[Item]],
+    limit: int,
+) -> tuple[Release | None, Item | None]:
+    """Find a release for P0: either one with room (< limit), or one at limit with an unimplemented P3."""
+    for r in planned:
+        items = items_by_release[r.title]
+        if len(items) < limit:
+            return r, None
+        p3_candidates = [
+            it
+            for it in items
+            if is_p3(it)
+            and it.status in (CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY)
+            and not bool(run.linked_pull_requests(it.number))
+        ]
+        if p3_candidates:
+            victim = sorted(p3_candidates, key=run.ranks.last)[0]
+            return r, victim
+    return None, None
+
+
+def _displace_p3(
+    run: _Run,
+    victim: Item,
+    from_release: str,
+    planned: list[Release],
+    items_by_release: dict[str, list[Item]],
+    p0_item: Item,
+    limit: int,
+) -> Decision:
+    """Move displaced P3 to the next open release with room, or to the backlog if all are full."""
+    after_version = Version(from_release)
+    later_releases = [r for r in planned if r.version > after_version]
+    target_release: Release | None = None
+    for r in later_releases:
+        if len(items_by_release[r.title]) < limit:
+            target_release = r
+            break
+    if target_release is not None:
+        items_by_release[target_release.title].append(victim)
+        note = run.note(
+            Transition(Action.TO_NEXT, Reason.CAP),
+            from_release,
+            target_release.title,
+            detail=f"#{p0_item.number}",
+        )
+        return Decision(
+            victim,
+            Event.OVER_CAP,
+            Transition(Action.TO_NEXT, Reason.CAP),
+            from_release,
+            target_release.title,
+            note,
+        )
+    note = run.note(
+        Transition(Action.TO_BACKLOG, Reason.CAP),
+        from_release,
+        None,
+        detail=f"#{p0_item.number}",
+    )
+    return Decision(
+        victim,
+        Event.OVER_CAP,
+        Transition(Action.TO_BACKLOG, Reason.CAP),
+        from_release,
+        None,
+        note,
+    )
+
+
+def _place_backlog_p0(
+    run: _Run,
+    candidate: Item,
+    planned: list[Release],
+    items_by_release: dict[str, list[Item]],
+    all_known: list[Release],
+    release_writes: list[ReleaseWrite],
+    base_version: Version,
+    limit: int,
+) -> list[Decision]:
+    """Place a backlog P0 item, displacing an unimplemented P3 if needed."""
+    decisions: list[Decision] = []
+    target_r, victim = _find_p0_release_and_victim(run, planned, items_by_release, limit)
+    if target_r is None:
+        target_r = _ensure_planned_release_with_room(
+            run, planned, items_by_release, all_known, release_writes, base_version
+        )
+    elif victim is not None:
+        items_by_release[target_r.title] = [
+            it for it in items_by_release[target_r.title] if it.number != victim.number
+        ]
+        decisions.append(
+            _displace_p3(run, victim, target_r.title, planned, items_by_release, candidate, limit)
+        )
+    items_by_release[target_r.title].append(candidate)
+    p0_decision = run.decision(
+        ReleaseState.PLANNED,
+        Event.PRIORITY_IN_BACKLOG,
+        candidate,
+        target_r.title,
+        target_r.title,
+    )
+    decisions.append(p0_decision)
+    return decisions
+
+
+def _place_backlog_p1(
+    run: _Run,
+    candidate: Item,
+    planned: list[Release],
+    items_by_release: dict[str, list[Item]],
+    all_known: list[Release],
+    release_writes: list[ReleaseWrite],
+    base_version: Version,
+) -> Decision:
+    """Place a backlog P1 item into the nearest release with room, creating one if needed."""
+    target_r = _ensure_planned_release_with_room(
+        run, planned, items_by_release, all_known, release_writes, base_version
+    )
+    items_by_release[target_r.title].append(candidate)
+    return run.decision(
+        ReleaseState.PLANNED,
+        Event.PRIORITY_IN_BACKLOG,
+        candidate,
+        target_r.title,
+        target_r.title,
+    )
+
+
+def _sweep_backlog_priority(
+    run: _Run,
+    plan: ReprioritizationPlan,
+    base_release: Release | str,
+) -> ReprioritizationPlan:
+    """Place backlog P0/P1 items in open planned releases after `base_release`."""
+    candidates = _backlog_priority_candidates(run, plan)
+    if not candidates:
+        return plan
+    base_version = (
+        base_release.version if isinstance(base_release, Release) else Version(base_release)
+    )
+    planned = _initial_planned_releases(run, plan, base_version)
+    items_by_release = _items_by_planned_release(run, plan, planned)
+    all_known = list(run.releases)
+    for write in plan.release_writes:
+        if write.text.startswith("create Release "):
+            title = write.text.split()[-1]
+            if is_release_title(title) and not any(r.title == title for r in all_known):
+                all_known.append(Release(number=0, title=title))
+    new_writes: list[ReleaseWrite] = []
+    new_decisions: list[Decision] = []
+    limit = run.config.release_limit
+
+    for item in candidates:
+        if is_p0(item):
+            new_decisions.extend(
+                _place_backlog_p0(
+                    run, item, planned, items_by_release, all_known, new_writes, base_version, limit
+                )
+            )
+        else:
+            new_decisions.append(
+                _place_backlog_p1(
+                    run, item, planned, items_by_release, all_known, new_writes, base_version
+                )
+            )
+
+    return replace(
+        plan,
+        decisions=tuple(sorted((*plan.decisions, *new_decisions), key=lambda d: d.item.number)),
+        release_writes=(*plan.release_writes, *new_writes),
     )
 
 
@@ -2389,7 +2726,9 @@ def _admits(decision: Decision) -> bool:
     in at a start, or a change that `admits` the fix it readies or nudges, once its comment is
     posted or while the item is still a critical fix."""
     joins = decision.admits and (decision.done or is_critical_fix(decision.item) or decision.joined)
-    return joins or decision.action in (Action.ADMIT, Action.PULL_IN)
+    return (
+        joins or decision.action in (Action.ADMIT, Action.PULL_IN)
+    ) and decision.event is not Event.PRIORITY_IN_BACKLOG
 
 
 def _tally_mark(decision: Decision, release: int) -> str:
@@ -2967,6 +3306,7 @@ __all__ = [
     "is_p0_feature",
     "is_started",
     "last_started",
+    "nearest_planned_release",
     "placed_by_person",
     "plan_reprioritization",
     "release_growth",

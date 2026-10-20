@@ -1,9 +1,6 @@
 # Task 310: Terraform & OpenTofu HCL AST Analysis, State Introspection & Drift Optimization Research
 
 **Issue**: [#310](https://github.com/dan-petty/devops-cli/issues/310)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

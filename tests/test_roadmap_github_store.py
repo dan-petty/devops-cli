@@ -2,23 +2,26 @@
 
 The recorded listings under `tests/fixtures/roadmap/` come from dan-petty/devops-cli and its
 board (project 2), trimmed to the keys the store reads. No case runs `gh` or opens a socket.
+The store reads its REST listings through the GitHub session (#983): `board_store` answers
+them from the same recorded replies through `RunnerSession`, and the tests of paging, early
+stops and failed pages run the real session over the `github_api` fake (`over_github`).
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import subprocess
 import threading
-import time
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+import httpx2
 import pytest
 from packaging.version import Version
 
@@ -31,9 +34,12 @@ from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
 )
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
+from devops_cli.github.rate_limiter import GitHubRateLimiter
+from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.board_read import BOARD_CARD_OPERATION, GRAPHQL_BUDGET_OPERATION
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import (
@@ -70,14 +76,25 @@ from tests.roadmap_board_fake import (
     budget_reply,
     gh_variables,
 )
+from tests.support.fakes.github import (
+    API,
+    JSON_TYPE,
+    GitHubApiFake,
+    RunnerSession,
+    github_json,
+    next_page,
+    quota_headers,
+)
+from tests.support.paths import FIXTURES
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
-FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
+ROADMAP_FIXTURES = FIXTURES / "roadmap"
 REPO = "dan-petty/devops-cli"
 ISSUE_URL = f"https://github.com/{REPO}/issues"
 
 
 def recorded(name: str) -> Any:
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    return json.loads((ROADMAP_FIXTURES / name).read_text(encoding="utf-8"))
 
 
 MILESTONES = recorded("milestones.json")
@@ -188,7 +205,9 @@ class RecordedGh:
 
 def board_store(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, RecordedGh]:
     runner = RecordedGh(replies)
-    return GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=runner), runner
+    return GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=runner, session=RunnerSession(runner)
+    ), runner
 
 
 def board_item(number: int, **fields: Any) -> Item:
@@ -392,10 +411,10 @@ def test_items_in_a_release_include_a_closed_issue_with_state_and_release_from_r
             (item.number, item.state, item.state_reason, item.release, item.status, item.priority)
             for item in items
         ],
-        [args[1] for args, _ in runner.calls if args[0] == "api" and args[1] != "graphql"],
+        [args for args, _ in runner.calls if args[0].startswith(API)],
     ) == (
         [(737, GitHubState.CLOSED, "completed", "v0.2.25", "Done", "P1-High")],
-        [f"{LISTING_MILESTONES}&page=1", f"{LISTING_IN_RELEASE}&page=1"],
+        [[f"{API}/{LISTING_MILESTONES}"], [f"{API}/{LISTING_IN_RELEASE}"]],
     )
 
 
@@ -409,9 +428,9 @@ def test_backlog_reads_the_open_issues_in_no_milestone() -> None:
     store, runner = board_store(
         {BOARD_READ: BoardServer(on_board(739)), "issues?milestone=none": [open_on_board]}
     )
-    assert ([item.number for item in store.backlog()], runner.calls[-1][0][1]) == (
+    assert ([item.number for item in store.backlog()], runner.calls[-1][0]) == (
         [739],
-        f"repos/{REPO}/issues?milestone=none&state=open&per_page=100&page=1",
+        [f"{API}/repos/{REPO}/issues?milestone=none&state=open&per_page=100"],
     )
 
 
@@ -669,7 +688,8 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
     record the earlier one wrote, never the one both read before either wrote (#1532)."""
     github = GitHubFake(REPO)
     github.seed_issue(7, card={})
-    armed, read, written = threading.Event(), threading.Event(), threading.Event()
+    armed, read, writing, written = (threading.Event() for _ in range(4))
+    handoffs: list[bool] = []
 
     def held_after_its_card_read(
         args: list[str], **kwargs: Any
@@ -678,19 +698,29 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
         if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
             read.set()
             # Held between its card read and its write: the model lane's write lands here
-            # unless the store keeps it out until this one writes, when the wait runs out.
+            # unless the store keeps it out until this one writes. This short window checks
+            # that it does not land, and opens only once the model lane is about to write, so
+            # it times the store's lock, not a thread start-up.
+            handoffs.append(writing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             written.wait(timeout=0.3)
         return answer
 
     release_lane = GitHubRoadmapStore(
-        REPO, board_owner="dan-petty", board_number=2, runner=held_after_its_card_read
+        REPO,
+        board_owner="dan-petty",
+        board_number=2,
+        runner=held_after_its_card_read,
+        session=RunnerSession(held_after_its_card_read),
     )
-    model_lane = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    model_lane = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     (reprioritized,) = release_lane.items()
     (refined,) = model_lane.items()
 
     def refine() -> None:
-        read.wait(timeout=5)
+        handoffs.append(read.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        writing.set()
         model_lane.set_marks(refined, {RefineRecordKey.BODY_HASH: "b1"})
         written.set()
 
@@ -698,11 +728,11 @@ def test_two_lanes_marking_one_card_at_once_keep_each_others_marks() -> None:
     armed.set()
     refining.start()
     release_lane.set_marks(reprioritized, {JobMark.PENDING: "{}"})
-    refining.join(timeout=5)
-    assert json.loads((github.card(7) or {})["job record"]) == {
-        "Pending": "{}",
-        "refine.body_hash": "b1",
-    }
+    refining.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert (json.loads((github.card(7) or {})["job record"]), handoffs) == (
+        {"Pending": "{}", "refine.body_hash": "b1"},
+        [True, True],
+    )
 
 
 def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> None:
@@ -717,7 +747,8 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
         ],
     )
     github.seed_issue(7, card={})
-    armed, read, checked = threading.Event(), threading.Event(), threading.Event()
+    armed, read, placing_it, checked = (threading.Event() for _ in range(4))
+    handoffs: list[bool] = []
 
     def held_after_its_card_read(
         args: list[str], **kwargs: Any
@@ -726,7 +757,10 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
         if armed.is_set() and BOARD_CARD_OPERATION in " ".join(args) and not read.is_set():
             read.set()
             # Held between its card read and its writes: the model lane's milestone check runs
-            # here unless the store keeps it out until this one writes, when the wait runs out.
+            # here unless the store keeps it out until this one writes. This short window checks
+            # that it does not run, and opens only once the model lane is about to place the
+            # item, so it times the store's lock, not a thread start-up.
+            handoffs.append(placing_it.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
             checked.wait(timeout=0.3)
         return answer
 
@@ -739,17 +773,26 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
         return answer
 
     release_lane = GitHubRoadmapStore(
-        REPO, board_owner="dan-petty", board_number=2, runner=held_after_its_card_read
+        REPO,
+        board_owner="dan-petty",
+        board_number=2,
+        runner=held_after_its_card_read,
+        session=RunnerSession(held_after_its_card_read),
     )
     model_lane = GitHubRoadmapStore(
-        REPO, board_owner="dan-petty", board_number=2, runner=noting_the_milestone_check
+        REPO,
+        board_owner="dan-petty",
+        board_number=2,
+        runner=noting_the_milestone_check,
+        session=RunnerSession(noting_the_milestone_check),
     )
     (reprioritized,) = release_lane.items()
     (placed,) = model_lane.items()
     raised: list[RoadmapCardChangedError] = []
 
     def intake() -> None:
-        read.wait(timeout=5)
+        handoffs.append(read.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        placing_it.set()
         try:
             model_lane.set_field(placed, ItemField.RELEASE, "v0.2.26")
         except RoadmapCardChangedError as error:
@@ -759,12 +802,13 @@ def test_two_lanes_placing_one_item_at_once_never_replace_a_release_unseen() -> 
     armed.set()
     placing.start()
     release_lane.set_field(reprioritized, ItemField.RELEASE, "v0.2.25")
-    placing.join(timeout=5)
+    placing.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert (
         (github.issues[7]["milestone"] or {}).get("title"),
         json.loads((github.card(7) or {})["job record"]),
         [error.details["now"] for error in raised],
-    ) == ("v0.2.25", {"Release": "v0.2.25"}, ["v0.2.25"])
+        handoffs,
+    ) == ("v0.2.25", {"Release": "v0.2.25"}, ["v0.2.25"], [True, True])
 
 
 def _person_edits_after_the_read(
@@ -773,7 +817,9 @@ def _person_edits_after_the_read(
     """A store that read #7 with `card`'s fields, after which a person set Priority P1-High."""
     github = GitHubFake(REPO)
     github.seed_issue(7, card=card)
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     (item,) = store.items()
     (github.card(7) or {})["priority"] = "P1-High"
     return github, store, item
@@ -806,7 +852,9 @@ def test_a_release_a_person_changed_after_the_listing_was_read_raises_before_any
         ],
     )
     github.seed_issue(7, card={})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     (item,) = store.items()
     github.issues[7]["milestone"] = {"title": "v0.2.25", "number": 1, "state": "open"}
     start = len(github.calls)
@@ -847,7 +895,9 @@ def test_the_stores_own_write_is_the_value_its_next_write_of_that_field_compares
     it planned with: the second write compares the card with the first write's value."""
     github = GitHubFake(REPO)
     github.seed_issue(7, card={"priority": "P2-Medium"})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     (item,) = store.items()
     store.set_field(item, ItemField.PRIORITY, "P1-High")
     store.set_field(item, ItemField.PRIORITY, "P0-Critical")
@@ -857,7 +907,9 @@ def test_the_stores_own_write_is_the_value_its_next_write_of_that_field_compares
 def test_a_card_field_a_person_changed_after_the_listing_was_read_raises_before_any_edit() -> None:
     github = GitHubFake(REPO)
     github.seed_issue(7, card={"status": "Ready"})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     (card,) = store.cards()
     (github.card(7) or {})["status"] = "Blocked"
     start = len(github.calls)
@@ -876,7 +928,9 @@ def test_a_render_after_a_close_in_the_same_store_shows_the_status_the_board_set
     github = GitHubFake(REPO, milestones=[{"number": 43, "title": "v0.2.25", "state": "open"}])
     github.seed_issue(7, "feat: shipped", milestone="v0.2.25", card={"status": "In Review"})
     github.seed_issue(8, "feat: the original", milestone="v0.2.25", card={"status": "Ready"})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     config = RoadmapConfig(board=2)
     before = render_roadmap(store, repo=REPO, config=config)
     if duplicate:
@@ -934,7 +988,9 @@ def test_a_job_record_mark_costs_three_graphql_points_whatever_the_boards_size(s
     github = GitHubFake(REPO)
     for number in range(1, size + 1):
         github.seed_issue(number, card={"status": "Ready"})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     item = board_item(7, card_id=github.card_id(7))
     store.set_marks(item, {JobMark.NUDGED: "2026-10-08T02:20:00+00:00"})
     card = github.card(7) or {}
@@ -999,7 +1055,9 @@ def _archived_card(**card: str) -> tuple[GitHubFake, GitHubRoadmapStore]:
     github = GitHubFake(REPO)
     github.seed_issue(7, "feat: archived by a person", card=card)
     (github.card(7) or {})["isArchived"] = True
-    return github, GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    return github, GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
 
 
 def _project_commands(github: GitHubFake) -> list[list[str]]:
@@ -1014,7 +1072,9 @@ def test_adding_an_issue_whose_card_is_archived_restores_that_card_with_its_fiel
     github, store = _archived_card(status="Ready", value="High")
     candidates = [candidate.number for candidate in store.candidates()]
     added = store.add_item(7)
-    later = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    later = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     assert (
         candidates,
         _project_commands(github),
@@ -1057,7 +1117,9 @@ def test_adding_an_issue_whose_card_is_archived_restores_that_card_with_its_fiel
 def test_adding_an_issue_whose_card_is_on_the_board_restores_nothing() -> None:
     github = GitHubFake(REPO)
     github.seed_issue(7, card={"status": "Ready"})
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     added = store.add_item(7)
     assert ([args[0] for args in _project_commands(github)], added.status, added.restored) == (
         ["item-add"],
@@ -1122,7 +1184,9 @@ def test_an_added_open_card_joins_the_open_items_listing_without_a_read() -> Non
     could leave it out of."""
     github = GitHubFake(REPO, lag=3)
     github.seed_issue(5, "feat: new")
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
+    )
     before = [candidate.number for candidate in store.candidates()]
     start = len(github.calls)
     store.add_item(5)
@@ -1146,7 +1210,7 @@ def test_add_item_refuses_a_pull_request() -> None:
 
 def test_item_reads_and_writes_raise_without_a_board() -> None:
     runner = RecordedGh({})
-    store = GitHubRoadmapStore(REPO, runner=runner)
+    store = GitHubRoadmapStore(REPO, runner=runner, session=RunnerSession(runner))
     with pytest.raises(GitHubOperationError, match="No board"):
         store.items()
     with pytest.raises(GitHubOperationError, match="No board"):
@@ -1157,20 +1221,225 @@ def test_item_reads_and_writes_raise_without_a_board() -> None:
 # ── Failed reads ──────────────────────────────────────────────────────────────
 
 
-def test_a_non_zero_exit_raises_and_names_the_read() -> None:
-    store, _ = board_store({"milestones?state=all": (1, "HTTP 502: Bad Gateway")})
-    with pytest.raises(GitHubOperationError, match="Could not read milestones"):
+def over_github(replies: dict[str, Any] | None = None) -> tuple[GitHubRoadmapStore, RecordedGh]:
+    """The store whose REST listings the process's GitHub session reads from the `github_api`
+    fake, and whose gh commands `replies` answer (#983)."""
+    runner = RecordedGh(replies or {})
+    store = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=2, runner=runner, session=get_github_session()
+    )
+    return store, runner
+
+
+def test_a_listing_github_fails_raises_the_sessions_unread_error_naming_it(
+    github_api: GitHubApiFake,
+) -> None:
+    """A listing GitHub answers with a 502 through the session's retries raises the session's
+    unread error, naming the listing and the status; no gh command runs (#983)."""
+    github_api.route("GET", f"/{LISTING_MILESTONES}", github_json({"message": "x"}, status=502))
+    store, runner = over_github()
+    with pytest.raises(GitHubUnreadError) as raised:
         store.releases()
+    details = raised.value.details
+    assert (details["path"], details["status"], runner.calls) == (
+        f"/{LISTING_MILESTONES}",
+        502,
+        [],
+    )
 
 
-def test_a_rate_limited_read_raises_rate_limit_error() -> None:
-    store, _ = board_store({"milestones?state=all": (1, "API rate limit exceeded for user ID 1.")})
+def test_a_rate_limited_listing_raises_rate_limit_error(github_api: GitHubApiFake) -> None:
+    """A listing GitHub refuses for a spent quota raises the rate limit, which stops an intake
+    round."""
+    github_api.route(
+        "GET",
+        f"/{LISTING_MILESTONES}",
+        github_json({"message": "rate"}, status=403, headers=quota_headers(0, reset_in=30.0)),
+    )
+    store, _ = over_github()
     with pytest.raises(GitHubRateLimitError):
         store.releases()
 
 
-def test_malformed_json_raises() -> None:
-    store, _ = board_store({"milestones?state=all": '[{"number": 1, "title": '})
+_SECONDARY = "gh: You have exceeded a secondary rate limit. (HTTP 403)"
+# `gh api rate_limit` would report 4,900 GraphQL points while GraphQL's own budget answers 0,
+# as #1125 measured: the store asks GraphQL.
+_REST_SAYS_POINTS_LEFT = {
+    "resources": {"graphql": {"limit": 5000, "remaining": 4900, "used": 100, "reset": 1}}
+}
+
+
+@pytest.mark.parametrize(
+    ("budget", "error"),
+    [
+        pytest.param(budget_reply(4000), GitHubOperationError, id="points-left"),
+        pytest.param(budget_reply(0), GitHubRateLimitError, id="quota-spent"),
+        pytest.param((1, _SECONDARY), GitHubRateLimitError, id="budget-read-rate-limited"),
+        pytest.param((1, "gh: Server Error (HTTP 502)"), GitHubRateLimitError, id="budget-unread"),
+        pytest.param(
+            (1, "gh: Bad credentials (HTTP 401)"), GitHubUnauthenticatedError, id="token-refused"
+        ),
+    ],
+)
+def test_an_owner_lookup_gh_drops_is_decided_by_graphqls_own_budget(
+    budget: Any, error: type[GitHubOperationError]
+) -> None:
+    """gh project writes "unknown owner type" for any failed owner lookup, a 401, a 5xx, a SAML
+    refusal or a rate limit alike, and drops the cause. The store's `--owner <login>` commands
+    have no `@me` fallback, so it asks GraphQL for its own budget (#983, #1125): points left
+    make a plain failure, which names them and still allows a secondary limit; a spent budget,
+    or a budget read refused for a rate limit or unread, keeps the rate limit, which stops an
+    intake round; a refused token is the unauthenticated error naming the failed command. REST's
+    `gh api rate_limit`, which can report points GraphQL has not, is never read."""
+    store, runner = board_store(
+        {
+            "item-add": (1, "unknown owner type"),
+            "issues/917": OPEN_ISSUES[1],
+            GRAPHQL_BUDGET_OPERATION: budget,
+            "rate_limit": _REST_SAYS_POINTS_LEFT,
+        }
+    )
+    with pytest.raises(GitHubOperationError) as raised:
+        store.add_item(917)
+    sent = [" ".join(args) for args, _ in runner.calls]
+    assert (
+        type(raised.value),
+        GRAPHQL_BUDGET_OPERATION in sent[-1],
+        any("rate_limit" in command for command in sent),
+        # A kept rate limit is the classifier's own, naming gh's "unknown owner type".
+        ("Could not add #917 to the board" if error is not GitHubRateLimitError else "unknown")
+        in raised.value.message,
+        ("4000 points left" in raised.value.message, "secondary" in raised.value.message)
+        == ((True, True) if error is GitHubOperationError else (False, False)),
+    ) == (error, True, False, True, True)
+
+
+def _owner_lookup_through_run_gh(budget: tuple[int, str, str]) -> Callable[..., Any]:
+    """gh at its process edge: the issue reads, `item-add` drops its owner lookup, and the
+    GraphQL budget read exits with `budget`'s status, stdout and stderr."""
+
+    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        command = " ".join(cmd)
+        if "item-add" in command:
+            return subprocess.CompletedProcess(cmd, 1, "", "unknown owner type")
+        if GRAPHQL_BUDGET_OPERATION in command:
+            return subprocess.CompletedProcess(cmd, *budget)
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(OPEN_ISSUES[1]), "")
+
+    return gh
+
+
+@pytest.mark.parametrize(
+    ("budget", "error"),
+    [
+        pytest.param(
+            (1, json.dumps({"message": "Server Error"}), "gh: Server Error (HTTP 502)"),
+            GitHubRateLimitError,
+            id="502",
+        ),
+        pytest.param(
+            (1, "<html>upstream</html>", "gh: HTTP 504"), GitHubRateLimitError, id="html-504"
+        ),
+        pytest.param(
+            (1, json.dumps({"message": "Bad credentials"}), "gh: Bad credentials (HTTP 401)"),
+            GitHubUnauthenticatedError,
+            id="401",
+        ),
+    ],
+)
+def test_through_run_gh_a_failed_budget_read_after_an_owner_lookup_is_classified(
+    budget: tuple[int, str, str], error: type[GitHubOperationError]
+) -> None:
+    """Through the real `run_gh` with gh's process stubbed: a budget read gh fails, with
+    GitHub's body on stdout, keeps the owner lookup's rate limit, naming gh's "unknown owner
+    type" and the write, or, for a refused token, is the unauthenticated error naming the
+    failed command; neither is replaced by an error about the read's own answer."""
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2)
+    with (
+        patch(
+            "devops_cli.github.rate_limiter._burst_protected_subprocess",
+            side_effect=_owner_lookup_through_run_gh(budget),
+        ),
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        store.add_item(917)
+    details = raised.value.details
+    assert (
+        type(raised.value),
+        details["operation"],
+        details.get("output") if error is GitHubRateLimitError else "unknown owner type",
+        ("Could not add #917 to the board" if error is not GitHubRateLimitError else "unknown")
+        in raised.value.message,
+    ) == (error, "roadmap.write", "unknown owner type", True)
+
+
+def test_a_failed_gh_read_raises_and_names_the_read() -> None:
+    store, _ = board_store({"contents/notes.md": (1, "HTTP 502: Bad Gateway")})
+    with pytest.raises(GitHubOperationError, match=r"Could not read notes\.md"):
+        store.repository_file("notes.md")
+
+
+@pytest.mark.parametrize(
+    ("said", "error"),
+    [
+        pytest.param("gh: Too Many Requests (HTTP 429)", GitHubRateLimitError, id="429"),
+        pytest.param(
+            "You have exceeded a secondary rate limit.", GitHubRateLimitError, id="secondary"
+        ),
+        pytest.param("gh: Bad credentials (HTTP 401)", GitHubUnauthenticatedError, id="401"),
+    ],
+)
+def test_a_failed_read_raises_the_class_the_gh_classifier_names(
+    said: str, error: type[GitHubOperationError]
+) -> None:
+    """A failed gh read raises what `classify_gh_failure` makes of gh's output (#983), not only
+    the rate limits the store once matched itself, with gh's exit status as an int."""
+    store, _ = board_store({"contents/notes.md": (1, said)})
+    with pytest.raises(GitHubOperationError) as raised:
+        store.repository_file("notes.md")
+    assert (type(raised.value), raised.value.details["exit_code"]) == (error, 1)
+
+
+_PARTIAL_GRAPHQL_ANSWER = (
+    '{{"data": {{"repository": {{"issues": {{"nodes": [{{"number": 705, "title": "{title}"}}]}}}}}},'
+    ' "errors": [{{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}]}}'
+)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "correct secondary-limit backoff and retry-after handling in run_gh",
+        "verify read:project scope",
+        "HTTP 401 Bad credentials",
+        "not logged in",
+        "unknown owner type",
+    ],
+)
+def test_a_failed_read_classifies_gh_s_stderr_never_the_titles_on_stdout(title: str) -> None:
+    """gh copies GitHub's partial answer, item titles included, to stdout and writes only
+    `gh: <message>` to stderr; a title that reads like a rate limit, a scope or a refused login
+    is GitHub's data, so the read fails as a failed read (#983). `RecordedGh` writes one text to
+    both streams, so this runner writes each its own."""
+
+    def gh(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        body = _PARTIAL_GRAPHQL_ANSWER.format(title=title)
+        return subprocess.CompletedProcess(
+            args, 1, body, "gh: Resource not accessible by integration"
+        )
+
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=gh)
+    with pytest.raises(GitHubOperationError) as raised:
+        store.repository_file("notes.md")
+    assert (type(raised.value), "Could not read notes.md" in raised.value.message) == (
+        GitHubOperationError,
+        True,
+    )
+
+
+def test_a_listing_entry_that_is_not_the_shape_the_store_reads_raises() -> None:
+    store, _ = board_store({"milestones?state=all": [{"number": 1}]})
     with pytest.raises(GitHubOperationError, match="malformed milestones"):
         store.releases()
 
@@ -1179,7 +1448,7 @@ def test_an_error_object_where_a_listing_belongs_raises() -> None:
     store, _ = board_store(
         {"issues?state=open": {"message": "Not Found"}, BOARD_READ: BoardServer(BOARD)}
     )
-    with pytest.raises(GitHubOperationError, match="malformed issues"):
+    with pytest.raises(GitHubUnreadError, match="not a JSON array"):
         store.candidates()
 
 
@@ -1238,9 +1507,9 @@ def test_the_spend_reads_no_budget_until_the_store_sends_a_graphql_request() -> 
 # ── Paging and caching ────────────────────────────────────────────────────────
 
 
-def test_every_rest_listing_is_read_a_full_page_at_a_time() -> None:
-    """The adapter pages each listing itself, so it sees every page: `api --paginate` would
-    end the listing at a page that is empty or not JSON as if it were the last."""
+def test_every_rest_listing_is_read_through_the_session_a_full_page_at_a_time() -> None:
+    """Each REST listing is read through the GitHub session at a full page, which follows
+    GitHub's links itself; none goes through gh (#983)."""
     store, runner = board_store(
         {
             "milestones?state=all": MILESTONES,
@@ -1254,124 +1523,102 @@ def test_every_rest_listing_is_read_a_full_page_at_a_time() -> None:
     store.items()
     store.backlog()
     store.candidates()
-    listings = [args for args, _ in runner.calls if args[0] == "api" and args[1] != "graphql"]
+    listings = [args for args, _ in runner.calls if args[0].startswith(API)]
+    gh_listings = [args for args, _ in runner.calls if args[:2] == ["api", f"repos/{REPO}"]]
     assert (
         [len(args) for args in listings],
         [_query(args, "per_page", "page") for args in listings],
-    ) == ([2] * 5, [(["100"], ["1"])] * 5)
+        gh_listings,
+    ) == ([1] * 5, [(["100"], [])] * 5, [])
 
 
 def _query(args: list[str], *names: str) -> tuple[list[str], ...]:
-    """The values of `names` in the query of the endpoint a REST read names last."""
+    """The values of `names` in the query of the URL or endpoint a REST read names last."""
     query = parse_qs(urlsplit(args[-1]).query)
     return tuple(query.get(name, []) for name in names)
 
 
-def _pages(full: Any, body: str, bad: int) -> Callable[[list[str]], Any]:
-    """A listing whose pages before `bad` are full, and whose page `bad` is `body`."""
-
-    def page(args: list[str]) -> Any:
-        (number,) = _query(args, "page")[0]
-        return body if int(number) == bad else [full] * 100
-
-    return page
-
-
-LISTINGS: list[tuple[str, Any, Callable[[GitHubRoadmapStore], object], str]] = [
-    ("milestones?state=all", MILESTONES[0], lambda store: store.releases(), "milestones"),
-    ("issues?state=all", OPEN_ISSUES[1], lambda store: store.issues(), "issues"),
+LISTINGS: list[tuple[str, Any, Callable[[GitHubRoadmapStore], object]]] = [
+    (f"/{LISTING_MILESTONES}", MILESTONES[0], lambda store: store.releases()),
+    (f"/repos/{REPO}/issues?state=all&per_page=100", OPEN_ISSUES[1], lambda store: store.issues()),
     (
-        "issues/844/events",
+        f"/repos/{REPO}/issues/844/events?per_page=100",
         recorded("issue-844-events.json")[0],
         lambda store: store.release_changes(844),
-        "#844 events",
     ),
     (
-        "issues/844/comments",
+        f"/repos/{REPO}/issues/844/comments?per_page=100",
         recorded("issue-844-comments.json")[0],
         lambda store: store.comments_on(844),
-        "#844 comments",
     ),
     (
-        "dependencies/blocked_by",
+        f"/repos/{REPO}/issues/740/dependencies/blocked_by?per_page=100",
         recorded("issue-743.json"),
         lambda store: store.dependencies(740),
-        "#740 dependencies",
     ),
 ]
+_HTML = httpx2.Response(
+    200, headers={"content-type": "text/html; charset=utf-8"}, content=b"<html>upstream</html>"
+)
 
 
 @pytest.mark.parametrize("bad", [1, 2], ids=["first-page", "later-page"])
 @pytest.mark.parametrize(
-    "body",
-    ["<html>upstream</html>", "", '{"message": "Server Error"}'],
+    "answer",
+    [
+        _HTML,
+        httpx2.Response(200, headers={"content-type": JSON_TYPE}),
+        github_json({"message": "x"}),
+    ],
     ids=["html", "empty", "object"],
 )
 @pytest.mark.parametrize(
-    ("key", "full", "read", "what"),
+    ("path", "full", "read"),
     LISTINGS,
     ids=["milestones", "issues", "events", "comments", "dependencies"],
 )
-def test_a_listing_page_that_is_not_a_json_list_raises_naming_the_read(
-    key: str,
+def test_a_listing_page_that_is_not_a_json_list_raises_naming_it(
+    github_api: GitHubApiFake,
+    path: str,
     full: Any,
     read: Callable[[GitHubRoadmapStore], object],
-    what: str,
-    body: str,
+    answer: httpx2.Response,
     bad: int,
 ) -> None:
-    """The reviewers' replay: a page answered with exit 0 and a body that is not a JSON list,
-    such as a proxy's HTML, read as the end of the listing, so a bad first page gave an empty
-    listing and a bad later page a short one. Each raises now, naming the read, before any
-    write."""
-    store, runner = board_store({key: _pages(full, body, bad)})
-    with pytest.raises(GitHubOperationError, match=f"malformed {what} \\(page {bad}\\)"):
+    """The reviewers' replay: a page answered with a body that is not a JSON list, such as a
+    proxy's HTML, read as the end of the listing, so a bad first page gave an empty listing and
+    a bad later page a short one. The session raises, naming the listing and the page, before
+    any write, and requests no page after it."""
+    later = f"{path}&page=2"
+    github_api.route(
+        "GET", path, answer if bad == 1 else github_json([full] * 100, headers=next_page(later))
+    )
+    github_api.route("GET", later, answer)
+    store, runner = over_github()
+    with pytest.raises(GitHubUnreadError) as raised:
         read(store)
     assert (
-        [_query(args, "page")[0] for args, _ in runner.calls],
+        (raised.value.details["path"], raised.value.details["page"]),
+        len(github_api.sent),
         runner.writes,
-    ) == ([[str(page)] for page in range(1, bad + 1)], [])
+    ) == ((path, bad), bad, [])
 
 
-@pytest.mark.parametrize("bad", [1, 2], ids=["first-page", "later-page"])
-def test_through_run_gh_a_page_that_is_not_json_raises_and_reads_as_no_listing(bad: int) -> None:
-    """The same replay through the real `run_gh`, whose own paging ends a listing at a page it
-    can't parse and returns exit 0 with what it read before: no issues for a bad first page,
-    and only the first hundred for a bad second one. No `gh` runs: its process is stubbed."""
-    page = _pages(OPEN_ISSUES[1], "<html>upstream</html>", bad)
-
-    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        if cmd[-1] == "rate_limit":
-            # A quota that resets within two seconds of each refresh keeps `run_gh`'s pause
-            # between requests negligible, and is never already past its reset when a loaded
-            # host makes the run outlast the first refresh.
-            quota = {"limit": 5000, "remaining": 5000, "used": 0, "reset": int(time.time()) + 2}
-            return subprocess.CompletedProcess(
-                cmd, 0, json.dumps({"resources": {"core": quota}}), ""
-            )
-        reply = page([arg for arg in cmd if arg.startswith("repos/")])
-        text = reply if isinstance(reply, str) else json.dumps(reply)
-        return subprocess.CompletedProcess(cmd, 0, text, "")
-
-    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2)
-    reset_github_rate_limiter()
-    try:
-        with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh):
-            with pytest.raises(GitHubOperationError, match=f"malformed issues \\(page {bad}\\)"):
-                store.issues()
-    finally:
-        reset_github_rate_limiter()
-
-
-def test_a_listing_reads_on_until_a_page_is_short() -> None:
-    store, runner = board_store({"issues?state=all": _pages(OPEN_ISSUES[1], "[]", 3)})
-    assert (len(store.issues()), len(runner.calls)) == (200, 3)
+def test_a_listing_reads_on_while_github_links_a_next_page(github_api: GitHubApiFake) -> None:
+    """The session follows each page's `rel="next"`: two linked pages of a hundred issues are
+    two requests and two hundred issues, and the second page, which links none, ends the read."""
+    first = f"/repos/{REPO}/issues?state=all&per_page=100"
+    second = f"{first}&page=2"
+    github_api.route("GET", first, github_json([OPEN_ISSUES[1]] * 100, headers=next_page(second)))
+    github_api.route("GET", second, github_json([OPEN_ISSUES[1]] * 100))
+    store, _ = over_github()
+    assert (len(store.issues()), len(github_api.sent)) == (200, 2)
 
 
 def test_a_first_run_whose_issue_listing_is_not_json_refuses_before_any_write() -> None:
     """The reviewers' replay through the plan: the first run's issue listing came back as
-    HTML with exit 0 and read as empty, so the run recorded v0.2.25 holding 0 items. The plan
-    now raises, naming the read, and nothing is written."""
+    HTML and read as empty, so the run recorded v0.2.25 holding 0 items. The plan now raises,
+    naming the read, and nothing is written."""
     store, runner = board_store(
         {
             "fields(first": FIELDS_REPLY,
@@ -1379,7 +1626,7 @@ def test_a_first_run_whose_issue_listing_is_not_json_refuses_before_any_write() 
             "issues?state=all": "<html>upstream</html>",
         }
     )
-    with pytest.raises(GitHubOperationError, match=r"malformed issues \(page 1\)"):
+    with pytest.raises(GitHubUnreadError, match=f"/repos/{REPO}/issues\\?state=all"):
         plan_reprioritization(
             store, repo=REPO, config=RoadmapConfig(board=2), now=datetime(2026, 10, 2, tzinfo=UTC)
         )
@@ -1415,7 +1662,23 @@ def event_at(template: dict[str, Any], moment: datetime) -> dict[str, Any]:
     return {**template, "created_at": moment.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -> None:
+EVENTS_LISTING = f"/repos/{REPO}/issues/events?per_page=100"
+PULLS_LISTING = f"/repos/{REPO}/{LISTING_PULLS}&per_page={POLL_PAGE}"
+RELEASES_LISTING = f"/repos/{REPO}/releases?per_page={POLL_PAGE}"
+
+
+def no_release_changes(github_api: GitHubApiFake) -> None:
+    """A poll's pull request and GitHub Release listings, empty, on the fake GitHub API."""
+    github_api.route("GET", PULLS_LISTING, github_json([]))
+    github_api.route("GET", RELEASES_LISTING, github_json([]))
+
+
+def test_changes_since_follows_newest_first_pages_and_stops_at_the_first_older_event(
+    github_api: GitHubApiFake,
+) -> None:
+    """The issue events are read newest first through the session, following GitHub's links,
+    and the read stops at the first event older than the cutoff: the third page is never
+    requested."""
     referenced = next(event for event in EVENTS if event["event"] == "referenced")
     start = datetime(2026, 10, 3, tzinfo=UTC)
     newer_page = [event_at(referenced, start - timedelta(minutes=n)) for n in range(100)]
@@ -1423,30 +1686,46 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
     older_padding = [
         event_at(referenced, oldest_recorded - timedelta(minutes=n + 1)) for n in range(90)
     ]
-    store, runner = board_store(
-        {
-            "events?per_page=100&page=1": newer_page,
-            "events?per_page=100&page=2": EVENTS + older_padding,
-            "events?per_page=100&page=3": (1, "page 3 must not be read"),
-            BOARD_READ: BoardServer(BOARD),
-            **NO_RELEASE_CHANGES,
-        }
-    )
+    second, third = f"{EVENTS_LISTING}&page=2", f"{EVENTS_LISTING}&page=3"
+    github_api.route("GET", EVENTS_LISTING, github_json(newer_page, headers=next_page(second)))
+    github_api.route("GET", second, github_json(EVENTS + older_padding, headers=next_page(third)))
+    github_api.route("GET", third, github_json({"message": "page 3 must not be read"}, status=500))
+    no_release_changes(github_api)
+    store, _ = over_github({BOARD_READ: BoardServer(BOARD)})
     changes = store.changes_since(datetime(2026, 10, 1, 22, 0, tzinfo=UTC))
     assert (
-        [args for args, _ in runner.calls if "issues/events" in args[-1]],
+        [url for url in github_api.requested if "issues/events" in url],
         [(change.kind, change.number, change.at.isoformat()) for change in changes],
     ) == (
-        [
-            ["api", f"repos/{REPO}/issues/events?per_page=100&page=1"],
-            ["api", f"repos/{REPO}/issues/events?per_page=100&page=2"],
-        ],
+        [f"GET {API}{EVENTS_LISTING}", f"GET {API}{second}"],
         [
             (ChangeKind.JOINED_RELEASE, 912, "2026-10-01T22:17:49+00:00"),
             (ChangeKind.CLOSED, 299, "2026-10-01T22:39:06+00:00"),
             (ChangeKind.LABELED, 917, "2026-10-01T22:39:11+00:00"),
         ],
     )
+
+
+def test_changes_since_whose_second_event_is_older_than_the_cutoff_sends_one_request(
+    github_api: GitHubApiFake,
+) -> None:
+    """The events' second entry is older than the cutoff, and GitHub links a next page: the
+    read stops there, so the events cost one request and the linked page is never asked for."""
+    referenced = next(event for event in EVENTS if event["event"] == "referenced")
+    cutoff = datetime(2026, 10, 2, tzinfo=UTC)
+    page = [
+        event_at(referenced, cutoff + timedelta(minutes=5)),
+        event_at(referenced, cutoff - timedelta(minutes=5)),
+    ]
+    second = f"{EVENTS_LISTING}&page=2"
+    github_api.route("GET", EVENTS_LISTING, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json({"message": "must not be read"}, status=500))
+    no_release_changes(github_api)
+    store, _ = over_github({BOARD_READ: BoardServer(BOARD)})
+    store.changes_since(cutoff)
+    assert [url for url in github_api.requested if "issues/events" in url] == [
+        f"GET {API}{EVENTS_LISTING}"
+    ]
 
 
 def test_changes_since_keeps_issue_release_label_and_state_events_only() -> None:
@@ -1504,16 +1783,21 @@ def test_changes_since_with_an_empty_actor_leaves_out_nothing() -> None:
 
 
 def test_changes_since_raises_when_the_events_outrun_the_page_cap(
-    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A chain of linked pages that never reaches back past the cutoff stops at the session's
+    page cap, raising rather than taking the listing as whole."""
     referenced = next(event for event in EVENTS if event["event"] == "referenced")
     start = datetime(2026, 10, 3, tzinfo=UTC)
     full_page = [event_at(referenced, start - timedelta(minutes=n)) for n in range(100)]
-    monkeypatch.setattr("devops_cli.roadmap.github_store.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
-    store, runner = board_store({"issues/events": full_page})
-    with pytest.raises(GitHubOperationError, match=r"issue events .* run past 2 pages"):
+    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    pages = [EVENTS_LISTING, *(f"{EVENTS_LISTING}&page={n}" for n in (2, 3))]
+    for page, following in itertools.pairwise(pages):
+        github_api.route("GET", page, github_json(full_page, headers=next_page(following)))
+    store, _ = over_github()
+    with pytest.raises(GitHubUnreadError, match="runs past 2 pages"):
         store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
-    assert len(runner.calls) == 2
+    assert len(github_api.sent) == 2
 
 
 # ── What a poll reports of a Release: its cut, its un-cut and its ship (#1360) ──
@@ -1582,6 +1866,42 @@ def test_a_published_github_release_is_a_ship_of_the_release_its_tag_names() -> 
     ]
     ships = _release_changes({LISTING_RELEASES: listing, "milestones?state=all": MILESTONES})
     assert ships == [(ChangeKind.RELEASE_SHIPPED, 0, None, SHIPPED, "v0.2.28")]
+
+
+def test_an_older_tag_published_after_the_cutoff_below_an_earlier_ship_is_a_ship(
+    github_api: GitHubApiFake,
+) -> None:
+    """The Releases listing is ordered by its tags' times, but a ship is judged by when the
+    Release was published. v0.2.28's tag and Release both came before the cutoff; v0.2.27's
+    older tag was published after it, when its release job was run again, and is listed below.
+    The whole page the read stops in is judged, so v0.2.27 ships, and the next page GitHub
+    links is never requested (#983)."""
+    first = CUTOFF - timedelta(hours=1)
+    page = [
+        github_release("v0.2.28", first, first + timedelta(minutes=1)),
+        github_release("v0.2.27", CUTOFF - timedelta(hours=2), CUTOFF + timedelta(minutes=1)),
+        *(
+            github_release(
+                f"v0.1.{n}", CUTOFF - timedelta(days=n + 1), CUTOFF - timedelta(days=n + 1)
+            )
+            for n in range(POLL_PAGE - 2)
+        ),
+    ]
+    second = f"{RELEASES_LISTING}&page=2"
+    github_api.route("GET", EVENTS_LISTING, github_json([]))
+    github_api.route("GET", PULLS_LISTING, github_json([]))
+    github_api.route("GET", RELEASES_LISTING, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json({"message": "must not be read"}, status=500))
+    github_api.route("GET", f"/{LISTING_MILESTONES}", github_json(MILESTONES))
+    store, _ = over_github()
+    changes = store.changes_since(CUTOFF)
+    assert (
+        [(change.kind, change.release) for change in changes],
+        [url for url in github_api.requested if "/releases" in url],
+    ) == (
+        [(ChangeKind.RELEASE_SHIPPED, "v0.2.27")],
+        [f"GET {API}{RELEASES_LISTING}"],
+    )
 
 
 def test_a_release_pull_request_opened_then_closed_unmerged_is_a_cut_then_an_un_cut() -> None:
@@ -1654,32 +1974,33 @@ def test_release_changes_sort_with_the_issue_changes_and_read_no_board() -> None
     )
 
 
-def test_the_release_listings_read_on_only_while_a_full_page_ends_after_the_cutoff() -> None:
+def test_the_release_listings_read_on_only_until_an_entry_is_older_than_the_cutoff(
+    github_api: GitHubApiFake,
+) -> None:
     """The pull request and GitHub Release listings are read a small page at a time, and each
-    stops after the first page that ends before the cutoff; the milestones are read only when a
-    GitHub Release was published since."""
+    stops at its first entry older than the cutoff, requesting no later page; the milestones
+    are read only when a GitHub Release was published since."""
     newer = [
         listed_pull(2000 + n, CUTOFF + timedelta(minutes=n), labels=[]) for n in range(POLL_PAGE)
     ]
     older = [
         github_release(f"v0.1.{n}", CUTOFF - timedelta(days=n + 1), None) for n in range(POLL_PAGE)
     ]
-    store, runner = board_store(
-        {
-            "issues/events": [],
-            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1": newer,
-            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2": [],
-            f"{LISTING_RELEASES}&page=1": older,
-            f"{LISTING_RELEASES}&page=2": (1, "page 2 must not be read"),
-        }
+    pulls_page_2, releases_page_2 = f"{PULLS_LISTING}&page=2", f"{RELEASES_LISTING}&page=2"
+    github_api.route("GET", EVENTS_LISTING, github_json([]))
+    github_api.route("GET", PULLS_LISTING, github_json(newer, headers=next_page(pulls_page_2)))
+    github_api.route("GET", pulls_page_2, github_json([]))
+    github_api.route(
+        "GET", RELEASES_LISTING, github_json(older, headers=next_page(releases_page_2))
     )
+    github_api.route("GET", releases_page_2, github_json({"message": "x"}, status=500))
+    store, _ = over_github()
     store.changes_since(CUTOFF)
-    read = [args[1].split("/", 3)[-1] for args, _ in runner.calls]
-    assert read == [
-        "issues/events?per_page=100&page=1",
-        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1",
-        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2",
-        f"{LISTING_RELEASES}&page=1",
+    assert github_api.requested == [
+        f"GET {API}{EVENTS_LISTING}",
+        f"GET {API}{PULLS_LISTING}",
+        f"GET {API}{pulls_page_2}",
+        f"GET {API}{RELEASES_LISTING}",
     ]
 
 
@@ -1688,6 +2009,25 @@ def test_the_factory_opens_the_github_adapter_without_reading(
 ) -> None:
     store = github_roadmap_factory(REPO, board_owner="dan-petty", board_number=2)
     assert type(store) is GitHubRoadmapStore
+
+
+def test_a_store_the_factory_opens_reads_its_listings_through_the_processs_session(
+    github_roadmap_factory: Callable[..., RoadmapStore], github_api: GitHubApiFake
+) -> None:
+    """Every roadmap command opens the store through the factory, which passes no session: its
+    REST listings go through the process's GitHub session, and none through the gh runner
+    (#983)."""
+    github_api.route("GET", f"/{LISTING_MILESTONES}", github_json(MILESTONES))
+
+    def refuse(args: list[str], **_: Any) -> NoReturn:
+        raise AssertionError(f"the listing went through gh: {args}")
+
+    store = github_roadmap_factory(REPO, board_owner="dan-petty", board_number=2, runner=refuse)
+    titles = [release.title for release in store.releases()]
+    assert (titles[-1], github_api.requested) == (
+        "v0.3.5",
+        [f"GET {API}/{LISTING_MILESTONES}"],
+    )
 
 
 # ── Board shape, cards, issues and files (#739) ───────────────────────────────
@@ -1883,7 +2223,9 @@ def test_remove_card_reads_the_card_then_deletes_it_by_id() -> None:
 
 def test_board_finds_the_number_among_the_owners_boards() -> None:
     store, runner = board_store({"project list": PROJECTS})
-    missing = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=7, runner=runner)
+    missing = GitHubRoadmapStore(
+        REPO, board_owner="dan-petty", board_number=7, runner=runner, session=RunnerSession(runner)
+    )
     found = store.board()
     assert (found.id if found else None, missing.board(), runner.calls[0][0]) == (
         "PVT_kwHOAHXnKc4Biwcg",
@@ -1979,11 +2321,11 @@ def test_issues_read_every_state_and_drop_pull_requests() -> None:
     assert (
         918 in numbers,
         len(numbers) < len(ISSUES_IN_RELEASE + OPEN_ISSUES),
-        runner.calls[0][0][1],
+        runner.calls[0][0],
     ) == (
         False,
         True,
-        f"repos/{REPO}/issues?state=all&per_page=100&page=1",
+        [f"{API}/repos/{REPO}/issues?state=all&per_page=100"],
     )
 
 
@@ -2170,13 +2512,13 @@ def test_dependencies_read_the_blocked_by_listing_with_each_issues_repository_an
     store, runner = board_store({"dependencies/blocked_by": [ISSUE_743, foreign]})
     assert (
         [(d.number, d.repository, d.state, d.release) for d in store.dependencies(740)],
-        runner.calls[0][0][:3],
+        runner.calls[0][0],
     ) == (
         [
             (743, REPO, GitHubState.OPEN, "v0.2.26"),
             (12, "example/other", GitHubState.CLOSED, None),
         ],
-        ["api", f"repos/{REPO}/issues/740/dependencies/blocked_by?per_page=100&page=1"],
+        [f"{API}/repos/{REPO}/issues/740/dependencies/blocked_by?per_page=100"],
     )
 
 
@@ -2347,7 +2689,7 @@ def test_comments_on_reads_every_comment_of_the_issue_oldest_first() -> None:
         runner.calls[0][0],
     ) == (
         True,
-        ["api", f"repos/{REPO}/issues/844/comments?per_page=100&page=1"],
+        [f"{API}/repos/{REPO}/issues/844/comments?per_page=100"],
     )
 
 
@@ -2541,7 +2883,7 @@ def test_release_changes_read_one_issues_events_for_its_joins_and_leaves() -> No
                 datetime(2026, 10, 2, 3, 26, 46, tzinfo=UTC),
             ),
         ],
-        ["api", f"repos/{REPO}/issues/844/events?per_page=100&page=1"],
+        [f"{API}/repos/{REPO}/issues/844/events?per_page=100"],
     )
 
 
@@ -2774,39 +3116,45 @@ def _closed_pull(number: int, merged: bool = True) -> dict[str, Any]:
     }
 
 
-def _closed_pages(bad: int | None = None) -> Callable[[list[str]], Any]:
-    """Closed pull requests over three pages, 100, 100 and 5; page `bad` fails."""
-
-    def page(args: list[str]) -> Any:
-        (number,) = _query(args, "page")[0]
-        if int(number) == bad:
-            return (1, "gh: Server Error (HTTP 502)")
-        first = (int(number) - 1) * 100 + 1
-        size = 100 if int(number) < 3 else 5
-        return [_closed_pull(n, merged=n != 7) for n in range(first, first + size)]
-
-    return page
+CLOSED_LISTING = (
+    f"/repos/{REPO}/pulls?state=closed&base=release%2Fv0.2.26&sort=created&direction=asc"
+    "&per_page=100"
+)
+# Five closed pull requests over three linked pages, #7 closed unmerged.
+CLOSED_PAGES = ([1, 2], [3, 7], [8])
 
 
-def test_merged_pull_requests_read_every_page_with_each_ones_files() -> None:
-    store, runner = board_store(
-        {
-            "pulls?state=closed": _closed_pages(),
-            "/files?": [{"filename": "src/a.py"}, {"filename": "docs/agent/tasks/task-1-a.md"}],
-        }
-    )
+def _closed_pages(github_api: GitHubApiFake, bad: int | None = None) -> None:
+    """The closed pull requests into release/v0.2.26 on linked pages; page `bad` fails with a
+    502. Each merged one's files are a task file and a source file."""
+    pages = [CLOSED_LISTING, *(f"{CLOSED_LISTING}&page={n}" for n in range(2, 4))]
+    for index, numbers in enumerate(CLOSED_PAGES):
+        following = {"headers": next_page(pages[index + 1])} if index + 1 < len(pages) else {}
+        answer = github_json([_closed_pull(n, merged=n != 7) for n in numbers], **following)
+        failed = github_json({"message": "x"}, status=502)
+        github_api.route("GET", pages[index], failed if index + 1 == bad else answer)
+    files = [{"filename": "src/a.py"}, {"filename": "docs/agent/tasks/task-1-a.md"}]
+    for number in (1, 2, 3, 8):
+        github_api.route(
+            "GET", f"/repos/{REPO}/pulls/{number}/files?per_page=100", github_json(files)
+        )
+
+
+def test_merged_pull_requests_read_every_page_with_each_ones_files(
+    github_api: GitHubApiFake,
+) -> None:
+    _closed_pages(github_api)
+    store, runner = over_github()
     merged = store.merged_pull_requests("release/v0.2.26")
     first = merged[0]
     assert (
-        len(merged),
-        [p.number for p in merged][:7],
+        [p.number for p in merged],
         (first.url, first.body, first.labels, first.release, first.changed_paths),
         (first.merge_commit, first.head_commit) == (f"{1:040x}", f"{1:040x}"[::-1]),
-        runner.calls[0][0][-1].split("&per_page")[0],
-        runner.writes,
+        github_api.requested[0],
+        runner.calls,
     ) == (
-        204,
-        [1, 2, 3, 4, 5, 6, 8],
+        [1, 2, 3, 8],
         (
             f"https://github.com/{REPO}/pull/1",
             "Closes #1001",
@@ -2815,26 +3163,30 @@ def test_merged_pull_requests_read_every_page_with_each_ones_files() -> None:
             ("src/a.py", "docs/agent/tasks/task-1-a.md"),
         ),
         True,
-        f"repos/{REPO}/pulls?state=closed&base=release%2Fv0.2.26&sort=created&direction=asc",
+        f"GET {API}{CLOSED_LISTING}",
         [],
     )
 
 
 @pytest.mark.parametrize("bad", [1, 2, 3])
-def test_a_failed_merged_pull_request_page_raises_and_returns_no_part(bad: int) -> None:
-    store, _ = board_store({"pulls?state=closed": _closed_pages(bad), "/files?": []})
-    with pytest.raises(
-        GitHubOperationError, match=rf"pull requests into release/v0.2.26 \(page {bad}\)"
-    ):
+def test_a_failed_merged_pull_request_page_raises_and_returns_no_part(
+    github_api: GitHubApiFake, bad: int
+) -> None:
+    _closed_pages(github_api, bad)
+    store, _ = over_github()
+    with pytest.raises(GitHubUnreadError) as raised:
         store.merged_pull_requests("release/v0.2.26")
+    assert (raised.value.details["page"], raised.value.details["status"]) == (bad, 502)
 
 
-def test_a_failed_files_listing_raises() -> None:
-    store, _ = board_store(
-        {"pulls?state=closed": _closed_pages(), "/files?": (1, "gh: Server Error (HTTP 502)")}
-    )
-    with pytest.raises(GitHubOperationError, match=r"#1 files \(page 1\)"):
+def test_a_failed_files_listing_raises(github_api: GitHubApiFake) -> None:
+    _closed_pages(github_api)
+    files = f"/repos/{REPO}/pulls/1/files?per_page=100"
+    github_api.route("GET", files, github_json({"message": "x"}, status=502))
+    store, _ = over_github()
+    with pytest.raises(GitHubUnreadError) as raised:
         store.merged_pull_requests("release/v0.2.26")
+    assert raised.value.details["path"] == files
 
 
 def test_is_private_args_and_write_issue_body_args() -> None:

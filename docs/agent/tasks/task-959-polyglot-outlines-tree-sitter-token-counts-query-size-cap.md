@@ -1,9 +1,6 @@
 # Task: Polyglot Outlines Parse With Tree-Sitter, Token Estimates Match the Outline, and AST Queries Check Size First (#959)
 
 **Issue**: [#959](https://github.com/dan-petty/devops-cli/issues/959)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p3-low
 **Scope**: scope/ai
 
 ## Description

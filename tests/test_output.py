@@ -79,6 +79,7 @@ from devops_cli.output.models import (
     TableColumn,
     TablePayload,
 )
+from tests.support.paths import REPO_ROOT
 
 
 class SampleModel(BaseModel):
@@ -658,7 +659,7 @@ def test_rich_imports_confined_to_output_submodule() -> None:
     """Verify that all direct imports of the 'rich' package are strictly confined to src/devops_cli/output/."""
     import ast
 
-    src_dir = Path(__file__).resolve().parent.parent / "src" / "devops_cli"
+    src_dir = REPO_ROOT / "src" / "devops_cli"
     output_dir = src_dir / "output"
 
     violations: list[str] = []

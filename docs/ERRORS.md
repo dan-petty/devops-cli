@@ -27,6 +27,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when a provider rejects the request's credentials; retrying cannot help. |
 | `AgentRunError` | `AGENT_RUN_ERROR` | `20` | Ai | Raised when an error occurs during an agent run lifecycle. |
 | `ApprovalRequired` | `APPROVAL_REQUIRED` | `17` | Ai | Raised by a tool or validator when human approval is required to proceed. |
+| `ArgoCDGateError` | `ARGOCD_GATE_ERROR` | `1` | K8s | Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343). |
 | `ArgoError` | `ARGO_ERROR` | `1` | Argo | Base exception for Argo CD, Rollouts, and Workflows operations. |
 | `ArgoResourceNotFoundError` | `ARGO_RESOURCE_NOT_FOUND` | `1` | Argo | Raised when an Argo custom resource does not exist in the target cluster. |
 | `BranchAlreadyExistsError` | `BRANCH_ALREADY_EXISTS` | `1` | Git | Raised when attempting to create a branch that already exists. |
@@ -48,6 +49,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ConstellationResumeError` | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
 | `ContentFilterError` | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `ContextBudgetExceededError` | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
+| `CopilotPassRefusedError` | `COPILOT_PASS_REFUSED` | `1` | Git | Raised when `devops pr copilot-pass` refuses to request a Copilot pass. |
 | `CosignError` | `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
 | `CosignVerificationError` | `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DependencyError` | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
@@ -60,9 +62,12 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.gateway_tune | Raised when the gateway's deployments cannot be discovered or measured. |
 | `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |
+| `GitHubNotFoundError` | `GITHUB_NOT_FOUND` | `1` | Git | Raised when GitHub answers that what it was asked for does not exist (HTTP 404). |
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GitHubRateLimitError` | `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |
-| `GitHubUnauthenticatedError` | `GITHUB_UNAUTHENTICATED` | `1` | Git | Raised when `gh auth token` gives the process no GitHub identity to call GitHub as. |
+| `GitHubScopeError` | `GITHUB_SCOPE_MISSING` | `1` | Git | Raised when GitHub refuses a request because the token lacks a scope the endpoint needs. |
+| `GitHubUnauthenticatedError` | `GITHUB_UNAUTHENTICATED` | `1` | Git | Raised when the process has no GitHub identity, or GitHub refused its token (HTTP 401). |
+| `GitHubUnreadError` | `GITHUB_UNREAD` | `1` | Git | Raised when no answer from GitHub could be read, so what the request did is unknown. |
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GitOpsSyncError` | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
@@ -125,6 +130,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `SuspendedResponseExpired` | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
+| `ThreadFilingRefusedError` | `THREAD_FILING_REFUSED` | `1` | Git | Raised when `devops pr threads file-issues` refuses to file a pull request's threads. |
 | `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `ToolExecutionError` | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |

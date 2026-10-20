@@ -1,9 +1,6 @@
 # Task: Run-Identity Review History With a Leave-One-Out Baseline (#607)
 
 **Issue**: [#607](https://github.com/dan-petty/devops-cli/issues/607)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p1-high
 **Scope**: scope/review
 
 ## Description

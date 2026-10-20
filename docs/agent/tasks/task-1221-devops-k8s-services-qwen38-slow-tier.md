@@ -1,9 +1,6 @@
 # Task: Devops K8s Services Use qwen3.8:27b on ollama-48gib-slow (#1221)
 
 **Issue**: [#1221](https://github.com/dan-petty/devops-cli/issues/1221)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

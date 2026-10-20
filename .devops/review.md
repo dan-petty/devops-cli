@@ -94,8 +94,8 @@ These resolve claims that recur against this codebase.
   instant queries (`/api/v1/query`) are well formed.
 - JSON response repair lives in `response_repair.py`. There is no `ai/fixer.py`.
 - `docs/ROADMAP.md` and task files under `docs/agent/tasks/` record plans and history.
-- Structural tuple comparisons in test assertions (`assert (a, b) == (x, y)`) cap McCabe
-  complexity at 10; they are not assertion bugs.
+- A tuple equality assert (`assert (a, b) == (x, y)`) compares every element and is not an
+  assertion bug; how tests assert is set in [`docs/TESTING.md`](../docs/TESTING.md).
 - `tests/golden/*` and `tests/fixtures/*` hold synthetic vulnerability exemplars on purpose.
 - NodePort services in the `k8s/` manifests and Helm values are how workstations reach a
   minikube or homelab cluster; that exposure is intended, not a finding.

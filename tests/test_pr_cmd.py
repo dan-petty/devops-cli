@@ -5,18 +5,17 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from urllib.parse import parse_qs, urlsplit
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import ChangedFile, app
-from devops_cli.github.issue_closure import extract_linked_issues
-from devops_cli.github.rate_limiter import get_github_rate_limiter, reset_github_rate_limiter
+from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 
 @pytest.fixture
@@ -50,6 +49,77 @@ def _readiness_gh(
         return replies[route] if route is not None else _gh_reply(pr_payload)
 
     return answer
+
+
+class _RoutedSession:
+    """The GitHub session readiness reads a pull request's changed files and check runs through,
+    answered from the routes of the test's `run_gh` stub (#983).
+
+    Each read is recorded in `reads`, and the stub is asked for its endpoint with an argv that
+    is plainly no gh command (`<session> GET <endpoint>`), so a reader that went back to a
+    one-page `gh api` read shows in a test as a different call. A reply holding a list is the
+    whole listing; a failed reply raises the read's failure; anything else fails closed as the
+    session does, through its own `listed_items`. A read with `run_gh` left unstubbed fails the
+    test instead of reaching a real gh.
+    """
+
+    def __init__(self, gh: Callable[..., MagicMock]) -> None:
+        self._gh = gh
+        self.reads: list[str] = []
+
+    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[object]:
+        from devops_cli.commands import pr as pr_module
+        from devops_cli.exceptions.git import GitHubOperationError
+        from devops_cli.github import rate_limiter
+        from devops_cli.github.error_classifier import classify_http_error
+        from devops_cli.github.session_transport import listed_items
+
+        if pr_module.run_gh is rate_limiter.run_gh:
+            raise AssertionError("A session read under test_pr_cmd needs run_gh stubbed")
+        self.reads.append(path)
+        reply = self._gh([_SESSION_READ, "GET", path.lstrip("/")])
+        if reply.returncode != 0:
+            raise GitHubOperationError(reply.stderr.strip())
+        try:
+            answer = json.loads(reply.stdout or "null")
+        except json.JSONDecodeError as exc:
+            raise classify_http_error(exc, method="GET", path=path, page=1) from exc
+        yield from listed_items(answer, path=path, page=1, iterable_key=iterable_key)
+
+
+# What a session read looks like among the `run_gh` stub's calls: no gh command does.
+_SESSION_READ = "<session>"
+
+
+@pytest.fixture(autouse=True)
+def routed_session(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> _RoutedSession | None:
+    """Readiness reads a pull request's changed files and check runs through the GitHub
+    session (#983). Here both are answered from the routes of whatever stands in for `run_gh`
+    in `commands.pr`, as its gh reads are, and recorded on the session, which a test can ask
+    for by name. A read with `run_gh` unstubbed fails, so no test reaches GitHub or a real gh.
+    A test over the `github_api` fake keeps the real session."""
+    if "github_api" in request.fixturenames:
+        return None
+    from devops_cli.commands import pr as pr_module
+
+    session = _RoutedSession(lambda args, **kwargs: pr_module.run_gh(args, **kwargs))
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: session)
+    monkeypatch.setattr("devops_cli.github.check_verdict.get_github_session", lambda: session)
+    return session
+
+
+def test_the_routed_session_refuses_an_unstubbed_run_gh() -> None:
+    """A session read in a test that left `run_gh` alone fails at once and starts no gh."""
+    from devops_cli.github import session as session_module
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess") as spawned,
+        pytest.raises(AssertionError, match="needs run_gh stubbed"),
+    ):
+        list(session_module.get_github_session().paginate("/repos/o/r/pulls/1/files?per_page=100"))
+    assert spawned.call_count == 0
 
 
 class TestPrCommands:
@@ -889,8 +959,11 @@ class TestPrCommands:
             assert "fix: resolve issue" in res.output
             assert "Detailed description text" in res.output
 
-    def test_pr_checks_fallback_on_gh_failure(self, runner: CliRunner) -> None:
-        """devops pr checks falls back to REST check-runs when gh pr checks fails."""
+    def test_pr_checks_fallback_on_gh_failure(
+        self, runner: CliRunner, github_api: GitHubApiFake
+    ) -> None:
+        """devops pr checks falls back to the REST check-runs listing, read through the GitHub
+        session, when gh pr checks fails."""
         mock_pr_json = json.dumps(
             {
                 "head": {"sha": "abcdef123456"},
@@ -914,6 +987,13 @@ class TestPrCommands:
                 ]
             }
         )
+        github_api.route(
+            "GET",
+            "/repos/owner/repo/commits/abcdef123456/check-runs?per_page=100",
+            httpx2.Response(
+                200, headers={"content-type": "application/json"}, content=mock_checks_json.encode()
+            ),
+        )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
@@ -922,7 +1002,6 @@ class TestPrCommands:
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
-                    MagicMock(returncode=0, stdout=mock_checks_json, stderr=""),
                 ],
             ),
         ):
@@ -1415,74 +1494,44 @@ class TestPrCommands:
             ) == (1, True, True)
 
     def test_check_readiness_fails_closed_when_second_page_check_runs_malformed(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+        self, runner: CliRunner, github_api: GitHubApiFake
     ) -> None:
-        """A check-run listing whose second page is malformed makes pr check-readiness fail closed."""
-        monkeypatch.setattr(time, "sleep", lambda _s: None)
-        from devops_cli.github.rate_limiter import run_gh as real_run_gh
-
+        """A check-run listing whose second page is malformed makes pr check-readiness fail
+        closed, naming the page, rather than judge the first page's runs alone."""
+        sha = "abcdef1234567890abcdef1234567890abcdef12"
         mock_pr = json.dumps(
             {
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
                 "base": {"ref": "release/v0.2.17"},
-                "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
+                "head": {"sha": sha},
             }
         )
-        base_router = _readiness_gh(mock_pr)
-        page1 = {
-            "total_count": 200,
-            "check_runs": [
-                {"name": f"check-{i}", "status": "completed", "conclusion": "success"}
-                for i in range(100)
-            ],
-        }
-
-        def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            cmd_str = " ".join(cmd)
-            if "rate_limit" in cmd_str:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout=json.dumps(
-                        {
-                            "resources": {
-                                "core": {
-                                    "limit": 5000,
-                                    "remaining": 4999,
-                                    "reset": int(time.time()) + 60,
-                                    "used": 1,
-                                }
-                            }
-                        }
-                    ),
-                    stderr="",
-                )
-            if "page=2" in cmd_str:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout="<html>upstream 502 Bad Gateway</html>",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=0,
-                stdout=json.dumps(page1),
-                stderr="",
-            )
-
-        def selective_gh(args: list[str], **kwargs: object) -> object:
-            if any("check-runs" in arg for arg in args):
-                with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-                    return real_run_gh(args, **kwargs)
-            return base_router(args, **kwargs)
-
+        runs = [
+            {"name": f"check-{i}", "status": "completed", "conclusion": "success"}
+            for i in range(100)
+        ]
+        second = f"/repositories/1/commits/{sha}/check-runs?per_page=100&page=2"
+        github_api.route(
+            "GET",
+            f"/repos/owner/repo/commits/{sha}/check-runs?per_page=100",
+            github_json({"total_count": 200, "check_runs": runs}, headers=next_page(second)),
+        )
+        github_api.route(
+            "GET",
+            second,
+            httpx2.Response(
+                200,
+                headers={"content-type": "text/html"},
+                content=b"<html>upstream 502 Bad Gateway</html>",
+            ),
+        )
+        github_api.route("GET", "/repos/owner/repo/pulls/187/files?per_page=100", github_json([]))
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch("devops_cli.commands.pr.run_gh", side_effect=selective_gh),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -1709,6 +1758,49 @@ class TestPrCommands:
             assert result.exit_code == 1
             assert "GitHub GraphQL rate limit exceeded" in result.output
 
+    @pytest.mark.parametrize(
+        ("said", "details"),
+        [
+            pytest.param(
+                "gh: Too Many Requests (HTTP 429)", "gh: Too Many Requests (HTTP 429)", id="429"
+            ),
+            pytest.param(
+                "gh: Please retry your request again later. (HTTP 403)",
+                "gh: Please retry your request again later. (HTTP 403)",
+                id="secondary",
+            ),
+            pytest.param(
+                "GraphQL: API rate limit already exceeded for user ID 1.",
+                "GraphQL: API rate limit already exceeded for user ID 1",
+                id="ends-with-a-period",
+            ),
+        ],
+    )
+    def test_ready_names_a_rate_limit_only_the_gh_table_names(
+        self, runner: CliRunner, said: str, details: str
+    ) -> None:
+        """A rate limit gh writes without the words "rate limit" is still named one (#983). The
+        message is one paragraph: `print_error` wraps softly at the 250 columns the tests set, so
+        a line break would come from the message itself, and gh's own closing period is not
+        doubled."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._fetch_pr_details",
+                return_value={"draft": True, "number": 184},
+            ),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=1, stdout="", stderr=said),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "184"])
+        assert (
+            result.exit_code,
+            f"GitHub GraphQL rate limit exceeded. Details: {details}. Note:" in result.output,
+            result.output.count("\n"),
+        ) == (1, True, 1)
+
     def test_ready_pr_success(self, runner: CliRunner) -> None:
         """devops pr ready marks draft PR as ready."""
         with (
@@ -1823,9 +1915,15 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
     return {"filename": filename, "status": status}
 
 
-def _issue(milestone: str | None = "v0.2.25") -> MagicMock:
-    """The `issues/{n}` reply for the issue a PR closes, in `milestone` or the backlog."""
-    return _gh_reply({"number": 704, "milestone": {"title": milestone} if milestone else None})
+def _issue(milestone: str | None = "v0.2.25", state: str = "open") -> MagicMock:
+    """The `issues/{n}` reply for the issue a PR is grounded on, in `milestone` or the backlog."""
+    return _gh_reply(
+        {
+            "number": 704,
+            "state": state,
+            "milestone": {"title": milestone} if milestone else None,
+        }
+    )
 
 
 _REPO = {"full_name": "dan-petty/devops-cli", "default_branch": "main"}
@@ -1857,7 +1955,8 @@ def _blockers(
     gh: Callable[..., MagicMock] | None = None,
     **kwargs: object,
 ) -> list[str]:
-    """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed.
+    """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed,
+    which also answers the files read (`routed_session`).
 
     Unless `gh` answers instead, the base keeps task files and the PR changes #704's.
     """
@@ -1954,6 +2053,15 @@ def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
         ("Adds the readiness blocker.", [_TASK_704], "closes no issue in dan-petty/devops-cli"),
         ("Closes #1\nCloses #2", [_TASK_704], "closes 2 issues (#1, #2)"),
         ("Part 1 of #704", [_TASK_704], "closes no issue"),
+        ("Part of #704\nCloses #705", [_TASK_704], "closes #705 and delivers part of #704"),
+        ("Part of #704\nPart of #705", [_TASK_704], "delivers part of 2 issues (#704, #705)"),
+        ("Part of #704\nCloses #704", [_TASK_704], "closes #704 and delivers part of #704"),
+        ("Part of other/repo#704", [_TASK_704], "closes no issue"),
+        (
+            "Part of #704",
+            [_file("docs/agent/tasks/task-705-x.md")],
+            "renames no docs/agent/tasks/task-704-*.md for #704",
+        ),
         ("Closes other/repo#704", [_TASK_704], "closes no issue"),
         (
             "Closes #704",
@@ -1970,7 +2078,12 @@ def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
     ids=[
         "no-closing-reference",
         "two-issues",
-        "part-of-an-item",
+        "numbered-part-line",
+        "part-and-close",
+        "two-parts",
+        "part-and-close-of-one-issue",
+        "part-of-another-repository",
+        "part-without-its-task-file",
         "other-repository",
         "another-issues-task-file",
         "task-file-removed",
@@ -2014,7 +2127,7 @@ def test_grounding_exempts_only_the_release_pr(files: object) -> None:
     ],
     ids=["topic-branch", "not-a-release-version", "chore-branch", "release-from-a-fork"],
 )
-def test_grounding_holds_other_prs_into_the_default_branch(head: dict) -> None:
+def test_grounding_holds_other_prs_into_the_default_branch(head: dict[str, object]) -> None:
     """Only the release PR is exempt; a topic, malformed release, chore branch or forked release is not."""
     blockers = _blockers(_ready_pr(body="", head=head, base=_MAIN_BASE), gh=_grounding_gh([]))
     assert ["closes no issue" in blocker for blocker in blockers] == [True], blockers
@@ -2045,68 +2158,64 @@ def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each() -> None:
-    """The reader's argv is pinned: without `per_page=100`, `run_gh` stops after 30 files."""
+def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each(
+    routed_session: _RoutedSession,
+) -> None:
+    """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
+    gh reads the base's task directory and the closed issue. A files read sent through
+    `gh api` instead shows here as a gh call."""
     gh = _grounding_gh([_TASK_704])
     _blockers(_ready_pr(), gh=gh)
-    assert [call.args[0] for call in gh.call_args_list] == [
-        ["gh", "api", "--paginate", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+    assert (routed_session.reads, [call.args[0] for call in gh.call_args_list]) == (
+        ["/repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
         [
-            "gh",
-            "api",
-            "--silent",
-            f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            [_SESSION_READ, "GET", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+            [
+                "gh",
+                "api",
+                "--silent",
+                f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+            ],
+            ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
         ],
-        ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
-    ]
+    )
 
 
-@pytest.fixture
-def full_core_quota() -> Iterator[None]:
-    """A fresh `run_gh` limiter whose core quota is known and large.
-
-    No request then reads `rate_limit`, and the pacing between requests (time to reset over
-    requests remaining) is microseconds.
-    """
-    reset_github_rate_limiter()
-    limiter = get_github_rate_limiter()
-    quota = 1_000_000
-    limiter.update_quota("core", remaining=quota, limit=quota, reset_epoch=time.time() + 60.0)
-    yield
-    reset_github_rate_limiter()
+_FILES_PAGE_2 = "/repositories/1/pulls/335/files?per_page=100&page=2"
 
 
-@pytest.mark.usefixtures("full_core_quota")
-def test_grounding_reads_every_page_of_changed_files_through_the_pager() -> None:
-    """`run_gh` pages the files itself, so the 101st file, on page 2, is read.
+def test_the_changed_files_are_read_from_every_linked_page(github_api: GitHubApiFake) -> None:
+    """The 101st file, on the second page, is read through the session.
 
-    PR #738 changed 51 files; without `per_page=100` the pager stopped after GitHub's
-    default page of 30.
+    PR #738 changed 51 files; a read stopping at GitHub's default page of 30 missed the rest.
     """
     from devops_cli.commands import pr as pr_module
 
-    pages = {"1": [_file(f"src/m{n}.py") for n in range(100)], "2": [_TASK_704]}
-    issue = {"number": 704, "milestone": {"title": "v0.2.25"}}
-
-    def subprocess_reply(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        endpoint = urlsplit(cmd[-1])
-        page = parse_qs(endpoint.query).get("page", [""])[0] if "/files" in endpoint.path else ""
-        stdout = json.dumps(pages[page]) if page in pages else ""
-        stdout = json.dumps(issue) if endpoint.path.endswith("/issues/704") else stdout
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
-
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=subprocess_reply),
-        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=([], [])),
-    ):
-        files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
-        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
-    assert (len(files), files[-1], blockers) == (
+    first = [_file(f"src/m{n}.py") for n in range(100)]
+    github_api.route("GET", f"/{_FILES_READ}", github_json(first, headers=next_page(_FILES_PAGE_2)))
+    github_api.route("GET", _FILES_PAGE_2, github_json([_TASK_704]))
+    files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
+    assert (len(files), files[-1], len(github_api.sent)) == (
         101,
         ChangedFile("docs/agent/tasks/task-704-x.md", "modified"),
-        [],
+        2,
     )
+
+
+def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github_api: GitHubApiFake) -> None:
+    """Readiness keeps a malformed second page as the read's failure, not a shorter file list."""
+    from devops_cli.commands import pr as pr_module
+
+    github_api.route(
+        "GET", f"/{_FILES_READ}", github_json([_TASK_704], headers=next_page(_FILES_PAGE_2))
+    )
+    github_api.route(
+        "GET",
+        _FILES_PAGE_2,
+        httpx2.Response(200, headers={"content-type": "text/html"}, content=b"<html></html>"),
+    )
+    read = pr_module._read_pr_files(335, "dan-petty", "devops-cli")
+    assert (read.files, "page 2" in read.error) == ([], True)
 
 
 # =============================================================================
@@ -2274,69 +2383,332 @@ def test_a_pr_that_does_not_edit_the_changelog_reads_none(
     assert ([blocked in blocker for blocker in blockers], reads) == ([True], []), blockers
 
 
+# =============================================================================
+# Grounding: a release-process PR is exempt only by the files it changes (#1344)
+# =============================================================================
+
 _RELEASE_FILES = [_file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
+_INTO_V0225 = {"ref": "release/v0.2.25", "sha": "b" * 40, "repo": _REPO}
+_CUT_HEAD = {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO}
+_MERGE_OF_MAIN_HEAD = {"ref": "chore/open-v0.2.25-main", "sha": "a" * 40, "repo": _REPO}
+_FILES_READ = "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"
+_COMPARE_ROUTE = "/compare/"
+_COMPARE_READ = ["gh", "api", f"repos/dan-petty/devops-cli/compare/{'b' * 40}...main?per_page=1"]
+# What #1614, `chore/cut-v0.2.36` into `release/v0.2.36`, changed: four of the cut's files, and
+# the 24 fragments it collected into CHANGELOG.md.
+_CUT_1614 = [
+    _file("CHANGELOG.md"),
+    *(
+        _file(f"changelog.d/{issue}.md", "removed")
+        for issue in (1143, 1145, 1147, 1443, 1585, 1588, 1595, 1601, 1602, 1604, 1608, 1615)
+        + (792, 797, 823, 844, 848, 849, 854, 856, 857, 861, 872, 875)
+    ),
+    _file("docs/ROADMAP.md"),
+    _file("pyproject.toml"),
+    _file("uv.lock"),
+]
+_RUNBOOK_RENAME = {
+    "filename": "docs/RUNBOOK.md",
+    "status": "renamed",
+    "previous_filename": "docs/OPS.md",
+}
+# What main changed since its merge base with release/v0.2.25: a Renovate bump and a hotfix.
+_MAIN_CHANGES = _gh_reply(
+    {
+        "status": "ahead",
+        "files": [
+            _file(".github/workflows/ci.yml"),
+            _file("src/devops_cli/commands/release.py"),
+            _RUNBOOK_RENAME,
+        ],
+    }
+)
+
+
+def _process_gh(files: object, compare: MagicMock = _MAIN_CHANGES) -> MagicMock:
+    """`_grounding_gh`, with the default branch's changes since the merge base answering
+    `compare`."""
+    routes = {
+        "/contents/": _gh_reply(),
+        "/files?": files if isinstance(files, MagicMock) else _gh_reply(files),
+        "/issues/": _issue(),
+        _COMPARE_ROUTE: compare,
+    }
+    return MagicMock(side_effect=_readiness_gh(routes=routes))
+
+
+def _endpoints(gh: MagicMock) -> list[str]:
+    """The endpoint of each `run_gh` call, its last argument."""
+    return [call.args[0][-1] for call in gh.call_args_list]
+
+
+def _compare_reads(gh: MagicMock) -> list[list[str]]:
+    """The compare requests among the `run_gh` calls."""
+    return [call.args[0] for call in gh.call_args_list if _COMPARE_ROUTE in call.args[0][-1]]
+
+
+def test_a_cut_pull_request_that_changes_only_the_cut_files_is_exempt() -> None:
+    """#1614, the v0.2.36 cut, closed no issue and kept no task file, and readiness held it.
+
+    It modified four of the cut's files and removed the 24 fragments it collected, which is all
+    `cut_release` writes, so it is exempt from the file list readiness already reads: no task
+    directory lookup and no compare.
+    """
+    gh = _process_gh(_CUT_1614)
+    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
+    assert (blockers, _endpoints(gh)) == ([], [_FILES_READ])
 
 
 @pytest.mark.parametrize(
-    ("head", "base"),
+    "extra",
     [
-        ({"ref": "chore/open-v0.2.25", "repo": _REPO}, {"ref": "release/v0.2.25", "repo": _REPO}),
+        _file("src/devops_cli/commands/pr.py"),
+        _file("changelog.d/1344.md", "added"),
+        _file("changelog.d/README.md"),
+        _file("changelog.d/README.md", "removed"),
+        _file("pyproject.toml", "added"),
+    ],
+    ids=["source-file", "added-fragment", "fragments-readme", "removed-readme", "added-cut-file"],
+)
+def test_a_cut_pull_request_that_changes_another_file_is_held_to_grounding(
+    extra: dict[str, str],
+) -> None:
+    """During v0.2.28, #1284 to #1289 carried code fixes into release/v0.2.28 under a
+    release-process head, with no issue, task file or fragment, and passed readiness.
+
+    A cut never adds a fragment or edits `changelog.d/README.md` either. The blocker names the
+    file, and the usual grounding blockers follow it.
+    """
+    gh = _process_gh([*_CUT_1614, extra])
+    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
+    assert (
+        blockers[0].endswith(f"chore/cut-v0.2.25 also changes {extra['filename']}."),
+        "closes no issue" in blockers[1],
+        _compare_reads(gh),
+    ) == (True, True, []), blockers
+
+
+def test_the_cut_blocker_reads_in_full() -> None:
+    """The blocker names the PR, what a cut may change, the head and the other files."""
+    gh = _process_gh([*_CUT_1614, _file("src/x.py"), _file("tests/test_x.py", "added")])
+    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
+    assert blockers[0] == (
+        "PR #335 is not grounded: a cut is exempt when it only modifies the cut's files "
+        "(pyproject.toml, src/devops_cli/__init__.py, uv.lock, CHANGELOG.md, docs/ROADMAP.md) "
+        "and removes changelog fragments (changelog.d/<issue>.md), as the cut commit does, and "
+        "chore/cut-v0.2.25 also changes src/x.py, tests/test_x.py."
+    )
+
+
+def test_the_files_the_blocker_names_are_bounded() -> None:
+    """A file list comes from GitHub, so the blocker carries at most 256 characters of it."""
+    gh = _process_gh([*_CUT_1614, *(_file(f"src/devops_cli/module_{n}.py") for n in range(60))])
+    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
+    named = blockers[0].split("chore/cut-v0.2.25 also changes ", 1)[1]
+    assert (len(named), named.startswith("src/devops_cli/module_0.py, ")) == (257, True)
+
+
+@pytest.mark.parametrize(
+    ("head", "change", "named"),
+    [
+        (_MERGE_OF_MAIN_HEAD, _RUNBOOK_RENAME, None),
         (
-            {"ref": "chore/open-v0.2.25-cycle", "repo": _REPO},
-            {"ref": "release/v0.2.25", "repo": _REPO},
+            _MERGE_OF_MAIN_HEAD,
+            {"filename": "docs/RUNBOOK.md", "status": "renamed", "previous_filename": "src/x.py"},
+            "src/x.py",
+        ),
+        (
+            _MERGE_OF_MAIN_HEAD,
+            {"filename": "src/x.py", "status": "renamed", "previous_filename": "docs/OPS.md"},
+            "src/x.py",
+        ),
+        (
+            _CUT_HEAD,
+            {
+                "filename": "changelog.d/2.md",
+                "status": "renamed",
+                "previous_filename": "changelog.d/1.md",
+            },
+            "changelog.d/2.md, changelog.d/1.md",
         ),
     ],
-    ids=["bootstrap", "bootstrap-with-slug"],
+    ids=["both-paths-main-changed", "from-another-file", "to-another-file", "cut-renames"],
 )
-def test_release_process_prs_are_exempt_from_grounding(head: dict, base: dict) -> None:
-    """The bootstrap delivers the release process, not one item.
+def test_a_renamed_file_is_judged_by_both_paths(
+    head: dict[str, object], change: dict[str, str], named: str | None
+) -> None:
+    """A rename changes the path it leaves and the path it takes, so both must be allowed.
 
-    It closes no issue, keeps no task file and writes CHANGELOG.md and docs/ROADMAP.md, and is
-    exempt before any lookup, as the release PR is.
+    The cut only modifies and removes, so a rename in a cut is never the cut's change.
     """
-    gh = _grounding_gh(_RELEASE_FILES, task_dir=_SERVER_ERROR)
-    blockers = _blockers(_ready_pr(body="", head=head, base=base), gh=gh)
-    endpoints = [call.args[0][-1] for call in gh.call_args_list]
-    assert (blockers, ["/contents/" in endpoint for endpoint in endpoints]) == ([], [False])
+    gh = _process_gh([_file("uv.lock"), change])
+    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
+    first = [blocker.endswith(f" also changes {named}.") for blocker in blockers[:1]]
+    assert first == ([] if named is None else [True]), blockers
+
+
+@pytest.mark.parametrize("head", [_CUT_HEAD, _MERGE_OF_MAIN_HEAD], ids=["cut", "merge-of-main"])
+def test_an_unread_file_list_holds_a_release_process_head_to_grounding(
+    head: dict[str, object],
+) -> None:
+    """Nothing shows what an unread PR changes, so it is held, and the existing blocker for the
+    unread file list names the failure. A merge of main reads no compare it can't use."""
+    gh = _process_gh(_SERVER_ERROR)
+    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
+    assert (
+        [("closes no issue" in b, "files it changes could not be read" in b) for b in blockers],
+        _compare_reads(gh),
+    ) == ([(True, False), (False, True)], []), blockers
+
+
+@pytest.mark.parametrize(
+    "head",
+    [_MERGE_OF_MAIN_HEAD, {**_MERGE_OF_MAIN_HEAD, "ref": "chore/open-v0.2.25"}],
+    ids=["with-slug", "without-slug"],
+)
+def test_a_merge_of_main_that_changes_only_what_main_changed_is_exempt(
+    head: dict[str, object],
+) -> None:
+    """Renovate and hotfix PRs merge into main between releases, so a release PR that conflicts
+    with them needs main merged into its branch: `chore/open-vX.Y.Z-main` (#1211, #1582).
+
+    It may change the cut's files and what main changed since its merge base with the release
+    branch, read with one compare request.
+    """
+    files = [
+        _file(".github/workflows/ci.yml"),
+        _file("src/devops_cli/commands/release.py"),
+        _RUNBOOK_RENAME,
+        _file("uv.lock"),
+    ]
+    gh = _process_gh(files)
+    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
+    assert (blockers, _endpoints(gh)[0], _compare_reads(gh)) == (
+        [],
+        _FILES_READ,
+        [_COMPARE_READ],
+    )
+
+
+def test_a_merge_of_main_that_changes_only_the_cut_files_reads_no_compare() -> None:
+    """The cut's files alone need nothing from main to be allowed."""
+    gh = _process_gh(_RELEASE_FILES)
+    pr = _ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225)
+    assert (_blockers(pr, gh=gh), _endpoints(gh)) == ([], [_FILES_READ])
+
+
+def test_a_merge_of_main_with_another_file_is_held_to_grounding() -> None:
+    """A file main did not change is the PR's own change, so it is held and the file named."""
+    files = [_file(".github/workflows/ci.yml"), _file("src/devops_cli/commands/pr.py")]
+    gh = _process_gh(files)
+    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225), gh=gh)
+    assert (blockers[0], "closes no issue" in blockers[1]) == (
+        "PR #335 is not grounded: a merge of main is exempt when it only changes the cut's "
+        "files and the files main changed since its merge base with release/v0.2.25, and "
+        "chore/open-v0.2.25-main also changes src/devops_cli/commands/pr.py.",
+        True,
+    ), blockers
+
+
+@pytest.mark.parametrize(
+    ("compare", "cause"),
+    [
+        (_SERVER_ERROR, "(gh: Server Error (HTTP 500))"),
+        (_gh_reply("{"), "(malformed JSON from the compare API: "),
+        (_gh_reply({"status": "ahead"}), "(the compare API returned no list)"),
+        (
+            _gh_reply({"files": [_file(f"docs/{n}.md") for n in range(300)]}),
+            "(GitHub listed 300 files, its limit, so the list may be cut short)",
+        ),
+    ],
+    ids=["failed", "malformed", "no-files", "300-files"],
+)
+def test_an_unread_or_full_compare_holds_a_merge_of_main_to_grounding(
+    compare: MagicMock, cause: str
+) -> None:
+    """Nothing then proves the PR only merges main, so it is held, and the blocker says why.
+
+    At 300 files GitHub may have cut the list short, even when it holds every file the PR
+    changes.
+    """
+    gh = _process_gh([_file("docs/0.md"), _file("uv.lock")], compare=compare)
+    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225), gh=gh)
+    assert (
+        blockers[0].startswith(
+            "PR #335 is not grounded: the files main changed since its merge base with "
+            "release/v0.2.25 could not be read, so nothing shows that chore/open-v0.2.25-main "
+            "only merges main "
+        ),
+        cause in blockers[0],
+        "closes no issue" in blockers[1],
+    ) == (True, True, True), blockers
+
+
+def test_a_merge_of_main_whose_default_branch_is_unnamed_is_held_without_a_compare() -> None:
+    """With no default branch in the payload no compare can name its side, so none is sent,
+    and the blocker says the default branch is unknown rather than leaving its name blank."""
+    base = {**_INTO_V0225, "repo": {"full_name": "dan-petty/devops-cli"}}
+    gh = _process_gh([_file("docs/0.md"), _file("uv.lock")])
+    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=base), gh=gh)
+    assert (blockers[0], _compare_reads(gh), "closes no issue" in blockers[1]) == (
+        "PR #335 is not grounded: the files the default branch changed since its merge base "
+        "with release/v0.2.25 could not be read, so nothing shows that chore/open-v0.2.25-main "
+        "only merges the default branch (the pull request names no default branch for "
+        "dan-petty/devops-cli).",
+        [],
+        True,
+    ), blockers
 
 
 @pytest.mark.parametrize(
     ("head", "base", "release_file_blockers"),
     [
-        ("chore/cut-v0.2.25", "release/v0.2.25", 1),
         ("chore/cut-v0.2.26", "release/v0.2.25", 1),
+        ("chore/open-v0.2.26-main", "release/v0.2.25", 1),
         ("chore/open-cycle-v0.2.25", "release/v0.2.25", 1),
+        ("chore/cut-main-v0.2.25", "release/v0.2.25", 1),
         ("feat/open-v0.2.25", "release/v0.2.25", 1),
         ("chore/open-v0.2.25", "main", 0),
+        ("chore/cut-v0.2.25", "main", 0),
     ],
     ids=[
-        "cut-into-release",
-        "other-version",
+        "cut-other-version",
+        "merge-other-version",
         "slug-before-version",
+        "cut-slug-before-version",
         "not-chore",
         "into-the-default-branch",
+        "cut-into-the-default-branch",
     ],
 )
 def test_other_branches_are_held_to_grounding(
     head: str, base: str, release_file_blockers: int
 ) -> None:
-    """Only `chore/open-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that version is exempt.
+    """Only `chore/cut-vX.Y.Z[-slug]` or `chore/open-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that
+    version can be exempt, however few files it changes.
 
     The release-file rule applies only into a `release/*` branch.
     """
     pr = _ready_pr(body="", head={"ref": head, "repo": _REPO}, base={"ref": base, "repo": _REPO})
-    blockers = _blockers(pr, gh=_grounding_gh(_RELEASE_FILES))
+    gh = _process_gh(_RELEASE_FILES)
+    blockers = _blockers(pr, gh=gh)
     assert (
         sum("closes no issue" in blocker for blocker in blockers),
         sum("leaves them to the cut" in blocker for blocker in blockers),
-    ) == (1, release_file_blockers), blockers
+        _compare_reads(gh),
+    ) == (1, release_file_blockers, []), blockers
 
 
-def test_a_release_process_branch_from_a_fork_is_not_exempt() -> None:
+@pytest.mark.parametrize("ref", ["chore/cut-v0.2.25", "chore/open-v0.2.25-main"])
+def test_a_release_process_branch_from_a_fork_is_not_exempt(ref: str) -> None:
     """A fork can name its branch anything, so the exemption needs the same repository."""
-    fork = {"ref": "chore/open-v0.2.25", "repo": {"full_name": "fork/devops-cli"}}
-    blockers = _blockers(_ready_pr(body="", head=fork), gh=_grounding_gh(_RELEASE_FILES))
-    assert ["closes no issue" in blocker for blocker in blockers] == [True, False], blockers
+    fork = {"ref": ref, "repo": {"full_name": "fork/devops-cli"}}
+    gh = _process_gh(_RELEASE_FILES)
+    blockers = _blockers(_ready_pr(body="", head=fork), gh=gh)
+    assert (["closes no issue" in blocker for blocker in blockers], _compare_reads(gh)) == (
+        [True, False],
+        [],
+    ), blockers
 
 
 # =============================================================================
@@ -2375,10 +2747,11 @@ def test_a_pr_into_a_release_branch_is_blocked_unless_it_closes_an_item_of_that_
 
 
 def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_it() -> None:
-    """#704 dropped `Part N of #M`: a PR closes exactly one issue, and that issue is judged.
+    """#704 dropped `Part N of #M`; only `Part of #N` names the item a PR delivers part of.
 
-    A body that only names a backlog item with `Part 1 of #704` closes nothing, so it gets
-    #704's one blocker, and no issue is read for the release check.
+    A body that only names a backlog item with `Part 1 of #704` neither closes an issue nor
+    delivers part of one, so it gets #704's one blocker, and no issue is read for the release
+    check.
     """
     gh = _grounding_gh([_TASK_704], issue=_issue(None))
     blockers = _blockers(_ready_pr(body="Part 1 of #704", base=_INTO_V0226), gh=gh)
@@ -2389,11 +2762,11 @@ def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_
     ) == ([True], False)
 
 
-def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it() -> None:
+@pytest.mark.parametrize("body", ["Closes #704", "Part of #704"], ids=["closes", "part-of"])
+def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it(body: str) -> None:
     gh = _grounding_gh([_TASK_704], issue=_SERVER_ERROR)
-    assert _blockers(_ready_pr(base=_INTO_V0226), gh=gh) == [
-        "PR #335 is not grounded: the Release of #704 could not be read (gh: Server Error "
-        "(HTTP 500))."
+    assert _blockers(_ready_pr(body=body, base=_INTO_V0226), gh=gh) == [
+        "PR #335 is not grounded: #704 could not be read (gh: Server Error (HTTP 500))."
     ]
 
 
@@ -2405,7 +2778,7 @@ def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it() -> None:
     ],
     ids=["the-release-pr", "a-topic-pr"],
 )
-def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict) -> None:
+def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict[str, object]) -> None:
     """The release PR is exempt from grounding, and a PR into `main` delivers no release's item.
 
     Neither reads the issue it closes, whichever release that issue is in.
@@ -2414,6 +2787,100 @@ def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict) -> No
     blockers = _blockers(_ready_pr(head=head, base=_MAIN_BASE), gh=gh)
     endpoints = [call.args[0][-1] for call in gh.call_args_list]
     assert (blockers, any("/issues/" in endpoint for endpoint in endpoints)) == ([], False)
+
+
+# =============================================================================
+# Grounding: a PR that delivers part of an item says `Part of #N`
+# =============================================================================
+
+
+def test_a_part_pr_is_grounded_on_the_item_it_delivers_part_of() -> None:
+    """An item planned as several PRs lands each one before the last with `Part of #N`.
+
+    Its body closes no issue, so readiness blocked every PR but the last. Now the open item of
+    the base's release it names is judged as a closed issue is: it changes that item's task
+    file, which may still read In Progress, and the item stays open for the last PR to close.
+    """
+    gh = _grounding_gh([_TASK_704, _file("src/x.py")], issue=_issue("v0.2.26"))
+    blockers = _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh)
+    assert blockers == []
+
+
+@pytest.mark.parametrize(
+    ("issue", "blocker"),
+    [
+        (
+            _issue("v0.2.26", state="closed"),
+            "PR #335 is not grounded: it delivers part of #704, which is not open. Each part "
+            "lands while its item is open, and the PR that closes the item is its last.",
+        ),
+        (
+            _issue("v0.2.27"),
+            "PR #335 delivers part of #704, which is in v0.2.27, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+        (
+            _issue(None),
+            "PR #335 delivers part of #704, which is in the backlog, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+    ],
+    ids=["closed-item", "another-release", "the-backlog"],
+)
+def test_a_part_pr_is_blocked_by_an_item_that_is_closed_or_of_another_release(
+    issue: MagicMock, blocker: str
+) -> None:
+    """A part lands only while its item is open and in the base's release."""
+    gh = _grounding_gh([_TASK_704], issue=issue)
+    assert _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh) == [blocker]
+
+
+def test_the_blockers_for_a_body_naming_no_one_issue_read_in_full() -> None:
+    """A body that mixes the two, names two parts or names none gets one blocker saying which."""
+    bodies = ("Part of #704\nFixes #705", "Part of #705\nPart of #704", "Adds the reader.")
+    found = [_blockers(_ready_pr(body=body), gh=_grounding_gh([_TASK_704])) for body in bodies]
+    assert found == [
+        [
+            "PR #335 is not grounded: its body closes #705 and delivers part of #704, and a PR "
+            "either closes the one issue it delivers or delivers part of one."
+        ],
+        [
+            "PR #335 is not grounded: its body delivers part of 2 issues (#704, #705), and a PR "
+            "delivers part of exactly one."
+        ],
+        [
+            "PR #335 is not grounded: its body closes no issue in dan-petty/devops-cli, nor "
+            "delivers part of one. Name the one issue it delivers with a closing keyword, "
+            "Closes #<issue>, or, for one of several PRs that deliver an item, Part of #<issue>."
+        ],
+    ]
+
+
+def test_a_part_prs_release_file_blocker_leaves_the_fragment_to_the_closing_pr() -> None:
+    """Only the PR that closes an item adds its fragment, so parts open at once never conflict
+    on it, and an item moved out of the release part-way publishes no entry under it."""
+    gh = _grounding_gh([_TASK_704, _file("CHANGELOG.md")])
+    assert _blockers(_ready_pr(body="Part of #704"), gh=gh) == [
+        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
+        "open PRs never conflict on them. The PR that closes #704 adds its changelog entry as "
+        "changelog.d/704.md."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("state", "blocked"), [("open", False), ("closed", True)], ids=["open", "closed"]
+)
+def test_a_part_pr_into_the_default_branch_reads_its_item_only_for_its_state(
+    state: str, blocked: bool
+) -> None:
+    """Into `main` no release's item is judged, but a part of a closed item is still refused."""
+    gh = _grounding_gh([_TASK_704], issue=_issue("v0.2.27", state=state))
+    blockers = _blockers(_ready_pr(body="Part of #704", base=_MAIN_BASE), gh=gh)
+    endpoints = [call.args[0][-1] for call in gh.call_args_list]
+    assert (
+        ["which is not open" in blocker for blocker in blockers],
+        endpoints.count("repos/dan-petty/devops-cli/issues/704"),
+    ) == ([True] if blocked else [], 1)
 
 
 # =============================================================================
@@ -2434,9 +2901,11 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
     assert (
         [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
         "Closes #" in text,
+        "Part of #" in text,
         "docs/agent/tasks/task-" in text,
         "changelog.d/<issue>.md" in text,
         extract_linked_issues(text, "dan-petty/devops-cli"),
+        extract_part_references(text, "dan-petty/devops-cli"),
         re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
     ) == (
         [
@@ -2450,6 +2919,8 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
         True,
         True,
         True,
+        True,
+        [],
         [],
         None,
     )

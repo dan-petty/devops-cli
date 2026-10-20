@@ -16,8 +16,9 @@ from devops_cli.ai.review_schema import Finding, consolidate_duplicate_findings
 from devops_cli.security.kubelinter import parse_kubelinter_json
 from devops_cli.security.pipeline import build_report
 from devops_cli.security.sarif import to_sarif
+from tests.support.paths import FIXTURES
 
-_FIXTURE = Path(__file__).parent / "fixtures" / "kubelinter" / "k8s-da50329.json"
+_FIXTURE = FIXTURES / "kubelinter" / "k8s-da50329.json"
 
 
 def _reports() -> dict[str, Any]:

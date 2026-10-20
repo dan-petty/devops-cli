@@ -574,3 +574,55 @@ def test_web_fetch_tool_runner_dispatches_tool_failed_and_error(stub_web: StubWe
         tool, "web_fetch", {"url": "http://127.0.0.1:8080/admin"}, []
     )
     assert (status_ssrf, "SSRF blocked" in str(res_ssrf)) == ("error", True)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://a..b.example.com/",
+        "https://example.com../",
+        "https://.example.com/",
+        f"https://{'a' * 64}.example.com/",
+        "https://EXAMPLE.COM./",
+    ],
+)
+def test_web_fetch_blocked_domains_refuses_malformed_and_trailing_dot_hosts(
+    stub_web: StubWeb, url: str
+) -> None:
+    """web_fetch with blocked_domains=['example.com'] refuses malformed names and EXAMPLE.COM. (#887)."""
+    tool = web_fetch_tool(blocked_domains=["example.com"])
+    with pytest.raises(ValueError, match="blocked_domains"):
+        tool.execute(url=url)
+    assert stub_web.requested == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://a..b.example.com/",
+        "https://example.com../",
+    ],
+)
+def test_web_fetch_allowed_domains_refuses_malformed_hosts(stub_web: StubWeb, url: str) -> None:
+    """web_fetch with allowed_domains=['example.com'] refuses malformed names (#887)."""
+    tool = web_fetch_tool(allowed_domains=["example.com"])
+    with pytest.raises(ValueError, match="allowed_domains"):
+        tool.execute(url=url)
+    assert stub_web.requested == []
+
+
+def test_web_fetch_allowed_domains_idna_2008_matching(stub_web: StubWeb) -> None:
+    """allowed_domains=['faß.de'] admits https://faß.de/ and https://xn--fa-hia.de/ and refuses https://fass.de/ (#887)."""
+    stub_web.page("https://xn--fa-hia.de/", "<html><body><h1>IDN OK</h1></body></html>")
+    tool = web_fetch_tool(allowed_domains=["faß.de"])
+
+    res_unicode = tool.execute(url="https://faß.de/")
+    res_punycode = tool.execute(url="https://xn--fa-hia.de/")
+    with pytest.raises(ValueError, match="allowed_domains"):
+        tool.execute(url="https://fass.de/")
+
+    assert (
+        "# IDN OK" in res_unicode,
+        "# IDN OK" in res_punycode,
+        len(stub_web.requested),
+    ) == (True, True, 2)

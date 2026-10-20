@@ -20,6 +20,7 @@ from devops_cli.docs.generator import (
 )
 from devops_cli.telemetry.instruments import INSTRUMENTS
 from devops_cli.telemetry.semconv import load_genai_snapshot
+from tests.support.paths import REPO_ROOT
 
 
 @pytest.fixture
@@ -496,7 +497,7 @@ def test_committed_command_pages_show_the_defaults_and_switches_they_hid() -> No
         DEFAULT_VALKEY_PORT,
     )
 
-    pages = Path(__file__).resolve().parents[1] / "docs" / "commands"
+    pages = REPO_ROOT / "docs" / "commands"
     ai, k8s, tls, docker = (
         (pages / f"{name}.md").read_text(encoding="utf-8")
         for name in ("ai", "k8s", "tls", "docker")
@@ -688,7 +689,7 @@ def test_introspect_mcp_tools_raises_on_listing_failure(
 def test_group_callback_options_rendered_for_ci_and_review(generator: DocGenerator) -> None:
     """Group-callback options on devops ci (--check, --only, --skip) and devops review (--explain)
     are rendered in command group pages (#854)."""
-    pages = Path(__file__).resolve().parents[1] / "docs" / "commands"
+    pages = REPO_ROOT / "docs" / "commands"
     ci_md = (pages / "ci.md").read_text(encoding="utf-8")
     review_md = (pages / "review.md").read_text(encoding="utf-8")
     ci_header_section = ci_md.split("## Commands", 1)[0]
@@ -801,7 +802,7 @@ def test_config_example_yaml_maps_to_settings_fields_and_validates() -> None:
 
     from devops_cli.config.settings import Settings
 
-    example_path = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    example_path = REPO_ROOT / "config.example.yaml"
     raw = yaml.safe_load(example_path.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
 

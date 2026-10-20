@@ -1,9 +1,6 @@
 # Task 819: Deploy-Stack Installs the Prometheus Operator CRDs Its ServiceMonitors Need
 
 **Issue**: [#819](https://github.com/dan-petty/devops-cli/issues/819)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p0-critical`
 
 ---

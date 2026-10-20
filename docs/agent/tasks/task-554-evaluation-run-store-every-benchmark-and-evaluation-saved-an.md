@@ -1,9 +1,6 @@
 # Task 554: Evaluation Run Store: Every Benchmark and Evaluation Saved and Shared
 
 **Issue**: [#554](https://github.com/dan-petty/devops-cli/issues/554)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 
 ---

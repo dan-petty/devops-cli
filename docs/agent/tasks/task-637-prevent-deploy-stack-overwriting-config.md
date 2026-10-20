@@ -1,9 +1,6 @@
 # Task 637: Prevent deploy-stack and port-forward from Unconditionally Overwriting Config with Localhost
 
 **Issue**: [#637](https://github.com/dan-petty/devops-cli/issues/637)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p1-high`
 
 ---

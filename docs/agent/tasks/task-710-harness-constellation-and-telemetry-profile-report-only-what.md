@@ -1,9 +1,6 @@
 # Task 710: Harness, Constellation and Telemetry Profile Report Only What Actually Ran
 
 **Issue**: [#710](https://github.com/dan-petty/devops-cli/issues/710)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p0-critical`
 
 ---

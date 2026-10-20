@@ -1,9 +1,6 @@
 # Task: PR Checks Fail-Closed Reader (#769)
 
 **Issue**: [#769](https://github.com/dan-petty/devops-cli/issues/769)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: scope/github
 
 ## Description

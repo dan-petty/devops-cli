@@ -23,7 +23,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.core import process
-from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github.rate_limiter import (
     GitHubRateLimiter,
     QuotaState,
@@ -139,7 +144,8 @@ def test_graphql_mandatory_pacing_default_no_bypass() -> None:
 
 
 def test_rate_limiter_no_initial_quotas() -> None:
-    """Verify rate limiter has no hardcoded initial quotas and raises error if refresh fails."""
+    """Verify rate limiter has no hardcoded initial quotas, and that a failed refresh leaves the
+    quota unread."""
     limiter = GitHubRateLimiter()
     state = limiter.get_quota("core")
     assert (state.remaining, state.limit, state.reset_epoch) == (None, None, None)
@@ -151,7 +157,7 @@ def test_rate_limiter_no_initial_quotas() -> None:
             stdout="",
             stderr="API unavailable",
         )
-        with pytest.raises(GitHubRateLimitError):
+        with pytest.raises(GitHubUnreadError):
             limiter.calculate_delay("core")
 
 
@@ -413,10 +419,19 @@ def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ]
         res = run_gh(["api", "issues"], max_retries=2)
-        assert res.returncode == 0
-        assert res.stdout == '[{"id": 1}]'
-        assert mock_sub.call_count == 2
-        mock_sleep.assert_called()
+    waits = [recorded.args[0] for recorded in mock_sleep.call_args_list]
+    # Pacing also sleeps on every attempt; the backoff is the wait of at least the secondary floor.
+    assert (
+        res.returncode,
+        res.stdout,
+        mock_sub.call_count,
+        max(waits) >= limiter.secondary_rate_wait,
+    ) == (
+        0,
+        '[{"id": 1}]',
+        2,
+        True,
+    )
 
 
 def test_run_gh_check_raises_called_process_error() -> None:
@@ -447,6 +462,33 @@ def test_run_gh_input_passed_to_subprocess() -> None:
         mock_sub.assert_called_once()
         call_kwargs = mock_sub.call_args[1]
         assert call_kwargs["input"] == '{"query": "viewer"}'
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr"),
+    [
+        pytest.param(
+            '{"message": "Bad credentials", "status": "401"}',
+            "gh: Bad credentials (HTTP 401)",
+            id="401-body",
+        ),
+        pytest.param("<html>upstream</html>", "gh: HTTP 502", id="html-502"),
+    ],
+)
+def test_a_failed_rate_limit_read_returns_its_exit_status_without_reading_its_body(
+    stdout: str, stderr: str
+) -> None:
+    """gh writes GitHub's error body to stdout when `gh api rate_limit` fails: `run_gh` returns
+    the failed process for its caller to read, and parses no quota from the body (#983)."""
+    failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, stdout, stderr)
+    before = get_github_rate_limiter().get_quota("core")
+    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed):
+        res = run_gh(["api", "rate_limit"])
+    assert (res.returncode, res.stderr, get_github_rate_limiter().get_quota("core")) == (
+        1,
+        stderr,
+        before,
+    )
 
 
 def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
@@ -601,256 +643,6 @@ def test_validate_gh_cwd(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Prohibited system path for cwd"):
         _validate_gh_cwd(Path("/etc"))
-
-
-def test_run_gh_paginated_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify pagination handler covers unpaginated fallback, empty list, and non-list responses."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    # No endpoint in args: a request that can't be read is a write, so it goes to gh once
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "--paginate"], returncode=0, stdout="[]", stderr=""
-        )
-        res = run_gh(["api", "--paginate"])
-        assert res.returncode == 0
-
-    # Empty list terminates loop immediately
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
-            returncode=0,
-            stdout="[]",
-            stderr="",
-        )
-        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate"])
-        assert res.returncode == 0
-        assert res.stdout == "[]"
-
-    # Non-list response terminates loop and returns failed read
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
-            returncode=0,
-            stdout='{"message": "Not found"}',
-            stderr="",
-        )
-        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate"])
-        assert (res.returncode, "repos/owner/repo/pulls" in res.stderr, "page 1" in res.stderr) == (
-            1,
-            True,
-            True,
-        )
-
-
-@pytest.mark.parametrize(
-    ("bad_stdout", "scenario"),
-    [
-        ("<html>upstream 502 Bad Gateway</html>", "html"),
-        ("", "empty"),
-        ("   \n\t ", "whitespace-empty"),
-        ('[{"id": 1, "name": "partial"', "truncated-json"),
-        ('{"message": "rate limit exceeded"}', "error-object"),
-        ('Preamble banner\n[{"id": 1}]', "preamble-salvage-rejected"),
-    ],
-)
-def test_paginated_read_fails_closed_on_bad_first_page(
-    bad_stdout: str, scenario: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A bad first page returns a failed read with exit code 1 naming the endpoint and page."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    endpoint = "repos/owner/repo/pulls"
-    rate_limit_payload = json.dumps(
-        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
-    )
-
-    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "rate_limit" in " ".join(cmd):
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
-            )
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=bad_stdout, stderr="")
-
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-        res = run_gh(["api", endpoint, "--paginate"])
-        assert (
-            res.returncode,
-            endpoint in res.stderr,
-            "page 1" in res.stderr,
-        ) == (1, True, True)
-
-
-@pytest.mark.parametrize(
-    ("bad_stdout", "scenario"),
-    [
-        ("<html>upstream 502 Bad Gateway</html>", "html"),
-        ("", "empty"),
-        ("   \n\t ", "whitespace-empty"),
-        ('[{"id": 101, "name": "partial"', "truncated-json"),
-        ('{"message": "rate limit exceeded"}', "error-object"),
-        ('Preamble banner\n[{"id": 101}]', "preamble-salvage-rejected"),
-    ],
-)
-def test_paginated_read_fails_closed_on_bad_later_page(
-    bad_stdout: str, scenario: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A bad later page returns a failed read with exit code 1 naming the endpoint and page."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    endpoint = "repos/owner/repo/pulls?per_page=100"
-    rate_limit_payload = json.dumps(
-        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
-    )
-    page1_items = [{"id": i} for i in range(100)]
-    page1_proc = subprocess.CompletedProcess(
-        args=["gh", "api", endpoint],
-        returncode=0,
-        stdout=json.dumps(page1_items),
-        stderr="",
-    )
-    page2_proc = subprocess.CompletedProcess(
-        args=["gh", "api", endpoint],
-        returncode=0,
-        stdout=bad_stdout,
-        stderr="",
-    )
-    pages = [page1_proc, page2_proc]
-
-    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "rate_limit" in " ".join(cmd):
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
-            )
-        return pages.pop(0)
-
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-        res = run_gh(["api", endpoint, "--paginate"])
-        assert (
-            res.returncode,
-            endpoint in res.stderr,
-            "page 2" in res.stderr,
-        ) == (1, True, True)
-
-
-@pytest.mark.parametrize(
-    ("page2_stdout", "expected_count"),
-    [
-        ("[]", 100),
-        (json.dumps([{"id": 201}, {"id": 202}]), 102),
-    ],
-)
-def test_paginated_read_succeeds_on_normal_completion(
-    page2_stdout: str, expected_count: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A normal listing that ends with [] or a short page succeeds."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    endpoint = "repos/owner/repo/pulls?per_page=100"
-    rate_limit_payload = json.dumps(
-        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
-    )
-    page1_items = [{"id": i} for i in range(100)]
-    page1_proc = subprocess.CompletedProcess(
-        args=["gh", "api", endpoint],
-        returncode=0,
-        stdout=json.dumps(page1_items),
-        stderr="",
-    )
-    page2_proc = subprocess.CompletedProcess(
-        args=["gh", "api", endpoint],
-        returncode=0,
-        stdout=page2_stdout,
-        stderr="",
-    )
-    pages = [page1_proc, page2_proc]
-
-    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "rate_limit" in " ".join(cmd):
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
-            )
-        return pages.pop(0)
-
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-        res = run_gh(["api", endpoint, "--paginate"])
-        parsed = json.loads(res.stdout)
-        assert (res.returncode, len(parsed), res.stderr) == (0, expected_count, "")
-
-
-@pytest.mark.parametrize(
-    ("flag", "arg"),
-    [
-        ("-q", "-q"),
-        ("--jq", "--jq"),
-        ("-t", "-t"),
-        ("--template", "--template"),
-        ("-i", "-i"),
-        ("--include", "--include"),
-        ("--silent", "--silent"),
-    ],
-)
-def test_paginated_read_refuses_incompatible_flags(flag: str, arg: str) -> None:
-    """A paged read with an incompatible flag is refused before any request, naming the flag."""
-    extra = [arg, ".[]"] if flag in ("-q", "--jq", "-t", "--template") else [arg]
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate", *extra])
-        assert (res.returncode, flag in res.stderr, mock_sub.call_count) == (1, True, 0)
-
-
-def test_paginated_read_refuses_graphql_query() -> None:
-    """devops gh api graphql --paginate is refused with a message naming GraphQL."""
-    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
-        res = run_gh(["api", "graphql", "--paginate"])
-        assert (res.returncode, "GraphQL" in res.stderr, mock_sub.call_count) == (1, True, 0)
-
-
-def test_paginated_read_fails_closed_when_exceeding_page_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A listing that is still full when reaching DEFAULT_GH_MAX_PAGINATED_PAGES fails naming the cap."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
-    endpoint = "repos/owner/repo/pulls?per_page=100"
-    page_items = [{"id": i} for i in range(100)]
-    rate_limit_payload = json.dumps(
-        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
-    )
-
-    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "rate_limit" in " ".join(cmd):
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
-            )
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=0, stdout=json.dumps(page_items), stderr=""
-        )
-
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-        res = run_gh(["api", endpoint, "--paginate"])
-        assert (res.returncode, "exceeded page cap" in res.stderr) == (1, True)
-
-
-def test_paginated_read_injects_default_per_page(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every page URL carries per_page, defaulting to DEFAULT_GH_REST_PER_PAGE when omitted."""
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
-    endpoint = "repos/owner/repo/pulls"
-    called_cmds: list[list[str]] = []
-    rate_limit_payload = json.dumps(
-        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
-    )
-
-    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        cmd_str = " ".join(cmd)
-        if "rate_limit" in cmd_str:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
-            )
-        called_cmds.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
-
-    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
-        res = run_gh(["api", endpoint, "--paginate"])
-        assert (res.returncode, any("per_page=100" in " ".join(c) for c in called_cmds)) == (
-            0,
-            True,
-        )
 
 
 def test_run_gh_with_cwd_and_called_process_error(tmp_path: Path) -> None:
@@ -1062,87 +854,6 @@ def test_rate_limiter_acquire_propagates_unresolvable_quota_error(tmp_path: Path
         mock_sleep.assert_not_called()
 
 
-def test_build_paginated_url_and_extraction() -> None:
-    """Verify _build_paginated_url and _extract_page_per_page handle query params cleanly."""
-    from urllib.parse import parse_qs, urlsplit
-
-    from devops_cli.github.rate_limiter import (
-        _build_paginated_url,
-        _extract_page_per_page,
-    )
-
-    url_with_per_page = "repos/owner/repo/issues?state=all&per_page=100"
-    url_p2 = _build_paginated_url(url_with_per_page, 2)
-    qs_p2 = parse_qs(urlsplit(url_p2).query)
-
-    url_plain = "repos/owner/repo/issues"
-    url_plain_p3 = _build_paginated_url(url_plain, 3)
-    qs_plain = parse_qs(urlsplit(url_plain_p3).query)
-
-    url_existing_page = "repos/owner/repo/pulls?page=1&per_page=50"
-    url_existing_p4 = _build_paginated_url(url_existing_page, 4)
-    qs_existing = parse_qs(urlsplit(url_existing_p4).query)
-
-    assert (
-        _extract_page_per_page(url_with_per_page),
-        _extract_page_per_page(url_plain),
-        _extract_page_per_page("repos/owner/repo?per_page=25"),
-        qs_p2.get("page"),
-        qs_p2.get("state"),
-        qs_p2.get("per_page"),
-        qs_plain.get("page"),
-        qs_existing.get("page"),
-        qs_existing.get("per_page"),
-    ) == (
-        100,
-        100,
-        25,
-        ["2"],
-        ["all"],
-        ["100"],
-        ["3"],
-        ["4"],
-        ["50"],
-    )
-
-
-def test_run_gh_paginated_multipage_success(tmp_path: Path) -> None:
-    """Verify _run_gh_paginated iterates across multiple pages and terminates correctly."""
-    page_calls: list[list[str]] = []
-
-    def mock_subprocess_runner(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        page_calls.append(cmd)
-        from urllib.parse import parse_qs, urlsplit
-
-        target_arg = next((arg for arg in cmd if "repos/owner/repo/issues" in arg), "")
-        page_val = parse_qs(urlsplit(target_arg).query).get("page")
-        if page_val == ["2"]:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout='[{"id": 3}]', stderr=""
-            )
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=0, stdout='[{"id": 1}, {"id": 2}]', stderr=""
-        )
-
-    with (
-        patch(
-            "devops_cli.github.rate_limiter._extract_page_per_page",
-            return_value=2,
-        ),
-        patch(
-            "devops_cli.github.rate_limiter.run_subprocess",
-            side_effect=mock_subprocess_runner,
-        ),
-        patch.object(get_github_rate_limiter(), "acquire", return_value=0.0),
-    ):
-        res = run_gh(["api", "--paginate", "repos/owner/repo/issues?per_page=2"])
-        assert (res.returncode, res.stdout, len(page_calls)) == (
-            0,
-            '[{"id": 1}, {"id": 2}, {"id": 3}]',
-            2,
-        )
-
-
 def test_extract_rate_limit_endpoint_response_valid() -> None:
     """Verify _extract_rate_limit_endpoint_response parses valid metrics without defaulting reset to 0.0."""
     from devops_cli.github.rate_limiter import (
@@ -1322,21 +1033,99 @@ def test_rate_limiter_throttle_persistence_across_instances(tmp_path: Path) -> N
     ) == (2, 107.5, 2, 107.5)
 
 
-def test_is_secondary_rate_limit() -> None:
-    """Verify is_secondary_rate_limit identifies secondary patterns accurately."""
+def test_the_rate_limit_check_reads_every_rate_limit_row_of_the_gh_output_table() -> None:
+    """A rate limit is what the gh classifier's rate-limit rows call one (#983): the secondary
+    rows count. gh project's owner lookup, a refused login, a missing scope and text gh echoes
+    from the request, such as a `fix/...-retry-after` branch, do not."""
     limiter = GitHubRateLimiter()
-    sec_1 = (
-        "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+    assert [
+        limiter.is_rate_limit_error(said)
+        for said in (
+            "You have exceeded a secondary rate limit. Please wait a few minutes.",
+            "gh: Please retry your request again later. (HTTP 403)",
+            "HTTP 403: You have exceeded a secondary rate limit. Please retry after 120 seconds.",
+            "API rate limit exceeded for user ID 12345",
+            "unknown owner type",
+            "gh: Bad credentials (HTTP 401)",
+            "error: your authentication token is missing required scopes [read:project]",
+            "HTTP 404: Not Found "
+            "(https://api.github.com/repos/o/r/actions/runs?branch=fix%2F705-retry-after-handling)",
+            "pull request create failed: GraphQL: No commits between main and "
+            "fix/705-retry-after-handling (createPullRequest)",
+            "repository not found",
+            "",
+        )
+    ] == [True, True, True, True, False, False, False, False, False, False, False]
+
+
+def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gh's first answer names a secondary rate limit in words only the secondary rows hold:
+    `run_gh` waits at least the secondary floor and sends the command again (#983)."""
+    limiter = get_github_rate_limiter()
+    monkeypatch.setattr(limiter, "min_interval", 0.01)
+    refused = subprocess.CompletedProcess(
+        ["gh", "api", "issues"], 1, "", "gh: Please retry your request again later. (HTTP 403)"
     )
-    sec_2 = "abuse-rate-limit triggered"
-    prim = "API rate limit exceeded for user ID 12345"
-    normal = "repository not found"
+    answered = subprocess.CompletedProcess(["gh", "api", "issues"], 0, "[]", "")
+    with (
+        patch(
+            "devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]
+        ) as run,
+        patch("time.sleep") as sleep,
+    ):
+        res = run_gh(["api", "issues"], max_retries=2)
+    waits = [recorded.args[0] for recorded in sleep.call_args_list]
+    assert (res.returncode, run.call_count, max(waits) >= limiter.secondary_rate_wait) == (
+        0,
+        2,
+        True,
+    )
+
+
+_PARTIAL_GRAPHQL_ANSWER = (
+    '{{"data": {{"repository": {{"issues": {{"nodes": [{{"number": 705, "title": "{title}"}}]}}}}}},'
+    ' "errors": [{{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}]}}'
+)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        pytest.param("docs: what to do when the API rate limit exceeded", id="rate-limit-row"),
+        pytest.param("unknown owner type", id="owner-lookup-phrase"),
+    ],
+)
+def test_run_gh_backs_off_on_gh_s_stderr_never_on_github_s_answer_on_stdout(
+    monkeypatch: pytest.MonkeyPatch, title: str
+) -> None:
+    """A failed `gh api graphql` copies GitHub's partial answer, issue titles included, to
+    stdout and writes only `gh: <message>` to stderr. A title that reads like a rate limit is
+    GitHub's data, not gh's failure: the command is sent once, with no backoff (#983)."""
+    limiter = get_github_rate_limiter()
+    monkeypatch.setattr(limiter, "min_interval", 0.01)
+    failed = subprocess.CompletedProcess(
+        ["gh", "api", "graphql"],
+        1,
+        _PARTIAL_GRAPHQL_ANSWER.format(title=title),
+        "gh: Resource not accessible by integration",
+    )
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed) as run,
+        patch("time.sleep") as sleep,
+    ):
+        res = run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"], max_retries=2)
+    waits = [recorded.args[0] for recorded in sleep.call_args_list]
     assert (
-        limiter.is_secondary_rate_limit(sec_1),
-        limiter.is_secondary_rate_limit(sec_2),
-        limiter.is_secondary_rate_limit(prim),
-        limiter.is_secondary_rate_limit(normal),
-    ) == (True, True, False, False)
+        res.returncode,
+        run.call_count,
+        max(waits, default=0.0) < limiter.secondary_rate_wait,
+    ) == (
+        1,
+        1,
+        True,
+    )
 
 
 def test_each_identity_keeps_its_own_quota_and_response_cache(
@@ -1551,8 +1340,43 @@ _API_REQUESTS: list[tuple[str, list[str], str | None, dict[str, str], bool]] = [
         {},
         True,
     ),
+    (
+        "paginated-graphql-query",
+        [
+            "api",
+            "graphql",
+            "--paginate",
+            "-f",
+            "query=query($endCursor: String) { viewer { login } }",
+        ],
+        None,
+        {},
+        False,
+    ),
     # Whatever cannot be read counts as a write.
     ("document-does-not-parse", ["api", "graphql", "-f", "query=query { viewer {"], None, {}, True),
+    ("paginated-graphql-without-a-document", ["api", "graphql", "--paginate"], None, {}, True),
+    (
+        "paginated-graphql-query-on-unseen-stdin",
+        ["api", "graphql", "--paginate", "-F", "query=@-"],
+        None,
+        {},
+        True,
+    ),
+    (
+        "paginated-graphql-body-on-unseen-stdin",
+        ["api", "graphql", "--paginate", "--input", "-"],
+        None,
+        {},
+        True,
+    ),
+    (
+        "paginated-graphql-unreadable-file",
+        ["api", "graphql", "--paginate", "-F", "query=@missing.graphql"],
+        None,
+        {},
+        True,
+    ),
     ("input-body-is-not-json", ["api", "graphql", "--input", "-"], _QUERY, {}, True),
     ("unreadable-file", ["api", "graphql", "-F", "query=@missing.graphql"], None, {}, True),
     ("argv-does-not-parse", ["api", "repos/o/r/pulls", "-X"], None, {}, True),
@@ -1636,8 +1460,8 @@ def test_a_high_level_gh_command_is_classified_by_the_verb_in_the_verb_position(
 
 
 def test_a_paginated_write_is_sent_once_as_given_and_paced_as_a_write() -> None:
-    """`run_gh`'s page-by-page path is for reads: a write with `--paginate` goes to gh once,
-    unchanged, after one write acquire."""
+    """`run_gh` hands gh a `--paginate` request as given, so a write with `--paginate` goes to
+    gh once, unchanged, after one write acquire."""
     args = ["api", "repos/o/r/issues", "--paginate", "-f", "title=t"]
     sent: list[list[str]] = []
 
@@ -1858,14 +1682,22 @@ _REAL_RUN = subprocess.run
 
 
 class _GhAtTheReset:
-    """gh faked at the process edge: `gh api rate_limit` answers `resources`, or fails as GitHub
-    does with a 502, and any other gh command answers `[]`. Every gh argv is recorded, from any
-    thread. A command that is not gh, such as the `uname -p` the tracer runs on first use, runs
-    for real, so no test depends on which test warmed that cache."""
+    """gh faked at the process edge: `gh api rate_limit` answers `resources`, exits with the
+    status and stderr of `refusal`, or with `times_out` runs past its timeout, and any other gh
+    command answers `[]`. Every gh argv is recorded, from any thread. A command that is not gh,
+    such as the `uname -p` the tracer runs on first use, runs for real, so no test depends on
+    which test warmed that cache."""
 
-    def __init__(self, resources: dict[str, Any], *, refresh_fails: bool = False) -> None:
+    def __init__(
+        self,
+        resources: dict[str, Any],
+        *,
+        refusal: tuple[int, str] | None = None,
+        times_out: bool = False,
+    ) -> None:
         self.resources = resources
-        self.refresh_fails = refresh_fails
+        self.refusal = refusal
+        self.times_out = times_out
         self.argvs: list[list[str]] = []
         self._lock = threading.Lock()
 
@@ -1876,8 +1708,10 @@ class _GhAtTheReset:
             self.argvs.append(list(cmd[1:]))
         if cmd[1:] != _RATE_LIMIT:
             return subprocess.CompletedProcess(cmd, 0, "[]", "")
-        if self.refresh_fails:
-            return subprocess.CompletedProcess(cmd, 1, "", "HTTP 502: Bad Gateway")
+        if self.times_out:
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+        if self.refusal is not None:
+            return subprocess.CompletedProcess(cmd, self.refusal[0], "", self.refusal[1])
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"resources": self.resources}), "")
 
     def refreshes(self) -> int:
@@ -1998,20 +1832,108 @@ def test_a_clock_past_the_bound_fails_closed_naming_both_clocks() -> None:
 
 
 def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
-    """`gh api rate_limit` exits 1 with a 502: the error names gh's failure and the command
-    never runs."""
-    gh = _GhAtTheReset({}, refresh_fails=True)
+    """`gh api rate_limit` exits 1 with a 502: the unread error names gh's failure and the
+    command never runs."""
+    gh = _GhAtTheReset({}, refusal=(1, "HTTP 502: Bad Gateway"))
     with (
         _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep,
-        pytest.raises(GitHubRateLimitError) as raised,
+        pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
-    assert (raised.value.message, gh.refreshes(), gh.commands(), _waits(sleep)) == (
+    assert (
+        type(raised.value),
+        raised.value.message,
+        gh.refreshes(),
+        gh.commands(),
+        _waits(sleep),
+    ) == (
+        GitHubUnreadError,
         "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
         1,
         [],
         [],
     )
+
+
+@pytest.mark.parametrize(
+    ("refusal", "error", "status"),
+    [
+        pytest.param(
+            (1, "gh: Bad credentials (HTTP 401)"), GitHubUnauthenticatedError, 401, id="401"
+        ),
+        pytest.param(
+            (4, "To get started with GitHub CLI, please run:  gh auth login"),
+            GitHubUnauthenticatedError,
+            None,
+            id="exit-4",
+        ),
+        pytest.param(
+            (1, "gh: API rate limit exceeded for user ID 1. (HTTP 403)"),
+            GitHubRateLimitError,
+            403,
+            id="rate-limited",
+        ),
+        pytest.param((1, ""), GitHubUnreadError, None, id="silent"),
+    ],
+)
+def test_a_failed_refresh_raises_the_class_the_gh_classifier_names_or_unread(
+    refusal: tuple[int, str], error: type[GitHubOperationError], status: int | None
+) -> None:
+    """A failed refresh raises the class the gh classifier names: GitHub refusing gh's token
+    (HTTP 401) or gh exiting 4 ("requires authentication") the unauthenticated error, a rate
+    limit the rate-limit error; a failure it names no class for leaves the quota unread. Each
+    carries gh's exit status and the status gh wrote, as ints, and the command never runs."""
+    gh = _GhAtTheReset({}, refusal=refusal)
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    details = raised.value.details
+    assert (
+        type(raised.value),
+        details.get("status"),
+        details["exit_code"],
+        details["operation"],
+        gh.commands(),
+    ) == (error, status, refusal[0], "refresh_quota", [])
+
+
+def test_a_refresh_that_times_out_leaves_the_quota_unread() -> None:
+    """`gh api rate_limit` running past its timeout raises the unread error naming the
+    timeout, not a raw `TimeoutExpired`, and the command never runs."""
+    gh = _GhAtTheReset({}, times_out=True)
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    assert (
+        type(raised.value),
+        raised.value.details["operation"],
+        "gh api rate_limit timed out after" in raised.value.message,
+        gh.refreshes(),
+        gh.commands(),
+    ) == (GitHubUnreadError, "refresh_quota", True, 1, [])
+
+
+def test_an_empty_refresh_answer_leaves_the_quota_unread() -> None:
+    """`gh api rate_limit` exiting 0 with nothing on stdout raises the unread error, so a
+    caller that stops on a rate limit, such as intake, does not stop on it, and the command
+    never runs."""
+    gh = _GhAtTheReset({}, refusal=(0, ""))
+    with (
+        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        pytest.raises(GitHubOperationError) as raised,
+    ):
+        run_gh(_ISSUES)
+    assert (
+        type(raised.value),
+        raised.value.message,
+        raised.value.details["operation"],
+        gh.refreshes(),
+        gh.commands(),
+    ) == (GitHubUnreadError, "GitHub rate_limit API returned empty output", "refresh_quota", 1, [])
 
 
 def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> None:

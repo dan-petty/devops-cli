@@ -1,9 +1,6 @@
 # Task 506: AST Support for C#, C/C++, Shell and Markdown
 
 **Issue**: [#506](https://github.com/dan-petty/devops-cli/issues/506)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `priority/p2-medium`
 
 ---

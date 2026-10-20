@@ -1,9 +1,6 @@
 # Task 437: Lossless Structured Error Reflection for Schema Retries
 
 **Issue**: [#437](https://github.com/dan-petty/devops-cli/issues/437)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

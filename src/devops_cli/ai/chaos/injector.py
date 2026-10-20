@@ -57,7 +57,7 @@ class ModelChaosInjector:
                 f"    return True"
             )
 
-        from devops_cli.ai.client.unified import LLMClient
+        from devops_cli.ai.client import get_llm_client
         from devops_cli.config.settings import AIConfig
 
         fallback_ai_cfg = AIConfig(
@@ -65,7 +65,7 @@ class ModelChaosInjector:
             model=config.fallback_model,
             max_retries=config.max_retries,
         )
-        client = LLMClient(config=fallback_ai_cfg)
+        client = get_llm_client(config=fallback_ai_cfg)
         res = client.chat(
             system="",
             user=prompt,

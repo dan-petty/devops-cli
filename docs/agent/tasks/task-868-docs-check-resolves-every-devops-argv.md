@@ -1,9 +1,6 @@
 # Task: Docs Check Resolves Every devops Argv in src (#868)
 
 **Issue**: [#868](https://github.com/dan-petty/devops-cli/issues/868)
-**Status**: Done
-**Milestone**: v0.2.29
-**Priority**: priority/p1-high
 **Scope**: scope/cli
 
 ## Description
@@ -12,7 +9,7 @@
 Owner's scope decision, 2026-10-08: the auto-deploy argv fix had already shipped with #741, so this item delivers only the docs-check half and the Qdrant tip. `_auto_deploy_k8s_stack`, its warning and its tests are unchanged. Whether post-start should keep auto-deploying is the owner decision in #1368.
 
 - `src/devops_cli/docs/source_argv_collector.py` (renamed from `mcp_argv_collector.py` with `git mv`, no alias left): `collect_source_argv_references()` reads every module under `src/devops_cli`. A module whose text holds neither `"devops"` nor `'devops'` is skipped without being parsed. It collects list literals that start with either head in `CONST_DEVOPS_ARGV_PREFIXES`, `("devops",)` or `("uv", "run", "devops")`. One explicit-stack pass splits each tree into its module and function scopes, and appends and extends are matched only in scopes that hold an argv list. `check_source_argv()` replaces `check_mcp_server_argv()`, and `DocGenerator.check_docs` and `markdown_argv_collector.py` import from the new module.
-- Single-token rule: a computed list element or `.append` argument becomes `ArgvPlaceholder(single_token=True)`. A starred element or an `.extend` of a runtime value stays a placeholder for any number of tokens. `resolve_devops_argv` now reports a literal or single-token argument left over where the command takes no more arguments. `single_token` defaults to false, so the Markdown collectors (#920, #921) and `tests/markdown_examples.py` (#952) build the same placeholders and get the same results.
+- Single-token rule: a computed list element or `.append` argument becomes `ArgvPlaceholder(single_token=True)`. A starred element or an `.extend` of a runtime value stays a placeholder for any number of tokens. `resolve_devops_argv` now reports a literal or single-token argument left over where the command takes no more arguments. `single_token` defaults to false, so the Markdown collectors (#920, #921) and `tests/support/markdown_examples.py` (#952) build the same placeholders and get the same results.
 - A conditional whose branches are string literals, or such conditionals nested, becomes an `ArgvChoice`. `describe_unresolved_references` resolves each combination of choices and reports a list once, at its first failing command line.
 - The collector stays branch-blind: appends in branches that exclude each other read as one command line. `bootstrap-k8s ... --stack <stack> --deploy --no-deploy` (`commands/devcontainer.py`) still resolves. The module docstring states both rules.
 - `ai/mcp/server.py`: three lists failed the new rule. `config_output` writes its `--json`/`--export` conditional inline instead of through a `flag` local. `roadmap_refine` and `roadmap_intake` write `--repo`, `--ref`, `--title` and `--source` as literals, each validated with `_validate_mcp_arg`, in the same order as before. `roadmap_intake` passes its mode as `"--confirm" if mode == "confirm" else "--plan" if mode == "plan" else "--dry-run"`, so any mode other than `confirm` makes no write. `_roadmap_cmd` builds options on a list passed in, which the collector does not see, and is unchanged.

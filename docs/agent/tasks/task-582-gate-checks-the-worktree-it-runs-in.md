@@ -1,9 +1,6 @@
 # Task 582: Gate Checks the Worktree It Runs In, Not the Main Checkout (`devops ci`)
 
 **Issue**: [#582](https://github.com/dan-petty/devops-cli/issues/582)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/bug`, `scope/cli`, `priority/p0-critical`
 
 ---

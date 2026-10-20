@@ -1,9 +1,6 @@
 # Task 320: Pydantic AI Structured Workflows, Prompt Caching & Client-Side Token Governance Research
 
 **Issue**: [#320](https://github.com/dan-petty/devops-cli/issues/320)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/ai`, `priority/p0-critical`
 
 ---

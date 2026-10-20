@@ -1,9 +1,6 @@
 # Task: Roadmap job scheduling, due table evaluation, and checkout management (`devops roadmap run`) (#981)
 
 **Issue**: [#981](https://github.com/dan-petty/devops-cli/issues/981)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/feature, scope/roadmap, priority/p1-high
 
 ## Description

@@ -1,6 +1,7 @@
 """Contract suite for the roadmap store, run against the in-memory adapter.
 
-Each case pins one promise `RoadmapStore` makes. The GitHub adapter keeps the same promises in
+Each case pins one promise `RoadmapStore` makes. The GitHub adapter, built with the GitHub
+session it reads its REST listings through, keeps the same promises in
 `tests/test_roadmap_github_store.py`, over recorded `gh` output, but one: of the changes a poll
 reads, it reports the issue events' six kinds and the release kinds (a cut, an un-cut and a
 ship, #1360), and not a board field set, a blocked-by link, a comment or an edit, which only the
@@ -17,6 +18,7 @@ import pytest
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.exceptions.validation import InvalidVersionError
+from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
@@ -37,6 +39,7 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     RoadmapStore,
 )
+from tests.support.fakes.github import GitHubApiFake, github_json
 
 BOARD_OPTIONS = {
     ItemField.STATUS: ("Backlog", "Ready", "In Progress", "Done"),
@@ -69,9 +72,21 @@ def store(clock: SteppedClock) -> InMemoryRoadmapStore:
     return roadmap
 
 
-def test_both_adapters_are_roadmap_stores() -> None:
-    adapters = (InMemoryRoadmapStore(), GitHubRoadmapStore("example/roadmap"))
-    assert [isinstance(adapter, RoadmapStore) for adapter in adapters] == [True, True]
+def test_both_adapters_are_roadmap_stores(github_api: GitHubApiFake) -> None:
+    """The GitHub adapter is built with the GitHub session it reads its REST listings through
+    (#983): its Releases come from that session's one read of the milestones."""
+    github_api.route(
+        "GET",
+        "/repos/example/roadmap/milestones?state=all&per_page=100",
+        github_json([{"number": 1, "title": "v0.2.25", "state": "open", "description": ""}]),
+    )
+    github = GitHubRoadmapStore("example/roadmap", session=get_github_session())
+    adapters = (InMemoryRoadmapStore(), github)
+    assert (
+        [isinstance(adapter, RoadmapStore) for adapter in adapters],
+        [release.title for release in github.releases()],
+        len(github_api.sent),
+    ) == ([True, True], ["v0.2.25"], 1)
 
 
 def test_a_release_is_found_with_or_without_its_v(store: InMemoryRoadmapStore) -> None:

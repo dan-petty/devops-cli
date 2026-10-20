@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
 
 import typer
 
@@ -22,14 +22,28 @@ from devops_cli.output import (
     box,
     get_console,
 )
-from devops_cli.ui.data_providers import (
-    fetch_docker_status,
-    fetch_k8s_status,
-    fetch_review_status,
-    fetch_telemetry_status,
-    fetch_valkey_status,
-)
-from devops_cli.ui.projections import k8s_banner, k8s_pod_row
+
+if TYPE_CHECKING:
+    pass
+
+
+def __getattr__(name: str) -> Any:
+    if name in (
+        "fetch_docker_status",
+        "fetch_k8s_status",
+        "fetch_review_status",
+        "fetch_telemetry_status",
+        "fetch_valkey_status",
+    ):
+        import devops_cli.ui.data_providers as dp
+
+        return getattr(dp, name)
+    if name in ("k8s_banner", "k8s_pod_row"):
+        import devops_cli.ui.projections as proj
+
+        return getattr(proj, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Derived from the configured domains so a new tab cannot be reachable in the TUI while
 # remaining unselectable from the command line.
@@ -49,6 +63,9 @@ app = new_typer(
 
 def _render_k8s_panel() -> Panel:
     """List the pods that need attention first, and count the ones left out."""
+    fetch_k8s_status = getattr(sys.modules[__name__], "fetch_k8s_status")
+    k8s_banner = getattr(sys.modules[__name__], "k8s_banner")
+    k8s_pod_row = getattr(sys.modules[__name__], "k8s_pod_row")
     summary = fetch_k8s_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("Namespace", style="cyan")
@@ -74,6 +91,7 @@ def _render_k8s_panel() -> Panel:
 
 
 def _render_docker_panel() -> Panel:
+    fetch_docker_status = getattr(sys.modules[__name__], "fetch_docker_status")
     summary = fetch_docker_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("ID", style="cyan")
@@ -98,6 +116,7 @@ def _render_docker_panel() -> Panel:
 
 
 def _render_telemetry_panel() -> Panel:
+    fetch_telemetry_status = getattr(sys.modules[__name__], "fetch_telemetry_status")
     summary = fetch_telemetry_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("Metric", style="cyan")
@@ -119,6 +138,7 @@ def _render_telemetry_panel() -> Panel:
 
 
 def _render_ai_panel() -> Panel:
+    fetch_review_status = getattr(sys.modules[__name__], "fetch_review_status")
     summary = fetch_review_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("Severity", style="bold")
@@ -149,6 +169,7 @@ def _render_ai_panel() -> Panel:
 
 
 def _render_valkey_panel() -> Panel:
+    fetch_valkey_status = getattr(sys.modules[__name__], "fetch_valkey_status")
     summary = fetch_valkey_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("Property", style="cyan")

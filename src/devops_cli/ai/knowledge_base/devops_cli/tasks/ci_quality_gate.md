@@ -53,7 +53,7 @@ uv run ruff check path/to/file.py
 uv run mypy path/to/file.py
 
 # 3. Fast Targeted Unit Test
-uv run pytest tests/test_feature.py
+uv run devops ci test tests/test_feature.py
 
 # 4. Final Comprehensive Milestone Gate
 devops ci
@@ -65,7 +65,7 @@ devops ci
 
 1. **Fix Errors Progressively**: Resolve linting and formatting first, then type checking, then unit tests, and finally documentation sync.
 2. **Synchronize Docs**: If the docs gate reports discrepancies, run `devops docs generate --sync-readme` to regenerate markdown reference files.
-3. **Parallel Test Execution**: `devops ci test` automatically utilizes all available CPU cores via `pytest-xdist`.
+3. **Parallel Test Execution**: `devops ci test` runs the full suite on every logical CPU via `pytest-xdist`; a run narrowed to a few test files (`devops ci test <paths>`) runs serially, and a larger selection on a few workers. pytest-timeout fails a test that hangs, so no run stalls on one.
 4. **Pre-Commit Enforcement**: Pre-commit hooks run essential subsets of `devops ci` on `git commit`.
 
 ---

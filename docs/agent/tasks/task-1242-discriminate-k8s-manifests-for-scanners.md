@@ -1,9 +1,6 @@
 # Task: Discriminate Kubernetes Manifests for Kube-linter and Pluto Scans (#1242)
 
 **Issue**: [#1242](https://github.com/dan-petty/devops-cli/issues/1242)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 
 ## Description

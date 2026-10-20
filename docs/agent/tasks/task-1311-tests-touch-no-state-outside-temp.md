@@ -1,9 +1,6 @@
 # Task: Tests Touch No State Outside Their Temporary Directories (#1311)
 
 **Issue**: [#1311](https://github.com/dan-petty/devops-cli/issues/1311)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p0-critical
 **Scope**: scope/ci
 
 ## Description
@@ -27,7 +24,7 @@ A test run wrote state outside its temporary directories, leaving artifacts in t
 - [x] `uv run devops ci` passes with 100% compliance.
 
 ## Deliverables
-- [x] Added `pytest_configure` hook in `tests/conftest.py` isolating `HOME` under pytest `basetemp` before `devops_cli` imports, initializing git identity on `example.com`, and recording worker homes.
+- [x] Added `pytest_configure` hook isolating `HOME` under pytest `basetemp` before `devops_cli` imports, initializing git identity on `example.com`, and recording worker homes; since #1312 it is in `tests/support/bootstrap.py`, which then registers the support modules.
 - [x] Added `isolate_tempdir` autouse fixture in `tests/conftest.py` isolating `tempfile.tempdir` and temp environment variables to `tmp_path / "temp"`.
 - [x] Removed `patch("devops_cli.config.settings.CONFIG_PATH", ...)` from `isolate_devops_cli_config`.
 - [x] Removed `monkeypatch.setattr("...CONST_USER_DATA_ROOT", ...)` from `isolate_user_data_root`, setting `DEVOPS_CLI_USER_DATA_ROOT`.
@@ -35,6 +32,6 @@ A test run wrote state outside its temporary directories, leaving artifacts in t
 - [x] Updated Ollama round-robin index in `src/devops_cli/ai/client/network.py` to live under `DEVOPS_CLI_DATA_DIR`.
 - [x] Updated `_ensure_known_host` in `src/devops_cli/git/operations.py` to accept `known_hosts`.
 - [x] Updated Kubernetes and worktree tests to pass explicit `tmp_path` targets and assert path containment.
-- [x] Extended workspace tripwire in `tests/conftest.py` to audit worker homes for leaks across `CONST_CONFIG_DIR`, `CONST_USER_DATA_ROOT`, `DEFAULT_SSH_KEY_DIR`, and `DEFAULT_LOCAL_BIN_DIR`.
+- [x] Extended workspace tripwire, in `tests/support/workspace_tripwire.py` since #1312, to audit worker homes for leaks across `CONST_CONFIG_DIR`, `CONST_USER_DATA_ROOT`, `DEFAULT_SSH_KEY_DIR`, and `DEFAULT_LOCAL_BIN_DIR`.
 - [x] Added unit and pytester regression tests in `tests/test_isolation_tripwire.py`.
 - [x] Created changelog fragment `changelog.d/1311.md`.

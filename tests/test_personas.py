@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from devops_cli.ai.personas import PERSONAS, Persona
+from tests.support.paths import REPO_ROOT
 
 
 def test_qa_persona_is_registered() -> None:
@@ -116,7 +115,7 @@ def test_the_review_prompt_still_carries_every_rule() -> None:
     from devops_cli.ai.personas import _TASKS_DIR, _load
 
     prompt = _load(_TASKS_DIR / "review.md")
-    own = (Path(__file__).resolve().parents[1] / ".devops/review.md").read_text(encoding="utf-8")
+    own = (REPO_ROOT / ".devops/review.md").read_text(encoding="utf-8")
     assert (
         [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt],
         [rule for rule in _OWN_REVIEW_CONVENTION_RULES if rule not in own],
@@ -134,7 +133,7 @@ def test_host_specific_rules_live_in_this_repositorys_conventions() -> None:
     from devops_cli.ai.personas import _TASKS_DIR, _load
 
     prompt = _load(_TASKS_DIR / "review.md")
-    own = (Path(__file__).resolve().parents[1] / ".devops/review.md").read_text(encoding="utf-8")
+    own = (REPO_ROOT / ".devops/review.md").read_text(encoding="utf-8")
     markers = ("response_repair.py", "mergeable_state")
     assert (
         [m for m in markers if m in prompt],

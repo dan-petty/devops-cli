@@ -11,6 +11,7 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_connection_error_hides_ollama_url() -> None:
@@ -79,50 +80,53 @@ def test_configured_loopback_endpoints_need_no_env_override(
     ) == ("http://localhost:11434", "http://127.0.0.1:8000/v1", "http://localhost:4000/v1")
 
 
-# ── Ollama thinking auto-detect ───────────────────────────────────────────────
+# ── Ollama thinking capability probing ─────────────────────────────────────────
 
 
-def test_ollama_retries_without_thinking_on_400(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 400 'does not support thinking' triggers a transparent retry without think=True."""
+def test_ollama_omits_thinking_when_undeclared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When supports_reasoning is undeclared, think parameter is omitted from request."""
     import httpx2
 
     client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
     def answer(request: httpx2.Request) -> httpx2.Response:
-        if len(sent) == 1:
-            return httpx2.Response(
-                400, json={"error": "model 'qwen2.5-coder:7b' does not support thinking"}
-            )
         return httpx2.Response(200, json={"message": {"role": "assistant", "content": "OK"}})
 
     sent = route_client(client, monkeypatch, answer)
 
     reply = client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
     assert reply == "OK"
-    assert [json.loads(request.content)["think"] for request in sent] == [True, False]
-    assert client._ollama_thinking_supported is False
+    chat_requests = [r for r in sent if r.url.path == "/api/chat"]
+    assert len(chat_requests) == 1
+    assert "think" not in json.loads(chat_requests[0].content)
 
 
-def test_ollama_subsequent_calls_skip_thinking_after_detection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """After detecting no thinking support, subsequent calls never send think=True."""
+def test_ollama_sends_thinking_when_declared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When supports_reasoning is declared, think is sent as True, or omitted when enable_thinking=False."""
     import httpx2
 
-    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
-    client._ollama_thinking_supported = False  # already detected
-
-    sent = route_client(
-        client,
-        monkeypatch,
-        lambda request: httpx2.Response(
-            200, json={"message": {"role": "assistant", "content": "OK"}}
-        ),
+    client = LLMClient(
+        AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"], supports_reasoning=True)
     )
 
-    client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json={"message": {"role": "assistant", "content": "OK"}})
 
-    assert [json.loads(request.content)["think"] for request in sent] == [False]
+    sent = route_client(client, monkeypatch, answer)
+
+    reply1 = client._ollama_messages(
+        "sys", [ChatMessage(role="user", content="user")], enable_thinking=True
+    )
+    reply2 = client._ollama_messages(
+        "sys", [ChatMessage(role="user", content="user")], enable_thinking=False
+    )
+    assert (reply1, reply2) == ("OK", "OK")
+    chat_requests = [r for r in sent if r.url.path == "/api/chat"]
+    assert len(chat_requests) == 2
+    assert (
+        json.loads(chat_requests[0].content).get("think"),
+        "think" in json.loads(chat_requests[1].content),
+    ) == (True, False)
 
 
 def test_ollama_non_thinking_400_raises_ai_client_error(
@@ -263,7 +267,7 @@ def test_preload_models_non_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("httpx2.Client.post", fake_post)
     client.prewarm_async(on_complete=on_done)
-    assert completed_event.wait(timeout=2.0)
+    assert completed_event.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert callback_results == {"http://localhost:11434": True}
 
 

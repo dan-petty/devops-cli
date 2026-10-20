@@ -23,6 +23,8 @@ import httpx2
 from devops_cli.http.egress import AsyncVettingBackend, EgressLevel, VettingBackend, vet_addresses
 
 PUBLIC_ADDRESS = "93.184.215.14"
+# What a fake client says faked httpx2.AsyncClient, so a second fake in one test is refused.
+FAKE_OWNER_ATTRIBUTE = "fake_owner"
 
 
 def http_response(status: int, body: str = "", headers: dict[str, str] | None = None) -> bytes:
@@ -204,6 +206,22 @@ def record_connects(monkeypatch: Any, responses: Iterable[bytes]) -> ConnectReco
     return recorder
 
 
+def install_async_client_fake(monkeypatch: Any, fake: type[Any]) -> None:
+    """Make `fake` the `httpx2.AsyncClient` for the rest of the test.
+
+    `stub_web` and `github_api` each answer async clients from their own fake, which names itself
+    in its `FAKE_OWNER_ATTRIBUTE`, so a test that asks for both would have one silently win; the
+    second to install raises instead.
+    """
+    installed = getattr(httpx2.AsyncClient, FAKE_OWNER_ATTRIBUTE, None)
+    if installed is not None:
+        raise RuntimeError(
+            f"{getattr(fake, FAKE_OWNER_ATTRIBUTE)} and {installed} both fake httpx2.AsyncClient; "
+            "a test uses one of them"
+        )
+    monkeypatch.setattr(httpx2, "AsyncClient", fake)
+
+
 def egress_level_of(transport: Any) -> EgressLevel | None:
     """The egress level of a factory-built transport, through any retry wrappers, or None."""
     while transport is not None:
@@ -252,11 +270,19 @@ class StubWeb:
         self, level: EgressLevel | None
     ) -> Callable[[httpx2.Request], httpx2.Response]:
         """`handle`, after vetting the request's host at `level` as the connect would."""
-        if level is None:
-            return self.handle
+        return vetted_handler(self.handle, level)
 
-        def handle_vetted(request: httpx2.Request) -> httpx2.Response:
-            vet_addresses(request.url.host, request.url.port or 0, level)
-            return self.handle(request)
 
-        return handle_vetted
+def vetted_handler[Answer](
+    handler: Callable[[httpx2.Request], Answer], level: EgressLevel | None
+) -> Callable[[httpx2.Request], Answer]:
+    """`handler`, after vetting each request's host at `level` as a factory client's connect
+    would; `handler` itself for a client the factory did not build."""
+    if level is None:
+        return handler
+
+    def handle_vetted(request: httpx2.Request) -> Answer:
+        vet_addresses(request.url.host, request.url.port or 0, level)
+        return handler(request)
+
+    return handle_vetted

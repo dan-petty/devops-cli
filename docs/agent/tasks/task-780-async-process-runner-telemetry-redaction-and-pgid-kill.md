@@ -1,9 +1,6 @@
 # Task 780: Async Process Runner Redacts Telemetry and Kills Process Group on Timeout
 
 **Issue**: [#780](https://github.com/dan-petty/devops-cli/issues/780)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/security, scope/cli
 
 ---

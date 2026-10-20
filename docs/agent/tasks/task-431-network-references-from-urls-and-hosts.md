@@ -1,9 +1,6 @@
 # Task: Network references come from URL and host arguments, not inspection of every string (#431)
 
 **Issue**: [#431](https://github.com/dan-petty/devops-cli/issues/431)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/security, priority/p1-high
 
 ## Description

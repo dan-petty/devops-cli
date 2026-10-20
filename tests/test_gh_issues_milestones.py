@@ -6,10 +6,12 @@ import json
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp.server import gh_issue_edit, gh_milestone_edit
+from devops_cli.ai.mcp.server import gh_issues_edit, gh_milestones_edit
 from devops_cli.commands.gh import app, milestones_app
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.issues import (
     _resolve_milestone_number,
     _resolve_updated_labels,
@@ -18,6 +20,7 @@ from devops_cli.github.issues import (
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 runner = CliRunner()
 
@@ -41,20 +44,56 @@ def test_calculate_milestone_progress() -> None:
     ) == (0, 100.0, True)
 
 
-def test_resolve_milestone_number() -> None:
-    """_resolve_milestone_number looks up milestone number by name."""
-    assert _resolve_milestone_number("example/repo", None) is None
-    assert _resolve_milestone_number("example/repo", "none") is None
-    assert _resolve_milestone_number("example/repo", 12) == 12
-    assert _resolve_milestone_number("example/repo", "15") == 15
+_MILESTONES = "/repos/example/repo/milestones?state=all&per_page=100"
+_MILESTONES_PAGE_2 = "/repositories/1/milestones?state=all&per_page=100&page=2"
 
-    mock_gh_res = MagicMock(
-        returncode=0,
-        stdout=json.dumps([{"number": 99, "title": "v0.2.21"}]),
+
+def test_resolve_milestone_number_needs_no_request_for_a_number_or_none(
+    github_api: GitHubApiFake,
+) -> None:
+    """A number, or a value that clears the milestone, is resolved without asking GitHub."""
+    assert (
+        _resolve_milestone_number("example/repo", None),
+        _resolve_milestone_number("example/repo", "none"),
+        _resolve_milestone_number("example/repo", 12),
+        _resolve_milestone_number("example/repo", "15"),
+        github_api.sent,
+    ) == (None, None, 12, 15, [])
+
+
+@pytest.mark.parametrize(
+    ("title", "number", "requests"),
+    [
+        pytest.param("v0.2.20", 98, 1, id="on-the-first-page"),
+        pytest.param("0.2.21", 99, 2, id="on-the-second-page-without-its-v"),
+    ],
+)
+def test_resolve_milestone_number_reads_pages_until_the_title_matches(
+    github_api: GitHubApiFake, title: str, number: int, requests: int
+) -> None:
+    """The milestones are read page by page, and reading stops at the matching title."""
+    github_api.route(
+        "GET",
+        _MILESTONES,
+        github_json([{"number": 98, "title": "v0.2.20"}], headers=next_page(_MILESTONES_PAGE_2)),
     )
-    with patch("devops_cli.github.issues.run_gh", return_value=mock_gh_res):
-        num = _resolve_milestone_number("example/repo", "v0.2.21")
-        assert num == 99
+    github_api.route("GET", _MILESTONES_PAGE_2, github_json([{"number": 99, "title": "v0.2.21"}]))
+    found = _resolve_milestone_number("example/repo", title)
+    assert (found, len(github_api.sent)) == (number, requests)
+
+
+def test_an_unknown_milestone_title_is_an_error(github_api: GitHubApiFake) -> None:
+    """A title no milestone has raises, after every page is read."""
+    github_api.route("GET", _MILESTONES, github_json([{"number": 98, "title": "v0.2.20"}]))
+    with pytest.raises(GitHubOperationError, match="was not found"):
+        _resolve_milestone_number("example/repo", "v9.9.9")
+
+
+def test_a_milestone_read_that_fails_is_not_a_missing_milestone(github_api: GitHubApiFake) -> None:
+    """A page that is no list of milestones raises the unread error, not "not found"."""
+    github_api.route("GET", _MILESTONES, github_json({"message": "Server Error"}))
+    with pytest.raises(GitHubUnreadError):
+        _resolve_milestone_number("example/repo", "v0.2.21")
 
 
 def test_resolve_updated_labels() -> None:
@@ -178,7 +217,7 @@ def test_cli_gh_issues_edit() -> None:
 def test_fastmcp_gh_tools() -> None:
     """FastMCP tools execute CLI commands."""
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
-        r1 = gh_milestone_edit("v0.2.21", description="New description")
-        r2 = gh_issue_edit(issue_number=10, milestone="v0.2.21")
+        r1 = gh_milestones_edit("v0.2.21", description="New description")
+        r2 = gh_issues_edit(number=10, milestone="v0.2.21")
 
         assert (r1, r2, mock_cmd.call_count) == ("Success", "Success", 2)

@@ -1,9 +1,6 @@
 # Task 538: The AST Engine Never Uses Tree-Sitter: Its Grammars Are Not Installed
 
 **Issue**: [#538](https://github.com/dan-petty/devops-cli/issues/538)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/ai`, `priority/p1-high`
 
 ---

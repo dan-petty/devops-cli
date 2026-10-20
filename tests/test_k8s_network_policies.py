@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -11,8 +12,8 @@ import yaml
 from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, _MANIFESTS_BY_STACK
 from tests.k8s_manifests import kustomized_objects, manifest_objects
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
 # The NetworkPolicies `devops k8s deploy-stack` does not apply: (namespace, name) to the file that
@@ -20,16 +21,7 @@ K8S_DIR = REPO_ROOT / "k8s"
 # An Argo CD Application is such a path, never a deploy-stack one: a cluster without Argo CD gets
 # only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
 # or leaves its file; the guard below fails until then.
-UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
-    ("llm", "portkey-perimeter"): (
-        "k8s/llm/portkey/networkpolicy.yaml",
-        "Argo CD's llm Application; deploy-stack does not deploy Portkey",
-    ),
-    ("llm", "valkey-runs-perimeter"): (
-        "k8s/llm/valkey-runs.yaml",
-        "Argo CD's llm Application; a person applies the file for `devops ai runs` (k8s/README.md)",
-    ),
-}
+UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
 
 TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops")
 METADATA_SSRF_IP = "169.254.169.254/32"
@@ -81,19 +73,49 @@ def _deploy_stack_network_policies() -> set[tuple[str, str]]:
     } | {policy for manifest in manifests for policy in manifest_objects(manifest, "NetworkPolicy")}
 
 
-def test_every_network_policy_has_a_deploy_stack_path_or_an_owned_exemption() -> None:
-    """deploy-stack applies every NetworkPolicy under k8s/, or an exemption names its owner (#913).
+def _policies_from_source(src: dict[str, Any]) -> set[tuple[str, str]]:
+    rel_path = src.get("path")
+    if not rel_path:
+        return set()
+    target = REPO_ROOT / rel_path
+    if (target / "kustomization.yaml").is_file() or (target / "kustomization.yml").is_file():
+        return set(kustomized_objects(target, "NetworkPolicy"))
+    if target.is_file():
+        return set(manifest_objects(target, "NetworkPolicy"))
+    return set()
 
-    Each namespace's kustomization lists its policy, yet a native deploy never applied
-    `monitoring-default-perimeter`: nothing deploy-stack applies named the file. An exemption fails
-    once its policy gains a deploy-stack path or leaves the file it names, so the list only shrinks.
+
+def _argocd_network_policies() -> set[tuple[str, str]]:
+    """(namespace, name) of every NetworkPolicy rendered by Argo CD Applications (#1673)."""
+    apps_dir = K8S_DIR / "argocd" / "apps"
+    policies: set[tuple[str, str]] = set()
+    for app_file in sorted(apps_dir.glob("*.yaml")):
+        if app_file.name == "projects.yaml":
+            continue
+        for doc in yaml.safe_load_all(app_file.read_text(encoding="utf-8")):
+            if not isinstance(doc, dict) or doc.get("kind") != "Application":
+                continue
+            spec = doc.get("spec", {})
+            sources = list(spec.get("sources", []))
+            if "source" in spec and isinstance(spec["source"], dict):
+                sources.append(spec["source"])
+            for src in sources:
+                policies.update(_policies_from_source(src))
+    return policies
+
+
+def test_every_network_policy_has_a_deploy_stack_path_or_an_owned_exemption() -> None:
+    """deploy-stack and Argo CD apply every NetworkPolicy under k8s/, or an exemption names its owner (#913, #1673).
+
+    Each namespace's kustomization lists its policy, and a policy counts as deployed only when
+    rendered by both native deploy-stack and an Argo CD Application (or it carries an owned exemption).
     """
     declared = {
         policy
         for path in K8S_DIR.rglob("*.y*ml")
         for policy in manifest_objects(path, "NetworkPolicy")
     }
-    applied = _deploy_stack_network_policies()
+    applied = _deploy_stack_network_policies() & _argocd_network_policies()
     exempted = set(UNDEPLOYED_NETWORK_POLICIES)
     assert (
         sorted(declared - applied - exempted),

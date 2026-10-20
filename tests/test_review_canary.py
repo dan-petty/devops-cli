@@ -31,10 +31,9 @@ from devops_cli.security.base import ScanOutcome
 from devops_cli.security.mypy import MypyScanner, run_mypy_scan
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.ruff import RuffScanner, run_ruff_scan
+from tests.support.paths import FIXTURES
 
-_RECORDED_FIXTURE_PATH = (
-    Path(__file__).resolve().parent / "fixtures" / "review_canary" / "recorded_outputs.json"
-)
+_RECORDED_FIXTURE_PATH = FIXTURES / "review_canary" / "recorded_outputs.json"
 
 
 @pytest.fixture

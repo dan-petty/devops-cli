@@ -1,9 +1,6 @@
 # Task 233: Paginated URL Replacement Loop and Fast Dry-Run Project Reconciliation
 
 **Issue**: [#233](https://github.com/dan-petty/devops-cli/issues/233)
-**Status**: Done
-**Milestone**: `v0.2.19`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/github`, `scope/cli`
 
 ---

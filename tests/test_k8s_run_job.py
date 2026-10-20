@@ -7,7 +7,6 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -20,8 +19,8 @@ from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import build_job, job_name
 from tests.cluster_secret_fakes import forbid_requests
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 CRONJOB = yaml.safe_load(
     (REPO_ROOT / "k8s" / "devops" / "cronjob.yaml").read_text(encoding="utf-8")
 )

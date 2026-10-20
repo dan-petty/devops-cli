@@ -1,9 +1,6 @@
 # Task: Truthful Pod Status, Filters, Container-Aware Logs and Pod Inspector in the Dashboard (#686)
 
 **Issue**: [#686](https://github.com/dan-petty/devops-cli/issues/686)
-**Status**: Done
-**Milestone**: v0.2.24
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

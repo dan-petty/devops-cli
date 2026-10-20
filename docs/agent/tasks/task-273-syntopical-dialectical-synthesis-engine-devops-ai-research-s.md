@@ -1,9 +1,6 @@
 # Task 273: Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`)
 
 **Issue**: [#273](https://github.com/dan-petty/devops-cli/issues/273)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p0-critical
 **Scope**: type/feature, scope/ai, priority/p0-critical
 **Feasibility**: Verified against origin/release/v0.2.34: syntopical research settings in `config/defaults.py` and `config/constants.py` had zero readers across `src/` and `tests/`, and two distinct settings both mapped to the duplicate value 20. Removing these unread declarations cleans vestigial configuration cleanly with no impact on active runtime paths.
 

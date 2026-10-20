@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
+from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
@@ -22,8 +23,10 @@ from devops_cli.ai.run_store import (
     save_run,
     set_baseline,
 )
+from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ANALYSIS_DROP_REASON_BUDGET,
+    CONST_FINISH_REASON_LENGTH,
     CONST_REVIEW_ANALYSIS_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_REVIEW_SARIF_FILENAME,
@@ -38,6 +41,10 @@ from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
 from devops_cli.review.state import FindingState
+
+CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
+    constants, "CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED", "reply-truncated"
+)
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -127,8 +134,14 @@ def _make_advisory_finding(
 class _FakeAnalysisClient:
     """Offline fake LLM client recording calls and sampling parameters."""
 
-    def __init__(self, responses: dict[str, dict[str, Any]] | dict[str, Any]) -> None:
+    def __init__(
+        self,
+        responses: dict[str, dict[str, Any]] | dict[str, Any],
+        *,
+        finish_reasons: dict[str, str | None] | str | None = None,
+    ) -> None:
         self._responses = responses
+        self._finish_reasons = finish_reasons
         self.calls: list[dict[str, Any]] = []
 
     @property
@@ -138,15 +151,27 @@ class _FakeAnalysisClient:
     def get_context_window(self, task: str | None = None) -> int:
         return 32768
 
-    def chat(self, system: str, user: str, **kwargs: Any) -> str:
-        self.calls.append({"system": system, "user": user, "kwargs": kwargs})
+    def _resolve_content_and_group(self, user: str) -> tuple[str, str | None]:
         if "explanation" in self._responses:
-            return json.dumps(self._responses)
+            return json.dumps(self._responses), None
         for group_id, payload in self._responses.items():
             if group_id in user:
-                return json.dumps(payload)
+                return json.dumps(payload), group_id
         first = next(iter(self._responses.values()))
-        return json.dumps(first)
+        return json.dumps(first), None
+
+    def _resolve_finish_reason(self, group_id: str | None) -> Any:
+        if isinstance(self._finish_reasons, dict):
+            if group_id and group_id in self._finish_reasons:
+                return self._finish_reasons[group_id]
+            return self._finish_reasons.get("default")
+        return self._finish_reasons
+
+    def chat(self, system: str, user: str, **kwargs: Any) -> LLMResponse:
+        self.calls.append({"system": system, "user": user, "kwargs": kwargs})
+        content, group_id = self._resolve_content_and_group(user)
+        reason = self._resolve_finish_reason(group_id)
+        return LLMResponse(content=content, finish_reason=reason)
 
 
 def test_group_findings_for_analysis_deterministically_groups_regions_k8s_and_advisories() -> None:
@@ -722,3 +747,172 @@ def test_score_sessions_and_ai_runs_check_enforce_reference_coverage_tolerance(
         cli_fail.exit_code,
         cli_pass.exit_code,
     ) == (1.0, 0.75, False, True, 1, 0)
+
+
+def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: Path) -> None:
+    """A reply cut at token cap (finish_reason=length) is rejected without parsing or showing text (#876)."""
+    from devops_cli.review.analysis import (
+        render_model_analysis_markdown,
+        run_group_analysis,
+    )
+
+    source = "def a():\n    return 1\n"
+    f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
+    group_payload = {
+        "explanation": "Cut off explanation text that must never be shown.",
+        "root_cause": "Root cause text marker.",
+        "related_items": [],
+        "plan_steps": [{"description": "Step 1", "finding_ids": ["fp-a"]}],
+        "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
+        "code_quotes": ["    return 1"],
+    }
+
+    # 1. Fake client with finish_reason="length"
+    client_cut = _FakeAnalysisClient(
+        {"region:src/app.py:a": group_payload},
+        finish_reasons=CONST_FINISH_REASON_LENGTH,
+    )
+    report_cut = run_group_analysis(
+        [f1],
+        llm_client=client_cut,
+        file_contents={"src/app.py": source},
+        rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
+        session_dir=tmp_path / "cut",
+    )
+    persisted_cut = json.loads(
+        (tmp_path / "cut" / CONST_REVIEW_ANALYSIS_FILENAME).read_text(encoding="utf-8")
+    )
+    md_cut = "\n".join(render_model_analysis_markdown(report_cut))
+
+    assert (
+        len(client_cut.calls),
+        len(report_cut.groups),
+        report_cut.groups[0].status,
+        report_cut.groups[0].output,
+        report_cut.groups[0].rejected_reasons,
+        report_cut.rejections,
+        persisted_cut["rejections"],
+        persisted_cut["groups"][0]["status"],
+        persisted_cut["groups"][0]["output"],
+        "- **G10 Rejected**: reply-truncated" in md_cut,
+        "- **G10 Rejections**: `reply-truncated`: 1" in md_cut,
+        "Cut off explanation text" in md_cut,
+        "Root cause text marker" in md_cut,
+    ) == (
+        1,
+        1,
+        "rejected",
+        None,
+        [CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED],
+        {CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: 1},
+        {CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: 1},
+        "rejected",
+        None,
+        True,
+        True,
+        False,
+        False,
+    )
+
+    # 2. Control: Same payload with finish_reason="stop" parses and verifies
+    client_stop = _FakeAnalysisClient(
+        {"region:src/app.py:a": group_payload},
+        finish_reasons="stop",
+    )
+    report_stop = run_group_analysis(
+        [f1],
+        llm_client=client_stop,
+        file_contents={"src/app.py": source},
+        rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
+        session_dir=tmp_path / "stop",
+    )
+    md_stop = "\n".join(render_model_analysis_markdown(report_stop))
+
+    assert (
+        len(client_stop.calls),
+        len(report_stop.groups),
+        report_stop.groups[0].status,
+        report_stop.groups[0].output is not None,
+        report_stop.groups[0].rejected_reasons,
+        report_stop.rejections,
+        "- **G10 Rejected**" in md_stop,
+        "Cut off explanation text" in md_stop,
+    ) == (
+        1,
+        1,
+        "verified",
+        True,
+        [],
+        {},
+        False,
+        True,
+    )
+
+
+def test_group_analysis_multi_group_handles_truncated_and_normal_replies(
+    tmp_path: Path,
+) -> None:
+    """When one group reply is cut and another finishes normally, each is recorded independently (#876)."""
+    from devops_cli.review.analysis import (
+        render_model_analysis_markdown,
+        run_group_analysis,
+    )
+
+    source = "def a():\n    return 1\n\ndef b():\n    return 2\n"
+    f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
+    f2 = _make_region_finding(rule_id="F401", path="src/app.py", line=5, fingerprint="fp-b")
+    client = _FakeAnalysisClient(
+        {
+            "region:src/app.py:a": {
+                "explanation": "Explanation a.",
+                "root_cause": "Root cause a.",
+                "related_items": [],
+                "plan_steps": [{"description": "Fix a.", "finding_ids": ["fp-a"]}],
+                "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
+                "code_quotes": ["    return 1"],
+            },
+            "region:src/app.py:b": {
+                "explanation": "Explanation b.",
+                "root_cause": "Root cause b.",
+                "related_items": [],
+                "plan_steps": [{"description": "Fix b.", "finding_ids": ["fp-b"]}],
+                "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
+                "code_quotes": ["    return 2"],
+            },
+        },
+        finish_reasons={
+            "region:src/app.py:a": CONST_FINISH_REASON_LENGTH,
+            "region:src/app.py:b": "stop",
+        },
+    )
+
+    report = run_group_analysis(
+        [f1, f2],
+        llm_client=client,
+        file_contents={"src/app.py": source},
+        rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
+        session_dir=tmp_path,
+    )
+    md = "\n".join(render_model_analysis_markdown(report))
+
+    assert (
+        len(client.calls),
+        len(report.groups),
+        report.rejections,
+        [g.status for g in report.groups],
+        report.groups[0].rejected_reasons,
+        report.groups[1].rejected_reasons,
+        "- **G10 Rejected**: reply-truncated" in md,
+        "Explanation a." in md,
+        "Explanation b." in md,
+    ) == (
+        2,
+        2,
+        {CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: 1},
+        ["rejected", "verified"],
+        [CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED],
+        [],
+        True,
+        False,
+        True,
+    )

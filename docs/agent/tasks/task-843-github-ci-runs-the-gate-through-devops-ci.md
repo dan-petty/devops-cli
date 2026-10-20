@@ -1,9 +1,6 @@
 # Task 843: GitHub CI Runs the Gate Through devops ci
 
 **Issue**: [#843](https://github.com/dan-petty/devops-cli/issues/843)
-**Status**: Done
-**Milestone**: `v0.2.26`
-**Priority**: `priority/p1-high`
 **Scope**: `type/refactor`, `scope/cli`, `priority/p1-high`
 
 ---

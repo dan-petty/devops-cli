@@ -1,9 +1,6 @@
 # Task: Re-index Knowledge Base on Drift & Qdrant Inspection (#1139)
 
 **Issue**: [#1139](https://github.com/dan-petty/devops-cli/issues/1139)
-**Status**: Done
-**Milestone**: v0.2.34
-**Priority**: priority/p1-high
 **Scope**: scope/ai
 **Feasibility**: Feasible - Confirmed offline through repository analysis that computing sha256 digests over sorted knowledge base markdown files and checking collection points during RAG entry points enables autonomous lazy re-indexing without LLM dependencies.
 

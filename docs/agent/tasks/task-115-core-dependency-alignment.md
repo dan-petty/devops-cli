@@ -1,9 +1,6 @@
 # Task 115: Core Dependency Ecosystem Alignment & Lockfile Synchronization
 
 **Issue**: [#115](https://github.com/dan-petty/devops-cli/issues/115)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/cli`
 
 ---

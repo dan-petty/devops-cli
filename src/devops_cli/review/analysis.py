@@ -33,6 +33,10 @@ from devops_cli.config.constants import (
     CONST_ANALYSIS_DROP_REASON_UNAVAILABLE,
     CONST_ANALYSIS_K8S_TOOLS,
     CONST_ANALYSIS_PROMPT_FILENAME,
+    CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR,
+    CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED,
+    CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED,
+    CONST_FINISH_REASON_LENGTH,
     CONST_REVIEW_ANALYSIS_FILENAME,
 )
 from devops_cli.config.defaults import (
@@ -686,6 +690,27 @@ def _parse_model_group_output(raw_reply: Any) -> GroupAnalysisOutput | None:
         return None
 
 
+def _rejected_group_record(
+    job_input: AnalysisJobInput,
+    sampling: SamplingRecord,
+    reason: str,
+) -> GroupAnalysisRecord:
+    return GroupAnalysisRecord(
+        group_id=job_input.group_id,
+        kind=job_input.kind,
+        key=job_input.key,
+        finding_ids=job_input.finding_ids,
+        needed_keys=job_input.needed_keys,
+        received_keys=job_input.received_keys,
+        dropped_keys=job_input.dropped_keys,
+        reference_coverage=job_input.reference_coverage,
+        sampling=sampling,
+        status="rejected",
+        output=None,
+        rejected_reasons=[reason],
+    )
+
+
 def _execute_single_group_job(
     job_input: AnalysisJobInput,
     *,
@@ -704,26 +729,13 @@ def _execute_single_group_job(
         top_p=sampling.top_p,
         seed=sampling.seed,
     )
+    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
+        return (_rejected_group_record(job_input, sampling, reason), [reason])
     parsed = _parse_model_group_output(raw)
     if parsed is None:
-        reason = "schema-validation-failed"
-        return (
-            GroupAnalysisRecord(
-                group_id=job_input.group_id,
-                kind=job_input.kind,
-                key=job_input.key,
-                finding_ids=job_input.finding_ids,
-                needed_keys=job_input.needed_keys,
-                received_keys=job_input.received_keys,
-                dropped_keys=job_input.dropped_keys,
-                reference_coverage=job_input.reference_coverage,
-                sampling=sampling,
-                status="rejected",
-                output=None,
-                rejected_reasons=[reason],
-            ),
-            [reason],
-        )
+        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
+        return (_rejected_group_record(job_input, sampling, reason), [reason])
     verified, reasons = verify_group_analysis(
         parsed,
         job_input,
@@ -810,23 +822,9 @@ def run_group_analysis(
         model_calls = len(jobs)
         for job, outcome in zip(jobs, outcomes, strict=True):
             if isinstance(outcome, BaseException):
-                rejections["model-call-error"] = rejections.get("model-call-error", 0) + 1
-                records.append(
-                    GroupAnalysisRecord(
-                        group_id=job.group_id,
-                        kind=job.kind,
-                        key=job.key,
-                        finding_ids=job.finding_ids,
-                        needed_keys=job.needed_keys,
-                        received_keys=job.received_keys,
-                        dropped_keys=job.dropped_keys,
-                        reference_coverage=job.reference_coverage,
-                        sampling=eff_sampling,
-                        status="rejected",
-                        output=None,
-                        rejected_reasons=["model-call-error"],
-                    )
-                )
+                err_reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
+                rejections[err_reason] = rejections.get(err_reason, 0) + 1
+                records.append(_rejected_group_record(job, eff_sampling, err_reason))
                 continue
             rec, reasons = outcome
             records.append(rec)

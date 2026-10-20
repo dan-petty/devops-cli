@@ -1,9 +1,6 @@
 # Task: Add DevOps Stack to Deploy-Stack and Include in Stack All (#1225)
 
 **Issue**: [#1225](https://github.com/dan-petty/devops-cli/issues/1225)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p1-high
 **Scope**: scope/k8s
 
 ## Description

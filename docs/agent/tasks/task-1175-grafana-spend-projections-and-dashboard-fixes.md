@@ -1,9 +1,6 @@
 # Task: Grafana Dashboard Projections, Rolling Averages, and Panel Queries (#1175)
 
 **Issue**: [#1175](https://github.com/dan-petty/devops-cli/issues/1175)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p2-medium
 **Scope**: type/bug, scope/telemetry, scope/k8s
 
 ## Description

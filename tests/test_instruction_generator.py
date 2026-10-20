@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 import devops_cli
 from devops_cli.ai.instruction_generator import (
@@ -335,10 +339,10 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
     ) == (True, True, True, True, True, True, True, True, True, True, True)
 
 
-def test_ai_agents_force_guard_and_refusal(runner: CliRunner, tmp_path: Path) -> None:
+def test_ai_agents_force_guard_and_refusal(
+    runner: CliRunner, tmp_path: Path, model_fake: ModelFake
+) -> None:
     """Verify devops ai agents refuses to overwrite AGENTS.md without --force while writing stubs."""
-    from unittest.mock import patch
-
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "test-guard"\n', encoding="utf-8")
     agents_file = tmp_path / "AGENTS.md"
@@ -370,11 +374,10 @@ def test_ai_agents_force_guard_and_refusal(runner: CliRunner, tmp_path: Path) ->
     )
     assert res3.exit_code == 0
 
-    # 4. Refused run never constructs LLMClient
+    # 4. Refused run never constructs or invokes the model client
     agents_file.write_bytes(original_bytes)
-    with patch("devops_cli.ai.client.LLMClient") as mock_client:
-        res4 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path)])
-        assert (res4.exit_code != 0, mock_client.called) == (True, False)
+    res4 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path)])
+    assert (res4.exit_code != 0, model_fake.call_count == 0) == (True, True)
 
 
 def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:

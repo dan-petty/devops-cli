@@ -1,9 +1,6 @@
 # Task 313: Qdrant Vector Engine Async Connection Pooling, Hybrid Lexical-Dense Search & Payload Quantization Research
 
 **Issue**: [#313](https://github.com/dan-petty/devops-cli/issues/313)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
 ---

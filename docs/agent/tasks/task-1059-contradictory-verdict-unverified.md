@@ -1,9 +1,6 @@
 # Task 1059: Contradictory Verifier Verdict Stays Unverified with Contradiction Note
 
 **Issue**: [#1059](https://github.com/dan-petty/devops-cli/issues/1059)
-**Status**: Done
-**Milestone**: v0.2.28
-**Priority**: priority/p1-high
 **Scope**: type/fix, scope/ai
 
 ---

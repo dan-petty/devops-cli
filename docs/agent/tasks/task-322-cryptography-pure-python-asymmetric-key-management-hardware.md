@@ -1,9 +1,6 @@
 # Task 322: Cryptography Pure-Python Asymmetric Key Management & Hardware Token Authentication Research
 
 **Issue**: [#322](https://github.com/dan-petty/devops-cli/issues/322)
-**Status**: Done
-**Milestone**: `v0.2.22`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`
 
 ---

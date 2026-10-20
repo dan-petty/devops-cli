@@ -1,9 +1,6 @@
 # Task 167: Remediate PR #164 Review Findings on Sandbox Metrics Collection
 
 **Issue**: [#167](https://github.com/dan-petty/devops-cli/issues/167)
-**Status**: Done
-**Milestone**: `v0.2.17`
-**Priority**: `priority/p1-high`
 **Scope**: `scope/telemetry`
 
 ---

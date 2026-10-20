@@ -1,9 +1,6 @@
 # Task: The secrets audit never prints a config line it cannot parse, and an unparsable file is not reported clean (#1022)
 
 **Issue**: [#1022](https://github.com/dan-petty/devops-cli/issues/1022)
-**Status**: Done
-**Milestone**: v0.2.30
-**Priority**: priority/p2-medium
 **Scope**: type/security, scope/security, scope/config
 
 ## Description

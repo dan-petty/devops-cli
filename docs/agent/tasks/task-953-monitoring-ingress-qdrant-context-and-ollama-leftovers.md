@@ -1,9 +1,6 @@
 # Task: The Monitoring Perimeter Admits Traefik Alone, Qdrant Gets Its Security Context, and the Single-Ollama Leftovers Go (#953)
 
 **Issue**: [#953](https://github.com/dan-petty/devops-cli/issues/953)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/k8s
 
 ## Description

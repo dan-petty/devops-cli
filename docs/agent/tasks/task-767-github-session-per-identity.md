@@ -1,9 +1,6 @@
 # Task: One GitHub session per identity (#767, Part A)
 
 **Issue**: [#767](https://github.com/dan-petty/devops-cli/issues/767)
-**Status**: Done
-**Milestone**: v0.2.26
-**Priority**: priority/p1-high
 **Scope**: type/refactor, scope/github, priority/p1-high
 
 ## Description
@@ -23,7 +20,7 @@ Part B (the session's `rest`, `graphql` and `paginate` transport, the ledger fed
 
 ## Acceptance Criteria
 
-- [x] **One identity.** With `gh auth token` scripted to print A, one `GitHubClient.get_pr_diff`, two `run_gh` calls and one `_refresh_from_github` all act as A: the diff sends `Authorization: Bearer A`, the three gh children get `GH_TOKEN=A` and no `GITHUB_TOKEN`, and `gh auth token` runs once. Test: `tests/test_github_client.py::test_one_identity_reaches_pygithub_gh_and_the_quota_refresh` (`httpx2.MockTransport` through `stub_web`, patched `subprocess.run`).
+- [x] **One identity.** With `gh auth token` scripted to print A, one `GitHubClient.get_pr_diff`, two `run_gh` calls and one `_refresh_from_github` all act as A: the diff sends `Authorization: token A` (through the session's gidgethub transport since #983), the three gh children get `GH_TOKEN=A` and no `GITHUB_TOKEN`, and `gh auth token` runs once. Test: `tests/test_github_client.py::test_one_identity_reaches_pygithub_gh_and_the_quota_refresh` (`httpx2.MockTransport` through `stub_web`, patched `subprocess.run`).
 - [x] **Environment tokens are honoured.** With `GH_TOKEN=B`, the lookup passes `GH_TOKEN` and `GITHUB_TOKEN` to `gh auth token` and the token is B. Test: `tests/test_subprocess_env_boundary.py::test_the_identity_lookup_honours_the_environment_tokens`; once per process: `::test_the_identity_is_looked_up_once_per_process`.
 - [x] **No fallback.** When `gh auth token` fails, the first gh call raises the unauthenticated error and no other gh child runs. Tests: `tests/test_subprocess_env_boundary.py::test_a_failed_lookup_raises_and_runs_no_other_gh`, `tests/test_github_session.py::test_without_a_token_the_session_raises_the_unauthenticated_error`, `::test_a_failed_lookup_stops_a_pygithub_caller_with_the_unauthenticated_error`.
 - [x] **A failed lookup is not kept.** After a failed lookup the next gh call looks again and acts as the new token; git waits 60 s before looking again; a timed-out or unrunnable gh leaves git running without a token; the error names the cause. Tests: `tests/test_subprocess_env_boundary.py::test_a_failed_lookup_is_not_kept`, `::test_git_waits_before_looking_again_after_a_failed_lookup`, `::test_a_lookup_that_cannot_run_leaves_git_working_and_says_why` (timeout, not executable), `::test_the_unauthenticated_error_says_why_gh_gave_no_token` (gh missing, exit 1).
@@ -39,8 +36,8 @@ Part B (the session's `rest`, `graphql` and `paginate` transport, the ledger fed
 - [x] **Gate.** Each new test runs under 1 s under `pytest --durations=0` (the command modules `tests/test_github_session.py` exercises are imported at collection), opens no socket outside `prevent_external_network_calls`, and runs no real `gh`.
 - Pending a person: in a terminal logged in to gh, with no `GH_TOKEN` set, `uv run devops gh issues list -R dan-petty/devops-cli` prints the open issues.
 - Pending a person: in the same terminal, `uv run devops gh milestones list -R dan-petty/devops-cli` prints the milestones.
-- Pending a person: `GH_TOKEN=not-a-real-token uv run devops gh issues list -R dan-petty/devops-cli` exits 1 with `Failed to refresh rate limits from GitHub API: HTTP 401: Bad credentials`, without a traceback, and prints no issues.
-- Amended: the issue expects the unauthenticated error for a bad token. `gh auth token` prints any `GH_TOKEN` it is given, so the lookup succeeds, and GitHub's 401 to the first call is reported as a rate-limit refresh failure. Classifying a 401 as unauthenticated is the error-class work of #983.
+- Pending a person: `GH_TOKEN=not-a-real-token uv run devops gh issues list -R dan-petty/devops-cli` exits 1 with the unauthenticated error, `gh has no GitHub login that GitHub accepts (gh: Bad credentials (HTTP 401))`, without a traceback, and prints no issues.
+- Amended: the issue expects the unauthenticated error for a bad token. `gh auth token` prints any `GH_TOKEN` it is given, so the lookup succeeds, and GitHub's 401 to the first call, the quota refresh, was reported as a rate-limit refresh failure until #983's gh classifier made it the unauthenticated error.
 
 ## Deliverables
 

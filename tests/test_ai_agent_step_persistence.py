@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from devops_cli.ai.agents import (
+from devops_cli.ai.agents.context import RunContext
+from devops_cli.ai.agents.persistence import (
     InMemoryStepStore,
-    RunContext,
     SqliteStepStore,
     StepPersistence,
     StepRecord,

@@ -1,9 +1,6 @@
 # Task: Infracost FinOps Cloud Cost Engine (#90)
 
 **Issue**: [#90](https://github.com/dan-petty/devops-cli/issues/90)
-**Status**: Done
-**Milestone**: v0.2.15
-**Priority**: priority/p1-high
 **Scope**: scope/tf
 
 ## Description

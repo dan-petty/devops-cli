@@ -94,17 +94,14 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 flowchart TD
     T1[Author tests/test_feature.py] --> T2[Define Public Interfaces & Types]
     T2 --> T3[Assert Boundaries, Edge Cases & Errors]
-    T3 --> T4[Run Targeted Test: uv run pytest tests/test_feature.py]
+    T3 --> T4[Run Targeted Test: uv run devops ci test tests/test_feature.py]
     T4 --> T5{Test Fails as Expected?}
     T5 -- No (Unexpected Pass or Error) --> T1
     T5 -- Yes (Clean Red) --> T6[Proceed to Phase 3: Implementation]
 ```
 
 #### Test Architecture & Standards
-- **Living Documentation**: Tests authoritatively document expected arguments, return schemas, error handling, and behavioral boundaries.
-- **Deterministic Mock Isolation**: External dependencies (LLM APIs, Docker daemon, Kubernetes clusters, GitHub API, network calls) must be isolated using `pytest-mock` or mock fixtures. Real credentials or live endpoints must never be queried in unit test suites.
-- **Test Collection Hygiene**: Any mock classes or helper structures defined in `src/devops_cli` must declare `__test__ = False` to prevent pytest collection warnings.
-- **Domain Exception Assertions**: Verify that all domain error paths raise strongly typed exceptions inheriting from `DevOpsCLIError`, verifying the exit code and machine-readable error code constant.
+[`docs/TESTING.md`](TESTING.md) holds the test conventions: what a test may double, where a test file goes, how a test is named and what it asserts. [ADR 0007](adr/0007-tests-double-only-process-edges.md) records why tests double only process edges.
 
 ---
 
@@ -296,10 +293,10 @@ gitGraph
   - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews (on PRs into `main`) via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
   - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
   - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions (on PRs into `main`) are unresolved.
-  - **Wait for Copilot Reviews to Settle on PRs into `main`**: On PRs targeting `main`, `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete; on `release/*` PRs, agents never wait for Copilot.
+  - **Wait for Copilot Reviews to Settle on PRs into `main`**: On PRs targeting `main`, `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete; on `release/*` PRs, agents never wait for Copilot. A further Copilot pass on the release PR is requested only with `devops pr copilot-pass <pr_number>`, which holds the release PR to `release_copilot_passes` in `.github/roadmap.toml`, the pass when it opens included, and requests none once they are spent.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply concise test-first fixes, push, and re-monitor.
   - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
-  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled on PRs into `main`, 0 unresolved threads).
+  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled on PRs into `main`, 0 unresolved threads). Once the release PR's Copilot passes are spent, a remaining Copilot comment blocks the merge only if it is a regression the release introduces; every other one becomes a follow-up issue (the stop rule, [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) Step 3).
 - **Automated & Peer Code Review Remediation Mandate**:
   - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
   - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
@@ -350,7 +347,7 @@ flowchart TD
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
 | **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
-| **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
+| **2. Specification** | Test-First Authoring | `uv run devops ci test tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |

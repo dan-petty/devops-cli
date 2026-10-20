@@ -1,9 +1,6 @@
 # Task: PR Update Dispatches CI Workflow (#984)
 
 **Issue**: [#984](https://github.com/dan-petty/devops-cli/issues/984)
-**Status**: Done
-**Milestone**: v0.2.27
-**Priority**: priority/p2-medium
 **Scope**: scope/ci
 
 ## Description

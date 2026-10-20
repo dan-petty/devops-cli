@@ -4,7 +4,10 @@ Every pull request into a release branch added its entries at the top of `## [Un
 `CHANGELOG.md`, so any two open pull requests edited the same lines. Each merge made every other
 one conflict, and each then had to be rebased and run CI again. A fragment is
 `changelog.d/<issue>.md`, a new file whose name no other pull request uses, holding house-style
-entries under Keep a Changelog's `###` categories.
+entries under Keep a Changelog's `###` categories. An item delivered as several pull requests gets
+its fragment from the one that closes it: a `Part of #<issue>` pull request adds none, so parts
+open at once never conflict on the name, and an item moved out of the release part-way has no
+entry here to publish.
 
 The cut reads every fragment, checks them all before anything is written, and merges their
 entries into the version's section: categories in Keep a Changelog order, fragments in issue
@@ -166,16 +169,39 @@ def changelog_heading_anchor(heading: str) -> str:
     return next((str(token.attrs["id"]) for token in tokens if token.type == "heading_open"), "")
 
 
-def _read_fragment(path: Path) -> ChangelogFragment:
-    """Read one fragment, raising for a misnamed file or one that holds no entry."""
-    shown = f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{path.name}"
+def _shown(path: Path) -> str:
+    """A fragment as a refusal names it: `changelog.d/<name>`."""
+    return f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{path.name}"
+
+
+def _fragment_issue(path: Path) -> int:
+    """The issue a fragment's name gives, raising for a name that is not `<issue>.md`."""
     named = CONST_CHANGELOG_FRAGMENT_NAME_RE.fullmatch(path.name)
-    if named is None or path.is_symlink() or not path.is_file():
-        raise _refusal(ERRORS.release.changelog_fragment_misnamed, shown)
-    categories = parse_changelog_categories(path.read_text(encoding="utf-8"), shown)
+    if named is None:
+        raise _refusal(ERRORS.release.changelog_fragment_misnamed, _shown(path))
+    return int(named["issue"])
+
+
+def parse_changelog_fragment(path: Path, text: str) -> ChangelogFragment:
+    """The fragment `text` is when it is held at `path`.
+
+    Raises a ValidationError naming `changelog.d/<name>` for a name that is not `<issue>.md`,
+    for text outside a category or under an unknown one, and for a fragment with no entry.
+    """
+    issue = _fragment_issue(path)
+    categories = parse_changelog_categories(text, _shown(path))
     if not any(categories.values()):
-        raise _refusal(ERRORS.release.changelog_fragment_empty, shown)
-    return ChangelogFragment(path, int(named["issue"]), categories)
+        raise _refusal(ERRORS.release.changelog_fragment_empty, _shown(path))
+    return ChangelogFragment(path, issue, categories)
+
+
+def _read_fragment(path: Path) -> ChangelogFragment:
+    """Read one fragment, refusing a misnamed file before reading it, and anything but a regular
+    file, as misnamed."""
+    _fragment_issue(path)
+    if path.is_symlink() or not path.is_file():
+        raise _refusal(ERRORS.release.changelog_fragment_misnamed, _shown(path))
+    return parse_changelog_fragment(path, path.read_text(encoding="utf-8"))
 
 
 def read_changelog_fragments(directory: Path) -> tuple[ChangelogFragment, ...]:

@@ -37,13 +37,9 @@ from pathlib import PurePosixPath
 
 from devops_cli.config.constants import (
     CONST_AGENT_TASKS_DIR,
-    CONST_CHANGELOG_FILENAME,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_GH_ISSUE_STATE_REASON_REOPENED,
-    CONST_INIT_PY_PATH,
-    CONST_PYPROJECT_FILENAME,
-    CONST_ROADMAP_DOCUMENT_PATH,
-    CONST_UV_LOCK_FILENAME,
+    CONST_RELEASE_CUT_FILES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_RELEASE_LABEL,
@@ -68,15 +64,6 @@ from devops_cli.roadmap.store import (
 
 ChecksReader = Callable[[MergedPullRequest], CheckVerdictSummary]
 """Reads a merged pull request's check runs at its head commit."""
-
-CUT_FILES: tuple[str, ...] = (
-    CONST_PYPROJECT_FILENAME,
-    str(CONST_INIT_PY_PATH),
-    CONST_UV_LOCK_FILENAME,
-    CONST_CHANGELOG_FILENAME,
-    CONST_ROADMAP_DOCUMENT_PATH,
-)
-"""The files the cut commit changes, besides the fragments it deletes."""
 
 
 class Hold(StrEnum):
@@ -107,7 +94,7 @@ class Cut:
     branch: str
     base: str
     title: str
-    files: tuple[str, ...] = CUT_FILES
+    files: tuple[str, ...] = CONST_RELEASE_CUT_FILES
     fragments: tuple[str, ...] = ()
     missing_fragments: tuple[int, ...] = ()
 
@@ -614,7 +601,6 @@ def _cut_lines(cut: Cut) -> list[str]:
 
 
 __all__ = [
-    "CUT_FILES",
     "ClosePlan",
     "Closing",
     "Cut",

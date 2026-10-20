@@ -21,6 +21,7 @@ from devops_cli.ai.client.network import (
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 
 @pytest.fixture(autouse=True)
@@ -58,12 +59,8 @@ def test_request_priority_scope_contextvar() -> None:
 
 
 def _wait_until_waiting(priority_key: str, expected: int = 1) -> bool:
-    """Poll until the specified priority queue reaches expected count."""
-    for _ in range(50):
-        if get_ollama_waiting_counts().get(priority_key, 0) == expected:
-            return True
-        time.sleep(0.02)
-    return False
+    """Whether the specified priority queue reaches the expected count within the bound."""
+    return wait_until(lambda: get_ollama_waiting_counts().get(priority_key, 0) == expected)
 
 
 def test_acquire_ollama_slot_priority_preemption() -> None:
@@ -73,31 +70,34 @@ def test_acquire_ollama_slot_priority_preemption() -> None:
     holder_acquired = threading.Event()
     acquisition_order: list[str] = []
 
-    def _slot_holder() -> None:
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=5.0):
+    def _slot_holder() -> bool:
+        """Hold the slot until the test lets it go; whether the test did."""
+        with acquire_ollama_slot(candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS):
             holder_acquired.set()
-            slot_holder_gate.wait(timeout=5.0)
+            return slot_holder_gate.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     def _enqueue(p: RequestPriority, tag: str) -> None:
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=5.0, priority=p):
+        with acquire_ollama_slot(
+            candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS, priority=p
+        ):
             acquisition_order.append(tag)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         f_holder = executor.submit(_slot_holder)
-        assert holder_acquired.wait(timeout=2.0) is True
+        assert holder_acquired.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         f_normal = executor.submit(_enqueue, RequestPriority.NORMAL, "normal")
-        _wait_until_waiting("normal", 1)
+        assert _wait_until_waiting("normal", 1) is True
 
         f_high = executor.submit(_enqueue, RequestPriority.HIGH, "high")
-        _wait_until_waiting("high", 1)
+        assert _wait_until_waiting("high", 1) is True
 
         slot_holder_gate.set()
-        f_holder.result()
+        held_until_released = f_holder.result()
         f_high.result()
         f_normal.result()
 
-    assert acquisition_order == ["high", "normal"]
+    assert (acquisition_order, held_until_released) == (["high", "normal"], True)
 
 
 def test_as_available_non_blocking_when_full() -> None:
@@ -106,14 +106,15 @@ def test_as_available_non_blocking_when_full() -> None:
     slot_held = threading.Event()
     release_gate = threading.Event()
 
-    def _occupy() -> None:
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=2.0):
+    def _occupy() -> bool:
+        """Hold the slot until the test lets it go; whether the test did."""
+        with acquire_ollama_slot(candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS):
             slot_held.set()
-            release_gate.wait(timeout=2.0)
+            return release_gate.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         f = executor.submit(_occupy)
-        assert slot_held.wait(timeout=1.0) is True
+        assert slot_held.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         t0 = time.monotonic()
         with pytest.raises(AIClientError, match="No capacity available for as-available"):
@@ -125,7 +126,7 @@ def test_as_available_non_blocking_when_full() -> None:
 
         assert elapsed < 0.2
         release_gate.set()
-        f.result()
+        assert f.result() is True
 
 
 def test_as_available_yields_when_higher_priority_waiting() -> None:
@@ -134,20 +135,24 @@ def test_as_available_yields_when_higher_priority_waiting() -> None:
     slot_held = threading.Event()
     release_gate = threading.Event()
 
-    def _occupy() -> None:
-        with acquire_ollama_slot(candidates, max_parallel=1, timeout=3.0):
+    def _occupy() -> bool:
+        """Hold the slot until the test lets it go; whether the test did."""
+        with acquire_ollama_slot(candidates, max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS):
             slot_held.set()
-            release_gate.wait(timeout=3.0)
+            return release_gate.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
     def _normal_waiter() -> None:
         with acquire_ollama_slot(
-            candidates, max_parallel=1, timeout=3.0, priority=RequestPriority.NORMAL
+            candidates,
+            max_parallel=1,
+            timeout=THREAD_HANDOFF_BOUND_SECONDS,
+            priority=RequestPriority.NORMAL,
         ):
             pass
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         f_hold = executor.submit(_occupy)
-        assert slot_held.wait(timeout=1.0) is True
+        assert slot_held.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
         f_normal = executor.submit(_normal_waiter)
         assert _wait_until_waiting("normal", 1) is True
@@ -159,8 +164,10 @@ def test_as_available_yields_when_higher_priority_waiting() -> None:
                 pass
 
         release_gate.set()
-        f_hold.result()
+        held_until_released = f_hold.result()
         f_normal.result()
+
+    assert held_until_released is True
 
 
 def test_llm_client_chat_defaults_to_high_priority(monkeypatch: pytest.MonkeyPatch) -> None:

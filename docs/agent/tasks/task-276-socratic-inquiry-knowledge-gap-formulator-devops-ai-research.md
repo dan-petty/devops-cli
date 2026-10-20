@@ -1,9 +1,6 @@
 # Task 276: Socratic Inquiry & Knowledge Gap Formulator (`devops ai research socratic`)
 
 **Issue**: [#276](https://github.com/dan-petty/devops-cli/issues/276)
-**Status**: Done
-**Milestone**: `v0.2.35`
-**Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/ai`, `priority/p1-high`
 **Feasibility**: Verified against `devops_cli.ai.research` module, model gateway seam, and Typer CLI runtime.
 

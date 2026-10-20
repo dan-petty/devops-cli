@@ -18,13 +18,10 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext
 
-from devops_cli.ai.agents.pydantic_agent import (
-    AgentTool,
-    BaseCapability,
-    RunContext,
-    Tool,
-)
+from devops_cli.ai.agents.capabilities import BaseCapability
+from devops_cli.ai.agents.tools import AgentTool, Tool
 from devops_cli.ai.harness.constants import DEFAULT_SUMMARIZING_INSTRUCTIONS
 from devops_cli.exceptions.ai import HarnessValidationError
 from devops_cli.models.ai import ChatMessage
@@ -937,7 +934,7 @@ class WarnOnCacheBusts(BaseCapability):
         mark.last_request_time = effective_now
         return warning_msg
 
-    def after_model_request(  # type: ignore[override]
+    def after_model_request(
         self,
         ctx: RunContext[Any] | None = None,
         *,

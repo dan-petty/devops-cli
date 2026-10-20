@@ -40,6 +40,7 @@ from devops_cli.roadmap.board_read import (
     BOARD_ITEMS_OPERATION,
     item_list_key,
 )
+from tests.support.fakes.github import API
 
 BOARD_READ = "RoadmapBoard"
 """The reply key a `RecordedGh` matches both board queries by."""
@@ -377,6 +378,8 @@ class GitHubFake:
         return dispatch
 
     def _answer(self, args: list[str], stdin: str | None) -> Any:
+        if args[0].startswith(f"{API}/"):
+            return self._listing(args[0].removeprefix(f"{API}/"))
         if args[0] == "project":
             return self._project(args)
         if args[:2] == ["api", "graphql"]:
@@ -490,6 +493,21 @@ class GitHubFake:
         return card
 
     # ── REST ──
+
+    def _listing(self, path: str) -> Any:
+        """A REST listing the store reads through its session (`RunnerSession`, #983): every
+        page, as the session follows GitHub's links, or the first failed one."""
+        per_page = int(parse_qs(urlsplit(path).query).get("per_page", ["30"])[0])
+        listing: list[Any] = []
+        page = 1
+        while True:
+            entries = self._rest(["api", f"{path}&page={page}"])
+            if not isinstance(entries, list):
+                return entries
+            listing += entries
+            if len(entries) < per_page:
+                return listing
+            page += 1
 
     def _rest(self, args: list[str]) -> Any:
         method = args[args.index("-X") + 1] if "-X" in args else "GET"

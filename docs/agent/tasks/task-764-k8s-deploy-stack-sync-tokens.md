@@ -1,9 +1,6 @@
 # Task 764: Auto-Mint and Synchronize argocd.token and grafana.token in deploy-stack
 
 **Issue**: [#764](https://github.com/dan-petty/devops-cli/issues/764)
-**Status**: Done
-**Milestone**: `v0.2.24`
-**Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/k8s`, `priority/p2-medium`
 
 ---

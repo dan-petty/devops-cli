@@ -1,9 +1,6 @@
 # Task 515: Review Prompts Apply This Repository's Rules to Every Project
 
 **Issue**: [#515](https://github.com/dan-petty/devops-cli/issues/515)
-**Status**: Done
-**Milestone**: `v0.2.23`
-**Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/review`, `priority/p1-high`
 
 ---

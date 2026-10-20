@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 import anyio
 import httpcore2
 import httpx2
-from pydantic_ai._ssrf import is_cloud_metadata_ip
 
 from devops_cli.core.validation import is_cloud_metadata_name, is_non_public_ip
 from devops_cli.exceptions import SSRFBlockedError
@@ -82,6 +81,8 @@ def _refusal(sockaddr: tuple[Any, ...], level: EgressLevel) -> str | None:
     address = ipaddress.ip_address(sockaddr[0])
     if getattr(address, "scope_id", None) or any(sockaddr[3:4]):
         return "a scoped IPv6 address"
+    from devops_cli.core.validation import is_cloud_metadata_ip
+
     if is_cloud_metadata_ip(str(address)):
         return "a cloud metadata address"
     if not _LEVEL_ADMITS[level](address):

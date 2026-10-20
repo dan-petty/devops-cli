@@ -1,9 +1,6 @@
 # Task: Criteria Commands Run in the Reviewed Project's Environment with a Measured Python Timeout (#847)
 
 **Issue**: [#847](https://github.com/dan-petty/devops-cli/issues/847)
-**Status**: Done
-**Milestone**: v0.2.25
-**Priority**: priority/p2-medium
 **Scope**: scope/review
 
 ## Description

@@ -41,9 +41,9 @@ from tests.cluster_secret_fakes import (
     FakeKeyring,
     forbid_requests,
 )
-from tests.conftest import PINNED_GITHUB_TOKEN
+from tests.support.github_identity import PINNED_GITHUB_TOKEN
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 runner = CliRunner()
 # Built once: building the whole `devops k8s` group costs a quarter second per invoke.

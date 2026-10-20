@@ -1,9 +1,6 @@
 # Task: Devcontainer no longer starts Git daemon stub (#1122)
 
 **Issue**: [#1122](https://github.com/dan-petty/devops-cli/issues/1122)
-**Status**: Done
-**Milestone**: v0.2.31
-**Priority**: priority/p2-medium
 **Scope**: type/security, priority/p2-medium, scope/security
 
 ## Description

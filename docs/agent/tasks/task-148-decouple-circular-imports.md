@@ -1,9 +1,6 @@
 # Task 148: Decouple Circular Module Imports & Streamline Convoluted Import Patterns
 
 **Issue**: [#148](https://github.com/dan-petty/devops-cli/issues/148)
-**Status**: Done
-**Milestone**: `v0.2.16`
-**Priority**: `priority/p2-medium`
 **Scope**: `scope/cli`
 
 ---
