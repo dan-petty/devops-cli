@@ -218,6 +218,9 @@ def test_devcontainer_post_create_scaffolds_agent_instructions(
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
+    # Every program answers as installed, as in the published image, so post-create runs no
+    # installer: on a host without claude it ran Claude Code's real installer, a 276 MB download.
+    monkeypatch.setattr("shutil.which", lambda cmd, *_args, **_kwargs: f"/usr/local/bin/{cmd}")
 
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "post-create-proj"\n', encoding="utf-8"
@@ -230,10 +233,11 @@ def test_devcontainer_post_create_scaffolds_agent_instructions(
     )
     assert res_dry.exit_code == 0
 
-    # Live execution test
+    # Live execution test. --skip-tools keeps uv from installing the locked semgrep and bandit
+    # from PyPI into the test's data directory.
     res_live = runner.invoke(
         devcontainer_app,
-        ["post-create", "--workspace", str(tmp_path)],
+        ["post-create", "--workspace", str(tmp_path), "--skip-tools"],
     )
     assert (
         res_live.exit_code,
