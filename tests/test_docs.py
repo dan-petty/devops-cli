@@ -163,37 +163,34 @@ def test_render_markdown_and_json(generator: DocGenerator) -> None:
 
 
 def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
-    """Write and check every generated file, syncing a README under `tmp_path`.
-
-    With the default README this rewrote the repository's own, which the workspace tripwire
-    reports whenever that README already differs from HEAD.
-    """
-    readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Title\n\n## Complete Command Matrix\n\n| Command Group | Subcommand |\n|---|---|\n\n---\n",
-        encoding="utf-8",
-    )
-    with patch.object(generator, "_find_readme", return_value=readme):
-        written = generator.write_all_docs(tmp_path)
-        # Check passes when docs are unchanged
-        ok, errors = generator.check_docs(tmp_path)
-    expected = ("CLI_REFERENCE.md", "ENV_VARS.md", "MCP_TOOLS.md", "commands/repos.md")
+    """Write and check docs using a two-entry fixture without introspection or argv checks."""
+    fixture_docs = {
+        "CLI_REFERENCE.md": "# DevOps CLI Reference\n",
+        "ENV_VARS.md": "# Configuration Environment Variables\n",
+    }
+    written = generator.write_all_docs(tmp_path, sync_readme_table=False, docs=fixture_docs)
+    ok, errors = generator.check_docs(tmp_path, check_readme_table=False, docs=fixture_docs)
+    expected = ("CLI_REFERENCE.md", "ENV_VARS.md")
     assert (
         all((tmp_path / name).exists() for name in expected),
-        readme in written,
+        len(written) == 2,
         ok,
         errors,
     ) == (True, True, True, [])
 
     # Stale file detection
     (tmp_path / "CLI_REFERENCE.md").write_text("Modified content", encoding="utf-8")
-    ok_stale, errors_stale = generator.check_docs(tmp_path)
+    ok_stale, errors_stale = generator.check_docs(
+        tmp_path, check_readme_table=False, docs=fixture_docs
+    )
     assert ok_stale is False
     assert any("differs from generated content" in e for e in errors_stale)
 
     # Missing file detection
     (tmp_path / "ENV_VARS.md").unlink()
-    ok_missing, errors_missing = generator.check_docs(tmp_path)
+    ok_missing, errors_missing = generator.check_docs(
+        tmp_path, check_readme_table=False, docs=fixture_docs
+    )
     assert ok_missing is False
     assert any("Missing documentation file" in e for e in errors_missing)
 
@@ -304,27 +301,51 @@ def test_ci_docs_command(runner: CliRunner) -> None:
 
 
 def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Path) -> None:
-    """Verify write_all_docs and check_docs."""
+    """Verify write_all_docs and check_docs mechanics using fixture docs."""
     out_dir = tmp_path / "docs"
     readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Title\n\n## Complete Command Matrix\n\n| Command Group | Subcommand |\n|---|---|\n\n---\n",
-        encoding="utf-8",
+    readme_content = (
+        "# Title\n\n## Complete Command Matrix\n\n"
+        "<!-- COMMAND_MATRIX_START -->\n\n| Command Group | Subcommand |\n|---|---|\n\n<!-- COMMAND_MATRIX_END -->\n\n---\n"
     )
+    readme.write_text(readme_content, encoding="utf-8")
 
-    written = generator.write_all_docs(out_dir, sync_readme_table=False)
-    assert len(written) > 0
+    fixture_docs = {
+        "CLI_REFERENCE.md": "# CLI Reference\n",
+        "ENV_VARS.md": "# Configuration Environment Variables\n",
+    }
 
-    ok = generator.sync_readme(readme)
+    written = generator.write_all_docs(out_dir, sync_readme_table=False, docs=fixture_docs)
+    assert len(written) == 2
+
+    # Check docs with fixture
+    ok_check, check_errs = generator.check_docs(
+        out_dir, check_readme_table=False, docs=fixture_docs
+    )
+    assert ok_check is True
+    assert check_errs == []
+
+    # Sync and check README using docs seam
+    synced_readme_content = readme_content.replace(
+        "| Command Group | Subcommand |", "| Command Group | Subcommand / Usage |"
+    )
+    readme_docs = {"README.md": synced_readme_content}
+    ok = generator.sync_readme(readme, docs=readme_docs)
     assert ok is True
+    assert readme.read_text(encoding="utf-8") == synced_readme_content
 
-    # Check docs with readme sync enabled
+    # Check docs with readme sync enabled using docs containing README.md
+    full_docs = {**fixture_docs, **readme_docs}
     with patch.object(generator, "_find_readme", return_value=readme):
-        written_with_sync = generator.write_all_docs(out_dir, sync_readme_table=True)
-        assert len(written_with_sync) > 0
+        written_with_sync = generator.write_all_docs(
+            out_dir, sync_readme_table=True, docs=full_docs
+        )
+        assert len(written_with_sync) == 3
+        assert readme in written_with_sync
 
-        ok_check, _check_errs = generator.check_docs(out_dir, check_readme_table=True)
-        assert ok_check is True
+        ok_full, errs_full = generator.check_docs(out_dir, check_readme_table=True, docs=full_docs)
+        assert ok_full is True
+        assert errs_full == []
 
     # Readme with no markers or table returns error in check_readme
     empty_readme = tmp_path / "EMPTY.md"
@@ -332,6 +353,27 @@ def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Pa
     no_matrix_ok, no_matrix_err = generator.check_readme(empty_readme)
     assert no_matrix_ok is False
     assert "Could not find" in str(no_matrix_err)
+
+
+def test_one_check_docs_call_introspects_once(generator: DocGenerator, tmp_path: Path) -> None:
+    """Verify that a full check_docs call introspects command groups only once."""
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "# Title\n\n## Complete Command Matrix\n\n"
+        "<!-- COMMAND_MATRIX_START -->\n\n| Command Group | Subcommand / Usage | Purpose & Features |\n"
+        "|---|---|---|\n\n<!-- COMMAND_MATRIX_END -->\n\n---\n",
+        encoding="utf-8",
+    )
+    with (
+        patch.object(generator, "_find_readme", return_value=readme),
+        patch.object(
+            generator, "introspect_all_groups", wraps=generator.introspect_all_groups
+        ) as mock_introspect,
+        patch.object(generator, "introspect_env_vars", return_value=[]),
+        patch.object(generator, "introspect_mcp_tools", return_value=[]),
+    ):
+        generator.check_docs(tmp_path, check_readme_table=True, check_argv=False)
+        assert mock_introspect.call_count == 1
 
 
 def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) -> None:
