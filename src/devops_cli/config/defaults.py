@@ -441,6 +441,12 @@ DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
+# The niceness `devops ci security` starts Bandit with (#1725). The test row is the full gate's
+# critical path, and Bandit beside its workers took 61 s against 21 s alone; niced, it takes the
+# CPU they leave idle instead of theirs. 10 rather than 19: the scheduler weighs a niceness of 10
+# at about a tenth of 0, and 19 at about a seventieth, so on a host other work keeps busy Bandit
+# still finishes. On an idle CPU a niced process runs at full speed.
+DEFAULT_CI_BANDIT_NICENESS: Final[int] = 10
 # `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
 DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # The workers of a narrowed `devops ci test <paths>` run given no `-n` (#1669): serial up to this

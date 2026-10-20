@@ -1134,7 +1134,10 @@ def test_the_full_gate_collects_the_test_module_ban(pytestconfig: pytest.Config)
             "--cov-report=term-missing",
             "--cov-report=xml",
         ],
-        ["-n", "logical", "-p", "no:logfire", "-p", "no:pytest_logfire", "-p", "no:randomly"],
+        [
+            *("-n", "logical", "--dist", "worksteal"),
+            *("-p", "no:logfire", "-p", "no:pytest_logfire", "-p", "no:randomly"),
+        ],
         [CONST_TESTS_ROOT_DIR],
         ["test_*.py", "*_test.py"],
         [],

@@ -30,8 +30,11 @@ from devops_cli.commands.ci import (
     resolve_selected_specs,
     resolve_step_rows,
 )
-from devops_cli.config.constants import CONST_EXIT_CANCELLED
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.constants import CONST_BANDIT_INI_NAME, CONST_EXIT_CANCELLED
+from devops_cli.config.defaults import (
+    DEFAULT_CI_BANDIT_NICENESS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
@@ -92,6 +95,29 @@ def test_ci_security_command(monkeypatch) -> None:
     result = runner.invoke(app, ["security", "-s", "high"])
     assert result.exit_code == 0
     assert any("bandit" in c and c[-2:] == ["--severity-level", "high"] for c in called)
+
+
+def test_the_gate_starts_bandit_below_the_test_row_s_priority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The test row is the full gate's critical path, so the gate starts Bandit, which runs beside
+    its workers, under `nice`, and the test row at normal priority (#1725). `devops ci security`
+    runs the same row (`test_subcommand_dispatches_exact_table_row_cmd`)."""
+    spawns = record_spawns(monkeypatch)
+    for row in ("security", "test"):
+        asyncio.run(ci_module._execute_check_async(get_check_spec(row)))
+
+    gate_security, gate_test = (spawn.argv for spawn in spawns)
+    run_at, bandit_at = gate_security.index("run"), gate_security.index("bandit")
+    assert (
+        gate_security[run_at + 1 : bandit_at],
+        gate_security[bandit_at:],
+        "nice" in gate_test,
+    ) == (
+        ["nice", "-n", str(DEFAULT_CI_BANDIT_NICENESS)],
+        ["bandit", "-r", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "medium"],
+        False,
+    )
 
 
 def test_ci_actionlint_command(monkeypatch) -> None:
