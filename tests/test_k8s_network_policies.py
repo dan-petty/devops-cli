@@ -20,16 +20,7 @@ K8S_DIR = REPO_ROOT / "k8s"
 # An Argo CD Application is such a path, never a deploy-stack one: a cluster without Argo CD gets
 # only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
 # or leaves its file; the guard below fails until then.
-UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
-    ("llm", "portkey-perimeter"): (
-        "k8s/llm/portkey/networkpolicy.yaml",
-        "Argo CD's llm Application; deploy-stack does not deploy Portkey",
-    ),
-    ("llm", "valkey-runs-perimeter"): (
-        "k8s/llm/valkey-runs.yaml",
-        "Argo CD's llm Application; a person applies the file for `devops ai runs` (k8s/README.md)",
-    ),
-}
+UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
 
 TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops")
 METADATA_SSRF_IP = "169.254.169.254/32"

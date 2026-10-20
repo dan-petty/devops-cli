@@ -10,7 +10,11 @@ from typing import Any
 
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import (
+    _HELM_RELEASES_BY_STACK,
+    _KUSTOMIZATIONS_BY_STACK,
+    _MANIFESTS_BY_STACK,
+)
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from tests.support.paths import REPO_ROOT
 
@@ -101,44 +105,105 @@ def test_git_sources_and_revisions() -> None:
             ), f"{name} bad revision {git_s.get('targetRevision')}"
 
 
+def _assert_helm_app_matches_release(
+    app: dict[str, Any], release: dict[str, str], name: str
+) -> None:
+    semver_re = re.compile(r"^\d+\.\d+\.\d+$")
+    sources = app.get("spec", {}).get("sources", [])
+    helm_sources = [s for s in sources if "chart" in s]
+    assert len(helm_sources) == 1, f"{name} expected 1 Helm source"
+    h = helm_sources[0]
+
+    target_rev = str(h["targetRevision"])
+    assert semver_re.match(target_rev), f"{name} helm version {target_rev} not pinned semver"
+    assert target_rev == release["version"]
+
+    expected_chart_name = release["chart"].split("/")[-1]
+    assert h["chart"] == expected_chart_name
+    assert app["spec"]["destination"]["namespace"] == release["namespace"]
+
+    value_files = h.get("helm", {}).get("valueFiles", [])
+    raw_val = Path(release["values"])
+    rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
+    expected_rel_path = f"$values/{rel_val.as_posix()}"
+    assert value_files == [expected_rel_path]
+
+
+def _kustomization_manifest_files(kust_dir: Path) -> list[Path]:
+    """Find all concrete manifest files referenced by a kustomization recursively."""
+    kust_file = kust_dir / "kustomization.yaml"
+    if not kust_file.is_file():
+        return []
+    doc = yaml.safe_load(kust_file.read_text(encoding="utf-8")) or {}
+    files: list[Path] = []
+    for res in doc.get("resources", []):
+        res_path = (kust_dir / res).resolve()
+        if res_path.is_file():
+            files.append(res_path)
+        elif res_path.is_dir() and (res_path / "kustomization.yaml").is_file():
+            files.extend(_kustomization_manifest_files(res_path))
+    return files
+
+
 def test_helm_sources_pinned_versions() -> None:
     apps = _all_applications()
-    semver_re = re.compile(r"^\d+\.\d+\.\d+$")
-
-    helm_releases_map: dict[str, dict[str, str]] = {}
-    for releases in _HELM_RELEASES_BY_STACK.values():
-        for r in releases:
-            helm_releases_map[r["name"]] = r
-    helm_releases_map["traefik"] = {
-        "name": "traefik",
-        "chart": "traefik/traefik",
-        "namespace": "kube-system",
-        "values": "k8s/ingress/traefik-values.yaml",
-        "version": "41.6.0",
+    helm_releases_map: dict[str, dict[str, str]] = {
+        r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
     }
 
     for name, expected in helm_releases_map.items():
         assert name in apps, f"Missing Helm app {name}"
-        app = apps[name]
+        _assert_helm_app_matches_release(apps[name], expected, name)
+
+
+def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> None:
+    """Every Application in k8s/argocd/apps maps to a deploy-stack counterpart (#1675).
+
+    Each chart maps to a release with the same version and values file, and each path maps
+    to a deploy-stack manifest list or kustomization. argocd-image-updater is the only allowed
+    exception (k8s/README.md Service Image Updates; task-1485).
+    """
+    helm_releases_map: dict[str, dict[str, str]] = {
+        r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
+    }
+    deploy_stack_kustomizations = {
+        (REPO_ROOT / "k8s").resolve(),
+        *(
+            (REPO_ROOT / "k8s" / k).resolve()
+            for ks in _KUSTOMIZATIONS_BY_STACK.values()
+            for k in ks
+        ),
+    }
+    deploy_stack_manifests = {
+        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
+        for ms in _MANIFESTS_BY_STACK.values()
+        for p in ms
+    }
+
+    for app_path_file in sorted(APPS_DIR.glob("*.yaml")):
+        if app_path_file.name == "projects.yaml":
+            continue
+        app = _load_yaml(app_path_file)
+        name = app["metadata"]["name"]
+        if name == "argocd-image-updater":
+            continue
+
         spec = app["spec"]
-        sources = spec.get("sources", [])
-        helm_sources = [s for s in sources if "chart" in s]
-        assert len(helm_sources) == 1, f"{name} expected 1 Helm source"
-        h = helm_sources[0]
-
-        target_rev = str(h["targetRevision"])
-        assert semver_re.match(target_rev), f"{name} helm version {target_rev} not pinned semver"
-        assert target_rev == expected["version"]
-
-        expected_chart_name = expected["chart"].split("/")[-1]
-        assert h["chart"] == expected_chart_name
-        assert app["spec"]["destination"]["namespace"] == expected["namespace"]
-
-        value_files = h.get("helm", {}).get("valueFiles", [])
-        raw_val = Path(expected["values"])
-        rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
-        expected_rel_path = f"$values/{rel_val.as_posix()}"
-        assert value_files == [expected_rel_path]
+        if "sources" in spec:
+            assert name in helm_releases_map, f"{name} has no deploy-stack release"
+            _assert_helm_app_matches_release(app, helm_releases_map[name], name)
+        elif "source" in spec and "path" in spec["source"]:
+            target_path = (REPO_ROOT / spec["source"]["path"]).resolve()
+            if target_path in deploy_stack_kustomizations:
+                continue
+            manifests = _kustomization_manifest_files(target_path)
+            assert manifests, f"{name} path {target_path} contains no manifests"
+            missing = [
+                m.relative_to(REPO_ROOT).as_posix()
+                for m in manifests
+                if m not in deploy_stack_manifests
+            ]
+            assert not missing, f"{name} manifests missing from deploy-stack: {missing}"
 
 
 def _assert_kustomization_resources(p: Path, name: str) -> None:
