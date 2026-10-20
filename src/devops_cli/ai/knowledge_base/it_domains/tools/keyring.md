@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/keyring@25.7.*"
+sources:
+  - "https://keyring.readthedocs.io/"
+  - "https://github.com/jaraco/keyring"
+reviewed: "2026-10-15"
+tags:
+  - "keyring"
+  - "security"
+---
+
 # Knowledge Base: Keyring (OS Secure Credential & Token Storage)
 
 ## 1. Overview & Purpose

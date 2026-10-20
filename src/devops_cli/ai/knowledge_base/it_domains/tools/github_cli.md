@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:gh@2.*"
+sources:
+  - "https://cli.github.com/"
+  - "https://github.com/cli/cli"
+reviewed: "2026-10-15"
+tags:
+  - "gh"
+  - "github"
+---
+
 # Knowledge Base: GitHub CLI (gh) (VCS & Remote Automation)
 
 ## 1. Overview & Purpose

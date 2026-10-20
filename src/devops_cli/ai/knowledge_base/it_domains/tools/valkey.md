@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:valkey@8.0.*"
+sources:
+  - "https://valkey.io/"
+  - "https://github.com/valkey-io/valkey"
+reviewed: "2026-10-15"
+tags:
+  - "valkey"
+  - "cache"
+---
+
 # Knowledge Base: Valkey (Open-Source In-Memory Data Store & Cache)
 
 ## 1. Overview & Purpose

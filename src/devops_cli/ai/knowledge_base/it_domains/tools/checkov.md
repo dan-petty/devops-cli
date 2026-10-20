@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:checkov@3.2.*"
+sources:
+  - "https://www.checkov.io/"
+  - "https://github.com/bridgecrewio/checkov"
+reviewed: "2026-10-15"
+tags:
+  - "checkov"
+  - "iac"
+  - "security"
+---
+
 # Checkov Tool Reference Manual
 
 ## 1. Overview & Operational Mandate

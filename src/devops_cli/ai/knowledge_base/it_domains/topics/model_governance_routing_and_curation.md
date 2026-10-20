@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://ollama.com/"
+  - "https://github.com/ollama/ollama"
+reviewed: "2026-10-15"
+tags:
+  - "ai"
+  - "models"
+  - "governance"
+---
+
 # Knowledge Base Topic: Model Governance, Adaptive Routing, Curation & Resilience
 
 ## 1. Overview & Domain Architecture

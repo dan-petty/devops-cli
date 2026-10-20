@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:prometheus@3.2.*"
+sources:
+  - "https://prometheus.io/"
+  - "https://github.com/prometheus/prometheus"
+reviewed: "2026-10-15"
+tags:
+  - "prometheus"
+  - "metrics"
+  - "observability"
+---
+
 # Knowledge Base: Prometheus (Metrics Collection & PromQL Engine)
 
 ## 1. Overview & Purpose

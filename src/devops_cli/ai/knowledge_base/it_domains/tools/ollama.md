@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:ollama@0.6.*"
+sources:
+  - "https://ollama.com/"
+  - "https://github.com/ollama/ollama"
+reviewed: "2026-10-15"
+tags:
+  - "ollama"
+  - "ai"
+  - "llm"
+---
+
 # Knowledge Base: Ollama (Local Large Language Model Inference)
 
 ## 1. Overview & Purpose

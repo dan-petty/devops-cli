@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/pydantic-ai@2.54.*"
+sources:
+  - "https://ai.pydantic.dev/"
+  - "https://github.com/pydantic/pydantic-ai"
+reviewed: "2026-10-15"
+tags:
+  - "pydantic-ai"
+  - "ai"
+  - "agents"
+---
+
 # Knowledge Base: PydanticAI (Standardized Agent Framework)
 
 ## 1. Overview & Purpose

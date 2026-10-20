@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/rhysd/actionlint"
+  - "https://docs.pytest.org/"
+reviewed: "2026-10-15"
+tags:
+  - "ci"
+  - "testing"
+  - "verification"
+---
+
 # Knowledge Base Topic: Continuous Integration & Progressive Verification
 
 ## 1. Overview & Domain Architecture

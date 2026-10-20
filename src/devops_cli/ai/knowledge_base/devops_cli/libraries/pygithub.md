@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/pygithub@2.10.*"
+sources:
+  - "https://pygithub.readthedocs.io/"
+  - "https://github.com/PyGithub/PyGithub"
+reviewed: "2026-10-15"
+tags:
+  - "pygithub"
+  - "github"
+---
+
 # Code Library: PyGithub (GitHub REST & GraphQL API Client)
 
 ## 1. Project References

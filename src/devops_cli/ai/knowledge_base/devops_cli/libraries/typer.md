@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/typer@0.27.*"
+sources:
+  - "https://typer.tiangolo.com/"
+  - "https://click.palletsprojects.com/"
+reviewed: "2026-10-15"
+tags:
+  - "typer"
+  - "click"
+  - "cli"
+---
+
 # Code Library: Typer & Click (CLI Command Routing & Option Parsing)
 
 ## 1. Project References

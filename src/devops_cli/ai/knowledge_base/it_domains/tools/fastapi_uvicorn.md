@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/fastapi@0.142.*"
+sources:
+  - "https://fastapi.tiangolo.com/"
+  - "https://www.uvicorn.org/"
+reviewed: "2026-10-15"
+tags:
+  - "fastapi"
+  - "uvicorn"
+  - "rest"
+---
+
 # Knowledge Base: FastAPI & Uvicorn (REST Engine & OpenAPI Service)
 
 ## 1. Overview & Purpose

@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/docker@7.2.*"
+sources:
+  - "https://docker-py.readthedocs.io/"
+  - "https://github.com/docker/docker-py"
+reviewed: "2026-10-15"
+tags:
+  - "docker"
+  - "containers"
+---
+
 # Code Library: Docker SDK (Container Daemon Controller)
 
 ## 1. Project References

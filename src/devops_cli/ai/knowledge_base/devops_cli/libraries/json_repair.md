@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/json-repair@0.63.*"
+sources:
+  - "https://github.com/mangiucugna/json_repair"
+reviewed: "2026-10-15"
+tags:
+  - "json-repair"
+  - "json"
+---
+
 # Code Library: JSON Repair (Resilient LLM Payload Recovery)
 
 ## 1. Project References

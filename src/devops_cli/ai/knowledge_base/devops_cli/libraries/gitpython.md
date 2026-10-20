@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/gitpython@3.2.*"
+sources:
+  - "https://gitpython.readthedocs.io/"
+  - "https://github.com/gitpython-developers/GitPython"
+reviewed: "2026-10-15"
+tags:
+  - "gitpython"
+  - "git"
+---
+
 # Code Library: GitPython (VCS Interface & Git Object Model)
 
 ## 1. Project References

@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/tiktoken@0.14.*"
+sources:
+  - "https://github.com/openai/tiktoken"
+  - "https://pypi.org/project/tiktoken/"
+reviewed: "2026-10-15"
+tags:
+  - "tiktoken"
+  - "ai"
+  - "tokens"
+---
+
 # Knowledge Base: tiktoken (Fast BPE Tokenizer & Context Budgeting)
 
 ## 1. Overview & Purpose

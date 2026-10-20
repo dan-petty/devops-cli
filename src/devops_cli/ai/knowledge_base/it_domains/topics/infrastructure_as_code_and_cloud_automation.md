@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:opentofu@1.9.*"
+sources:
+  - "https://opentofu.org/"
+  - "https://github.com/opentofu/opentofu"
+reviewed: "2026-10-15"
+tags:
+  - "iac"
+  - "opentofu"
+  - "terraform"
+---
+
 # Knowledge Base Topic: Infrastructure as Code & Cloud Automation
 
 ## 1. Overview & Domain Architecture

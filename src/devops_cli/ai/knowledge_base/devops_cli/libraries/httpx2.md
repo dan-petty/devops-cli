@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/httpx2@2.13.*"
+sources:
+  - "https://github.com/pydantic/httpx2"
+reviewed: "2026-10-15"
+tags:
+  - "httpx2"
+  - "http"
+---
+
 # Code Library: HTTPX2 (Pydantic Modern HTTP/2 & Streaming Client)
 
 ## 1. Project References

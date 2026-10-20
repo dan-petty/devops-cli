@@ -4040,7 +4040,19 @@ class ReviewPipelineOrchestrator:
 
         from devops_cli.review.analysis import render_model_analysis_markdown
 
-        lines.extend(render_model_analysis_markdown(getattr(self, "analysis_report", None)))
+        analysis_report = getattr(self, "analysis_report", None)
+        if analysis_report is not None:
+            lines.extend(render_model_analysis_markdown(analysis_report))
+        else:
+            from devops_cli.ai.kb import load_matched_kb_manuals
+
+            _, drift = load_matched_kb_manuals(kubernetes_version=self.kubernetes_version)
+            if drift:
+                lines.append("## Reference coverage: drift")
+                lines.append("")
+                for d in sorted(drift, key=lambda x: x.path):
+                    lines.append(f"- `{d.path}`: {d.reason}")
+                lines.append("")
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
@@ -4059,7 +4071,7 @@ class ReviewPipelineOrchestrator:
     ) -> Any:
         """Execute bounded per-group model analysis on admitted scanner findings (#1147)."""
         from devops_cli.dry_run.state import is_dry_run
-        from devops_cli.review.analysis import run_group_analysis
+        from devops_cli.review.analysis import default_environment_facts, run_group_analysis
 
         if not has_personas or (stage_flags is not None and not stage_flags.group_analysis):
             return None
@@ -4073,10 +4085,15 @@ class ReviewPipelineOrchestrator:
                 resolved = self._resolve_file_path(fpath)
                 if resolved.is_file():
                     file_contents[fpath] = resolved.read_text(encoding="utf-8", errors="replace")
+        env = default_environment_facts(
+            admitted,
+            kubernetes_version=self.kubernetes_version,
+        )
         report = run_group_analysis(
             admitted,
             llm_client=self.llm_client,
             file_contents=file_contents,
+            environment=env,
             session_dir=self.session_dir,
             concurrency=self.concurrency,
         )

@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/pydantic@2.*"
+sources:
+  - "https://docs.pydantic.dev/latest/"
+  - "https://github.com/pydantic/pydantic"
+reviewed: "2026-10-15"
+tags:
+  - "pydantic"
+  - "validation"
+---
+
 # Code Library: Pydantic v2 & Pydantic-Settings (Data Validation & Configuration)
 
 ## 1. Project References

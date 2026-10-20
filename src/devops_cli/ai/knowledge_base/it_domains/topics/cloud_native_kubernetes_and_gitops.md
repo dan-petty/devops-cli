@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "k8s@1.31.*"
+sources:
+  - "https://kubernetes.io/"
+  - "https://argo-cd.readthedocs.io/"
+reviewed: "2026-10-15"
+tags:
+  - "k8s"
+  - "kubernetes"
+  - "gitops"
+---
+
 # Knowledge Base Topic: Cloud-Native Kubernetes & GitOps Delivery
 
 ## 1. Overview & Domain Architecture

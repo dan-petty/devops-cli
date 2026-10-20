@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:docker@29.*"
+sources:
+  - "https://docs.docker.com/"
+  - "https://github.com/moby/moby"
+reviewed: "2026-10-15"
+tags:
+  - "docker"
+  - "containers"
+---
+
 # Knowledge Base: Docker (Containerization & Runtime Engine)
 
 ## 1. Overview & Purpose

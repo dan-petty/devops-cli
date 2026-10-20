@@ -1,3 +1,17 @@
+---
+applies_to:
+  - "pkg:pypi/pyyaml@6.0.*"
+  - "pkg:pypi/jinja2@3.1.*"
+sources:
+  - "https://pyyaml.org/"
+  - "https://jinja.palletsprojects.com/"
+reviewed: "2026-10-15"
+tags:
+  - "pyyaml"
+  - "jinja2"
+  - "templates"
+---
+
 # Code Library: PyYAML & Jinja2 (Structured Manifests & Template Engine)
 
 ## 1. Project References

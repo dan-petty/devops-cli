@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/tiktoken@0.14.*"
+sources:
+  - "https://github.com/openai/tiktoken"
+reviewed: "2026-10-15"
+tags:
+  - "tiktoken"
+  - "tokens"
+  - "ai"
+---
+
 # Code Library: Tiktoken (BPE Tokenizer & Context Window Budgeting)
 
 ## 1. Project References

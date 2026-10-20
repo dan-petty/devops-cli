@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/packaging@26.*"
+sources:
+  - "https://packaging.pypa.io/"
+  - "https://github.com/pypa/packaging"
+reviewed: "2026-10-15"
+tags:
+  - "packaging"
+  - "semver"
+---
+
 # Code Library: Packaging (SemVer & Python Specification Engine)
 
 ## 1. Project References

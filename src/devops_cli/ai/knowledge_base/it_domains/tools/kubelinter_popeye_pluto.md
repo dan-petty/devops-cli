@@ -1,3 +1,19 @@
+---
+applies_to:
+  - "tool:kube-linter@0.8.*"
+sources:
+  - "https://github.com/stackrox/kube-linter"
+  - "https://github.com/derailed/popeye"
+  - "https://github.com/FairwindsOps/pluto"
+reviewed: "2026-10-15"
+tags:
+  - "kube-linter"
+  - "kubelinter"
+  - "popeye"
+  - "pluto"
+  - "k8s"
+---
+
 # Knowledge Base: KubeLinter, Popeye & Pluto (Kubernetes Quality & Safety Suite)
 
 ## 1. Overview & Purpose

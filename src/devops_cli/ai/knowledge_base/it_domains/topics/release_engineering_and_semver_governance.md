@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://semver.org/"
+  - "https://www.conventionalcommits.org/"
+reviewed: "2026-10-15"
+tags:
+  - "release"
+  - "semver"
+---
+
 # Knowledge Base Topic: Release Engineering & SemVer Governance
 
 ## 1. Overview & Domain Architecture

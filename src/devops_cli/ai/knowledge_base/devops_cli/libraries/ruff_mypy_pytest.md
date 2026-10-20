@@ -1,3 +1,19 @@
+---
+applies_to:
+  - "pkg:pypi/ruff@0.16.*"
+  - "pkg:pypi/mypy@2.3.*"
+  - "pkg:pypi/pytest@9.1.*"
+sources:
+  - "https://docs.astral.sh/ruff/"
+  - "https://mypy.readthedocs.io/"
+  - "https://docs.pytest.org/"
+reviewed: "2026-10-15"
+tags:
+  - "ruff"
+  - "mypy"
+  - "pytest"
+---
+
 # Code Library: Ruff, Mypy & Pytest (Core Developer Quality Suite)
 
 ## 1. Project References

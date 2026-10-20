@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:actionlint@1.7.*"
+sources:
+  - "https://github.com/rhysd/actionlint"
+  - "https://github.com/rhysd/actionlint/releases"
+reviewed: "2026-10-15"
+tags:
+  - "actionlint"
+  - "ci"
+  - "github-actions"
+---
+
 # Knowledge Base: actionlint (GitHub Actions Static Workflow Linter)
 
 ## 1. Overview & Purpose

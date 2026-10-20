@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/cryptography@50.*"
+sources:
+  - "https://cryptography.io/"
+  - "https://github.com/pyca/cryptography"
+reviewed: "2026-10-15"
+tags:
+  - "cryptography"
+  - "security"
+---
+
 # Code Library: Cryptography (X.509 TLS & SSH Cryptographic Engine)
 
 ## 1. Project References

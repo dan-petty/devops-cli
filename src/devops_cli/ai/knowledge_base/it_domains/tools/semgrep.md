@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:semgrep@1.179.*"
+sources:
+  - "https://semgrep.dev/"
+  - "https://github.com/semgrep/semgrep"
+reviewed: "2026-10-15"
+tags:
+  - "semgrep"
+  - "security"
+---
+
 # Knowledge Base: Semgrep (Multilingual Static AST Pattern Matcher)
 
 ## 1. Overview & Purpose

@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/fastmcp@4.0.*"
+sources:
+  - "https://github.com/jlowin/fastmcp"
+  - "https://modelcontextprotocol.io/"
+reviewed: "2026-10-15"
+tags:
+  - "fastmcp"
+  - "mcp"
+  - "ai"
+---
+
 # Code Library: FastMCP (Model Context Protocol Server & Tool Engine)
 
 ## 1. Project References

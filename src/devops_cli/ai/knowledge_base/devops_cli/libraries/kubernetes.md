@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/kubernetes@36.0.*"
+sources:
+  - "https://github.com/kubernetes-client/python"
+reviewed: "2026-10-15"
+tags:
+  - "kubernetes"
+  - "k8s"
+---
+
 # Code Library: Kubernetes (Python Client SDK)
 
 ## 1. Project References
