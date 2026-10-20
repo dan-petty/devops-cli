@@ -42,6 +42,22 @@ def image_programs_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("shutil.which", lambda cmd, *_args, **_kwargs: f"/usr/local/bin/{cmd}")
 
 
+@pytest.fixture
+def no_configured_k8s_context(isolate_devops_cli_config: Path) -> None:
+    """Name no Kubernetes context in the test's config, so post-start leaves kubectl alone.
+
+    Unset, the context is the built-in default, minikube, and post-start asks a real kubectl for
+    the kubeconfig's contexts before selecting it.
+    """
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.k8s.context import reset_context_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write('k8s:\n  context: ""\n')
+    reset_settings_cache()
+    reset_context_cache()
+
+
 class TestDevcontainerCli:
     """Tests for devcontainer CLI commands."""
 
@@ -159,6 +175,7 @@ class TestDevcontainerCli:
         assert (fake_home / ".zshrc").exists()
         assert "source_zsh" in (fake_home / ".zshrc").read_text(encoding="utf-8")
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
     def test_post_start_command_executes_successfully(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -336,6 +353,7 @@ class TestDevcontainerCli:
 
         assert result is False
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
     def test_post_start_mcp_scaffolding_and_sync(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -629,7 +647,7 @@ class TestDevcontainerCli:
             "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
         ) == (True, True, True, True)
 
-    @pytest.mark.usefixtures("image_programs_installed")
+    @pytest.mark.usefixtures("image_programs_installed", "no_configured_k8s_context")
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -910,7 +928,7 @@ class TestDevcontainerCli:
         assert Path("/scratch").resolve() in paths
         assert (tmp_path / ".venv").resolve() in paths
 
-    @pytest.mark.usefixtures("image_programs_installed")
+    @pytest.mark.usefixtures("image_programs_installed", "no_configured_k8s_context")
     def test_setup_volume_mount_permissions_and_lifecycle(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
