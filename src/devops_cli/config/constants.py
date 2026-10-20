@@ -4684,12 +4684,16 @@ USER root
 RUN echo "canary"
 """
 
-# ── Review Finding Group Model Analysis Constants (#1147) ────────────────────
+# ── Review Finding Group Model Analysis Constants (#1147, #1148) ──────────────
 CONST_REVIEW_ANALYSIS_FILENAME: Final[str] = "analysis.json"
 CONST_ANALYSIS_PROMPT_FILENAME: Final[str] = "review_group_analysis.md"
+CONST_ANALYSIS_PLAN_PROMPT_FILENAME: Final[str] = "review_plan.md"
 CONST_ANALYSIS_GROUP_KINDS: Final[frozenset[str]] = frozenset({"region", "kubernetes", "advisory"})
 CONST_ANALYSIS_RELATIONS: Final[frozenset[str]] = frozenset(
-    {"caller", "callee", "same-symbol", "same-rule"}
+    {"caller", "callee", "same-symbol", "same-rule", "same-root-cause"}
+)
+CONST_ANALYSIS_CORRELATION_KEY_KINDS: Final[frozenset[str]] = frozenset(
+    {"cwe", "rule_family", "symbol_component", "purl", "manifest_source"}
 )
 CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
 CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "trivy"})
@@ -4702,10 +4706,16 @@ CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
     "unmatched-doc-quote",
     "unverified-version-or-package",
     "invalid-python-code-block",
+    "unshared-root-cause-key",
+    "plan-incomplete-coverage",
+    "plan-order-violation",
 )
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
 CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
 CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
+CONST_ANALYSIS_REJECTION_UNSHARED_ROOT_CAUSE_KEY: Final[str] = "unshared-root-cause-key"
+CONST_ANALYSIS_REJECTION_PLAN_INCOMPLETE_COVERAGE: Final[str] = "plan-incomplete-coverage"
+CONST_ANALYSIS_REJECTION_PLAN_ORDER_VIOLATION: Final[str] = "plan-order-violation"
 
 # ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
 CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (

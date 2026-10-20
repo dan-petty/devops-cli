@@ -15,7 +15,8 @@ Your role is strictly to **correlate, investigate, and plan** based on the provi
    - Every fenced Python code block (` ```python `) MUST be valid syntax at the target language floor and pass `ruff check --target-version <floor> --select F,UP`.
 4. **Citations & Relations**:
    - Every `plan_steps` entry MUST cite one or more admitted `finding_ids` from the group.
-   - Every `related_items` entry MUST reference an admitted finding ID or a provided symbol-graph neighbour with a relation in `{"caller", "callee", "same-symbol", "same-rule"}`.
+   - Every `related_items` entry MUST reference an admitted finding ID or a provided symbol-graph neighbour with a relation in `{"caller", "callee", "same-symbol", "same-rule", "same-root-cause"}`.
+   - A relation of `"same-root-cause"` is ONLY allowed between findings that share a deterministic correlation key (CWE, rule family, symbol-graph component, purl, or manifest source).
 5. **Suppression Note**:
    - `suppression_note` is optional plain text only; a human maintainer records any suppression with reason and expiry in `.devops/review.toml` via pull request.
 
