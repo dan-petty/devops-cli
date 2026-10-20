@@ -17,6 +17,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     VALID_STACKS as LIFE_VALID_STACKS,
 )
 from devops_cli.dry_run import set_dry_run
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -66,9 +67,8 @@ def test_devops_stack_manifests_integrity() -> None:
 
 def test_devops_namespace_in_namespaces_yaml() -> None:
     """Verify namespace devops is registered in k8s/namespaces.yaml."""
-    repo_root = Path(__file__).resolve().parent.parent
     docs = list(
-        yaml.safe_load_all((repo_root / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load_all((REPO_ROOT / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
     )
     names = {d["metadata"]["name"] for d in docs if d and d.get("kind") == "Namespace"}
 
@@ -97,8 +97,7 @@ def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
 
 def test_roadmap_service_ingress_uses_prefix_pathtype() -> None:
     """Verify roadmap-service ingress uses Prefix pathType for robust routing."""
-    repo_root = Path(__file__).resolve().parent.parent
-    ingress_file = repo_root / "k8s" / "devops" / "roadmap-service" / "ingress.yaml"
+    ingress_file = REPO_ROOT / "k8s" / "devops" / "roadmap-service" / "ingress.yaml"
     data = yaml.safe_load(ingress_file.read_text(encoding="utf-8"))
     rule = data["spec"]["rules"][0]
     path_entry = rule["http"]["paths"][0]
@@ -120,8 +119,7 @@ def test_roadmap_service_ingress_uses_prefix_pathtype() -> None:
 
 def test_roadmap_service_ingress_in_ingress_routes() -> None:
     """Verify roadmap-service ingress is registered in k8s/ingress/ingress-routes.yaml."""
-    repo_root = Path(__file__).resolve().parent.parent
-    routes_file = repo_root / "k8s" / "ingress" / "ingress-routes.yaml"
+    routes_file = REPO_ROOT / "k8s" / "ingress" / "ingress-routes.yaml"
     docs = list(yaml.safe_load_all(routes_file.read_text(encoding="utf-8")))
     roadmap_docs = [
         d

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.config import RoadmapConfig, parse_roadmap_config, read_roadmap_config
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 
 
 def test_omitted_keys_take_their_defaults() -> None:
@@ -122,7 +121,7 @@ def test_every_key_can_be_set() -> None:
 
 
 def test_this_repositorys_file_names_board_2_and_declares_quota_keys() -> None:
-    text = (Path(__file__).parents[1] / ".github" / "roadmap.toml").read_text(encoding="utf-8")
+    text = (REPO_ROOT / ".github" / "roadmap.toml").read_text(encoding="utf-8")
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=2,
         planning_horizon=3,

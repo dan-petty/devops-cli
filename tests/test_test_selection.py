@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import shutil
 from pathlib import Path
 from typing import NoReturn
 
@@ -9,16 +11,23 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_coverage_index_path
-from devops_cli.commands.ci import _normalize_repo_rel_path
+from devops_cli.commands.ci import _normalize_repo_rel_path, get_check_spec
 from devops_cli.commands.ci import app as ci_app
-from devops_cli.config.constants import CONST_FULL_RUN_TRIGGER_NAMES
+from devops_cli.config.constants import (
+    CONST_CI_SLOWEST_TESTS_SHOWN,
+    CONST_CONFTEST_FILENAME,
+    CONST_FULL_RUN_TRIGGER_NAMES,
+    CONST_TESTS_ROOT_DIR,
+)
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
     SuiteImports,
     forces_full_run,
+    is_test_module,
     module_path_for_source,
     select_tests_for_sources,
 )
+from tests.support.paths import REPO_ROOT, TESTS_ROOT
 
 runner = CliRunner()
 
@@ -935,4 +944,111 @@ def test_cli_test_unindexed_source_falls_back_per_source(
         ["tests/test_a.py", "tests/test_c.py"],
         True,
         True,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Checks that run in the full gate only
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The ban on reading `__file__` and importing a test module, which parses every test file.
+_TEST_MODULE_BAN = Path("tests/test_test_module_independence.py")
+
+
+def test_no_narrowed_selection_over_a_changed_source_or_helper_runs_the_test_module_ban(
+    tmp_path: Path,
+) -> None:
+    """The ban on reading `__file__` and importing a test module parses every test file, so it
+    runs only in the full gate (#1312). In a repository whose `src/` is this one's and whose
+    `tests/` holds the ban's module beside every other module of this suite but its test
+    modules, no selection short of the whole suite reaches it: not one over every source
+    module, by name or import; not one over every helper module that does not reach the whole
+    suite, the union of their own selections; and not one over each conftest, which may narrow
+    to its own directory. So a narrowed `devops ci test` or `devops test run --changed` runs it
+    only when given its module or when it runs the whole suite."""
+    (tmp_path / "src").symlink_to(REPO_ROOT / "src", target_is_directory=True)
+    shared = [
+        path.relative_to(REPO_ROOT)
+        for path in sorted(TESTS_ROOT.rglob("*.py"))
+        if not is_test_module(path)
+    ]
+    for relative in (_TEST_MODULE_BAN, *shared):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / relative, tmp_path / relative)
+    imports = SuiteImports(tmp_path)
+    conftests = [path for path in shared if path.name == CONST_CONFTEST_FILENAME]
+    helpers = [path for path in shared if path not in conftests]
+    selections = {
+        "every source module": [
+            path.relative_to(REPO_ROOT) for path in sorted((REPO_ROOT / "src").rglob("*.py"))
+        ],
+        "every helper module short of the whole suite": [
+            path for path in helpers if not imports.reaches_every_test(path)
+        ],
+        **{str(path): [path] for path in conftests},
+    }
+    reaching_the_ban = {
+        changed: targets
+        for changed, paths in selections.items()
+        if (targets := select_tests_for_sources(paths, tmp_path).pytest_targets())
+        != [CONST_TESTS_ROOT_DIR]
+        and any(_TEST_MODULE_BAN.is_relative_to(target) for target in targets)
+    }
+    assert reaching_the_ban == {}
+
+
+# The names by which a conftest or a plugin keeps files out of collection.
+_COLLECTION_FILTERS = frozenset({"collect_ignore", "collect_ignore_glob", "pytest_ignore_collect"})
+
+
+def _bound_name(node: ast.AST) -> str | None:
+    """The name a definition, an assignment target or an import binds, or None."""
+    match node:
+        case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name) | ast.ClassDef(name=name):
+            return name
+        case ast.Name(id=name, ctx=ast.Store()):
+            return name
+        case ast.alias(name=name, asname=asname):
+            return asname or name
+    return None
+
+
+def _collection_filters() -> list[str]:
+    """`path:line` of each binding of a collection filter in a conftest under `tests/` or in a
+    support module, which registration makes a plugin."""
+    support = TESTS_ROOT / "support"
+    plugins = sorted({*TESTS_ROOT.rglob(CONST_CONFTEST_FILENAME), *support.rglob("*.py")})
+    return [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{node.lineno}"
+        for path in plugins
+        for node in ast.walk(ast.parse(path.read_bytes()))
+        if _bound_name(node) in _COLLECTION_FILTERS
+    ]
+
+
+def test_the_full_gate_collects_the_test_module_ban(pytestconfig: pytest.Config) -> None:
+    """`uv run devops ci`, which the pre-push hook runs, collects the ban's module (#1312): its
+    test step hands pytest exactly these options and `pyproject.toml` exactly these `addopts`,
+    none of which names a path, ignores, deselects or selects by keyword or marker; pytest
+    collects `test_*.py` and `*_test.py` under `tests`; and no conftest or support plugin keeps
+    a file out of collection. A new option or filter fails this until its effect on what the
+    full gate collects is weighed."""
+    gate = get_check_spec("test").cmd
+    assert (
+        gate[gate.index("pytest") + 1 :],
+        pytestconfig.getini("addopts"),
+        pytestconfig.getini("testpaths"),
+        pytestconfig.getini("python_files"),
+        _collection_filters(),
+    ) == (
+        [
+            f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
+            "--cov=src",
+            "--cov-report=term-missing",
+            "--cov-report=xml",
+        ],
+        ["-n", "logical", "-p", "no:logfire", "-p", "no:pytest_logfire", "-p", "no:randomly"],
+        [CONST_TESTS_ROOT_DIR],
+        ["test_*.py", "*_test.py"],
+        [],
     )

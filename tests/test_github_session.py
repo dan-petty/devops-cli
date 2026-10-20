@@ -49,10 +49,10 @@ from tests.github_session_fakes import (
     next_page,
     quota_headers,
 )
+from tests.support.paths import REPO_ROOT
 from tests.web_fakes import rebinding, scripted_resolver
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_SRC = _PROJECT_ROOT / "src" / "devops_cli"
+_SRC = REPO_ROOT / "src" / "devops_cli"
 
 
 def _gh_answers(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
@@ -484,7 +484,7 @@ def test_a_process_that_sent_a_request_exits_without_closing_its_session(tmp_pat
     interpreter exits instead of waiting forever on the loop it stopped."""
     proc = subprocess.run(
         [sys.executable, "-c", _EXITING_CHILD],
-        cwd=_PROJECT_ROOT,
+        cwd=REPO_ROOT,
         env={**os.environ, "DEVOPS_CLI_DATA_DIR": str(tmp_path)},
         capture_output=True,
         text=True,
