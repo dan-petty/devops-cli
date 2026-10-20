@@ -84,25 +84,27 @@ def test_automated_sync_policies() -> None:
         assert retry.get("limit") == 5, f"{name} retry.limit is not 5"
 
 
-def test_git_sources_and_revisions() -> None:
-    apps = _all_applications()
+def _check_app_git_sources(name: str, spec: dict[str, Any]) -> None:
+    if "source" in spec:
+        source = spec["source"]
+        assert (source["repoURL"], source["targetRevision"]) == (
+            REPO_URL,
+            "main",
+        ), f"{name} bad revision {source.get('targetRevision')}"
+        return
+    git_sources = [s for s in spec.get("sources", []) if "chart" not in s]
+    expected_count = 2 if name == "argocd" else 1
+    assert len(git_sources) == expected_count, f"{name} expected {expected_count} git sources"
+    for git_s in git_sources:
+        assert (git_s["repoURL"], git_s["targetRevision"]) == (
+            REPO_URL,
+            "main",
+        ), f"{name} bad revision {git_s.get('targetRevision')}"
 
-    for name, app in apps.items():
-        spec = app["spec"]
-        if "source" in spec:
-            source = spec["source"]
-            assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main"), (
-                f"{name} bad revision {source.get('targetRevision')}"
-            )
-        elif "sources" in spec:
-            git_sources = [s for s in spec["sources"] if "chart" not in s]
-            assert len(git_sources) == 1, f"{name} expected 1 git source"
-            git_s = git_sources[0]
-            assert (git_s["repoURL"], git_s["ref"], git_s["targetRevision"]) == (
-                REPO_URL,
-                "values",
-                "main",
-            ), f"{name} bad revision {git_s.get('targetRevision')}"
+
+def test_git_sources_and_revisions() -> None:
+    for name, app in _all_applications().items():
+        _check_app_git_sources(name, app["spec"])
 
 
 def _assert_helm_app_matches_release(
@@ -377,7 +379,10 @@ def test_namespace_and_pvc_data_safety() -> None:
 def test_chart_pvc_and_crd_safety_values() -> None:
     grafana_val = _load_yaml(K8S_DIR / "monitoring" / "grafana-values.yaml")
     grafana_opts = grafana_val["persistence"]["annotations"]["argocd.argoproj.io/sync-options"]
-    assert ("Prune=false" in grafana_opts, "Delete=false" in grafana_opts) == (True, True)
+    assert ("Prune=false" in grafana_opts, "Delete=false" in grafana_opts) == (
+        True,
+        True,
+    )
     assert grafana_val.get("admin", {}).get("existingSecret") == "grafana-admin"
     assert "adminPassword" not in grafana_val.get("admin", {})
 
@@ -416,22 +421,40 @@ def test_argocd_enables_the_web_terminal() -> None:
 # ── Perimeters & Network Policies ────────────────────────────────────────────
 
 
-def test_perimeters_in_applications() -> None:
+def test_exactly_one_application_renders_argocd_default_perimeter() -> None:
+    """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
+    from tests.k8s_manifests import kustomized_objects
+
     apps = _all_applications()
+    rendering_apps: list[str] = []
     for name, app in apps.items():
-        spec = app["spec"]
-        if "source" in spec and "path" in spec["source"]:
-            p = REPO_ROOT / spec["source"]["path"]
-            kust = p / "kustomization.yaml"
-            if kust.exists():
-                kust_data = _load_yaml(kust)
-                resources = kust_data.get("resources", [])
-                assert "networkpolicy.yaml" not in resources or name != "argocd", (
-                    "No app may sync k8s/argocd/networkpolicy.yaml"
-                )
+        spec = app.get("spec", {})
+        sources = list(spec.get("sources", []))
+        if "source" in spec and isinstance(spec["source"], dict):
+            sources.append(spec["source"])
+        for src in sources:
+            rel_path = src.get("path")
+            if not rel_path:
+                continue
+            p = REPO_ROOT / rel_path
+            if (p / "kustomization.yaml").is_file() or (p / "kustomization.yml").is_file():
+                policies = kustomized_objects(p, "NetworkPolicy")
+                if ("argocd", "argocd-default-perimeter") in policies:
+                    rendering_apps.append(name)
+    assert rendering_apps == ["argocd"]
 
     otel_kust = _load_yaml(K8S_DIR / "otel" / "kustomization.yaml")
     assert "networkpolicy.yaml" in otel_kust.get("resources", [])
+
+
+def test_applicationset_controller_disabled_with_zero_replicas() -> None:
+    """The ApplicationSet controller Deployment renders 0 replicas and avoids the obsolete enabled key (#1673)."""
+    values = _load_yaml(ARGOCD_DIR / "values.yaml")
+    appset = values.get("applicationSet", {})
+    assert (
+        appset.get("replicas"),
+        "enabled" in appset,
+    ) == (0, False)
 
 
 # ── Domain Overlays ──────────────────────────────────────────────────────────
@@ -643,7 +666,9 @@ def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it
     ).stdout
     objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
     ignored = subprocess.run(
-        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"], cwd=REPO_ROOT, check=False
+        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        check=False,
     ).returncode
     tracked = subprocess.run(
         ["git", "ls-files", "k8s/devops/configmap.yaml"],
@@ -652,4 +677,8 @@ def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it
         text=True,
         check=True,
     ).stdout
-    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (False, 0, "")
+    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (
+        False,
+        0,
+        "",
+    )

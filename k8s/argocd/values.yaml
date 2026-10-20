@@ -85,7 +85,10 @@ notifications:
   enabled: false
 
 applicationSet:
-  enabled: false
+  # The upstream argo-cd chart has no enable switch for this controller; replicas: 0 disables
+  # pod execution while its SA, Role, RoleBinding and Service still render (#1673).
+  # #1082 turns it back on (with replicas >= 1 and a NetworkPolicy for webhook port 7000).
+  replicas: 0
 
 configs:
   cm:
