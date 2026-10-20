@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -294,7 +295,80 @@ def test_the_commit_hook_runs_this_module_at_the_default_cap() -> None:
         if hook["id"] == "structural-invariants"
     )
 
-    assert (hook["entry"], hook["args"]) == (
-        "uv run python3 -m devops_cli.core.code_metrics",
+    assert (hook["entry"], hook["args"], hook.get("require_serial")) == (
+        "python3 -P src/devops_cli/core/code_metrics.py",
         ["--max-depth", str(DEFAULT_MAX_NESTING_DEPTH)],
+        True,
     )
+
+
+def test_the_hook_entry_matches_module_execution_on_valid_and_breaching_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The stdlib hook entry command produces the exact exit code and error output as main()."""
+    config = yaml.safe_load((REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    hook = next(
+        hook
+        for repo in config["repos"]
+        for hook in repo["hooks"]
+        if hook["id"] == "structural-invariants"
+    )
+    cmd = hook["entry"].split()
+    args = hook["args"]
+
+    shallow_file = _write(
+        tmp_path, "shallow.py", "def f(x):\n    if x:\n        return 1\n    return 0\n"
+    )
+    deep_file = _write(tmp_path, "deep.py", _nested_ifs(7))
+
+    res_shallow = subprocess.run(
+        [*cmd, *args, str(shallow_file)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    mod_status_shallow = main([*args, str(shallow_file)])
+    mod_err_shallow = capsys.readouterr().err
+
+    assert res_shallow.returncode == mod_status_shallow == 0
+    assert res_shallow.stderr == mod_err_shallow == ""
+
+    res_deep = subprocess.run(
+        [*cmd, *args, str(deep_file)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    mod_status_deep = main([*args, str(deep_file)])
+    mod_err_deep = capsys.readouterr().err
+
+    assert res_deep.returncode == mod_status_deep == 1
+    assert "nesting 8 > 5" in res_deep.stderr
+    assert res_deep.stderr == mod_err_deep
+
+
+def test_pre_commit_runs_hook_in_single_process_across_multiple_files(tmp_path: Path) -> None:
+    """Pre-commit executes the hook once across staged files when require_serial is true."""
+    if shutil.which("pre-commit") is None:
+        pytest.skip("pre-commit is not installed")
+
+    files = [_write(tmp_path, f"m{i}.py", "x = 1\n") for i in range(20)]
+    res = subprocess.run(
+        [
+            "pre-commit",
+            "run",
+            "structural-invariants",
+            "--verbose",
+            "--files",
+            *[str(p) for p in files],
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert res.returncode == 0
+    assert res.stdout.count("hook id: structural-invariants") == 1
