@@ -1783,6 +1783,9 @@ CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
     "Informational": "INFO",
 }
 CONST_EXIT_CANCELLED: int = 130
+# The signals besides Ctrl-C's SIGINT that cancel a `devops ci test` run, whose pytest runs in a
+# session of its own that no terminal hangup or supervisor's SIGTERM reaches (#1669).
+CONST_CI_RUN_STOP_SIGNAL_NAMES: Final[tuple[str, ...]] = ("SIGTERM", "SIGHUP")
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"

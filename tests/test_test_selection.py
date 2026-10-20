@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_coverage_index_path
+from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import _normalize_repo_rel_path, get_check_spec
 from devops_cli.commands.ci import app as ci_app
 from devops_cli.config.constants import (
@@ -18,6 +19,10 @@ from devops_cli.config.constants import (
     CONST_CONFTEST_FILENAME,
     CONST_FULL_RUN_TRIGGER_NAMES,
     CONST_TESTS_ROOT_DIR,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_CI_TEST_NARROWED_WORKERS,
+    DEFAULT_CI_TEST_SERIAL_MAX_FILES,
 )
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
@@ -28,6 +33,9 @@ from devops_cli.core.test_selection import (
     select_tests_for_sources,
 )
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
+from tests.support.session_spawns import RecordedSpawn, record_spawns
+
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 runner = CliRunner()
 
@@ -447,6 +455,85 @@ def test_cli_exits_cleanly_for_documentation_only_changes(
     result = runner.invoke(ci_app, ["test", "README.md"])
 
     assert (result.exit_code, called) == (0, [])
+
+
+def _worker_options(argv: list[str]) -> list[list[str]]:
+    """The `-n` options of a pytest command line, each with its value."""
+    return [argv[at : at + 2] for at, arg in enumerate(argv) if arg in ("-n", "--numprocesses")]
+
+
+def _started_runs(
+    monkeypatch: pytest.MonkeyPatch, project: Path, *args: str
+) -> tuple[int, list[RecordedSpawn]]:
+    """`devops ci test <args>` run from the project, its exit code and the children it started,
+    doubled at `asyncio.create_subprocess_exec`, so none of them is real."""
+    monkeypatch.chdir(project)
+    spawns = record_spawns(monkeypatch)
+    result = runner.invoke(ci_app, ["test", *args])
+    return result.exit_code, spawns
+
+
+def _test_modules(project: Path, count: int) -> list[str]:
+    """Write `count` test modules into the project and return their paths."""
+    paths = [f"tests/test_selected_{number}.py" for number in range(count)]
+    for path in paths:
+        (project / path).write_text("def test_noop() -> None: ...\n", encoding="utf-8")
+    return paths
+
+
+@pytest.mark.parametrize(
+    ("args", "workers"),
+    [
+        pytest.param((), [], id="full-suite"),
+        pytest.param(("src/devops_cli/orphan.py",), [], id="full-suite-fallback"),
+        pytest.param(("src/devops_cli/security/secrets.py",), [["-n", "0"]], id="narrowed"),
+        pytest.param(
+            ("-n", "3", "src/devops_cli/security/secrets.py"), [["-n", "3"]], id="workers-given"
+        ),
+    ],
+)
+def test_a_narrowed_run_chooses_its_workers_and_the_full_suite_keeps_addopts(
+    monkeypatch: pytest.MonkeyPatch, project: Path, args: tuple[str, ...], workers: list[list[str]]
+) -> None:
+    """A narrowed run with no `-n` given runs serially; the full suite and the fallback to it
+    pass no `-n`, so `addopts`' `-n logical` applies; a given `-n` is kept as it is (#1669)."""
+    exit_code, spawns = _started_runs(monkeypatch, project, *args)
+
+    assert (exit_code, [_worker_options(spawn.argv) for spawn in spawns]) == (0, [workers])
+
+
+def test_a_selection_past_the_serial_limit_runs_on_the_capped_workers(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A selection of up to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules runs serially, where
+    starting workers costs more than it saves; one module more runs on
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, never on every logical CPU (#1669)."""
+    modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
+
+    _code, at_limit = _started_runs(monkeypatch, project, *modules[:-1])
+    _code, past_limit = _started_runs(monkeypatch, project, *modules)
+
+    assert [_worker_options(spawn.argv) for spawn in at_limit + past_limit] == [
+        [["-n", "0"]],
+        [["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]],
+    ]
+
+
+def test_the_test_run_starts_pytest_in_a_session_of_its_own(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """`devops ci test`, narrowed or whole, starts pytest through asyncio in a session of its
+    own, whose whole process group a timeout or a signal stops, and not through
+    `subprocess.run`, whose timeout kills only `uv`: `refuse_nested_test_runs` fails the real
+    `uv` that would start. The double sits at the stdlib, so `devops_cli.commands.ci` is left
+    with no session runner of its own that a later test's patch would miss (#1669)."""
+    _code, narrowed = _started_runs(monkeypatch, project, "src/devops_cli/security/secrets.py")
+    _code, full = _started_runs(monkeypatch, project)
+
+    assert (
+        [("pytest" in run.argv, run.kwargs.get("start_new_session")) for run in narrowed + full],
+        "run_subprocess_async" in vars(ci_module),
+    ) == ([(True, True), (True, True)], False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

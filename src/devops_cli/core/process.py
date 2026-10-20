@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fnmatch
 import json
 import os
@@ -489,40 +490,126 @@ def _is_invalid_pgid(pgid: int | None) -> bool:
 async def _wait_for_group_exit_async(
     proc: asyncio.subprocess.Process, pgid: int, deadline: float
 ) -> bool:
-    """Poll for group exit until deadline. Returns True if group exited."""
+    """Poll for group exit until deadline. Returns True if group exited. The leader is reaped as
+    it exits; once it has, the poll sleeps between probes of the members left (#1669)."""
     while time.monotonic() < deadline:
         if proc.returncode is not None and not _signal_process_group(pgid, 0):
             return True
-        try:
+        if proc.returncode is not None:
+            await asyncio.sleep(DEFAULT_SHELL_STOP_POLL_SECONDS)
+            continue
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(proc.wait(), timeout=DEFAULT_SHELL_STOP_POLL_SECONDS)
-            if not _signal_process_group(pgid, 0):
-                return True
-        except TimeoutError:
-            pass
     return not _signal_process_group(pgid, 0)
+
+
+async def _kill_leader_async(proc: asyncio.subprocess.Process) -> None:
+    """Kill only the leader, when its group cannot be signalled; one already reaped is left be."""
+    if proc.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+    await proc.wait()
+
+
+async def _escalate_async(
+    proc: asyncio.subprocess.Process, pgid: int, later_signals: tuple[int, ...], grace: float
+) -> bool:
+    """Give the group `grace` seconds after the signal already sent, then send each later signal
+    with the same grace; whether the group exited."""
+    if await _wait_for_group_exit_async(proc, pgid, time.monotonic() + grace):
+        return True
+    for sig in later_signals:
+        if not _signal_process_group(pgid, sig):
+            return True
+        if await _wait_for_group_exit_async(proc, pgid, time.monotonic() + grace):
+            return True
+    return False
+
+
+async def _reap_after_kill_async(
+    proc: asyncio.subprocess.Process, grace: float
+) -> asyncio.CancelledError | None:
+    """Wait up to `grace` seconds for the killed leader to be reaped, through any cancellation;
+    the last cancellation absorbed, if any."""
+    deadline = time.monotonic() + grace
+    absorbed: asyncio.CancelledError | None = None
+    while proc.returncode is None and (remaining := deadline - time.monotonic()) > 0:
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=remaining)
+        except TimeoutError:
+            break
+        except asyncio.CancelledError as cancellation:
+            absorbed = cancellation
+    return absorbed
 
 
 async def _terminate_process_group_async(
     proc: asyncio.subprocess.Process,
     *,
+    first_signal: int = signal.SIGTERM,
     stop_grace_seconds: float = DEFAULT_SHELL_STOP_GRACE_SECONDS,
 ) -> None:
-    """Terminate the process group of proc on timeout, escalating from SIGTERM to SIGKILL."""
+    """Stop the process group of proc: `first_signal`, then SIGTERM if that was not it, each with
+    `stop_grace_seconds` to end the group, then SIGKILL. The group is stopped even when its
+    leader has exited, since killpg still reaches the members left (#1669).
+
+    Once begun, the stop is not given up. A further cancellation cuts the grace short and is
+    raised again only once the group is killed, and the SIGKILL is sent from a `finally`, so not
+    even a KeyboardInterrupt skips it."""
     pgid = proc.pid
-    if _is_invalid_pgid(pgid) or not _signal_process_group(pgid, signal.SIGTERM):
-        proc.kill()
-        await proc.wait()
+    if _is_invalid_pgid(pgid) or not _signal_process_group(pgid, first_signal):
+        await _kill_leader_async(proc)
         return
-
-    deadline = time.monotonic() + stop_grace_seconds
-    if await _wait_for_group_exit_async(proc, pgid, deadline):
-        return
-
-    _signal_process_group(pgid, signal.SIGKILL)
+    later = () if first_signal == signal.SIGTERM else (signal.SIGTERM,)
+    exited = False
+    absorbed: asyncio.CancelledError | None = None
     try:
-        await asyncio.wait_for(proc.wait(), timeout=stop_grace_seconds)
+        exited = await _escalate_async(proc, pgid, later, stop_grace_seconds)
+    except asyncio.CancelledError as cancellation:
+        absorbed = cancellation
+    finally:
+        if not exited:
+            _signal_process_group(pgid, signal.SIGKILL)
+    if not exited:
+        absorbed = await _reap_after_kill_async(proc, stop_grace_seconds) or absorbed
+    if absorbed is not None:
+        raise absorbed
+
+
+async def _spawn_under_stop(cmd: list[str], **kwargs: Any) -> asyncio.subprocess.Process:
+    """Start `cmd`, shielded: a cancellation while the start is still pending lets it finish and
+    then stops the child's whole process group, where asyncio's own clean-up kills only the
+    child (#1669). The start survives one cancellation only: a second Ctrl-C while the child is
+    still starting makes `asyncio.Runner.close` cancel the start itself, and asyncio's clean-up
+    then kills the direct child alone."""
+    spawn = asyncio.ensure_future(asyncio.create_subprocess_exec(*cmd, **kwargs))
+    try:
+        return await asyncio.shield(spawn)
+    except asyncio.CancelledError:
+        while not spawn.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait({spawn})
+        if not spawn.cancelled() and spawn.exception() is None:
+            await _terminate_process_group_async(spawn.result(), first_signal=signal.SIGINT)
+        raise
+
+
+async def _communicate_or_stop_group(
+    proc: asyncio.subprocess.Process, cmd: list[str], timeout: float
+) -> tuple[bytes | None, bytes | None]:
+    """The child's output once it exits. A run past `timeout` stops the child's whole process
+    group and raises `subprocess.TimeoutExpired`. A cancelled run stops the group too and stays
+    cancelled: the child's session is its own, so no Ctrl-C reaches it, and the stop first sends
+    the SIGINT a terminal would have sent, so a pytest runs its KeyboardInterrupt teardown and
+    its `finally` blocks before SIGTERM and SIGKILL follow (#1669)."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        pass
+        await _terminate_process_group_async(proc)
+        raise subprocess.TimeoutExpired(cmd, timeout) from None
+    except asyncio.CancelledError:
+        await _terminate_process_group_async(proc, first_signal=signal.SIGINT)
+        raise
 
 
 async def run_subprocess_async(
@@ -589,21 +676,15 @@ async def run_subprocess_async(
         stderr_pipe = asyncio.subprocess.PIPE if capture_output else None
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
+            proc = await _spawn_under_stop(
+                cmd,
                 cwd=cwd,
                 env=sub_env,
                 stdout=stdout_pipe,
                 stderr=stderr_pipe,
                 start_new_session=(os.name == "posix"),
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
-            except TimeoutError:
-                await _terminate_process_group_async(proc)
-                raise subprocess.TimeoutExpired(cmd, timeout) from None
+            stdout_bytes, stderr_bytes = await _communicate_or_stop_group(proc, cmd, timeout)
         except FileNotFoundError:
             dur = time.perf_counter() - start_time
             span_h.set_attribute("subprocess.executable_found", False)

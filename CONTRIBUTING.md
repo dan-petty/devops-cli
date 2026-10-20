@@ -45,7 +45,7 @@ uv run pre-commit install
 1. **Write Specification via Tests**:
    Write the tests first, as [`docs/TESTING.md`](docs/TESTING.md) describes, and run the file you changed:
    ```bash
-   uv run pytest <test-file>
+   uv run devops ci test <test-file>
    ```
 2. **Implement Feature Code**:
    Write concise, well-factored code in `src/devops_cli/` to satisfy the tests.
@@ -53,7 +53,7 @@ uv run pre-commit install
    ```bash
    uv run ruff check path/to/modified.py
    uv run mypy path/to/modified.py
-   uv run pytest tests/test_architectural_invariants.py
+   uv run devops ci test tests/test_architectural_invariants.py
    ```
 4. **Run Comprehensive CI Quality Gate**:
    Run the unified quality suite before committing:

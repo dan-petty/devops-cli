@@ -537,7 +537,7 @@ Before altering implementation code in `src/`:
 
 ### Step 5: Verify
 
-- Run the targeted tests: `uv run pytest <test-file>`.
+- Run the targeted tests: `uv run devops ci test <test-file>`.
 - Run the Gated CI quality gate: `uv run devops ci`.
 
 ### Step 6: Leave the Verdict to a Person and Prevent a Recurrence

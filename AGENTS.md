@@ -104,7 +104,7 @@ All work follows a test-first progressive verification strategy:
 ### Test-First Development Cycle (TDD as Living Contract)
 1. **Define Specification via Tests First**: Author unit and integration tests defining behavior, boundaries, and errors in `tests/` before implementation. Where a test goes, what it may double, how it is named and what it asserts: [`docs/TESTING.md`](docs/TESTING.md). Defect and fix PRs cite the `fail-to-pass` check run (`devops ci fail-to-pass --base <ref>` / `.github/workflows/fail-to-pass.yml`) instead of typing failure counts by hand; if a fix changes dependencies or the test harness itself, include `Fail-to-pass: not applicable: <reason>` in the PR body.
 2. **Implement Feature Logic**: Write clean, concise code in `src/devops_cli/` to satisfy tests.
-3. **Verify Locally**: Run targeted tests (`uv run pytest tests/test_<feature>.py`).
+3. **Verify Locally**: Run targeted tests (`uv run devops ci test tests/test_<feature>.py`), which sizes its xdist workers to the selection.
 4. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) validating all gates and enforcing $\ge 90\%$ coverage.
 5. **Zero Deprecation Warnings**: Remediate all deprecation warnings before concluding work.
 6. **Tests Pass Bandit Too**: Run `.bandit` security checks over `tests/` (`devops ci security`). Bind sockets to `127.0.0.1` or `::1`, use `tmp_path`. Use `# nosec BXXX` only for literals deliberately under test. Test conventions are detailed in [`docs/TESTING.md`](docs/TESTING.md).
@@ -130,7 +130,7 @@ All work follows a test-first progressive verification strategy:
 | :--- | :--- | :--- |
 | **Dependency Sync** | `uv sync` | Synchronize virtual environment with lockfile. |
 | **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs, deps). |
-| **Targeted Test** | `uv run pytest tests/test_<feature>.py` | Fast, isolated unit test execution. |
+| **Targeted Test** | `uv run devops ci test tests/test_<feature>.py` | Fast, isolated unit test execution, serial for a few test files. |
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
 | **Documentation Sync** | `devops docs generate --sync-readme` | Synchronize markdown CLI references and README matrix. |

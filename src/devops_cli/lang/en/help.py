@@ -620,7 +620,10 @@ class CICommandHelp:
     audit: str = "Audit installed dependencies for known vulnerabilities."
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
-    num_workers: str = "Number of parallel worker processes."
+    num_workers: str = (
+        "Number of parallel worker processes. Unset, a run narrowed to a few test files runs "
+        "serially, a larger selection on a few workers, and the full suite on every logical CPU."
+    )
     test_paths: str = (
         "Source or test files to verify. Narrows the run to covering tests; "
         "omit to run the full suite."

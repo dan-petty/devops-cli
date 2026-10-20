@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -20,16 +23,21 @@ from typer.core import TyperGroup
 
 from devops_cli.config.constants import (
     CONST_BANDIT_INI_NAME,
+    CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_EXIT_CANCELLED,
+    CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
     CONST_UV_EXIT_FAILURE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
+    DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
+    DEFAULT_CI_TEST_SERIAL_MAX_FILES,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -200,13 +208,84 @@ def _planned_request_for_cmd(
     )
 
 
+def _stop_signals_to_handle() -> list[signal.Signals]:
+    """The stop signals a run may take over: none off the main thread, which cannot set signal
+    handlers, and none this process ignores, as under `nohup`, where the ignore stands."""
+    if threading.current_thread() is not threading.main_thread():
+        return []
+    present = [
+        getattr(signal, name) for name in CONST_CI_RUN_STOP_SIGNAL_NAMES if hasattr(signal, name)
+    ]
+    return [sig for sig in present if signal.getsignal(sig) is not signal.SIG_IGN]
+
+
+@contextlib.contextmanager
+def _cancelled_by_stop_signals(cancel: Callable[[], object]) -> Iterator[None]:
+    """While it lasts, SIGTERM and SIGHUP call `cancel`, as Ctrl-C cancels `asyncio.run`'s task,
+    and the previous handlers come back after; one set outside Python, which Python cannot put
+    back, comes back as the default."""
+    previous = {
+        sig: signal.signal(sig, lambda _signum, _frame: cancel())
+        for sig in _stop_signals_to_handle()
+    }
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
+async def _run_in_own_session(
+    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
+) -> subprocess.CompletedProcess[str]:
+    """Run `cmd` in a session of its own, which a timeout, Ctrl-C, SIGTERM or SIGHUP stops as a
+    whole process group."""
+    task = asyncio.current_task()
+    loop = asyncio.get_running_loop()
+
+    def cancel() -> None:
+        if task is not None:
+            loop.call_soon_threadsafe(task.cancel)
+
+    with _cancelled_by_stop_signals(cancel):
+        result: subprocess.CompletedProcess[str] = await _get("run_subprocess_async")(
+            cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
+        )
+    return result
+
+
+def _session_returncode(
+    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
+) -> int:
+    """The exit code of `cmd` run in a session of its own (#1669). A timeout of `subprocess.run`
+    kills only `uv`, which left pytest running; stopping the session's whole group stops pytest
+    and its workers with it. A run past `timeout` fails, naming the command and timeout; one
+    stopped by SIGTERM or SIGHUP exits as cancelled, and one stopped by Ctrl-C raises
+    KeyboardInterrupt as before."""
+    try:
+        result = asyncio.run(_run_in_own_session(cmd, root, timeout, capture_output, env))
+    except subprocess.TimeoutExpired:
+        timed_out = MESSAGES.ci.run_timed_out.format(
+            command=shlex.join(cmd), timeout=f"{timeout:g}s"
+        )
+        _get("print_error")(timed_out, prefix=False, safe=True)
+        return CONST_EXIT_FAILURE
+    except asyncio.CancelledError:
+        raise typer.Exit(CONST_EXIT_CANCELLED) from None
+    return int(result.returncode)
+
+
 def _returncode(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
     env: dict[str, str] | None = None,
+    *,
+    own_session: bool = False,
 ) -> int:
-    """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run."""
+    """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run. With
+    `own_session`, the command runs in a session of its own and is stopped as a whole process
+    group."""
     if is_dry_run():
         req = _planned_request_for_cmd(cmd, env=env)
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
@@ -215,6 +294,8 @@ def _returncode(
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    if own_session:
+        return _session_returncode(full_cmd, root, timeout, capture_output, env)
     result = _get("run_subprocess")(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
@@ -226,9 +307,14 @@ def _run(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
     env: dict[str, str] | None = None,
+    *,
+    own_session: bool = False,
 ) -> bool:
     """Run a CI check subprocess synchronously; whether it passed."""
-    return _returncode(cmd, timeout=timeout, capture_output=capture_output, env=env) == 0
+    code = _returncode(
+        cmd, timeout=timeout, capture_output=capture_output, env=env, own_session=own_session
+    )
+    return code == 0
 
 
 def _section(title: str) -> None:
@@ -1435,6 +1521,18 @@ def _build_test_cmd(
     return cmd
 
 
+def _narrowed_workers(targets: list[str] | None) -> str | None:
+    """The `-n` of a run given none (#1669): none for the full suite, so addopts' `-n logical`
+    applies; serial for a selection of up to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules,
+    where each xdist worker's start-up and collection cost more than it saves; and
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers above that."""
+    if targets is None:
+        return None
+    if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:
+        return "0"
+    return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
+
+
 def _head_seed(root: Path) -> int:
     """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
     result = _get("run_subprocess")(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
@@ -1456,7 +1554,7 @@ def _run_shuffled_repeats(
     first = _head_seed(_get_project_root()) if seed is None else seed
     for run, run_seed in enumerate(range(first, first + runs), start=1):
         cmd = [*base_cmd, "-p", "randomly", f"--randomly-seed={run_seed}", *targets]
-        if not _run(cmd):
+        if not _run(cmd, own_session=True):
             failed = MESSAGES.ci.repeat_failed.format(
                 run=run, runs=runs, seed=run_seed, command=shlex.join(cmd)
             )
@@ -1509,8 +1607,9 @@ def test(
         _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
         return
 
-    cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
-    if not _run(cmd):
+    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets)
+    cmd = _build_test_cmd(workers, verbose, k, x, targets)
+    if not _run(cmd, own_session=True):
         raise typer.Exit(1)
 
 

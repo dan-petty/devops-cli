@@ -22,8 +22,10 @@ from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_CI_TEST_REPEAT_RUNS
 from devops_cli.lang import MESSAGES
 from tests.support.paths import REPO_ROOT
+from tests.support.session_spawns import RecordedSpawn, record_spawns
 
 pytest_plugins = ("pytester",)
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 # Typer builds the `ci` group from its functions' signatures on every invoke; building it once
 # keeps each CLI case to the command's own run.
@@ -59,8 +61,13 @@ def _invoke(*args: str, head: tuple[int, str] = HEAD) -> tuple[Result, list[tupl
         code, stdout = head if cmd[:2] == ["git", "rev-parse"] else (0, "")
         return subprocess.CompletedProcess(cmd, code, stdout, "")
 
-    with patch.object(ci_module, "run_subprocess", record):
-        result = runner.invoke(CI, ["test", *args])
+    async def record_in_session(spawn: RecordedSpawn) -> None:
+        calls.append((spawn.argv, spawn.kwargs.get("cwd")))
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        record_spawns(monkeypatch, on_communicate=record_in_session)
+        with patch.object(ci_module, "run_subprocess", record):
+            result = runner.invoke(CI, ["test", *args])
     return result, calls
 
 
@@ -107,13 +114,13 @@ def test_repeat_stops_at_the_seed_that_breaks_order_dependent_tests(
     plain = pytester.runpytest("-n", "0", "tests/test_shared.py")
     seeds: list[str] = []
 
-    def run_inner_pytest(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        argv = cmd[cmd.index("pytest") + 1 :]
+    async def run_inner_pytest(spawn: RecordedSpawn) -> int:
+        argv = spawn.argv[spawn.argv.index("pytest") + 1 :]
         seeds.extend(arg for arg in argv if arg.startswith("--randomly-seed="))
-        return subprocess.CompletedProcess(cmd, int(pytester.runpytest(*argv).ret))
+        return int(pytester.runpytest(*argv).ret)
 
-    with patch.object(ci_module, "run_subprocess", run_inner_pytest):
-        result = runner.invoke(CI, ["test", "--repeat", "3", "--seed", "2", "tests/test_shared.py"])
+    record_spawns(monkeypatch, on_communicate=run_inner_pytest)
+    result = runner.invoke(CI, ["test", "--repeat", "3", "--seed", "2", "tests/test_shared.py"])
 
     reproduce = "uv run pytest -n 0 -p randomly --randomly-seed=3 tests/test_shared.py"
     failure = MESSAGES.ci.repeat_failed.format(run=2, runs=3, seed=3, command=reproduce)
@@ -176,7 +183,7 @@ def test_the_gate_and_a_plain_run_stay_in_file_order(project: Path) -> None:
         result.exit_code,
         [cmd for cmd, _cwd in calls],
         DEFAULT_CI_TEST_REPEAT_RUNS,
-    ) == ([], 0, [[*UV_RUN_PYTEST, "tests/test_x.py"]], 0)
+    ) == ([], 0, [[*UV_RUN_PYTEST, "-n", "0", "tests/test_x.py"]], 0)
 
 
 @pytest.mark.parametrize("paths", [(), ("tests/conftest.py",)], ids=["no-paths", "trigger-file"])

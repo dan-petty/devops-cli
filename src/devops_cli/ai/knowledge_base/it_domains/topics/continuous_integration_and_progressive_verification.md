@@ -8,7 +8,7 @@ Continuous Integration (CI) and Progressive Verification ensure that software mo
 graph TD
     A[Active Feature Development / Bugfix] --> B[1. Fast Lint: uv run ruff check]
     B --> C[2. Fast Strict Typecheck: uv run mypy]
-    C --> D[3. Fast Isolated Unit Test: uv run pytest test_x.py]
+    C --> D[3. Fast Targeted Unit Test: uv run devops ci test tests/test_x.py]
     D --> E[4. Final Local CI Gate: devops ci - 10 Checks]
     E --> F[5. Pre-Commit Hooks Validation]
     F --> G[6. Remote GitHub Actions Matrix Verification]
