@@ -120,7 +120,7 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 
 - Wall-clock reads are faked with time-machine *(target)*. freezegun is not used: it is unmaintained, and its frozen monotonic clock hangs asyncio and tenacity.
 - Waiting goes through the sleep and clock parameters the libraries already take, such as tenacity's `sleep=` and the `sleep` of pydantic-ai's retry configuration, and one place in `src/devops_cli` supplies the real ones *(target)*. A direct `time.sleep` is patched at the stdlib, the fallback for stdlib edges. devops-cli has no Clock type of its own.
-- No test asserts on elapsed wall-clock time, which a loaded machine stretches. A budget counts something the run decides: the startup budget in `tests/test_cli_startup_imports.py` counts the modules that `--version`, the root `--help` and a few commands' `--help` import, and fails on any heavy module that any command group's `--help` imports, never on seconds.
+- No test asserts on elapsed wall-clock time, which a loaded machine stretches. A budget counts something the run decides: the startup budget in `tests/test_cli_startup_imports.py` counts the modules that `--version`, the root `--help` and a few commands' `--help` import, and fails on any heavy module that any command group's `--help` imports, never on seconds. Each argv starts one fresh interpreter, and every check on that argv reads that one run.
 
 ### Waiting for another thread
 
