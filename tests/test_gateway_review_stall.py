@@ -28,6 +28,7 @@ from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.response_cache import reset_llm_response_cache
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload
+from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
@@ -247,6 +248,11 @@ class TestSingleRetryLayerAndStatusRules:
     ) -> None:
         """Verify fake transport answering 400 fails persona call without a second attempt and records status in report."""
         monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+        spend_ledger = SpendLedger(db_path=tmp_path / ".data" / "ai" / "spend.db")
+        monkeypatch.setattr(
+            "devops_cli.ai.spend.ledger.get_spend_ledger",
+            lambda *args, **kwargs: spend_ledger,
+        )
         calls = 0
 
         class Answering400Transport(httpx2.BaseTransport):
@@ -316,6 +322,11 @@ class TestSingleRetryLayerAndStatusRules:
     ) -> None:
         """Verify 5 personas on 1 page with 1 transient 503 sees exactly 6 calls (retries alone, not 10)."""
         monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+        spend_ledger = SpendLedger(db_path=tmp_path / ".data" / "ai" / "spend.db")
+        monkeypatch.setattr(
+            "devops_cli.ai.spend.ledger.get_spend_ledger",
+            lambda *args, **kwargs: spend_ledger,
+        )
         calls = 0
         transient_hit = False
         calls_lock = threading.Lock()
