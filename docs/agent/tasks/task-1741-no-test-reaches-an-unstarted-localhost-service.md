@@ -25,12 +25,12 @@
 - [x] The guard surfaced two leaks, fixed at the source:
   - the floor now clears the investigation cache after each test, which had carried one test's Qdrant address into the next;
   - `test_llm_client_properties_and_list_models` waits for its preload and asserts its result.
+  - the floor resets the knowledge-base check's state before and after each test (`reset_kb_sync_state()`). Its cooldown had let only the first test in a process to reach Qdrant make the check, so a test reaching Qdrant without a double failed only in some orders, as under CI's shuffled seed 4031974453.
 - [x] Six files (`test_ai_subcommands_rag`, `test_builtin_tools`, `test_rag_embeddings`, `test_rag_cli`, `test_rag_drift`, `test_ai_cmd`) went from 76.86s to 56.80s, run back to back at load 15-26.
   - `test_try_retrieve_rag_context_success`: 5.03s to 0.45s.
   - The unreachable-gateway embedding test: 4.21s to 0.18s.
   - Every assertion is kept, and product code is unchanged.
 - Left to other items:
   - real connects to the Docker socket in 13 tests (#1316);
-  - the knowledge-base sync cooldown that carries across tests (#1310);
   - a seam for retry sleeps (#1320);
   - `TieredCache` dialling `localhost:6379` whatever Valkey is configured (#1165).
