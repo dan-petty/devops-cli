@@ -169,7 +169,8 @@ def generate_agents_md(meta: ProjectMetadata) -> str:
         build_commands_block = """\
 ```bash
 uv sync                              # Synchronize dependencies with lockfile
-uv run pytest                        # Run fast isolated unit tests
+uv run devops ci test <test-file>    # Run targeted tests, serial for a few files
+uv run pytest                        # Run the full test suite
 uv run ruff check                    # Run fast lint inspection
 uv run ruff format                   # Run code formatting
 uv run mypy src                      # Run strict typecheck

@@ -44,7 +44,7 @@ All Python operations are executed the `uv`-native way:
 uv sync
 
 # Run fast isolated unit tests
-uv run pytest tests/test_server.py
+uv run devops ci test tests/test_server.py
 
 # Run fast lint inspection on modified files
 uv run ruff check src/devops_cli/server/

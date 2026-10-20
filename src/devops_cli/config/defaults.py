@@ -443,6 +443,16 @@ DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
 # `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
 DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
+# The workers of a narrowed `devops ci test <paths>` run given no `-n` (#1669): serial up to this
+# many test modules, then this many workers. The full suite keeps addopts' `-n logical`. Median of
+# 3 runs at load 7-30 on 16 CPUs, wall and CPU seconds at -n 0 / 4 / 16: 1 module 6 / 11 / 15 s
+# and 9 / 30 / 133 CPU-s; 8 modules 36 / 51 / 40 s and 37 / 101 / 303 CPU-s; 12 modules 79 / 82 /
+# 54 s and 84 / 193 / 358 CPU-s, so serial matched 4 workers at less than half their CPU; 19
+# modules 75 / 27 / 39 s and 75 / 89 / 357 CPU-s, so 4 workers ran 2.8 times faster than serial at
+# about the same CPU. A source module selects a median of 3 test modules and a p90 of 12; 90%
+# select at most 12.
+DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
+DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"

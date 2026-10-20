@@ -1042,6 +1042,9 @@ class CIMessages:
         "supported yet."
     )
     repeat_seed_unavailable: str = "Could not read HEAD to derive a shuffle seed; pass --seed."
+    run_timed_out: str = (
+        "{command} ran past its {timeout} timeout and was stopped with every process it started."
+    )
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"

@@ -94,7 +94,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 flowchart TD
     T1[Author tests/test_feature.py] --> T2[Define Public Interfaces & Types]
     T2 --> T3[Assert Boundaries, Edge Cases & Errors]
-    T3 --> T4[Run Targeted Test: uv run pytest tests/test_feature.py]
+    T3 --> T4[Run Targeted Test: uv run devops ci test tests/test_feature.py]
     T4 --> T5{Test Fails as Expected?}
     T5 -- No (Unexpected Pass or Error) --> T1
     T5 -- Yes (Clean Red) --> T6[Proceed to Phase 3: Implementation]
@@ -347,7 +347,7 @@ flowchart TD
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
 | **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
-| **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
+| **2. Specification** | Test-First Authoring | `uv run devops ci test tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
