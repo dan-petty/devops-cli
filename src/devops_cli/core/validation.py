@@ -17,11 +17,19 @@ import httpx2
 import typer
 
 from devops_cli.config.constants import (
+    CONST_ALL_EMBEDDED_OFFSETS,
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
+    CONST_CLOUD_METADATA_IPV4,
+    CONST_CLOUD_METADATA_IPV6,
     CONST_IPV4_EMBEDDING_IPV6_PREFIXES,
+    CONST_ISATAP_INTERFACE_IDS,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_LOOPBACK_HOSTNAME,
+    CONST_LOW32_OFFSETS,
+    CONST_NAT64_PREFIXES,
+    CONST_PRIVATE_NETWORKS,
+    CONST_TEREDO_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
@@ -30,7 +38,6 @@ from devops_cli.exceptions import (
     ValidationError,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.output import print_error
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +46,7 @@ PathKind = Literal["any", "dir", "file", "key"]
 
 @functools.cache
 def _private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    from pydantic_ai._ssrf import _PRIVATE_NETWORKS
-
-    return _PRIVATE_NETWORKS
+    return CONST_PRIVATE_NETWORKS
 
 
 @functools.cache
@@ -83,22 +88,84 @@ def _non_public_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Networ
     )
 
 
+def _exhaustive_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Address]:
+    """Decode every standardized embedding position unconditionally."""
+    packed = ip.packed
+    candidates = {
+        ipaddress.IPv4Address(bytes(packed[i] for i in offsets))
+        for offsets in CONST_ALL_EMBEDDED_OFFSETS
+    }
+    if ip in CONST_TEREDO_PREFIX:
+        candidates.add(ipaddress.IPv4Address(int.from_bytes(packed[12:16], "big") ^ 0xFFFFFFFF))
+    return candidates
+
+
+def _standard_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Address]:
+    """Decode well-recognized transition contexts (mapped, 6to4, NAT64, ISATAP)."""
+    packed = ip.packed
+
+    def at(offsets: tuple[int, int, int, int]) -> ipaddress.IPv4Address:
+        return ipaddress.IPv4Address(bytes(packed[i] for i in offsets))
+
+    candidates: set[ipaddress.IPv4Address] = set()
+    if ip.ipv4_mapped is not None:
+        candidates.add(ip.ipv4_mapped)
+    if ip.sixtofour is not None:
+        candidates.add(ip.sixtofour)
+    for prefix, offsets_list in CONST_NAT64_PREFIXES:
+        if ip in prefix:
+            candidates.update(at(offsets) for offsets in offsets_list)
+    if int(ip) >> 32 == 0 and not ip.is_loopback and not ip.is_unspecified:
+        candidates.add(at(CONST_LOW32_OFFSETS))
+    if packed[8:12] in CONST_ISATAP_INTERFACE_IDS:
+        candidates.add(at(CONST_LOW32_OFFSETS))
+    return candidates
+
+
+def _embedded_ipv4s(ip: ipaddress.IPv6Address, *, exhaustive: bool) -> set[ipaddress.IPv4Address]:
+    """Return the IPv4 addresses `ip` may route to via an IPv6 transition mechanism."""
+    return _exhaustive_embedded_ipv4s(ip) if exhaustive else _standard_embedded_ipv4s(ip)
+
+
+def _parse_ip(ip_str: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse an IP address for blocklist comparison, dropping IPv6 zone identifiers."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.scope_id is not None:
+        ip = ipaddress.IPv6Address(ip.packed)
+    return ip
+
+
 def is_cloud_metadata_ip(
     ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
     """Classify if an IP address belongs to known cloud provider instance metadata endpoints."""
-    from pydantic_ai._ssrf import is_cloud_metadata_ip as _ssrf_is_cloud_metadata_ip
-
-    return _ssrf_is_cloud_metadata_ip(str(ip))
+    parsed = _parse_ip(str(ip))
+    if parsed is None:
+        return False
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return parsed in CONST_CLOUD_METADATA_IPV4
+    if parsed in CONST_CLOUD_METADATA_IPV6:
+        return True
+    return any(
+        candidate in CONST_CLOUD_METADATA_IPV4
+        for candidate in _embedded_ipv4s(parsed, exhaustive=True)
+    )
 
 
 def is_private_ip(
     ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
     """Classify if an IP address belongs to RFC 1918 / non-globally routable networks."""
-    from pydantic_ai._ssrf import is_private_ip as _ssrf_is_private_ip
-
-    return _ssrf_is_private_ip(str(ip))
+    parsed = _parse_ip(str(ip))
+    if parsed is None:
+        return True
+    targets: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = [parsed]
+    if isinstance(parsed, ipaddress.IPv6Address):
+        targets.extend(_embedded_ipv4s(parsed, exhaustive=False))
+    return any(target in network for target in targets for network in CONST_PRIVATE_NETWORKS)
 
 
 def __getattr__(name: str) -> Any:
@@ -583,6 +650,13 @@ def validate_configured_service_url(
     validate_url(url, purpose=purpose, allow_private=allow_private or is_loopback_host(host))
 
 
+def _fail_cli(message: str) -> None:
+    from devops_cli.output import print_error
+
+    print_error(message, prefix=False)
+    raise typer.Exit(1)
+
+
 def validate_path(  # noqa: C901
     path: Path | str,
     *,
@@ -607,16 +681,12 @@ def validate_path(  # noqa: C901
     if not raw_str:
         if kind == "key":
             raise ValidationError(f"Invalid SSH key path: {path}", field="key_path")
-        print_error(f"{label} cannot be empty.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"{label} cannot be empty.")
 
     if not allow_traversal and ".." in raw_str:
         if kind == "key":
             raise ValidationError(f"Invalid SSH key path: {path}", field="key_path")
-        print_error(
-            f"Path traversal ('..') is not permitted in {label.lower()}: '{path}'.", prefix=False
-        )
-        raise typer.Exit(1)
+        _fail_cli(f"Path traversal ('..') is not permitted in {label.lower()}: '{path}'.")
 
     p = Path(path)
     resolved = p.resolve() if ".." in raw_str else p
@@ -627,16 +697,13 @@ def validate_path(  # noqa: C901
         return p
 
     if must_exist and not resolved.exists():
-        print_error(f"{label} '{path}' does not exist.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"{label} '{path}' does not exist.")
 
     if must_exist:
         if kind == "dir" and not resolved.is_dir():
-            print_error(f"{label} '{path}' is not a directory.", prefix=False)
-            raise typer.Exit(1)
+            _fail_cli(f"{label} '{path}' is not a directory.")
         if kind == "file" and not resolved.is_file():
-            print_error(f"{label} '{path}' is not a file.", prefix=False)
-            raise typer.Exit(1)
+            _fail_cli(f"{label} '{path}' is not a file.")
 
     return resolved
 
@@ -694,8 +761,7 @@ def validate_k8s_identifier(value: str, label: str = "resource", *, namespace: b
 def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = False) -> str:
     """Validate that a string conforms to Kubernetes RFC 1123 naming rules."""
     if not is_valid_k8s_name(value, namespace=namespace):
-        print_error(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.")
     return value
 
 
@@ -708,11 +774,9 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
     """
     clean_val = value.strip()
     if not clean_val or not re.match(r"^[\w\.\:\-\/@]+$", clean_val):
-        print_error(
-            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters.",
-            prefix=False,
+        _fail_cli(
+            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters."
         )
-        raise typer.Exit(1)
     return clean_val
 
 

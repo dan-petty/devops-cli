@@ -2817,8 +2817,91 @@ CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}
 )
-# The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
-# decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
+# Private IP ranges blocked by SSRF checks by default (RFC 1918, RFC 6598 CGNAT, RFC 5737, etc.).
+CONST_PRIVATE_NETWORKS: Final[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]] = (
+    # IPv4 private ranges
+    ipaddress.IPv4Network("0.0.0.0/8"),  # "This" network
+    ipaddress.IPv4Network("10.0.0.0/8"),  # Private (RFC 1918)
+    ipaddress.IPv4Network("100.64.0.0/10"),  # CGNAT (RFC 6598), includes Alibaba Cloud metadata
+    ipaddress.IPv4Network("127.0.0.0/8"),  # Loopback
+    ipaddress.IPv4Network("169.254.0.0/16"),  # Link-local (includes cloud metadata)
+    ipaddress.IPv4Network("172.16.0.0/12"),  # Private (RFC 1918)
+    ipaddress.IPv4Network("192.168.0.0/16"),  # Private (RFC 1918)
+    # IPv4 IANA-reserved / special-purpose ranges (not globally routable)
+    ipaddress.IPv4Network("192.0.0.0/24"),  # IETF Protocol Assignments (RFC 6890)
+    ipaddress.IPv4Network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.IPv4Network("198.18.0.0/15"),  # Network benchmarking (RFC 2544)
+    ipaddress.IPv4Network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.IPv4Network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+    ipaddress.IPv4Network("224.0.0.0/4"),  # Multicast (RFC 5771)
+    ipaddress.IPv4Network("240.0.0.0/4"),  # Reserved + limited broadcast 255.255.255.255 (RFC 1112)
+    # IPv6 private ranges
+    ipaddress.IPv6Network("::/128"),  # Unspecified address
+    ipaddress.IPv6Network("::1/128"),  # Loopback
+    ipaddress.IPv6Network("fe80::/10"),  # Link-local
+    ipaddress.IPv6Network("fc00::/7"),  # Unique local address (RFC 4193)
+    # IPv6 IANA-reserved / special-purpose ranges
+    ipaddress.IPv6Network("100::/64"),  # Discard prefix (RFC 6666)
+    ipaddress.IPv6Network("2001::/32"),  # Teredo tunneling (RFC 4380)
+    ipaddress.IPv6Network("2001:db8::/32"),  # Documentation (RFC 3849)
+    ipaddress.IPv6Network("ff00::/8"),  # Multicast (RFC 4291)
+)
+
+# Cloud metadata and credential endpoints. Always blocked even when private networks are permitted.
+CONST_CLOUD_METADATA_IPV4: Final[frozenset[ipaddress.IPv4Address]] = frozenset(
+    ipaddress.IPv4Address(ip)
+    for ip in (
+        "169.254.169.254",  # AWS IMDS, GCP, Azure, OCI, DigitalOcean, Hetzner, IBM, OpenStack
+        "169.254.170.2",  # AWS ECS task IAM role credentials
+        "169.254.170.23",  # AWS EKS Pod Identity Agent
+        "168.63.129.16",  # Azure WireServer / platform channel (public IP)
+        "100.100.100.200",  # Alibaba Cloud
+        "192.0.0.192",  # Oracle Cloud (Classic)
+        "169.254.42.42",  # Scaleway
+    )
+)
+CONST_CLOUD_METADATA_IPV6: Final[frozenset[ipaddress.IPv6Address]] = frozenset(
+    ipaddress.IPv6Address(ip)
+    for ip in (
+        "fd00:ec2::254",  # AWS IMDS IPv6
+        "fd00:ec2::23",  # AWS EKS Pod Identity Agent IPv6
+        "fd20:ce::254",  # Scaleway IPv6 metadata
+        "fd00:42::42",  # Scaleway IPv6 metadata
+    )
+)
+
+# RFC 6052 §2.2: byte offsets within a 16-byte IPv6 address for standardized NAT64 prefix lengths.
+CONST_NAT64_OFFSETS_BY_PREFIX_LEN: Final[dict[int, tuple[int, int, int, int]]] = {
+    32: (4, 5, 6, 7),
+    40: (5, 6, 7, 9),
+    48: (6, 7, 9, 10),
+    56: (7, 9, 10, 11),
+    64: (9, 10, 11, 12),
+    96: (12, 13, 14, 15),
+}
+CONST_LOW32_OFFSETS: Final[tuple[int, int, int, int]] = (12, 13, 14, 15)
+CONST_SIXTOFOUR_OFFSETS: Final[tuple[int, int, int, int]] = (2, 3, 4, 5)
+CONST_ALL_EMBEDDED_OFFSETS: Final[tuple[tuple[int, int, int, int], ...]] = (
+    *CONST_NAT64_OFFSETS_BY_PREFIX_LEN.values(),
+    CONST_SIXTOFOUR_OFFSETS,
+)
+CONST_NAT64_PREFIXES: Final[
+    tuple[tuple[ipaddress.IPv6Network, tuple[tuple[int, int, int, int], ...]], ...]
+] = (
+    (ipaddress.IPv6Network("64:ff9b::/96"), (CONST_NAT64_OFFSETS_BY_PREFIX_LEN[96],)),
+    (
+        ipaddress.IPv6Network("64:ff9b:1::/48"),
+        tuple(CONST_NAT64_OFFSETS_BY_PREFIX_LEN[pl] for pl in (48, 56, 64, 96)),
+    ),
+)
+CONST_ISATAP_INTERFACE_IDS: Final[tuple[bytes, ...]] = (
+    b"\x00\x00\x5e\xfe",
+    b"\x02\x00\x5e\xfe",
+)
+CONST_TEREDO_PREFIX: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("2001::/32")
+
+# The /96 prefixes whose last 32 bits carry an IPv4 address: NAT64's well-known prefix (RFC 6052)
+# and IPv4-compatible addresses (RFC 4291).
 CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
 # The punctuation prose leaves after a network target ("check 100.64.0.1."), which is never part
 # of an address, a URL's end or a name, so a target is classified without it.
