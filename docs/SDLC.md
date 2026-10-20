@@ -188,10 +188,10 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
 - `devops-ci-test-changed`: Runs targeted test suite covering staged files.
-- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes.
+- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes. The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged.
 
 #### The Primary CI Verification Gate (`devops ci`)
-Before opening or updating a PR, engineers and agents execute `devops ci` (or `uv run devops ci`). The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
+The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged. The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
 3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
