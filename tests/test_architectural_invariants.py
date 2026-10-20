@@ -79,6 +79,11 @@ from devops_cli.core.import_graph import (
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
+from tests.support.trees import (
+    parse_count,
+    parse_python_file,
+    parse_source_trees,
+)
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -212,14 +217,12 @@ def test_test_model_pytest_collection_disabled() -> None:
 
 def _parse_src() -> dict[Path, ast.Module]:
     """Parse every module under src/devops_cli once, for the whole-tree invariants."""
-    src = REPO_ROOT / "src" / "devops_cli"
-    return {
-        path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for path in sorted(src.rglob("*.py"))
-    }
+    return parse_source_trees(REPO_ROOT)
 
 
-def test_the_source_tree_keeps_its_structural_invariants() -> None:
+def test_the_source_tree_keeps_its_structural_invariants(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep,
     the module-level import graph has no cycles, and no module outside `devops_cli.commands.*`
     and `devops_cli.main` imports `devops_cli.commands` (#773, #848).
@@ -227,7 +230,7 @@ def test_the_source_tree_keeps_its_structural_invariants() -> None:
     The function body is depth 1, as the structural-invariants commit hook counts it. This is
     the one test that parses the whole tree: further whole-tree rules belong here, on its parse.
     """
-    trees = _parse_src()
+    trees = parsed_source_trees
     too_deep = [
         f"{path}:{fn.line_number}: {fn.name} nesting {fn.max_nesting_depth}"
         for path, tree in trees.items()
@@ -268,7 +271,7 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
 
     for mod_path in modules_to_check:
         assert mod_path.exists(), f"Path {mod_path} does not exist"
-        tree = ast.parse(mod_path.read_text(encoding="utf-8"), filename=str(mod_path))
+        tree = parse_python_file(mod_path)
         raises = [node for node in ast.walk(tree) if isinstance(node, ast.Raise)]
         for node in raises:
             raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
@@ -281,7 +284,9 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     )
 
 
-def test_no_module_runs_python_in_process() -> None:
+def test_no_module_runs_python_in_process(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Name every source module that calls the `exec` or `eval` builtin; there must be none.
 
     Code run by `exec` in this process is not contained by an AST check or a trimmed
@@ -291,13 +296,11 @@ def test_no_module_runs_python_in_process() -> None:
     belongs in the host sandbox (bwrap) instead.
     """
     src = REPO_ROOT / "src" / "devops_cli"
-    texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = sorted(
         {
             path.relative_to(src).as_posix()
-            for path, text in texts.items()
-            if "exec(" in text or "eval(" in text
-            for node in ast.walk(ast.parse(text, filename=str(path)))
+            for path, tree in parsed_source_trees.items()
+            for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id in ("exec", "eval")
@@ -315,13 +318,17 @@ def _is_review_finding_import(node: ast.AST) -> bool:
     )
 
 
-def _find_review_finding_callers(src: Path, texts: dict[Path, str]) -> list[str]:
+def _find_review_finding_callers(
+    src: Path,
+    texts: dict[Path, str],
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[str]:
     callers: list[str] = []
     for path, text in texts.items():
         if "Finding(" not in text:
             continue
         rel = path.relative_to(src).as_posix()
-        tree = ast.parse(text, filename=str(path))
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         if not any(_is_review_finding_import(node) for node in ast.walk(tree)):
             continue
         for node in ast.walk(tree):
@@ -336,9 +343,12 @@ def _find_review_finding_callers(src: Path, texts: dict[Path, str]) -> list[str]
     return callers
 
 
-def _find_admission_calls_outside_admit(src: Path) -> list[int]:
+def _find_admission_calls_outside_admit(
+    src: Path,
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[int]:
     adm_path = src / "review" / "admission.py"
-    adm_tree = ast.parse(adm_path.read_text(encoding="utf-8"), filename=str(adm_path))
+    adm_tree = trees[adm_path] if trees and adm_path in trees else parse_python_file(adm_path)
     calls: list[int] = []
     for node in adm_tree.body:
         if isinstance(node, ast.FunctionDef) and node.name != "admit":
@@ -352,7 +362,9 @@ def _find_admission_calls_outside_admit(src: Path) -> list[int]:
     return calls
 
 
-def test_finding_is_constructed_only_by_admission() -> None:
+def test_finding_is_constructed_only_by_admission(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """A frozen review Finding is built only by review/admission.py::admit(). (#871)
 
     A test asserts that no other module constructs one. The test reads source text
@@ -364,8 +376,8 @@ def test_finding_is_constructed_only_by_admission() -> None:
 
     src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
-    callers = _find_review_finding_callers(src, texts)
-    calls_outside_admit = _find_admission_calls_outside_admit(src)
+    callers = _find_review_finding_callers(src, texts, trees=parsed_source_trees)
+    calls_outside_admit = _find_admission_calls_outside_admit(src, trees=parsed_source_trees)
 
     assert (tuple(callers), tuple(calls_outside_admit)) == ((), ())
 
@@ -557,17 +569,21 @@ def _helper_modules(tests_root: Path) -> list[Path]:
     )
 
 
-def _acting_on_import(root: Path) -> list[str]:
+def _acting_on_import(root: Path, trees: Mapping[Path, ast.Module] | None = None) -> list[str]:
     """`path:line` of each statement of a helper module under `root`'s tests root, at its top
     level or in a class body, that does more on import than bind names."""
     return [
         f"{path.relative_to(root).as_posix()}:{node.lineno}"
         for path in _helper_modules(root / CONST_TESTS_ROOT_DIR)
-        for node in _acting_statements(ast.parse(path.read_text(encoding="utf-8")).body)
+        for node in _acting_statements(
+            (trees[path] if trees and path in trees else parse_python_file(path)).body
+        )
     ]
 
 
-def test_no_helper_module_under_tests_acts_on_import() -> None:
+def test_no_helper_module_under_tests_acts_on_import(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """Registration imports every support module into every run, and any helper runs on import
     for whichever test imports it first, so the top level of a helper under `tests/`, and each
     class body in it, holds only docstrings, imports at the top level, defs, classes,
@@ -575,7 +591,7 @@ def test_no_helper_module_under_tests_acts_on_import() -> None:
     then reaches every test such a change can (#1312). What still runs on import unchecked is
     each value bound to a name, each decorator, default argument, base class and metaclass, and
     only the full gate catches what those do to tests that do not import the helper."""
-    assert _acting_on_import(REPO_ROOT) == []
+    assert _acting_on_import(REPO_ROOT, trees=parsed_test_trees) == []
 
 
 _BINDS_NAMES_ONLY = (
@@ -690,7 +706,9 @@ def _holds_a_support_package(
     return False
 
 
-def _support_package_imports(root: Path, exempt: Path) -> list[str]:
+def _support_package_imports(
+    root: Path, exempt: Path, trees: Mapping[Path, ast.Module] | None = None
+) -> list[str]:
     """`path:line` of each module under `root`'s tests root, but `exempt`, that gets hold of a
     support package; a module outside `tests/support/` is parsed only if it spells `support`,
     which every such form outside it needs."""
@@ -702,7 +720,7 @@ def _support_package_imports(root: Path, exempt: Path) -> list[str]:
         spelled = _SUPPORT_DIR.name in text or relative.is_relative_to(_SUPPORT_DIR)
         if relative == exempt or not spelled:
             continue
-        tree = ast.parse(text)
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         package = ".".join(relative.parent.parts)
         aliases = _tests_aliases(tree)
         found.extend(
@@ -716,12 +734,14 @@ def _support_package_imports(root: Path, exempt: Path) -> list[str]:
 _BOOTSTRAP = Path(CONST_TESTS_ROOT_DIR, "support", "bootstrap.py")
 
 
-def test_only_bootstrap_imports_the_support_package_itself() -> None:
+def test_only_bootstrap_imports_the_support_package_itself(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """Registration loads every support module, so a module holding the `tests.support` package,
     or a package under it, could read one through it with no import of its own, which the test
     selector would not see. A module imports from a support module with `from tests.support[.x]
     import ...`, and only `bootstrap`, which registers them, holds a package (#1312)."""
-    assert _support_package_imports(REPO_ROOT, _BOOTSTRAP) == []
+    assert _support_package_imports(REPO_ROOT, _BOOTSTRAP, trees=parsed_test_trees) == []
 
 
 def test_a_module_that_names_the_support_package_is_named_with_path_and_line(
@@ -1027,11 +1047,13 @@ def _ruff_enforces(rule: str, select: Sequence[str], ignore: Sequence[str]) -> b
     return ignored is None or ignored < selected
 
 
-def _blind_exception_assertions(tests_dir: Path) -> list[str]:
+def _blind_exception_assertions(
+    tests_dir: Path, trees: Mapping[Path, ast.Module] | None = None
+) -> list[str]:
     """Report every `file:line` in the suite that expects a root exception type."""
     sites: list[str] = []
     for path in sorted(tests_dir.rglob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         sites.extend(
             f"{path.name}:{node.lineno}"
             for node in ast.walk(tree)
@@ -1041,7 +1063,9 @@ def _blind_exception_assertions(tests_dir: Path) -> list[str]:
     return sites
 
 
-def test_no_test_certifies_a_failure_without_checking_it() -> None:
+def test_no_test_certifies_a_failure_without_checking_it(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """A test that expects a failure must say which failure, and Ruff must keep it saying so.
 
     `pytest.raises(Exception)` is satisfied by a `TypeError` an unrelated refactor
@@ -1059,7 +1083,10 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
         if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
     )
 
-    assert (_blind_exception_assertions(REPO_ROOT / "tests"), unenforced) == ([], [])
+    assert (
+        _blind_exception_assertions(REPO_ROOT / "tests", trees=parsed_test_trees),
+        unenforced,
+    ) == ([], [])
 
 
 def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
@@ -1718,19 +1745,23 @@ def _inspect_data_path_node(node: ast.AST, rel_posix: str) -> str | None:
     return None
 
 
-def _file_data_path_violations(py_file: Path, repo_root: Path) -> list[str]:
+def _file_data_path_violations(
+    py_file: Path, repo_root: Path, tree: ast.Module | None = None
+) -> list[str]:
     rel_posix = py_file.relative_to(repo_root).as_posix()
     if rel_posix == "src/devops_cli/config/defaults.py":
         return []
-    tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    parsed = tree or parse_python_file(py_file)
     return [
         violation
-        for node in ast.walk(tree)
+        for node in ast.walk(parsed)
         if (violation := _inspect_data_path_node(node, rel_posix)) is not None
     ]
 
 
-def test_no_direct_data_dir_path_construction_in_src() -> None:
+def test_no_direct_data_dir_path_construction_in_src(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """An invariant test fails on any Path built from a .data literal or from DEFAULT_DATA_DIR
     in src/ outside config/defaults.py that does not go through the helper (#1036).
     """
@@ -1738,7 +1769,9 @@ def test_no_direct_data_dir_path_construction_in_src() -> None:
     violations = [
         v
         for py_file in sorted(src_root.rglob("*.py"))
-        for v in _file_data_path_violations(py_file, REPO_ROOT)
+        for v in _file_data_path_violations(
+            py_file, REPO_ROOT, tree=parsed_source_trees.get(py_file)
+        )
     ]
     assert violations == [], (
         f"Found direct Path construction from .data literal or DEFAULT_DATA_DIR outside "
@@ -2067,7 +2100,9 @@ def _collect_facade_import_violations(
     return violations
 
 
-def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
+def test_ai_and_github_package_inits_hold_only_docstrings(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
     init_paths = [
         REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
@@ -2077,7 +2112,7 @@ def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
     ]
     failures = []
     for path in init_paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = parsed_source_trees.get(path) or parse_python_file(path)
         is_only_docstring = (
             len(tree.body) == 1
             and isinstance(tree.body[0], ast.Expr)
@@ -2089,7 +2124,9 @@ def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
     assert failures == []
 
 
-def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
+def test_no_non_submodule_imports_from_ai_and_github_facades(
+    parsed_repo_trees: dict[Path, ast.Module],
+) -> None:
     """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
     facade_packages = {
         "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
@@ -2102,17 +2139,12 @@ def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
     }
     violations: list[str] = []
 
-    for search_dir in (REPO_ROOT / "src", REPO_ROOT / "tests"):
-        for py_file in search_dir.rglob("*.py"):
-            try:
-                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-                violations.extend(
-                    _collect_facade_import_violations(
-                        tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
-                    )
-                )
-            except SyntaxError:
-                continue
+    for py_file, tree in parsed_repo_trees.items():
+        violations.extend(
+            _collect_facade_import_violations(
+                tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
+            )
+        )
 
     fenced_re = re.compile(r"```python\n(.*?)```", re.DOTALL)
     kb_dir = REPO_ROOT / "src" / "devops_cli" / "ai" / "knowledge_base"
@@ -2133,3 +2165,15 @@ def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
                     continue
 
     assert violations == []
+
+
+def test_every_source_and_test_file_is_parsed_at_most_once(
+    parsed_repo_trees: dict[Path, ast.Module],
+) -> None:
+    """Each file under `src/` and `tests/` is parsed at most once per test process (#1749)."""
+    multiple_parses = [
+        f"{path.name}: parsed {parse_count(path)} times"
+        for path in parsed_repo_trees
+        if parse_count(path) > 1
+    ]
+    assert multiple_parses == []
