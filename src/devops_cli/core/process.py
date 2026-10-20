@@ -93,11 +93,15 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
     }
 )
 
+# uv's own settings reach a child `uv run`, so it keeps the interpreter, cache and Python install
+# directory the environment was built with instead of rebuilding it (#1735); a uv credential such
+# as UV_PUBLISH_TOKEN still matches a denied pattern.
 DEFAULT_ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
     "DEVOPS_CLI_",
     "OTEL_",
     "W3C_",
     "LC_",
+    "UV_",
 )
 
 DEFAULT_DENIED_ENV_PATTERNS: tuple[str, ...] = (
