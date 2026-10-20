@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from tests.llm_stream_fakes import (
     route_llm_clients,
     streamed,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 @pytest.fixture(autouse=True)
@@ -280,9 +282,18 @@ def test_llm_client_properties_and_list_models(monkeypatch: pytest.MonkeyPatch) 
     assert len(pre_res) == 2
     assert all(pre_res.values())
 
-    # Test non-blocking preload with callback
-    called = []
-    client.preload_models(blocking=False, on_complete=lambda r: called.append(r))
+    # Test non-blocking preload with callback, waiting for it so it ends inside the test, while
+    # the routed client still answers it
+    called: list[dict[str, bool]] = []
+    finished = threading.Event()
+
+    def on_complete(results: dict[str, bool]) -> None:
+        called.append(results)
+        finished.set()
+
+    client.preload_models(blocking=False, on_complete=on_complete)
+    assert finished.wait(THREAD_HANDOFF_BOUND_SECONDS)
+    assert called == [pre_res]
 
 
 def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:

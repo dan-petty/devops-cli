@@ -98,9 +98,10 @@ def _python_entry() -> PythonTool:
 
 
 def _tool_requests(stub_web: StubWeb) -> list[str]:
-    """The requests the stub received, leaving out the telemetry exporter's to its loopback
-    collector, which a command may flush as it exits."""
-    return [url for url in stub_web.requested if urlsplit(url).hostname != "localhost"]
+    """The requests the stub received, leaving out the telemetry exporter's to the collector the
+    floor configures, which a command may flush as it exits."""
+    collector = urlsplit(os.environ["DEVOPS_CLI_TELEMETRY_ENDPOINT"]).netloc
+    return [url for url in stub_web.requested if urlsplit(url).netloc != collector]
 
 
 def _link_at_pin(name: str, target_dir: Path) -> None:

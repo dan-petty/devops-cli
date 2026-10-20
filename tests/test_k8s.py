@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,16 @@ from devops_cli.prometheus.promql import selectors, validate_promql
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 runner = CliRunner()
+
+
+def _no_port_forward_listens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse every TCP probe at the stdlib socket edge, as a workstation with no port-forward
+    running does, so `configure-urls` falls back to its defaults."""
+
+    def refuse(address: tuple[str, int], *args: Any, **kwargs: Any) -> socket.socket:
+        raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
 
 
 def _mock_proc(
@@ -116,8 +129,10 @@ def test_k8s_configure_urls_success(
     mock_cluster: MagicMock,
     mock_detect: MagicMock,
     mock_save: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """k8s configure-urls must query service URLs and update configuration."""
+    _no_port_forward_listens(monkeypatch)
 
     def fake_detect(service: str, ns: str, context: str | None = None) -> str | None:
         return f"http://192.0.2.49:{30000 + len(service)}"
@@ -636,8 +651,9 @@ def test_k8s_status() -> None:
         assert "node-1" in result.output
 
 
-def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
+def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify k8s bootstrap, deploy-stack, and teardown-stack execution."""
+    _no_port_forward_listens(monkeypatch)
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/minikube"),
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),

@@ -17,6 +17,13 @@ from devops_cli.telemetry.tracer import (
 )
 
 
+@pytest.fixture
+def collector(unserved_side_channel_port: int) -> str:
+    """A collector that refuses every export, as an unserved workstation's does. Its port stays
+    bound for the run, so an export a client queues on its own thread is refused whenever it runs."""
+    return f"http://127.0.0.1:{unserved_side_channel_port}"
+
+
 def test_telemetry_disabled() -> None:
     client = OTelTelemetryClient(enabled=False)
     with client.span("test_span") as span_id:
@@ -326,7 +333,7 @@ def test_parent_context_dict_extraction(monkeypatch: pytest.MonkeyPatch) -> None
     assert span_data["parentSpanId"] == parent_span_id
 
 
-def test_tracer_helpers_and_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tracer_helpers_and_shutdown(monkeypatch: pytest.MonkeyPatch, collector: str) -> None:
     """Test get_current_span_context, shutdown_tracer, and reset_tracer."""
     from devops_cli.telemetry.tracer import (
         get_current_span_context,
@@ -334,7 +341,7 @@ def test_tracer_helpers_and_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
         shutdown_tracer,
     )
 
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
     with client.span("context_test_span") as s_id:
         ctx = get_current_span_context()
         assert ctx["span_id"] == s_id
@@ -509,11 +516,13 @@ def test_telemetry_grpc_connection_failure(monkeypatch: pytest.MonkeyPatch) -> N
     assert latency >= 0
 
 
-def test_telemetry_payload_and_shutdown_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telemetry_payload_and_shutdown_error_branches(
+    monkeypatch: pytest.MonkeyPatch, collector: str
+) -> None:
     """Cover error handling branches in payload sending and shutdown."""
     from unittest.mock import MagicMock
 
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
 
     # 1. _send_payload_sync HTTP error
     mock_http = MagicMock()
@@ -554,9 +563,9 @@ def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) ->
     assert _resolve_telemetry_settings() == (None, False)
 
 
-def test_span_caller_location_and_runtime_attributes() -> None:
+def test_span_caller_location_and_runtime_attributes(collector: str) -> None:
     """Verify trace_span automatically enriches caller location, thread, and process metadata."""
-    client = OTelTelemetryClient(enabled=True)
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
     with client.span("test_caller_span") as handle:
         assert (
             handle._attributes.get("code.function"),
@@ -573,7 +582,9 @@ def test_span_caller_location_and_runtime_attributes() -> None:
         )
 
 
-def test_span_vcs_and_k8s_attributes_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_span_vcs_and_k8s_attributes_detection(
+    monkeypatch: pytest.MonkeyPatch, collector: str
+) -> None:
     """Verify trace_span populates VCS branch/commit and K8s context/namespace."""
     reset_tracer()
     monkeypatch.setattr(
@@ -585,7 +596,7 @@ def test_span_vcs_and_k8s_attributes_detection(monkeypatch: pytest.MonkeyPatch) 
         lambda: ("mock-cluster", "mock-system"),
     )
 
-    client = OTelTelemetryClient(enabled=True)
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
     with client.span("test_vcs_span") as handle:
         assert (
             handle._attributes.get("vcs.ref.name"),
@@ -643,9 +654,9 @@ def test_a_new_tracer_starts_no_process(monkeypatch: pytest.MonkeyPatch) -> None
     assert (started, description) == ([], f"{platform.system()} {platform.release()}")
 
 
-def test_response_span_attributes_enriched() -> None:
+def test_response_span_attributes_enriched(collector: str) -> None:
     """The reply's model and serving backend are recorded; a port-less host sets no port."""
-    client = OTelTelemetryClient(enabled=True)
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
     reply = LLMResponse(
         "ok",
         backend_info="openai (example.com)",
