@@ -459,9 +459,13 @@ def test_homelab_domain_overlays() -> None:
 
 
 def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applications() -> None:
-    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack."""
+    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack,
+    and leaves pre/post-delete finalizers to Argo CD (#1674)."""
     from devops_cli.config.constants import (
         CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
     )
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
@@ -478,9 +482,70 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
                 "jsonPointers": ["/spec/source/kustomize"],
             }
             for name in HOMELAB_APPLICATIONS
+        ]
+        + [
+            {
+                "group": "argoproj.io",
+                "kind": "Application",
+                "jqPathExpressions": [PRE_POST_DELETE_JQ],
+            }
         ],
         True,
     )
+
+
+def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None:
+    """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
+    import json
+    import shutil
+    import subprocess
+
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
+    )
+
+    spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
+    diff_entries = [
+        d
+        for d in spec.get("ignoreDifferences", [])
+        if d.get("group") == "argoproj.io"
+        and d.get("kind") == "Application"
+        and "jqPathExpressions" in d
+    ]
+    assert len(diff_entries) == 1
+    (entry,) = diff_entries
+    assert entry.get("jqPathExpressions") == [PRE_POST_DELETE_JQ]
+
+    jq_bin = shutil.which("jq")
+    if jq_bin:
+        sample_doc = {
+            "metadata": {
+                "finalizers": [
+                    "resources-finalizer.argocd.argoproj.io",
+                    "pre-delete-finalizer.argocd.argoproj.io",
+                    "pre-delete-finalizer.argocd.argoproj.io/cleanup",
+                    "post-delete-finalizer.argocd.argoproj.io",
+                    "post-delete-finalizer.argocd.argoproj.io/cleanup",
+                    "custom.example.com/finalizer",
+                ]
+            }
+        }
+        proc = subprocess.run(
+            [jq_bin, "-r", PRE_POST_DELETE_JQ],
+            input=json.dumps(sample_doc),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        selected = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        assert selected == [
+            "pre-delete-finalizer.argocd.argoproj.io",
+            "pre-delete-finalizer.argocd.argoproj.io/cleanup",
+            "post-delete-finalizer.argocd.argoproj.io",
+            "post-delete-finalizer.argocd.argoproj.io/cleanup",
+        ]
+        assert "resources-finalizer.argocd.argoproj.io" not in selected
+        assert "custom.example.com/finalizer" not in selected
 
 
 def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:

@@ -1211,6 +1211,11 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
 """The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
 """How long fetching an Application's revision may take before deploy-stack gives up."""
+CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ: Final[str] = (
+    '.metadata.finalizers[] | select(startswith("pre-delete-finalizer.argocd.argoproj.io") '
+    'or startswith("post-delete-finalizer.argocd.argoproj.io"))'
+)
+"""JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
 CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_TERMINAL_PROMPT": "0",
     "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
