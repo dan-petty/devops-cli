@@ -18,7 +18,6 @@ from __future__ import annotations
 import hashlib
 import inspect
 import logging
-import os
 import re
 import time
 from collections import Counter, defaultdict
@@ -95,6 +94,7 @@ from devops_cli.config.commands import (
     BIN_BANDIT,
     BIN_GITLEAKS,
     BIN_KUBELINTER,
+    BIN_OSV_SCANNER,
     BIN_PLUTO,
     BIN_SEMGREP,
     BIN_TRIVY,
@@ -104,12 +104,11 @@ from devops_cli.config.constants import (
     CONST_DEFAULT_REVIEW_ADVISORY_RULES,
     CONST_DEPENDENCY_SEVERITY_CLEAN,
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
+    CONST_LOCKFILE_NAMES,
     CONST_MAX_FILE_SIZE_BYTES,
-    CONST_MAX_PROBE_FILE_SIZE_BYTES,
     CONST_PERSONA_REPLY_EMPTY,
     CONST_PERSONA_REPLY_FINDINGS,
     CONST_PERSONA_REPLY_UNPARSED,
-    CONST_PROBE_MANIFEST_NAMES,
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
     CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
@@ -159,16 +158,13 @@ from devops_cli.output import (
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
-    extract_dependencies_from_text,
     extract_network_references,
-    is_lockfile_or_ignore_file,
 )
 from devops_cli.security.sanitizer import (
     mask_secrets,
 )
 from devops_cli.security.vulnerability_lookup import (
     CloudflareRadarClient,
-    OSVClient,
     ShodanInternetDBClient,
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -501,6 +497,8 @@ def _wrap_static_findings(findings: list[Finding], tool: str = "") -> list[Saved
         )
         if tool:
             object.__setattr__(sf, "_tool", tool)
+        if hasattr(f, "_anchor"):
+            object.__setattr__(sf, "_anchor", getattr(f, "_anchor"))
         wrapped.append(sf)
     return wrapped
 
@@ -854,20 +852,50 @@ def _scan_kubernetes_manifests(
 
 
 def _scan_container_and_lockfiles(
-    docker_lock_paths: list[Path],
+    container_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
 ) -> list[SavedFinding]:
-    """Scan container files and lockfiles with Trivy."""
+    """Scan container files with Trivy."""
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
-    for dp in docker_lock_paths:
-        scan_t = "config" if "docker" in dp.name.lower() else "fs"
-        t_findings = run_trivy_scan(dp, scan_type=scan_t, isolated=True)
+    for dp in container_paths:
+        t_findings = run_trivy_scan(dp, scan_type="config", isolated=True)
         _observe_outcome(outcomes, "Trivy", t_findings)
         if t_findings:
             findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
     return findings
+
+
+def _scan_lockfiles(
+    lockfiles: list[Path],
+    outcomes: dict[str, Any] | None = None,
+    tree: Path | None = None,
+) -> list[SavedFinding]:
+    """Scan lockfiles with osv-scanner offline (#1146)."""
+    from devops_cli.security.base import ScanOutcome
+    from devops_cli.security.osv_scanner import (
+        detect_manifest_coverage_gaps,
+        get_or_compute_snapshot_digest,
+        run_osv_scan,
+    )
+
+    if not lockfiles:
+        if tree is not None:
+            gaps = detect_manifest_coverage_gaps(tree, known_lockfiles=lockfiles)
+            if gaps:
+                gap_outcome = ScanOutcome("coverage_gap", [], "; ".join(gaps))
+                _observe_outcome(outcomes, "osv-scanner", gap_outcome)
+        return []
+
+    outcome = run_osv_scan(lockfiles, tree=tree, isolated=True)
+    _observe_outcome(outcomes, "osv-scanner", outcome)
+    if profiler := active_profiler():
+        scanner_digest = getattr(outcome, "snapshot_digest", "") or get_or_compute_snapshot_digest()
+        profiler.set_osv_snapshot_digest(scanner_digest)
+    if outcome.findings:
+        return _wrap_static_findings(outcome.findings, tool="osv-scanner")
+    return []
 
 
 _VERSION_RANGE_MARKERS = (">", "<", "~", "^", "!=", "*", ",", "|", " - ")
@@ -1046,107 +1074,6 @@ def _build_page_review_prompt(
         rag_context_str=rag_context_str,
         contract_context_str=contract_context_str,
     )
-
-
-def _is_manifest_candidate(p: Path) -> bool:
-    """Check if path is a candidate dependency manifest file."""
-    if not p.is_file() or p.is_symlink():
-        return False
-    name_lower = p.name.lower()
-    if name_lower in CONST_PROBE_MANIFEST_NAMES:
-        return True
-    return name_lower.startswith("requirements") and name_lower.endswith((".txt", ".in"))
-
-
-def _probe_single_dir_deps(
-    p_dir: Path,
-    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-    all_unique_deps: set[tuple[str, str, str]],
-) -> bool:
-    """Probe a single directory for manifest files and extract declared dependencies."""
-    try:
-        candidates = sorted(p_dir.iterdir())
-    except OSError:
-        return False
-    for candidate in candidates:
-        if not _is_manifest_candidate(candidate):
-            continue
-        try:
-            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
-                continue
-            c_text = candidate.read_text(encoding="utf-8", errors="replace")
-            c_rel = (
-                str(candidate.relative_to(Path.cwd()))
-                if candidate.is_relative_to(Path.cwd())
-                else candidate.name
-            )
-            if extracted := extract_dependencies_from_text(c_text, c_rel):
-                raw_file_data.setdefault(c_rel, ([], []))
-                raw_file_data[c_rel][0].extend(extracted)
-                all_unique_deps.update((d.name, d.version_range, d.ecosystem) for d in extracted)
-        except Exception:
-            pass
-    return bool(all_unique_deps)
-
-
-def _probe_manifest_deps_in_dirs(
-    probe_dirs: list[Path],
-    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-    all_unique_deps: set[tuple[str, str, str]],
-) -> None:
-    """Probe directories for manifest files and extract declared dependencies."""
-    for p_dir in probe_dirs:
-        if _probe_single_dir_deps(p_dir, raw_file_data, all_unique_deps):
-            break
-
-
-def _is_network_candidate(p: Path) -> bool:
-    """Check if path is a candidate file for network reference scanning."""
-    if not p.is_file() or p.is_symlink() or p.name.startswith("."):
-        return False
-    return not is_lockfile_or_ignore_file(p.name)
-
-
-def _probe_single_dir_nets(
-    p_dir: Path,
-    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-    all_unique_nets: set[tuple[str, str]],
-) -> bool:
-    """Probe a single directory for source files and extract declared network targets."""
-    try:
-        candidates = sorted(p_dir.iterdir())
-    except OSError:
-        return False
-    for candidate in candidates:
-        if not _is_network_candidate(candidate):
-            continue
-        try:
-            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
-                continue
-            c_text = candidate.read_text(encoding="utf-8", errors="replace")
-            c_rel = (
-                str(candidate.relative_to(Path.cwd()))
-                if candidate.is_relative_to(Path.cwd())
-                else candidate.name
-            )
-            if extracted := extract_network_references(c_text, c_rel):
-                raw_file_data.setdefault(c_rel, ([], []))
-                raw_file_data[c_rel][1].extend(extracted)
-                all_unique_nets.update((n.target, n.reference_type) for n in extracted)
-        except Exception:
-            pass
-    return bool(all_unique_nets)
-
-
-def _probe_network_refs_in_dirs(
-    probe_dirs: list[Path],
-    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-    all_unique_nets: set[tuple[str, str]],
-) -> None:
-    """Probe directories for source files and extract declared network targets."""
-    for p_dir in probe_dirs:
-        if _probe_single_dir_nets(p_dir, raw_file_data, all_unique_nets):
-            break
 
 
 def _format_extraction_summary(
@@ -1372,6 +1299,7 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     ("Semgrep", BIN_SEMGREP, "any"),
     # Gitleaks also reads the files kept off persona pages (#948).
     ("Gitleaks", BIN_GITLEAKS, "secrets"),
+    ("osv-scanner", BIN_OSV_SCANNER, "lockfiles"),
 )
 _ANALYZERS_WITH_BUILTIN_PATTERNS: frozenset[str] = frozenset()
 
@@ -2100,6 +2028,7 @@ class ScannerFileBuckets:
     python: list[Path] = field(default_factory=list)
     yaml: list[Path] = field(default_factory=list)
     container: list[Path] = field(default_factory=list)
+    lockfiles: list[Path] = field(default_factory=list)
     any_files: list[Path] = field(default_factory=list)
     leak_targets: list[Path] = field(default_factory=list)
 
@@ -2109,6 +2038,7 @@ class ScannerFileBuckets:
             "python": self.python,
             "yaml": self.yaml,
             "container": self.container,
+            "lockfiles": self.lockfiles,
             "any": self.any_files,
             "secrets": self.leak_targets,
         }
@@ -2119,7 +2049,7 @@ def _classify_scanner_files(
     extra_scan_paths: Sequence[Path] = (),
     path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> ScannerFileBuckets:
-    """Group resolved candidate file paths by static analyzer domain (#871)."""
+    """Group resolved candidate file paths by static analyzer domain (#871, #1146)."""
     py_paths = [
         p for p in all_resolved if p.suffix == ".py" and not is_fixture_path(p, path_classes)
     ]
@@ -2131,13 +2061,22 @@ def _classify_scanner_files(
         and not is_fixture_path(p, path_classes)
     ]
     lockfiles = _lockfiles_beside(list(all_resolved))
-    docker_lock_paths = sorted(
+    docker_paths = sorted(
         {
             p
             for p in all_resolved
             if (
-                p.name.lower() in ("dockerfile", "containerfile") or p.suffix in (".lock", ".lockb")
+                p.name.lower() in ("dockerfile", "containerfile")
+                or p.name.lower().startswith(("dockerfile.", "containerfile."))
             )
+            and not is_fixture_path(p, path_classes)
+        }
+    )
+    lock_paths = sorted(
+        {
+            p
+            for p in all_resolved
+            if (p.name in CONST_LOCKFILE_NAMES or p.suffix in (".lock", ".lockb"))
             and not is_fixture_path(p, path_classes)
         }
         | {p for p in lockfiles if not is_fixture_path(p, path_classes)}
@@ -2146,7 +2085,8 @@ def _classify_scanner_files(
     return ScannerFileBuckets(
         python=py_paths,
         yaml=yaml_paths,
-        container=docker_lock_paths,
+        container=docker_paths,
+        lockfiles=lock_paths,
         any_files=semgrep_paths,
         leak_targets=list(all_resolved) + list(extra_scan_paths),
     )
@@ -2204,6 +2144,9 @@ def _run_scanners_for_buckets(
         findings.extend(
             _call_scanner_helper(_scan_container_and_lockfiles, buckets.container, outcomes)
         )
+
+    if buckets.lockfiles or tree is not None:
+        findings.extend(_scan_lockfiles(buckets.lockfiles, outcomes, tree=tree))
 
     if buckets.leak_targets:
         findings.extend(_call_scanner_helper(_scan_secrets, buckets.leak_targets, outcomes))
@@ -2432,11 +2375,15 @@ class ReviewPipelineOrchestrator:
         base_revision: BaseRevision | None = None,
         partial_context: bool = False,
         added_diff_lines: set[tuple[str, int]] | None = None,
+        threat_intel: bool = False,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
         self.added_diff_lines: set[tuple[str, int]] = set(added_diff_lines or ())
+        self.threat_intel: bool = threat_intel
+        self.cyclonedx_inventory: dict[str, Any] = {}
+        self.osv_snapshot_digest: str = ""
         self.coverage: dict[str, dict[str, str]] = {}
         repo_root = None
         try:
@@ -2913,162 +2860,54 @@ class ReviewPipelineOrchestrator:
         if profiler := active_profiler():
             profiler.set_static_analyzers(self.static_analyzers, self.static_analyzer_reasons)
 
-    def _extract_dependencies_and_network_references(
+    def _fetch_threat_intel(
         self, file_paths: list[str]
     ) -> tuple[
         dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        set[tuple[str, str, str]],
-        set[tuple[str, str]],
+        dict[str, NetworkReputationRecord],
     ]:
-        """Extract dependencies and network references across target files and dynamic probes."""
-        n_paths = len(file_paths)
-        print_info(
-            f"  • Extracting dependencies and network references across {n_paths} file(s)...",
-            prefix=False,
-        )
+        """Fetch threat intelligence from Shodan and Cloudflare Radar for network targets (opt-in #1146)."""
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
-        all_unique_deps: set[tuple[str, str, str]] = set()
-        all_unique_nets: set[tuple[str, str]] = set()
+        net_cache: dict[str, NetworkReputationRecord] = {}
+        unique_nets: set[tuple[str, str]] = set()
 
-        def _extract_single_file(
-            fpath: str,
-        ) -> tuple[str, list[DependencySpec], list[NetworkReference]]:
-            file_deps: list[DependencySpec] = []
-            file_nets: list[NetworkReference] = []
+        for fpath in file_paths:
             p_target = self._resolve_file_path(fpath)
+            file_nets: list[NetworkReference] = []
             if p_target.exists() and p_target.is_file():
                 try:
                     f_content = p_target.read_text(encoding="utf-8", errors="replace")
-                    file_deps = extract_dependencies_from_text(f_content, fpath)
                     file_nets = extract_network_references(f_content, fpath)
                 except Exception as exc:
-                    logger.debug("Failed extracting references from %s: %s", fpath, exc)
-            return fpath, file_deps, file_nets
+                    logger.debug("Failed extracting network references from %s: %s", fpath, exc)
+            raw_file_data[fpath] = ([], file_nets)
+            unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
-        with trace_span(
-            "security.extract_references", attributes={"file_count": n_paths}
-        ) as ref_span:
-            with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as executor:
-                for fpath, file_deps, file_nets in executor.map(_extract_single_file, file_paths):
-                    raw_file_data[fpath] = (file_deps, file_nets)
-                    dep_tuples = ((d.name, d.version_range, d.ecosystem) for d in file_deps)
-                    all_unique_deps.update(dep_tuples)
-                    all_unique_nets.update((n.target, n.reference_type) for n in file_nets)
-
-            direct_deps_count = len(all_unique_deps)
-            direct_nets_count = len(all_unique_nets)
-
-            # Dynamically discover project manifests and configuration files via
-            # filesystem inspection if none were directly present in reviewed file paths
-            probe_dirs: list[Path] = []
-            for p_base in (self.target_dir, Path.cwd()):
-                res_base = p_base.resolve()
-                if res_base.is_dir() and not any(p.resolve() == res_base for p in probe_dirs):
-                    probe_dirs.append(p_base)
-
-            if not all_unique_deps:
-                with trace_span(
-                    "security.probe_manifests", attributes={"dir_count": len(probe_dirs)}
-                ) as pm_span:
-                    _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
-                    pm_span.set_attributes(
-                        {"probed_deps_count": len(all_unique_deps) - direct_deps_count}
-                    )
-
-            if not all_unique_nets:
-                with trace_span(
-                    "security.probe_networks", attributes={"dir_count": len(probe_dirs)}
-                ) as pn_span:
-                    _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
-                    pn_span.set_attributes(
-                        {"probed_nets_count": len(all_unique_nets) - direct_nets_count}
-                    )
-
-            probed_deps_count = len(all_unique_deps) - direct_deps_count
-            probed_nets_count = len(all_unique_nets) - direct_nets_count
-
-            ref_span.set_attributes(
-                {
-                    "unique_deps_count": len(all_unique_deps),
-                    "unique_nets_count": len(all_unique_nets),
-                    "direct_deps_count": direct_deps_count,
-                    "direct_nets_count": direct_nets_count,
-                    "probed_deps_count": probed_deps_count,
-                    "probed_nets_count": probed_nets_count,
-                }
-            )
-
-        summary_str = _format_extraction_summary(
-            direct_deps_count,
-            direct_nets_count,
-            probed_deps_count,
-            probed_nets_count,
-        )
-        print_info(
-            f"    [dim]✓ Extracted {summary_str}[/dim]",
-            prefix=False,
-        )
-        return raw_file_data, all_unique_deps, all_unique_nets
-
-    def _fetch_vulnerabilities_and_reputations(
-        self,
-        unique_deps: set[tuple[str, str, str]],
-        unique_nets: set[tuple[str, str]],
-    ) -> tuple[
-        dict[tuple[str, str, str], PackageLookupResult],
-        dict[str, NetworkReputationRecord],
-    ]:
-        """Pre-fetch vulnerability records from OSV and threat intel from Shodan/Cloudflare."""
-        dep_cache: dict[tuple[str, str, str], PackageLookupResult] = {}
-        net_cache: dict[str, NetworkReputationRecord] = {}
+        if not unique_nets:
+            return raw_file_data, net_cache
 
         from devops_cli.dry_run.state import is_dry_run
 
-        if is_dry_run() or (not unique_deps and not unique_nets):
-            return dep_cache, net_cache
+        if is_dry_run():
+            return raw_file_data, net_cache
 
-        osv_client = OSVClient()
         shodan_client = ShodanInternetDBClient()
         radar_client = CloudflareRadarClient()
-
-        print_info(
-            "  • Querying vulnerability databases & threat intelligence "
-            "(OSV, Shodan, Cloudflare)...",
-            prefix=False,
-        )
-        with trace_span(
-            "security.vulnerability_lookups",
-            attributes={
-                "deps_count": len(unique_deps),
-                "nets_count": len(unique_nets),
-            },
-        ):
-            # Only an exact version can be looked up: a range makes OSV return every advisory
-            # the package has ever had.
-            pinned = [dep for dep in unique_deps if _is_exact_version(dep[1], dep[2])]
-            if pinned:
-                batch_results = osv_client.query_batch(pinned)
-                dep_cache.update(batch_results)
-            if unique_nets:
-                domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
-                ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
-                if domain_targets:
-                    net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
-                if ip_targets:
-                    with ThreadPoolExecutor(max_workers=8) as executor:
-                        net_cache.update(
-                            dict(
-                                executor.map(
-                                    lambda ip: _fetch_ip_threat_intel(shodan_client, ip),
-                                    ip_targets,
-                                )
-                            )
+        domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
+        ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
+        if domain_targets:
+            net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
+        if ip_targets:
+            with ThreadPoolExecutor(max_workers=min(8, len(ip_targets))) as executor:
+                net_cache.update(
+                    dict(
+                        executor.map(
+                            lambda ip: _fetch_ip_threat_intel(shodan_client, ip),
+                            ip_targets,
                         )
-        print_info(
-            "    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]", prefix=False
-        )
-
-        return dep_cache, net_cache
+                    )
+                )
+        return raw_file_data, net_cache
 
     def _find_linked_files(
         self,
@@ -3357,15 +3196,13 @@ class ReviewPipelineOrchestrator:
             for f_path, f_items in evidence_findings_by_file.items():
                 static_findings_by_file.setdefault(f_path, []).extend(f_items)
 
-            # Parse dependencies and network references across target files
-            raw_file_data, unique_deps, unique_nets = (
-                self._extract_dependencies_and_network_references(file_paths)
-            )
+            # Concurrently pre-fetch threat intelligence if opt-in (#1146)
+            raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
+            dep_cache: dict[tuple[str, str, str], Any] = {}
+            net_cache: dict[str, NetworkReputationRecord] = {}
 
-            # Concurrently pre-fetch unique dependency vulnerabilities & reputations
-            dep_cache, net_cache = self._fetch_vulnerabilities_and_reputations(
-                unique_deps, unique_nets
-            )
+            if getattr(self, "threat_intel", False):
+                raw_file_data, net_cache = self._fetch_threat_intel(file_paths)
 
             # Assemble and persist FileReviewPayload objects; a file kept off persona pages
             # gets one only to carry what the secret scan found in it

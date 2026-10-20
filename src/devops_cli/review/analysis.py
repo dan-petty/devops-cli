@@ -129,6 +129,7 @@ class EnvironmentFacts(_StrictModel):
     tool_versions: dict[str, str] = Field(default_factory=dict)
     locked_packages: dict[str, list[str]] = Field(default_factory=dict)
     advisory_fixed_versions: dict[str, list[str]] = Field(default_factory=dict)
+    cyclonedx_inventory: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnalysisJobInput(_StrictModel):
@@ -598,8 +599,12 @@ def _apply_reference_budget(
     return references, needed_keys, received_keys, dropped_keys, coverage
 
 
-def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFacts:
-    """Build default EnvironmentFacts from `tools.lock` and finding metadata."""
+def default_environment_facts(
+    findings: Sequence[Finding] = (),
+    *,
+    cyclonedx_inventory: dict[str, Any] | None = None,
+) -> EnvironmentFacts:
+    """Build default EnvironmentFacts from `tools.lock`, findings metadata, and CycloneDX inventory (#1146)."""
     try:
         lock = load_tools_lock()
         python_pin = lock.python_version
@@ -610,16 +615,27 @@ def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFa
 
     locked_packages: dict[str, list[str]] = {}
     advisory_fixed: dict[str, list[str]] = {}
+    effective_cdx: dict[str, Any] = dict(cyclonedx_inventory or {})
     for finding in findings:
-        if finding.tool_version:
-            tool_versions.setdefault(finding.tool.lower(), finding.tool_version)
-        if isinstance(finding.anchor, AdvisoryAnchor):
-            locked_packages.setdefault(finding.anchor.purl, []).append(
-                finding.anchor.locked_version
-            )
+        tv = getattr(finding, "tool_version", None)
+        if tv:
+            tool_name = getattr(finding, "tool", "") or getattr(finding, "_tool", "")
+            if tool_name:
+                tool_versions.setdefault(tool_name.lower(), tv)
+        anchor = getattr(finding, "anchor", None) or getattr(finding, "_anchor", None)
+        if isinstance(anchor, AdvisoryAnchor):
+            locked_packages.setdefault(anchor.purl, []).append(anchor.locked_version)
         fixed = finding.properties.get("fixed_versions")
         if isinstance(fixed, list) and fixed:
-            advisory_fixed[finding.rule_id] = [str(v) for v in fixed]
+            r_id = getattr(finding, "rule_id", "") or (
+                anchor.advisory_id if isinstance(anchor, AdvisoryAnchor) else ""
+            )
+            if r_id:
+                advisory_fixed[r_id] = [str(v) for v in fixed]
+        if not effective_cdx:
+            cdx = finding.properties.get("cyclonedx_inventory")
+            if isinstance(cdx, dict) and cdx:
+                effective_cdx = cdx
 
     return EnvironmentFacts(
         language_floor=DEFAULT_ANALYSIS_PYTHON_FLOOR,
@@ -627,6 +643,7 @@ def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFa
         tool_versions=tool_versions,
         locked_packages=locked_packages,
         advisory_fixed_versions=advisory_fixed,
+        cyclonedx_inventory=effective_cdx,
     )
 
 

@@ -33,6 +33,7 @@ BIN_KUSTOMIZE: str = "kustomize"
 BIN_KYVERNO: str = "kyverno"
 BIN_MYPY: str = "mypy"
 BIN_OPA: str = "opa"
+BIN_OSV_SCANNER: str = "osv-scanner"
 BIN_PLUTO: str = "pluto"
 BIN_POPEYE: str = "popeye"
 BIN_RUFF: str = "ruff"
@@ -140,6 +141,29 @@ def build_trivy_scan_cmd(
         "json",
         "--quiet",
     ]
+
+
+def build_osv_scan_cmd(
+    target_path: Path | str,
+    *,
+    lockfiles: Sequence[Path | str] | None = None,
+    offline: bool = True,
+) -> list[str]:
+    """Build an OSV-Scanner security scan command (#1146)."""
+    cmd = [
+        BIN_OSV_SCANNER,
+        "scan",
+        "source",
+        "--format",
+        "json",
+    ]
+    if offline:
+        cmd.extend(["--offline", "--offline-vulnerabilities"])
+    cmd.extend(["--all-packages", "--all-vulns"])
+    targets = lockfiles or [target_path]
+    for lf in targets:
+        cmd.extend(["--lockfile", str(lf)])
+    return cmd
 
 
 def build_popeye_cmd(context: str | None = None) -> list[str]:

@@ -53,5 +53,24 @@
     "returncode": 0,
     "stdout": "{\n  \"errors\": [],\n  \"generated_at\": \"2026-10-20T14:49:27Z\",\n  \"metrics\": {\n    \"/tmp/scanner-recording/tree/app.py\": {\n      \"CONFIDENCE.HIGH\": 0,\n      \"CONFIDENCE.LOW\": 0,\n      \"CONFIDENCE.MEDIUM\": 0,\n      \"CONFIDENCE.UNDEFINED\": 0,\n      \"SEVERITY.HIGH\": 0,\n      \"SEVERITY.LOW\": 0,\n      \"SEVERITY.MEDIUM\": 0,\n      \"SEVERITY.UNDEFINED\": 0,\n      \"loc\": 1,\n      \"nosec\": 0,\n      \"skipped_tests\": 0\n    },\n    \"_totals\": {\n      \"CONFIDENCE.HIGH\": 0,\n      \"CONFIDENCE.LOW\": 0,\n      \"CONFIDENCE.MEDIUM\": 0,\n      \"CONFIDENCE.UNDEFINED\": 0,\n      \"SEVERITY.HIGH\": 0,\n      \"SEVERITY.LOW\": 0,\n      \"SEVERITY.MEDIUM\": 0,\n      \"SEVERITY.UNDEFINED\": 0,\n      \"loc\": 1,\n      \"nosec\": 0,\n      \"skipped_tests\": 0\n    }\n  },\n  \"results\": []\n}",
     "stderr": ""
+  },
+  "osv-scanner": {
+    "version": "2.6.0",
+    "argv": [
+      "osv-scanner",
+      "scan",
+      "source",
+      "--format",
+      "json",
+      "--offline",
+      "--offline-vulnerabilities",
+      "--all-packages",
+      "--all-vulns",
+      "--lockfile",
+      "{tree}/app.py"
+    ],
+    "returncode": 0,
+    "stdout": "{\n  \"results\": []\n}\n",
+    "stderr": ""
   }
 }

@@ -581,7 +581,7 @@ def test_every_review_scanner_runs_from_a_temporary_directory_outside_the_tree(
         for name in sorted({binary for binary, *_ in calls})
     }
     assert in_the_tree_or_left == dict.fromkeys(
-        ("bandit", "gitleaks", "kube-linter", "pluto", "semgrep", "trivy"), False
+        ("bandit", "gitleaks", "kube-linter", "osv-scanner", "pluto", "semgrep", "trivy"), False
     )
 
 
@@ -612,6 +612,7 @@ def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
             False,
         ),
         "kube-linter": ({"--config": CONST_REVIEW_SCAN_KUBELINTER_CONFIG}, False),
+        "osv-scanner": ({}, False),
         "pluto": ({}, False),
         "semgrep": ({}, False),
         "trivy": ({"--config": CONST_REVIEW_SCAN_TRIVY_CONFIG, "--ignorefile": ""}, False),

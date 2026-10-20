@@ -4696,7 +4696,7 @@ CONST_ANALYSIS_CORRELATION_KEY_KINDS: Final[frozenset[str]] = frozenset(
     {"cwe", "rule_family", "symbol_component", "purl", "manifest_source"}
 )
 CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
-CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "trivy"})
+CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "osv-scanner", "trivy"})
 CONST_ANALYSIS_DROP_REASON_BUDGET: Final[str] = "budget"
 CONST_ANALYSIS_DROP_REASON_UNAVAILABLE: Final[str] = "unavailable"
 CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
@@ -4716,6 +4716,43 @@ CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
 CONST_ANALYSIS_REJECTION_UNSHARED_ROOT_CAUSE_KEY: Final[str] = "unshared-root-cause-key"
 CONST_ANALYSIS_REJECTION_PLAN_INCOMPLETE_COVERAGE: Final[str] = "plan-incomplete-coverage"
 CONST_ANALYSIS_REJECTION_PLAN_ORDER_VIOLATION: Final[str] = "plan-order-violation"
+
+# ── OSV-Scanner Constants (#1146) ───────────────────────────────────────────
+CONST_BIN_OSV_SCANNER: Final[str] = "osv-scanner"
+CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
+CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lockb",
+    "Cargo.lock",
+    "go.sum",
+    "composer.lock",
+    "Gemfile.lock",
+)
+CONST_MANIFEST_NAMES: Final[tuple[str, ...]] = (
+    "pyproject.toml",
+    "requirements.in",
+    "setup.py",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "composer.json",
+    "Gemfile",
+)
+CONST_MANIFEST_TO_LOCKFILES: Final[dict[str, tuple[str, ...]]] = {
+    "pyproject.toml": ("uv.lock", "poetry.lock", "Pipfile.lock"),
+    "requirements.in": ("requirements.txt", "uv.lock"),
+    "setup.py": ("uv.lock", "poetry.lock"),
+    "package.json": ("package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"),
+    "Cargo.toml": ("Cargo.lock",),
+    "go.mod": ("go.sum",),
+    "composer.json": ("composer.lock",),
+    "Gemfile": ("Gemfile.lock",),
+}
 
 # ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
 CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
