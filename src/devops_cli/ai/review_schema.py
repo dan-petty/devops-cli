@@ -731,6 +731,10 @@ class Finding(BaseModel):
         validation_alias=AliasChoices("expected_value", "expected"),
     )
     thinking: SkipJsonSchema[str | None] = None
+    properties: SkipJsonSchema[dict[str, Any]] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("properties", "props", "metadata", "meta"),
+    )
 
     @property
     def is_empty(self) -> bool:

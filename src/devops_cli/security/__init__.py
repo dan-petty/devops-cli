@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         run_kubeconform_validation,
     )
     from devops_cli.security.kubelinter import KubelinterScanner, run_kubelinter_scan
+    from devops_cli.security.osv_scanner import OsvScanner, run_osv_scan
     from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
     from devops_cli.security.popeye import PopeyeScanner, run_popeye_scan
     from devops_cli.security.reference_extractor import (
@@ -69,6 +70,8 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "run_kubeconform_validation": ("devops_cli.security.kubeconform", "run_kubeconform_validation"),
     "KubelinterScanner": ("devops_cli.security.kubelinter", "KubelinterScanner"),
     "run_kubelinter_scan": ("devops_cli.security.kubelinter", "run_kubelinter_scan"),
+    "OsvScanner": ("devops_cli.security.osv_scanner", "OsvScanner"),
+    "run_osv_scan": ("devops_cli.security.osv_scanner", "run_osv_scan"),
     "PlutoScanner": ("devops_cli.security.pluto", "PlutoScanner"),
     "run_pluto_scan": ("devops_cli.security.pluto", "run_pluto_scan"),
     "PopeyeScanner": ("devops_cli.security.popeye", "PopeyeScanner"),
@@ -158,6 +161,7 @@ __all__ = [
     "KubeconformScanner",
     "KubelinterScanner",
     "OSVClient",
+    "OsvScanner",
     "PlutoScanner",
     "PopeyeScanner",
     "ScanOutcome",
@@ -189,6 +193,7 @@ __all__ = [
     "run_gitleaks_scan",
     "run_kubeconform_validation",
     "run_kubelinter_scan",
+    "run_osv_scan",
     "run_pluto_scan",
     "run_popeye_scan",
     "run_semgrep_scan",

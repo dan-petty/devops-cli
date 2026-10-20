@@ -164,7 +164,7 @@ def test_review_pipeline_admit_inline_suppression_added_by_change(
     ]
     src_dir = tmp_path / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    # Bandit's own marker: Bandit ignores `# noqa`, and so does admission (#1341)
+    # Bandit's own marker: Bandit ignores "# noqa", and so does admission (#1341)
     (src_dir / "main.py").write_text("import os  # nosec B602\n", encoding="utf-8")
 
     orch_added = ReviewPipelineOrchestrator(

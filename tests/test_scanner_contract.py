@@ -22,6 +22,7 @@ from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import run_gitleaks_scan
+from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.scanners import ScannerFake
@@ -33,6 +34,7 @@ REVIEW_SCANS: dict[str, ReviewScan] = {
     "semgrep": lambda target, tree: run_semgrep_scan([target], reviewed_tree=tree),
     "gitleaks": lambda target, tree: run_gitleaks_scan([target], ignore_tests=True, isolated=True),
     "bandit": lambda target, tree: run_bandit_scan([target], isolated=True, tree=tree),
+    "osv-scanner": lambda target, tree: run_osv_scan([target], tree=tree, isolated=True),
 }
 
 

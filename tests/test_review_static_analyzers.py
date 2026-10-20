@@ -33,6 +33,7 @@ _ONLY_BANDIT = {
     "Trivy": "not installed",
     "Semgrep": "not installed",
     "Gitleaks": "not installed",
+    "osv-scanner": "no files",
 }
 
 
@@ -62,6 +63,7 @@ def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None
         "Trivy": "no files",
         "Semgrep": "not installed",
         "Gitleaks": "not installed",
+        "osv-scanner": "no files",
     }
 
 
@@ -135,6 +137,7 @@ def test_the_session_report_lists_each_analyzer_result(tmp_path: Path) -> None:
         "| Trivy | not installed |",
         "| Semgrep | not installed |",
         "| Gitleaks | not installed |",
+        "| osv-scanner | no files |",
     ]
 
 

@@ -123,6 +123,8 @@ class ReviewProfile(BaseModel):
     # The digest of the tools lock the review started with: the versions its tools are pinned
     # to, not proof that the tools on PATH were at those pins.
     tools_lock_digest: str = ""
+    # The SHA-256 digest of the OSV offline vulnerability database snapshot used (#1146).
+    osv_snapshot_digest: str = ""
     # Whether devops-cli's own checkout got a commit or an edit while the review ran, so that
     # its later stages may have run other code than its earlier ones.
     code_changed_during_run: bool = False
@@ -202,6 +204,12 @@ class ReviewProfiler:
         self._coverage: dict[str, dict[str, str]] = {}
         self._partial_context: bool = False
         self._rejections: dict[str, int] = {}
+        self._osv_snapshot_digest: str = ""
+
+    def set_osv_snapshot_digest(self, digest: str) -> None:
+        """Record the OSV offline database snapshot digest used in review (#1146)."""
+        with self._lock:
+            self._osv_snapshot_digest = digest
 
     def record_rejection(self, reason: str) -> None:
         """Record one typed candidate rejection into profile."""
@@ -332,6 +340,7 @@ class ReviewProfiler:
             coverage = {t: dict(m) for t, m in self._coverage.items()}
             partial_ctx = self._partial_context
             rejections = dict(self._rejections)
+            osv_digest = self._osv_snapshot_digest
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
             stage.activity = {
@@ -345,6 +354,7 @@ class ReviewProfiler:
             prompt_digest=review_prompt_digest(),
             conventions_digest=digest(self._conventions) if self._conventions else "",
             tools_lock_digest=self._tools_lock_digest,
+            osv_snapshot_digest=osv_digest,
             code_changed_during_run=self._own_source_changed(),
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
