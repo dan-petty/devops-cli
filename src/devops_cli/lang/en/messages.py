@@ -1492,6 +1492,7 @@ class RoadmapMessages:
                 "unstarted item that no item staying in it depends on."
             ),
             "depended_on": "{detail} in {release} depends on it.",
+            "priority": "every open P0 and P1 item sits in an open release.",
         }
     )
     # What each action did, in the item's one-line comment; {reason} is one of `reasons`.

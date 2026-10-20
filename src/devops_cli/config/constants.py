@@ -2960,6 +2960,17 @@ CONST_ROADMAP_PREMIGRATE_STATUSES: Final[frozenset[str]] = frozenset({"Backlog",
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
 # board's P0 Priority option and one of these `type/*` labels.
 CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"
+CONST_ROADMAP_P1_PRIORITY: Final[str] = "P1-High"
+CONST_ROADMAP_P2_PRIORITY: Final[str] = "P2-Medium"
+CONST_ROADMAP_P3_PRIORITY: Final[str] = "P3-Low"
+CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
+    {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
+)
+CONST_ROADMAP_P1_PRIORITIES: Final[frozenset[str]] = frozenset({"P1-High", "P1"})
+CONST_ROADMAP_HIGH_PRIORITIES: Final[frozenset[str]] = frozenset(
+    CONST_ROADMAP_P0_PRIORITIES | CONST_ROADMAP_P1_PRIORITIES
+)
+CONST_ROADMAP_P3_PRIORITIES: Final[frozenset[str]] = frozenset({"P3-Low", "P3"})
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # A person applies it to an item too big for one pull request; reprioritization descopes it.
 CONST_ROADMAP_NEEDS_SPLIT_LABEL: Final[str] = "needs-split"

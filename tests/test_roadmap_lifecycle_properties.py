@@ -55,7 +55,7 @@ from packaging.version import Version
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap import reprioritize
 from devops_cli.roadmap.config import RoadmapConfig
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.memory_store import ChangeKind, InMemoryRoadmapStore
 from devops_cli.roadmap.reprioritize import Event, ReleaseState, is_due
 from devops_cli.roadmap.store import CloseReason, GitHubState, Item, ItemField, JobMark
 from tests.roadmap_faults import FIELD, RECORD, Fault, StoppingStore
@@ -156,6 +156,10 @@ INVARIANTS = MappingProxyType(
         "finished": (
             "Reprioritization: a change the job begins is finished, with its reason comment, by "
             "the run that begins it or by the next one."
+        ),
+        "priority_releases": (
+            "Reprioritization: after a finished run, every open P0/P1 item that no person took "
+            "out of a release sits in an open release."
         ),
         "tally": (
             "Release growth: each item's tally counts every reason comment the job posted on it."
@@ -1256,6 +1260,29 @@ class RoadmapLifecycle(RuleBasedStateMachine):
                     and entry[1] in Reason._value2member_map_
                 ), INVARIANTS["tally"]
 
+    @invariant()
+    def every_open_p0_p1_item_sits_in_an_open_release(self) -> None:
+        """Reprioritization: after a finished run, every open P0/P1 item that no person took out of a release sits in an open release."""
+        seen = self.last_run
+        if seen is None or seen.first_run or self.outstanding is not None:
+            return
+        open_releases = set(self.open_titles)
+        all_releases = set(self.titles.values())
+        for item in self.view.values():
+            if item.state is GitHubState.OPEN and item.priority in ("P0-Critical", "P1-High"):
+                if item.release is None and (
+                    self.placed_by.get(item.number) == PERSON
+                    or item.job_record.get(JobMark.LEFT)
+                    or any(
+                        c.kind is ChangeKind.LEFT_RELEASE and c.actor != "devops-cli"
+                        for c in self.store.release_changes(item.number)
+                    )
+                ):
+                    continue
+                if item.release in all_releases and item.release not in open_releases:
+                    continue
+                assert item.release in open_releases, INVARIANTS["priority_releases"]
+
 
 TestRoadmapLifecycle = RoadmapLifecycle.TestCase
 TestRoadmapLifecycle.settings = SETTINGS
@@ -1273,7 +1300,7 @@ def context_terms() -> set[str]:
 def test_each_invariant_message_starts_with_a_term_context_md_defines() -> None:
     terms = context_terms()
     leading = {message.split(":", 1)[0] for message in INVARIANTS.values()}
-    assert (leading - terms, len(INVARIANTS)) == (set(), 18)
+    assert (leading - terms, len(INVARIANTS)) == (set(), 19)
 
 
 def test_the_gate_settings_keep_shrinking_and_need_no_database() -> None:
