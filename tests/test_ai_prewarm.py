@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 if TYPE_CHECKING:
@@ -14,12 +14,9 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.ollama import OllamaProviderMixin
-from devops_cli.ai.client.unified import LLMClient
-from devops_cli.ai.mcp.server import ai_prewarm
 from devops_cli.commands.ai import _render_prewarm_results, _resolve_prewarm_urls
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
-from devops_cli.main import app
 
 runner = CliRunner()
 
@@ -208,6 +205,8 @@ class TestUnifiedLLMClientPrewarm:
 
     def test_unified_client_prewarm_and_evict_delegation(self) -> None:
         """Verify LLMClient instance exposes prewarm_models and evict_models."""
+        from devops_cli.ai.client.unified import LLMClient
+
         config = AIConfig(
             provider="ollama",
             model="gemma4:26b",
@@ -290,7 +289,13 @@ class TestCLIPrewarmHelpers:
 class TestCLIPrewarmCommand:
     """Test suite for 'devops ai prewarm' CLI command."""
 
-    def test_cli_prewarm_success_default_args(self, model_fake: ModelFake) -> None:
+    @pytest.fixture
+    def app(self):
+        from devops_cli.main import app
+
+        return app
+
+    def test_cli_prewarm_success_default_args(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm succeeds with default configured model and urls."""
         result = runner.invoke(app, ["ai", "prewarm"])
 
@@ -298,7 +303,7 @@ class TestCLIPrewarmCommand:
         assert "prewarmed into VRAM" in result.output
         assert "confirmed HTTP 200" in result.output
 
-    def test_cli_prewarm_evict_and_json_flag(self, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_evict_and_json_flag(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm --evict --json passes keep_alive=0 and emits structured json."""
         result = runner.invoke(app, ["ai", "prewarm", "--evict", "--json"])
 
@@ -310,7 +315,7 @@ class TestCLIPrewarmCommand:
             True,
         )
 
-    def test_cli_prewarm_failure_exits_code_1(self, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_failure_exits_code_1(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm exits with code 1 when node prewarming fails."""
         model_fake.set_preload_results({"http://localhost:11434": False})
         result = runner.invoke(app, ["ai", "prewarm"])
@@ -318,14 +323,14 @@ class TestCLIPrewarmCommand:
         assert result.exit_code == 1
         assert "request failed or timed out" in result.output
 
-    def test_cli_prewarm_single_node_flag(self, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_single_node_flag(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm --single-node targets only primary node."""
         result = runner.invoke(app, ["ai", "prewarm", "--single-node"])
 
         assert result.exit_code == 0
         assert model_fake.preload_calls[-1]["urls"] == ["http://localhost:11434"]
 
-    def test_cli_prewarm_telemetry_recording(self, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_telemetry_recording(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm records OpenTelemetry span and execution metric."""
         with (
             patch("devops_cli.commands.ai.record_metric") as mock_metric,
@@ -336,7 +341,7 @@ class TestCLIPrewarmCommand:
             assert result.exit_code == 0
             assert (mock_span.called, mock_metric.called) == (True, True)
 
-    def test_cli_prewarm_telemetry_recording_failure(self, model_fake: ModelFake) -> None:
+    def test_cli_prewarm_telemetry_recording_failure(self, app: Any, model_fake: ModelFake) -> None:
         """Verify devops ai prewarm records failure metric when node prewarm fails."""
         model_fake.set_preload_results({"http://localhost:11434": False})
         with (
@@ -354,6 +359,8 @@ class TestFastMCPPrewarmTool:
 
     def test_ai_prewarm_tool_dispatch(self) -> None:
         """Verify ai_prewarm tool invokes devops ai prewarm with safe arguments."""
+        from devops_cli.ai.mcp.server import ai_prewarm
+
         with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
             res = ai_prewarm(
                 model="qwen2.5-coder:7b",
@@ -382,6 +389,8 @@ class TestFastMCPPrewarmTool:
 
     def test_ai_prewarm_tool_flag_injection_rejected(self) -> None:
         """Verify ai_prewarm rejects hyphen-prefixed model or keep-alive argument."""
+        from devops_cli.ai.mcp.server import ai_prewarm
+
         with pytest.raises(ValidationError):
             ai_prewarm(model="--injected-flag")
 

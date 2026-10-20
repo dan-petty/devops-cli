@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from devops_cli.ai.review.cited_code import record_cited_code
-from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import CitedCode, FileReviewPayload, SavedFinding
 from devops_cli.config.defaults import DEFAULT_CITED_EXCERPT_MAX_LINES
 
@@ -102,6 +101,8 @@ def test_a_saved_session_carries_the_cited_code_of_its_findings_and_candidates(
     so `review score` and `review export-feedback` read it from new sessions."""
     tree = _checkout(tmp_path / "repo", {"runner.py": _RUNNER})
     session = tmp_path / "reviews" / "s1150-cited"
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s1150-cited",
         llm_client=MagicMock(),
