@@ -22,7 +22,10 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -30,6 +33,15 @@ from devops_cli.exceptions.base import DevOpsCLIError
 # The prompt in `ai/tasks/` that tells the model what to return.
 _SYSTEM_PROMPT = "roadmap_intake_system.md"
 _NOTHING_WRITTEN = "intake wrote nothing"
+
+
+def intake_system_prompt() -> str:
+    """The system prompt for intake proposals."""
+    mappings = ", ".join(
+        f"`{prefix}` takes `{label}`"
+        for prefix, label in CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS.items()
+    )
+    return load_task_prompt(_SYSTEM_PROMPT).replace("{conventional_types}", mappings)
 
 
 class ModelEvidence(BaseModel):
@@ -80,10 +92,14 @@ class ProposalRequest:
     body: str
     shortlist: tuple[Neighbour, ...]
     types: tuple[str, ...]
+    problem: str | None = None
 
     def as_json(self) -> str:
         """The request as the JSON the user message carries."""
-        return json.dumps(asdict(self), ensure_ascii=False, indent=1)
+        data = asdict(self)
+        if self.problem is None:
+            del data["problem"]
+        return json.dumps(data, ensure_ascii=False, indent=1)
 
 
 class UnusableProposalError(ValueError):
@@ -184,7 +200,7 @@ class GatewayIntakeModel:
 
         try:
             return self._client.chat_structured(
-                load_task_prompt(_SYSTEM_PROMPT), request.as_json(), ModelProposal
+                intake_system_prompt(), request.as_json(), ModelProposal
             )
         except StructuredOutputValidationError as exc:
             raise UnusableProposalError(str(exc)[:300]) from exc

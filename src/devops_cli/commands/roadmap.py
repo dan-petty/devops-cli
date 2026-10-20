@@ -59,6 +59,7 @@ from devops_cli.roadmap.intake import (
     BorrowReason,
     Filer,
     NewCandidate,
+    Outcome,
     apply_intake,
     dry_run_intake,
     plan_intake,
@@ -409,6 +410,8 @@ def _intake(
         plan = replace(plan, spend=meter.spend())
     write_stdout(render_intake(plan, repo=target))
     if not plan.has_writes:
+        if new is not None and confirm and any(d.outcome is Outcome.SKIP for d in plan.decisions):
+            raise typer.Exit(1)
         return
     if not confirm:
         print_info(MESSAGES.roadmap.intake_preview)

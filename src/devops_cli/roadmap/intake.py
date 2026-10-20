@@ -526,6 +526,10 @@ class IntakeRecord(BaseModel):
 class _InvalidProposal(ValueError):
     """A proposal with a value off its list."""
 
+    def __init__(self, message: str, problems: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.problems = problems
+
 
 # ── Reading the roadmap ───────────────────────────────────────────────────────
 
@@ -899,8 +903,32 @@ def validate_proposal(raw: ModelProposal, types: Sequence[str], *, needs_type: b
         notes=tuple(notes),
     )
     if problems:
-        raise _InvalidProposal(MESSAGES.roadmap.intake_invalid.format(problems="; ".join(problems)))
+        raise _InvalidProposal(
+            MESSAGES.roadmap.intake_invalid.format(problems="; ".join(problems)),
+            problems=tuple(problems),
+        )
     return proposal
+
+
+def _resolve_raw(
+    raw: ModelProposal,
+    types: Sequence[str],
+    shortlist_entries: dict[int, _Entry],
+    subject: Subject,
+    *,
+    needs_type: bool,
+) -> tuple[int | None, str, Proposal | None, tuple[str, ...], Subject]:
+    named = _named_number(raw.duplicate_of)
+    rejected: tuple[str, ...] = ()
+    if named is not None and named in shortlist_entries:
+        entry = shortlist_entries[named]
+        if not entry.done:
+            return named, _line(raw.duplicate_reason), None, (), subject
+        subject = _with_regression_reference(subject, entry)
+    elif named is not None:
+        rejected = _rejected(named)
+    proposal = validate_proposal(raw, types, needs_type=needs_type)
+    return None, "", proposal, rejected, subject
 
 
 def _kind_name(evidence: Evidence) -> str:
@@ -1227,24 +1255,59 @@ class _Planner:
             shortlist=tuple(entry.neighbour() for entry in shortlist),
             types=self.run.types,
         )
+        return self._propose(subject, request, vector, shortlist)
+
+    def _propose(
+        self,
+        subject: Subject,
+        request: ProposalRequest,
+        vector: list[float] | None,
+        shortlist: list[_Entry],
+    ) -> IntakeDecision:
+        shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
+        needs_type = subject.type_label is None
         try:
             raw = self.run.model.propose(request)
+            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
+            )
         except UnusableProposalError as exc:
             return self._skipped(subject, str(exc), ())
-        shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
-        named = _named_number(raw.duplicate_of)
-        rejected: tuple[str, ...] = ()
-        if named is not None and named in shortlist_entries:
-            entry = shortlist_entries[named]
-            if not entry.done:
-                return self._duplicate(subject, named, _line(raw.duplicate_reason))
-            subject = _with_regression_reference(subject, entry)
-        elif named is not None:
-            rejected = _rejected(named)
+        except _InvalidProposal as first_exc:
+            return self._retry_proposal(
+                subject, request, vector, shortlist_entries, first_exc, needs_type=needs_type
+            )
+        if dup is not None:
+            return self._duplicate(subject, dup, dup_reason)
+        assert proposal is not None
+        nearest = self._nearest_item(vector, subject.number)
+        return self._place(subject, proposal, rejected + proposal.notes, nearest)
+
+    def _retry_proposal(
+        self,
+        subject: Subject,
+        request: ProposalRequest,
+        vector: list[float] | None,
+        shortlist_entries: dict[int, _Entry],
+        first_exc: _InvalidProposal,
+        *,
+        needs_type: bool,
+    ) -> IntakeDecision:
+        retry_request = replace(request, problem="; ".join(first_exc.problems))
         try:
-            proposal = validate_proposal(raw, self.run.types, needs_type=subject.type_label is None)
-        except _InvalidProposal as exc:
-            return self._skipped(subject, str(exc), rejected)
+            raw = self.run.model.propose(retry_request)
+            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
+            )
+        except UnusableProposalError as exc:
+            return self._skipped(subject, str(exc), ())
+        except _InvalidProposal as second_exc:
+            both = (*first_exc.problems, *second_exc.problems)
+            reason = MESSAGES.roadmap.intake_invalid.format(problems="; ".join(both))
+            return self._skipped(subject, reason, ())
+        if dup is not None:
+            return self._duplicate(subject, dup, dup_reason)
+        assert proposal is not None
         nearest = self._nearest_item(vector, subject.number)
         return self._place(subject, proposal, rejected + proposal.notes, nearest)
 
