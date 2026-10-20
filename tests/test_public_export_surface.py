@@ -22,6 +22,7 @@ from collections import Counter
 from pathlib import Path
 
 from tests.support.paths import REPO_ROOT
+from tests.support.trees import parse_source_trees
 
 SRC_ROOT = REPO_ROOT / "src" / "devops_cli"
 
@@ -103,32 +104,34 @@ def _servable_names(path: Path, tree: ast.Module, all_node: DunderAll) -> set[st
     return _bound_names(tree) | _lazy_dispatch_names(tree, all_node) | _sibling_modules(path)
 
 
-def _exporting_modules() -> list[tuple[Path, ast.Module, DunderAll]]:
+def _exporting_modules(
+    trees: dict[Path, ast.Module] | None = None,
+) -> list[tuple[Path, ast.Module, DunderAll]]:
     """Every module under `src/devops_cli` that declares an `__all__`."""
+    source_trees = trees if trees is not None else parse_source_trees(REPO_ROOT)
     found: list[tuple[Path, ast.Module, DunderAll]] = []
-    for path in sorted(SRC_ROOT.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path, tree in sorted(source_trees.items()):
         node = _find_dunder_all(tree)
         if node is not None:
             found.append((path, tree, node))
     return found
 
 
-def test_no_phantom_exports() -> None:
+def test_no_phantom_exports(parsed_source_trees: dict[Path, ast.Module]) -> None:
     """A name in `__all__` that its module cannot serve is a promise broken on first use."""
     offenders = {
         str(path.relative_to(SRC_ROOT)): phantoms
-        for path, tree, node in _exporting_modules()
+        for path, tree, node in _exporting_modules(parsed_source_trees)
         if (phantoms := sorted(set(_declared_exports(node)) - _servable_names(path, tree, node)))
     }
     assert offenders == {}, f"__all__ declares names the module cannot serve: {offenders}"
 
 
-def test_no_duplicate_exports() -> None:
+def test_no_duplicate_exports(parsed_source_trees: dict[Path, ast.Module]) -> None:
     """A repeated `__all__` entry is proof the list outgrew anyone's ability to read it."""
     offenders = {
         str(path.relative_to(SRC_ROOT)): repeats
-        for path, _tree, node in _exporting_modules()
+        for path, _tree, node in _exporting_modules(parsed_source_trees)
         if (repeats := sorted(n for n, c in Counter(_declared_exports(node)).items() if c > 1))
     }
     assert offenders == {}, f"__all__ repeats entries: {offenders}"
