@@ -1145,6 +1145,12 @@ class CIMessages:
     fail_to_pass_none_failed: str = (
         "Defect PR requires at least one changed test to fail in the call phase on base ({tests})."
     )
+    fail_to_pass_could_not_run: str = (
+        "The fail-to-pass replay could not run on base: pytest exited with status {status} "
+        "replaying {files}. A pull request whose replay cannot run on its base can declare "
+        "'Fail-to-pass: not applicable: <reason>' in its body."
+    )
+    fail_to_pass_replay_output: str = "pytest's last output: {output}"
 
 
 @dataclass(frozen=True)
