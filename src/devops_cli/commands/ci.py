@@ -34,6 +34,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
@@ -502,7 +503,8 @@ def _resolve_pytest_cmd() -> list[str]:
 
 def _bandit_cmd(severity: str) -> list[str]:
     """Bandit over the targets the repository's `.bandit` names, walking each directory among
-    them, reporting `severity` and above.
+    them, reporting `severity` and above, under `nice`: in the full gate it runs beside the test
+    row's workers, the gate's critical path, and takes the CPU they leave idle (#1725).
 
     `devops scan report` on this tree runs Bandit with the same file and threshold, so the
     code-scanning upload reports what this check fails on.
@@ -510,6 +512,9 @@ def _bandit_cmd(severity: str) -> list[str]:
     return [
         "uv",
         "run",
+        "nice",
+        "-n",
+        str(DEFAULT_CI_BANDIT_NICENESS),
         "bandit",
         "-r",
         "--ini",
