@@ -193,6 +193,7 @@ def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> 
     ) == ([], False, False, False, False)
 
 
+@pytest.mark.usefixtures("scanner_fake")
 def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> None:
     """Verify a review of routed files only (such as uv.lock) invokes _review_routed_files_only
     with zero model calls and succeeds (#948, #995)."""

@@ -243,6 +243,7 @@ class TestSingleRetryLayerAndStatusRules:
         finally:
             close_shared_clients()
 
+    @pytest.mark.usefixtures("scanner_fake")
     def test_transport_answers_400_once_fails_without_second_attempt_and_reports_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -317,6 +318,7 @@ class TestSingleRetryLayerAndStatusRules:
             reset_settings_cache()
             reset_llm_response_cache()
 
+    @pytest.mark.usefixtures("scanner_fake")
     def test_five_personas_with_one_transient_503_sees_exactly_six_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

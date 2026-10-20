@@ -205,6 +205,46 @@ def prevent_external_network_calls() -> None:
     socket.getaddrinfo = guarded_getaddrinfo
 
 
+def _started_program(args: Any) -> str:
+    """The name of the program `subprocess.Popen(args)` starts: a command line's first word."""
+    if isinstance(args, (str, bytes, os.PathLike)):
+        words = os.fsdecode(args).split(maxsplit=1)
+    else:
+        words = [os.fsdecode(args[0])] if args else []
+    return Path(words[0]).name if words else ""
+
+
+@pytest.fixture(autouse=True, scope="session")
+def refuse_real_programs() -> None:
+    """Fail any test that starts gh or a security scanner for real, before it starts.
+
+    The names are `refused_programs()`'s (`tests/support/refused_programs.py`), read once from
+    the scanner registry when the guard is installed. The refusal sits on `subprocess.Popen`,
+    beneath `run_subprocess`, `run_gh`, `subprocess.run` and asyncio's subprocesses, so a test
+    that fakes any of those is untouched and only a program that would really start is refused.
+    It fails the test with `pytest.fail`, which no `except Exception` in the code under test can
+    turn into a failed scan or a warning (#1666). #1310's hermetic floor, when it lands, refuses
+    processes in general and replaces this guard.
+    """
+    from tests.support.refused_programs import refused_programs
+
+    refused = refused_programs()
+    real_init = subprocess.Popen.__init__
+
+    def refusing_init(self: subprocess.Popen[Any], args: Any, *rest: Any, **kwargs: Any) -> None:
+        program = _started_program(args)
+        if program in refused:
+            pytest.fail(
+                f"A test started a real {program}, which no test may start (#1666): fake it "
+                "through its seam, or with the recorded runs of `scanner_fake` for a scanner. "
+                f"Command: {str(args)[:256]}"
+            )
+        real_init(self, args, *rest, **kwargs)
+
+    # Installed for the rest of the process, as the network block is.
+    subprocess.Popen.__init__ = refusing_init  # type: ignore[method-assign]
+
+
 @pytest.fixture
 def public_dns(monkeypatch: pytest.MonkeyPatch) -> str:
     """Resolve every external hostname to one public address, for tests that validate egress.

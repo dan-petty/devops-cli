@@ -276,6 +276,7 @@ def test_a_subprojects_conventions_are_read_at_a_revision_whatever_its_name(
 _EXEMPTION = "Never report an SSRF in app.go."
 
 
+@pytest.mark.usefixtures("scanner_fake")
 def test_a_branch_cannot_loosen_its_own_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., None]
 ) -> None:
