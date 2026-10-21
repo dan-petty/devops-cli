@@ -1,0 +1,375 @@
+# Metric families the deployed Prometheus node-exporter DaemonSet serves on port 9100 (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# k8s-views-global.json, k8s-views-namespaces.json and k8s-views-nodes.json against them.
+exporter: Prometheus node-exporter
+image: quay.io/prometheus/node-exporter:v1.12.1
+chart: grafana/k8s-monitoring 4.5.2
+captured: "2026-10-21"
+taken_from: >-
+  The k8s-monitoring-node-exporter pods' port 9100 /metrics in monitoring on the homelab k3s
+  cluster, read through the Kubernetes API pod proxy.
+scraped_by: >-
+  k8s-monitoring's hostMetrics.linuxHosts job (job="integrations/node_exporter") in
+  k8s/monitoring/k8s-monitoring-values.yaml, with useDefaultAllowList: false and
+  useIntegrationAllowList: false so every series node-exporter serves reaches Prometheus (#1129).
+target_labels: [app, cluster, component, container, instance, job, namespace, pod, source, workload]
+families:
+  go_gc_duration_seconds: {type: summary, labels: []}
+  go_gc_gogc_percent: {type: gauge, labels: []}
+  go_gc_gomemlimit_bytes: {type: gauge, labels: []}
+  go_goroutines: {type: gauge, labels: []}
+  go_info: {type: gauge, labels: [version]}
+  go_memstats_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes_total: {type: counter, labels: []}
+  go_memstats_buck_hash_sys_bytes: {type: gauge, labels: []}
+  go_memstats_frees_total: {type: counter, labels: []}
+  go_memstats_gc_sys_bytes: {type: gauge, labels: []}
+  go_memstats_heap_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_heap_idle_bytes: {type: gauge, labels: []}
+  go_memstats_heap_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_heap_objects: {type: gauge, labels: []}
+  go_memstats_heap_released_bytes: {type: gauge, labels: []}
+  go_memstats_heap_sys_bytes: {type: gauge, labels: []}
+  go_memstats_last_gc_time_seconds: {type: gauge, labels: []}
+  go_memstats_mallocs_total: {type: counter, labels: []}
+  go_memstats_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mcache_sys_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_sys_bytes: {type: gauge, labels: []}
+  go_memstats_next_gc_bytes: {type: gauge, labels: []}
+  go_memstats_other_sys_bytes: {type: gauge, labels: []}
+  go_memstats_stack_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_stack_sys_bytes: {type: gauge, labels: []}
+  go_memstats_sys_bytes: {type: gauge, labels: []}
+  go_sched_gomaxprocs_threads: {type: gauge, labels: []}
+  go_threads: {type: gauge, labels: []}
+  node_arp_entries: {type: gauge, labels: [device]}
+  node_boot_time_seconds: {type: gauge, labels: []}
+  node_context_switches_total: {type: counter, labels: []}
+  node_cooling_device_cur_state: {type: gauge, labels: [name, type]}
+  node_cooling_device_max_state: {type: gauge, labels: [name, type]}
+  node_cpu_core_throttles_total: {type: counter, labels: [core, package]}
+  node_cpu_frequency_avg_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_frequency_max_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_frequency_min_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_guest_seconds_total: {type: counter, labels: [cpu, mode]}
+  node_cpu_package_throttles_total: {type: counter, labels: [package]}
+  node_cpu_scaling_frequency_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_scaling_frequency_max_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_scaling_frequency_min_hertz: {type: gauge, labels: [cpu]}
+  node_cpu_scaling_governor: {type: gauge, labels: [cpu, governor]}
+  node_cpu_seconds_total: {type: counter, labels: [cpu, mode]}
+  node_disk_device_mapper_info: {type: gauge, labels: [device, lv_layer, lv_name, name, uuid, vg_name]}
+  node_disk_discard_time_seconds_total: {type: counter, labels: [device]}
+  node_disk_discarded_sectors_total: {type: counter, labels: [device]}
+  node_disk_discards_completed_total: {type: counter, labels: [device]}
+  node_disk_discards_merged_total: {type: counter, labels: [device]}
+  node_disk_filesystem_info: {type: gauge, labels: [device, type, usage, uuid, version]}
+  node_disk_flush_requests_time_seconds_total: {type: counter, labels: [device]}
+  node_disk_flush_requests_total: {type: counter, labels: [device]}
+  node_disk_info: {type: gauge, labels: [device, major, minor, model, path, revision, rotational, serial, wwn]}
+  node_disk_io_now: {type: gauge, labels: [device]}
+  node_disk_io_time_seconds_total: {type: counter, labels: [device]}
+  node_disk_io_time_weighted_seconds_total: {type: counter, labels: [device]}
+  node_disk_read_bytes_total: {type: counter, labels: [device]}
+  node_disk_read_time_seconds_total: {type: counter, labels: [device]}
+  node_disk_reads_completed_total: {type: counter, labels: [device]}
+  node_disk_reads_merged_total: {type: counter, labels: [device]}
+  node_disk_write_time_seconds_total: {type: counter, labels: [device]}
+  node_disk_writes_completed_total: {type: counter, labels: [device]}
+  node_disk_writes_merged_total: {type: counter, labels: [device]}
+  node_disk_written_bytes_total: {type: counter, labels: [device]}
+  node_dmi_info: {type: gauge, labels: [bios_date, bios_release, bios_vendor, bios_version, board_asset_tag, board_name, board_vendor, board_version, chassis_asset_tag, chassis_vendor, chassis_version, product_family, product_name, product_sku, product_version, system_vendor]}
+  node_edac_correctable_errors_total: {type: counter, labels: [controller]}
+  node_edac_csrow_correctable_errors_total: {type: counter, labels: [controller, csrow]}
+  node_edac_csrow_uncorrectable_errors_total: {type: counter, labels: [controller, csrow]}
+  node_edac_uncorrectable_errors_total: {type: counter, labels: [controller]}
+  node_entropy_available_bits: {type: gauge, labels: []}
+  node_entropy_pool_size_bits: {type: gauge, labels: []}
+  node_exporter_build_info: {type: gauge, labels: [branch, goarch, goos, goversion, revision, tags, version]}
+  node_filefd_allocated: {type: gauge, labels: []}
+  node_filefd_maximum: {type: gauge, labels: []}
+  node_filesystem_avail_bytes: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_device_error: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_files: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_files_free: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_free_bytes: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_mount_info: {type: gauge, labels: [device, major, minor, mountpoint]}
+  node_filesystem_purgeable_bytes: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_readonly: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_filesystem_size_bytes: {type: gauge, labels: [device, device_error, fstype, mountpoint]}
+  node_forks_total: {type: counter, labels: []}
+  node_hwmon_chip_names: {type: gauge, labels: [chip, chip_name]}
+  node_hwmon_curr_amps: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_curr_max_amps: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_in_max_volts: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_in_min_volts: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_in_volts: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_pwm_enable: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_sensor_label: {type: gauge, labels: [chip, label, sensor]}
+  node_hwmon_temp_alarm: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_crit_alarm_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_crit_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_crit_hyst_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_max_alarm_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_max_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_max_hyst_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_min_alarm_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_temp_min_celsius: {type: gauge, labels: [chip, sensor]}
+  node_hwmon_update_interval_seconds: {type: gauge, labels: [chip, sensor]}
+  node_infiniband_info: {type: gauge, labels: [board_id, device, firmware_version, hca_type]}
+  node_infiniband_lifespan_seconds: {type: gauge, labels: [device, port]}
+  node_infiniband_physical_state_id: {type: gauge, labels: [device, port]}
+  node_infiniband_rate_bytes_per_second: {type: gauge, labels: [device, port]}
+  node_infiniband_state_id: {type: gauge, labels: [device, port]}
+  node_intr_total: {type: counter, labels: []}
+  node_kernel_hung_tasks_total: {type: counter, labels: []}
+  node_load1: {type: gauge, labels: []}
+  node_load15: {type: gauge, labels: []}
+  node_load5: {type: gauge, labels: []}
+  node_memory_Active_anon_bytes: {type: gauge, labels: []}
+  node_memory_Active_bytes: {type: gauge, labels: []}
+  node_memory_Active_file_bytes: {type: gauge, labels: []}
+  node_memory_AnonHugePages_bytes: {type: gauge, labels: []}
+  node_memory_AnonPages_bytes: {type: gauge, labels: []}
+  node_memory_Bounce_bytes: {type: gauge, labels: []}
+  node_memory_Buffers_bytes: {type: gauge, labels: []}
+  node_memory_Cached_bytes: {type: gauge, labels: []}
+  node_memory_CmaFree_bytes: {type: gauge, labels: []}
+  node_memory_CmaTotal_bytes: {type: gauge, labels: []}
+  node_memory_CommitLimit_bytes: {type: gauge, labels: []}
+  node_memory_Committed_AS_bytes: {type: gauge, labels: []}
+  node_memory_DirectMap1G_bytes: {type: gauge, labels: []}
+  node_memory_DirectMap2M_bytes: {type: gauge, labels: []}
+  node_memory_DirectMap4k_bytes: {type: gauge, labels: []}
+  node_memory_Dirty_bytes: {type: gauge, labels: []}
+  node_memory_HardwareCorrupted_bytes: {type: gauge, labels: []}
+  node_memory_HugePages_Free: {type: gauge, labels: []}
+  node_memory_HugePages_Rsvd: {type: gauge, labels: []}
+  node_memory_HugePages_Surp: {type: gauge, labels: []}
+  node_memory_HugePages_Total: {type: gauge, labels: []}
+  node_memory_Hugepagesize_bytes: {type: gauge, labels: []}
+  node_memory_Inactive_anon_bytes: {type: gauge, labels: []}
+  node_memory_Inactive_bytes: {type: gauge, labels: []}
+  node_memory_Inactive_file_bytes: {type: gauge, labels: []}
+  node_memory_KernelStack_bytes: {type: gauge, labels: []}
+  node_memory_Mapped_bytes: {type: gauge, labels: []}
+  node_memory_MemAvailable_bytes: {type: gauge, labels: []}
+  node_memory_MemFree_bytes: {type: gauge, labels: []}
+  node_memory_MemTotal_bytes: {type: gauge, labels: []}
+  node_memory_Mlocked_bytes: {type: gauge, labels: []}
+  node_memory_NFS_Unstable_bytes: {type: gauge, labels: []}
+  node_memory_PageTables_bytes: {type: gauge, labels: []}
+  node_memory_Percpu_bytes: {type: gauge, labels: []}
+  node_memory_SReclaimable_bytes: {type: gauge, labels: []}
+  node_memory_SUnreclaim_bytes: {type: gauge, labels: []}
+  node_memory_ShmemHugePages_bytes: {type: gauge, labels: []}
+  node_memory_ShmemPmdMapped_bytes: {type: gauge, labels: []}
+  node_memory_Shmem_bytes: {type: gauge, labels: []}
+  node_memory_Slab_bytes: {type: gauge, labels: []}
+  node_memory_SwapCached_bytes: {type: gauge, labels: []}
+  node_memory_SwapFree_bytes: {type: gauge, labels: []}
+  node_memory_SwapTotal_bytes: {type: gauge, labels: []}
+  node_memory_Unevictable_bytes: {type: gauge, labels: []}
+  node_memory_VmallocChunk_bytes: {type: gauge, labels: []}
+  node_memory_VmallocTotal_bytes: {type: gauge, labels: []}
+  node_memory_VmallocUsed_bytes: {type: gauge, labels: []}
+  node_memory_WritebackTmp_bytes: {type: gauge, labels: []}
+  node_memory_Writeback_bytes: {type: gauge, labels: []}
+  node_memory_Zswap_bytes: {type: gauge, labels: []}
+  node_memory_Zswapped_bytes: {type: gauge, labels: []}
+  node_netstat_Icmp6_InErrors: {type: untyped, labels: []}
+  node_netstat_Icmp6_InMsgs: {type: untyped, labels: []}
+  node_netstat_Icmp6_OutMsgs: {type: untyped, labels: []}
+  node_netstat_Icmp_InErrors: {type: untyped, labels: []}
+  node_netstat_Icmp_InMsgs: {type: untyped, labels: []}
+  node_netstat_Icmp_OutMsgs: {type: untyped, labels: []}
+  node_netstat_Ip6_InOctets: {type: untyped, labels: []}
+  node_netstat_Ip6_OutOctets: {type: untyped, labels: []}
+  node_netstat_IpExt_InOctets: {type: untyped, labels: []}
+  node_netstat_IpExt_OutOctets: {type: untyped, labels: []}
+  node_netstat_Ip_Forwarding: {type: untyped, labels: []}
+  node_netstat_TcpExt_ListenDrops: {type: untyped, labels: []}
+  node_netstat_TcpExt_ListenOverflows: {type: untyped, labels: []}
+  node_netstat_TcpExt_SyncookiesFailed: {type: untyped, labels: []}
+  node_netstat_TcpExt_SyncookiesRecv: {type: untyped, labels: []}
+  node_netstat_TcpExt_SyncookiesSent: {type: untyped, labels: []}
+  node_netstat_TcpExt_TCPOFOQueue: {type: untyped, labels: []}
+  node_netstat_TcpExt_TCPRcvQDrop: {type: untyped, labels: []}
+  node_netstat_TcpExt_TCPSynRetrans: {type: untyped, labels: []}
+  node_netstat_TcpExt_TCPTimeouts: {type: untyped, labels: []}
+  node_netstat_Tcp_ActiveOpens: {type: untyped, labels: []}
+  node_netstat_Tcp_CurrEstab: {type: untyped, labels: []}
+  node_netstat_Tcp_InErrs: {type: untyped, labels: []}
+  node_netstat_Tcp_InSegs: {type: untyped, labels: []}
+  node_netstat_Tcp_OutRsts: {type: untyped, labels: []}
+  node_netstat_Tcp_OutSegs: {type: untyped, labels: []}
+  node_netstat_Tcp_PassiveOpens: {type: untyped, labels: []}
+  node_netstat_Tcp_RetransSegs: {type: untyped, labels: []}
+  node_netstat_Udp6_InDatagrams: {type: untyped, labels: []}
+  node_netstat_Udp6_InErrors: {type: untyped, labels: []}
+  node_netstat_Udp6_NoPorts: {type: untyped, labels: []}
+  node_netstat_Udp6_OutDatagrams: {type: untyped, labels: []}
+  node_netstat_Udp6_RcvbufErrors: {type: untyped, labels: []}
+  node_netstat_Udp6_SndbufErrors: {type: untyped, labels: []}
+  node_netstat_Udp_InDatagrams: {type: untyped, labels: []}
+  node_netstat_Udp_InErrors: {type: untyped, labels: []}
+  node_netstat_Udp_NoPorts: {type: untyped, labels: []}
+  node_netstat_Udp_OutDatagrams: {type: untyped, labels: []}
+  node_netstat_Udp_RcvbufErrors: {type: untyped, labels: []}
+  node_netstat_Udp_SndbufErrors: {type: untyped, labels: []}
+  node_network_address_assign_type: {type: gauge, labels: [device]}
+  node_network_carrier: {type: gauge, labels: [device]}
+  node_network_carrier_changes_total: {type: counter, labels: [device]}
+  node_network_carrier_down_changes_total: {type: counter, labels: [device]}
+  node_network_carrier_up_changes_total: {type: counter, labels: [device]}
+  node_network_device_id: {type: gauge, labels: [device]}
+  node_network_dormant: {type: gauge, labels: [device]}
+  node_network_flags: {type: gauge, labels: [device]}
+  node_network_iface_id: {type: gauge, labels: [device]}
+  node_network_iface_link: {type: gauge, labels: [device]}
+  node_network_iface_link_mode: {type: gauge, labels: [device]}
+  node_network_info: {type: gauge, labels: [address, adminstate, broadcast, device, duplex, ifalias, operstate]}
+  node_network_mtu_bytes: {type: gauge, labels: [device]}
+  node_network_name_assign_type: {type: gauge, labels: [device]}
+  node_network_net_dev_group: {type: gauge, labels: [device]}
+  node_network_protocol_type: {type: gauge, labels: [device]}
+  node_network_receive_bytes_total: {type: counter, labels: [device]}
+  node_network_receive_compressed_total: {type: counter, labels: [device]}
+  node_network_receive_drop_total: {type: counter, labels: [device]}
+  node_network_receive_errs_total: {type: counter, labels: [device]}
+  node_network_receive_fifo_total: {type: counter, labels: [device]}
+  node_network_receive_frame_total: {type: counter, labels: [device]}
+  node_network_receive_multicast_total: {type: counter, labels: [device]}
+  node_network_receive_nohandler_total: {type: counter, labels: [device]}
+  node_network_receive_packets_total: {type: counter, labels: [device]}
+  node_network_speed_bytes: {type: gauge, labels: [device]}
+  node_network_transmit_bytes_total: {type: counter, labels: [device]}
+  node_network_transmit_carrier_total: {type: counter, labels: [device]}
+  node_network_transmit_colls_total: {type: counter, labels: [device]}
+  node_network_transmit_compressed_total: {type: counter, labels: [device]}
+  node_network_transmit_drop_total: {type: counter, labels: [device]}
+  node_network_transmit_errs_total: {type: counter, labels: [device]}
+  node_network_transmit_fifo_total: {type: counter, labels: [device]}
+  node_network_transmit_packets_total: {type: counter, labels: [device]}
+  node_network_transmit_queue_length: {type: gauge, labels: [device]}
+  node_network_up: {type: gauge, labels: [device]}
+  node_nf_conntrack_entries: {type: gauge, labels: []}
+  node_nf_conntrack_entries_limit: {type: gauge, labels: []}
+  node_nf_conntrack_stat_drop: {type: gauge, labels: []}
+  node_nf_conntrack_stat_early_drop: {type: gauge, labels: []}
+  node_nf_conntrack_stat_found: {type: gauge, labels: []}
+  node_nf_conntrack_stat_ignore: {type: gauge, labels: []}
+  node_nf_conntrack_stat_insert: {type: gauge, labels: []}
+  node_nf_conntrack_stat_insert_failed: {type: gauge, labels: []}
+  node_nf_conntrack_stat_invalid: {type: gauge, labels: []}
+  node_nf_conntrack_stat_search_restart: {type: gauge, labels: []}
+  node_nvme_info: {type: gauge, labels: [cntlid, device, firmware_revision, model, serial, state]}
+  node_nvme_namespace_capacity_bytes: {type: gauge, labels: [device, nsid]}
+  node_nvme_namespace_info: {type: gauge, labels: [ana_state, device, nsid]}
+  node_nvme_namespace_logical_block_size_bytes: {type: gauge, labels: [device, nsid]}
+  node_nvme_namespace_size_bytes: {type: gauge, labels: [device, nsid]}
+  node_nvme_namespace_used_bytes: {type: gauge, labels: [device, nsid]}
+  node_os_info: {type: gauge, labels: [build_id, id, id_like, image_id, image_version, name, pretty_name, variant, variant_id, version, version_codename, version_id]}
+  node_power_supply_current_ampere: {type: gauge, labels: [power_supply]}
+  node_power_supply_current_max: {type: gauge, labels: [power_supply]}
+  node_power_supply_info: {type: gauge, labels: [charge_type, power_supply, scope, status, type, usb_type]}
+  node_power_supply_online: {type: gauge, labels: [power_supply]}
+  node_power_supply_voltage_max: {type: gauge, labels: [power_supply]}
+  node_power_supply_voltage_min: {type: gauge, labels: [power_supply]}
+  node_power_supply_voltage_volt: {type: gauge, labels: [power_supply]}
+  node_pressure_cpu_waiting_seconds_total: {type: counter, labels: []}
+  node_pressure_io_stalled_seconds_total: {type: counter, labels: []}
+  node_pressure_io_waiting_seconds_total: {type: counter, labels: []}
+  node_pressure_memory_stalled_seconds_total: {type: counter, labels: []}
+  node_pressure_memory_waiting_seconds_total: {type: counter, labels: []}
+  node_procs_blocked: {type: gauge, labels: []}
+  node_procs_running: {type: gauge, labels: []}
+  node_schedstat_running_seconds_total: {type: counter, labels: [cpu]}
+  node_schedstat_timeslices_total: {type: counter, labels: [cpu]}
+  node_schedstat_waiting_seconds_total: {type: counter, labels: [cpu]}
+  node_scrape_collector_duration_seconds: {type: gauge, labels: [collector]}
+  node_scrape_collector_success: {type: gauge, labels: [collector]}
+  node_selinux_enabled: {type: gauge, labels: []}
+  node_sockstat_FRAG6_inuse: {type: gauge, labels: []}
+  node_sockstat_FRAG6_memory: {type: gauge, labels: []}
+  node_sockstat_FRAG_inuse: {type: gauge, labels: []}
+  node_sockstat_FRAG_memory: {type: gauge, labels: []}
+  node_sockstat_RAW6_inuse: {type: gauge, labels: []}
+  node_sockstat_RAW_inuse: {type: gauge, labels: []}
+  node_sockstat_TCP6_inuse: {type: gauge, labels: []}
+  node_sockstat_TCP_alloc: {type: gauge, labels: []}
+  node_sockstat_TCP_inuse: {type: gauge, labels: []}
+  node_sockstat_TCP_mem: {type: gauge, labels: []}
+  node_sockstat_TCP_mem_bytes: {type: gauge, labels: []}
+  node_sockstat_TCP_orphan: {type: gauge, labels: []}
+  node_sockstat_TCP_tw: {type: gauge, labels: []}
+  node_sockstat_UDP6_inuse: {type: gauge, labels: []}
+  node_sockstat_UDP_inuse: {type: gauge, labels: []}
+  node_sockstat_UDP_mem: {type: gauge, labels: []}
+  node_sockstat_UDP_mem_bytes: {type: gauge, labels: []}
+  node_sockstat_sockets_used: {type: gauge, labels: []}
+  node_softnet_backlog_len: {type: gauge, labels: [cpu]}
+  node_softnet_cpu_collision_total: {type: counter, labels: [cpu]}
+  node_softnet_dropped_total: {type: counter, labels: [cpu]}
+  node_softnet_flow_limit_count_total: {type: counter, labels: [cpu]}
+  node_softnet_processed_total: {type: counter, labels: [cpu]}
+  node_softnet_received_rps_total: {type: counter, labels: [cpu]}
+  node_softnet_times_squeezed_total: {type: counter, labels: [cpu]}
+  node_systemd_system_running: {type: gauge, labels: []}
+  node_systemd_unit_state: {type: gauge, labels: [name, state, type]}
+  node_systemd_units: {type: gauge, labels: [state]}
+  node_systemd_version: {type: gauge, labels: [version]}
+  node_systemd_virtualization_info: {type: gauge, labels: [virtualization_type]}
+  node_textfile_scrape_error: {type: gauge, labels: []}
+  node_thermal_zone_temp: {type: gauge, labels: [type, zone]}
+  node_time_clocksource_available_info: {type: gauge, labels: [clocksource, device]}
+  node_time_clocksource_current_info: {type: gauge, labels: [clocksource, device]}
+  node_time_seconds: {type: gauge, labels: []}
+  node_time_zone_offset_seconds: {type: gauge, labels: [time_zone]}
+  node_timex_estimated_error_seconds: {type: gauge, labels: []}
+  node_timex_frequency_adjustment_ratio: {type: gauge, labels: []}
+  node_timex_loop_time_constant: {type: gauge, labels: []}
+  node_timex_maxerror_seconds: {type: gauge, labels: []}
+  node_timex_offset_seconds: {type: gauge, labels: []}
+  node_timex_pps_calibration_total: {type: counter, labels: []}
+  node_timex_pps_error_total: {type: counter, labels: []}
+  node_timex_pps_frequency_hertz: {type: gauge, labels: []}
+  node_timex_pps_jitter_seconds: {type: gauge, labels: []}
+  node_timex_pps_jitter_total: {type: counter, labels: []}
+  node_timex_pps_shift_seconds: {type: gauge, labels: []}
+  node_timex_pps_stability_exceeded_total: {type: counter, labels: []}
+  node_timex_pps_stability_hertz: {type: gauge, labels: []}
+  node_timex_status: {type: gauge, labels: []}
+  node_timex_sync_status: {type: gauge, labels: []}
+  node_timex_tai_offset_seconds: {type: gauge, labels: []}
+  node_timex_tick_seconds: {type: gauge, labels: []}
+  node_udp_queues: {type: gauge, labels: [ip, queue]}
+  node_uname_info: {type: gauge, labels: [domainname, machine, nodename, release, sysname, version]}
+  node_vmstat_oom_kill: {type: untyped, labels: []}
+  node_vmstat_pgfault: {type: untyped, labels: []}
+  node_vmstat_pgmajfault: {type: untyped, labels: []}
+  node_vmstat_pgpgin: {type: untyped, labels: []}
+  node_vmstat_pgpgout: {type: untyped, labels: []}
+  node_vmstat_pswpin: {type: untyped, labels: []}
+  node_vmstat_pswpout: {type: untyped, labels: []}
+  node_watchdog_bootstatus: {type: gauge, labels: [name]}
+  node_watchdog_fw_version: {type: gauge, labels: [name]}
+  node_watchdog_info: {type: gauge, labels: [identity, name, options, pretimeout_governor, state, status]}
+  node_watchdog_nowayout: {type: gauge, labels: [name]}
+  node_watchdog_pretimeout_seconds: {type: gauge, labels: [name]}
+  node_watchdog_timeleft_seconds: {type: gauge, labels: [name]}
+  node_watchdog_timeout_seconds: {type: gauge, labels: [name]}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_network_receive_bytes_total: {type: counter, labels: []}
+  process_network_transmit_bytes_total: {type: counter, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  process_virtual_memory_max_bytes: {type: gauge, labels: []}
+  promhttp_metric_handler_errors_total: {type: counter, labels: [cause]}
+  promhttp_metric_handler_requests_in_flight: {type: gauge, labels: []}
+  promhttp_metric_handler_requests_total: {type: counter, labels: [code]}

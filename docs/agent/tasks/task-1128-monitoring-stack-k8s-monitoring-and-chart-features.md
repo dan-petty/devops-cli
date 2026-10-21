@@ -38,6 +38,14 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - `k8s/monitoring/dashboards/coredns.json` (`uid: devops-coredns`, provisioned via `grafana-stack-dashboards` in `k8s/monitoring/dashboards/kustomization.yaml`) adds panels for requests by type and protocol, responses by rcode, request duration (p50/p95/p99), forward request duration (p50/p95/p99), and cache hits and misses.
 - `tests/test_stack_dashboards.py` registers `coredns` in `EXPORTERS` and `coredns.json` in `DASHBOARD_EXPORTERS`.
 
+### Part 6: Stack Dashboard Queries Match Exported Metrics and Capture Verification (#1136)
+- `k8s/monitoring/dashboards/ingress-tunnel.json` removes `Cloudflare Service Status` (already on `project-metrics.json`), replaces `traefik_entrypoint_open_connections` with `sum by (entrypoint) (traefik_open_connections{entrypoint=~"$entrypoint"})`, and replaces `traefik_service_open_connections` with `sum by (service) (rate(traefik_service_requests_total{service=~"$service"}[$__rate_interval]))` (`Per-Service Request Rate`).
+- `k8s/monitoring/dashboards/k8s-views-global.json` and `k8s/monitoring/dashboards/k8s-views-namespaces.json` replace `kube_hpa_labels` with `kube_horizontalpodautoscaler_labels`, and `k8s/monitoring/k8s-monitoring-values.yaml` adds `kube_horizontalpodautoscaler_labels` to `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics`.
+- `k8s/monitoring/dashboards/k8s-views-namespaces.json` drops the `pod=~"${created_by}.*"` matcher from `kube_deployment_status_replicas_unavailable`, and both `k8s-views-namespaces.json` and `k8s-views-nodes.json` remove the `kubelet_volume_stats_*` PersistentVolume panels (omitted because `local-path` reports no volume stats) and note this in their dashboard descriptions.
+- `k8s/monitoring/dashboards/k8s-views-nodes.json` plots the gauge `node_disk_io_now` directly instead of wrapping it in `rate(...[$__rate_interval])`.
+- `k8s/monitoring/dashboards/otel-collector.json` sets `fieldConfig.defaults.noValue: "none recorded"` on `"Spans Sent and Failed per Exporter"`.
+- `tests/fixtures/k8s_monitoring/cluster_metrics/` checks in the `grafana/k8s-monitoring 4.5.2` default allow lists for `cadvisor`, `kube-state-metrics`, and `kubelet`, and `tests/fixtures/metrics/` adds live metric captures for `traefik`, `cloudflared`, `kube-state-metrics`, `node-exporter`, `kubelet`, and `cadvisor`. `tests/test_stack_dashboards.py` filters `cadvisor`, `kube-state-metrics`, and `kubelet` captures by the effective allow list and registers `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json`, and `k8s-views-nodes.json` in `DASHBOARD_EXPORTERS`.
+
 ## Acceptance Criteria
 - [x] `k8s/monitoring/k8s-monitoring-values.yaml` `integrations` gains the `alloy` (`k8s-monitoring`) and `grafana` (`grafana`) instances.
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `serviceMonitor.enabled: true`, and `test_prometheus_operator_crds_install_before_every_service_monitor` includes `("infra", "pyroscope")`.
@@ -52,7 +60,8 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - [x] `k8s/monitoring/pyroscope-values.yaml` disables the bundled Alloy subchart (`alloy.enabled: false`) and `k8s/monitoring/k8s-monitoring-values.yaml` configures `destinations.localPyroscope`, `profiling` (`ebpf.targetingScheme: all` and `pprof`), and `collectors.alloy-profiles`.
 - [x] `k8s/monitoring/dashboards/pyroscope.json` and `k8s/monitoring/dashboards/sre-service.json` query `service_name` from Pyroscope without hard-coded service lists or `created_by_name`, and `k8s/monitoring/prometheus-values.yaml` adds `PyroscopeQueryErrors`.
 - [x] `k8s/monitoring/dashboards/coredns.json` and `tests/fixtures/metrics/coredns.yaml` add the CoreDNS dashboard over captured `coredns_*` series (`job="integrations/kubernetes/kube-dns"`), verified by `tests/test_stack_dashboards.py` and `tests/test_k8s_monitoring_dashboards.py`.
-- Remaining children of #1128 delivered in subsequent PRs: #1136, #551, and #1367.
+- [x] `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json`, `k8s-views-nodes.json`, and `otel-collector.json` queries match exported series and labels, verified against `tests/fixtures/metrics/` and `tests/fixtures/k8s_monitoring/cluster_metrics/` in `tests/test_stack_dashboards.py` (#1136).
+- Remaining children of #1128 delivered in subsequent PRs: #551 and #1367.
 - Pending a person, after the infra and logging stacks are redeployed:
   - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets, 1 Grafana and 1 Pyroscope;
   - `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;
