@@ -113,11 +113,17 @@ dashboards:
       revision: 37
       datasource: Prometheus
 
+rbac:
+  # All dashboard ConfigMaps live in monitoring and the datasource sidecar is disabled, so a
+  # namespaced Role replaces the chart's cluster-wide Secret/ConfigMap ClusterRole (#1133).
+  namespaced: true
+
 sidecar:
   dashboards:
     enabled: true
     label: grafana_dashboard
     labelValue: ""
-    searchNamespace: ALL
+    searchNamespace: monitoring
+    resource: configmap
   datasources:
-    enabled: true
+    enabled: false

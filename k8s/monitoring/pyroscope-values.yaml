@@ -5,6 +5,9 @@
 
 pyroscope:
   replicaCount: 1
+  # Override the chart's debug default (#1133) while keeping info-level startup and compaction lines.
+  extraArgs:
+    log.level: info
 
   resources:
     requests:

@@ -318,28 +318,36 @@ def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
     assert unnamed == []
 
 
-OTEL_COLLECTOR_PEER = {
-    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}},
-    "podSelector": {
-        "matchLabels": {
-            "app.kubernetes.io/name": "opentelemetry-collector",
-            "app.kubernetes.io/instance": "otel-collector",
-        }
-    },
-}
+def _namespace_pod_peer(namespace: str, name: str, instance: str) -> dict[str, Any]:
+    return {
+        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+        "podSelector": {
+            "matchLabels": {
+                "app.kubernetes.io/name": name,
+                "app.kubernetes.io/instance": instance,
+            }
+        },
+    }
+
+
+OTEL_COLLECTOR_PEER = _namespace_pod_peer("otel", "opentelemetry-collector", "otel-collector")
+GRAFANA_PEER = _namespace_pod_peer("monitoring", "grafana", "grafana")
+ALLOY_COLLECTOR_PEERS = [
+    _namespace_pod_peer("monitoring", collector, f"k8s-monitoring-{collector}")
+    for collector in ("alloy-logs", "alloy-metrics", "alloy-singleton")
+]
 MONITORING_NAMESPACE_PEER = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}}
 }
 
 
 def test_loki_ingress_from_otel_admits_only_the_collector() -> None:
-    """Verify Loki's 3100 ingress names the collector's pods in `otel`, not the whole namespace (#1100).
+    """Verify Loki's 3100 ingress names Grafana, the Alloy collectors, and the OTel collector (#1100, #1133).
 
-    Loki runs with `auth_enabled: false`, so a namespace-only `otel` peer let Tempo, or any
-    workload later deployed to `otel`, push and query logs. A peer that combines the namespace
-    selector with the collector release's pod labels, with `ports` in the same rule, was
-    checked against this cluster's kube-router before the change: the labelled pod connected
-    and an unlabelled pod in the same namespace was refused, from the same node and another.
+    Loki runs with `auth_enabled: false`, so namespace-only `monitoring` or `otel` peers let any
+    workload in those namespaces push and query logs. Each peer combines the namespace selector
+    with the release's pod labels, with `ports` in the same rule, and a namespace-only `monitoring`
+    peer is rejected.
     """
     doc = yaml.safe_load((K8S_DIR / "logging" / "networkpolicy.yaml").read_text("utf-8"))
     loki_rules = [
@@ -347,13 +355,20 @@ def test_loki_ingress_from_otel_admits_only_the_collector() -> None:
         for rule in doc["spec"]["ingress"]
         if {"protocol": "TCP", "port": 3100} in rule.get("ports", [])
     ]
+    peers = [peer for from_peers, _ in loki_rules for peer in from_peers]
 
-    assert loki_rules == [
-        (
-            [MONITORING_NAMESPACE_PEER, OTEL_COLLECTOR_PEER],
-            [{"protocol": "TCP", "port": 3100}],
-        )
-    ]
+    assert (
+        loki_rules,
+        MONITORING_NAMESPACE_PEER in peers,
+    ) == (
+        [
+            (
+                [GRAFANA_PEER, *ALLOY_COLLECTOR_PEERS, OTEL_COLLECTOR_PEER],
+                [{"protocol": "TCP", "port": 3100}],
+            )
+        ],
+        False,
+    )
 
 
 def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None:

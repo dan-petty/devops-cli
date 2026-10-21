@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -850,3 +851,110 @@ def test_otel_and_logging_network_policies_allow_telemetry_flow() -> None:
         _egress_rules_to(otel_egress, "otel", "logging", 3100) > 0,
         _egress_rules_to(otel_egress, "otel", "monitoring", 9090) > 0,
     ) == (True, True, True)
+
+
+LOG_LEVEL_KEYS = {"log.level", "logLevel", "log_level"}
+
+
+def _dashboard_configmap_namespaces() -> list[str | None]:
+    """The target namespace of every `grafana_dashboard`-labelled ConfigMap kustomizations generate."""
+    namespaces: list[str | None] = []
+    for path in sorted(K8S_DIR.rglob("kustomization.yaml")):
+        kustomization = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        shared_labels = kustomization.get("generatorOptions", {}).get("labels", {})
+        for generator in kustomization.get("configMapGenerator", []):
+            labels = {**shared_labels, **generator.get("options", {}).get("labels", {})}
+            if "grafana_dashboard" in labels:
+                namespaces.append(kustomization.get("namespace", generator.get("namespace")))
+    return namespaces
+
+
+def test_loki_pyroscope_and_grafana_turn_off_unused_chart_defaults() -> None:
+    """Loki canary, Pyroscope debug logging, and Grafana's cluster-wide sidecar watch stay off (#1133).
+
+    Loki keeps retention enabled with `deletion_mode: disabled` (#550), Pyroscope logs at `info`
+    rather than the chart's `debug` default, and Grafana disables its datasource sidecar and scopes
+    its dashboard sidecar and RBAC to ConfigMaps in `monitoring`, where every generated dashboard
+    ConfigMap lives.
+    """
+    loki = _k8s_yaml("logging/loki-values.yaml")
+    pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
+    grafana = _k8s_yaml("monitoring/grafana-values.yaml")
+    dashboards_sc = grafana.get("sidecar", {}).get("dashboards", {})
+    datasources_sc = grafana.get("sidecar", {}).get("datasources", {})
+    dashboard_namespaces = _dashboard_configmap_namespaces()
+
+    assert (
+        loki.get("lokiCanary", {}).get("enabled"),
+        loki["loki"]["limits_config"]["deletion_mode"],
+        loki["loki"]["compactor"]["retention_enabled"],
+        pyroscope.get("pyroscope", {}).get("extraArgs", {}).get("log.level"),
+        datasources_sc.get("enabled"),
+        (dashboards_sc.get("searchNamespace"), dashboards_sc.get("resource")),
+        grafana.get("rbac", {}).get("namespaced"),
+        (bool(dashboard_namespaces), set(dashboard_namespaces)),
+    ) == (
+        False,
+        "disabled",
+        True,
+        "info",
+        False,
+        ("monitoring", "configmap"),
+        True,
+        (True, {"monitoring"}),
+    )
+
+
+def _debug_log_settings(node: Any, path: str = "") -> list[str]:
+    """Every log-level key or `-log.level=debug` argument under `node` set to `debug`."""
+    if isinstance(node, dict):
+        return [
+            *(
+                f"{path}.{key}={value}" if path else f"{key}={value}"
+                for key, value in node.items()
+                if key in LOG_LEVEL_KEYS and str(value).strip().lower() == "debug"
+            ),
+            *(
+                hit
+                for key, value in node.items()
+                for hit in _debug_log_settings(value, f"{path}.{key}" if path else str(key))
+            ),
+        ]
+    if isinstance(node, list):
+        return [
+            hit
+            for index, item in enumerate(node)
+            for hit in _debug_log_settings(item, f"{path}[{index}]")
+        ]
+    if isinstance(node, str) and node.strip().lstrip("-").lower() == "log.level=debug":
+        return [f"{path}={node}"]
+    return []
+
+
+def test_no_stack_values_file_sets_a_debug_log_level() -> None:
+    """No values file the stack lifecycle installs sets a debug log level (#1133)."""
+    values_by_release = {
+        release["name"]: yaml.safe_load(Path(release["values"]).read_text(encoding="utf-8")) or {}
+        for releases in _HELM_RELEASES_BY_STACK.values()
+        for release in releases
+    }
+    debug_in_repo = {
+        name: hits for name, doc in values_by_release.items() if (hits := _debug_log_settings(doc))
+    }
+    mutated_pyroscope = {
+        **values_by_release["pyroscope"],
+        "pyroscope": {
+            **values_by_release["pyroscope"].get("pyroscope", {}),
+            "extraArgs": {"log.level": "debug"},
+        },
+    }
+
+    assert (
+        debug_in_repo,
+        _debug_log_settings(mutated_pyroscope),
+        _debug_log_settings({"extraArgs": ["-log.level=debug"]}),
+    ) == (
+        {},
+        ["pyroscope.extraArgs.log.level=debug"],
+        ["extraArgs[0]=-log.level=debug"],
+    )
