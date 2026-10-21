@@ -1,5 +1,6 @@
-"""The suite's floor: HOME isolated before devops-cli is imported, then every submodule and
-subpackage of `tests.support` registered as a plugin (#1311, #1312).
+"""The suite's floor: HOME isolated before devops-cli is imported, then each submodule and
+subpackage of `tests.support` that could give pytest a fixture or hook registered as a plugin
+(#1311, #1312, #1735).
 
 The root conftest names this module in its one `pytest_plugins` entry. devops-cli binds HOME
 when it is imported, so a support module that imports devops-cli must load after HOME is
@@ -12,6 +13,8 @@ with no list to edit.
 
 from __future__ import annotations
 
+import ast
+import importlib.util
 import inspect
 import os
 import pkgutil
@@ -109,19 +112,63 @@ def _check_registration(module: ModuleType, sees: Callable[[Path], bool]) -> Non
         )
 
 
+def _may_hand_pytest_a_plugin(source: Path, package: str) -> bool:
+    """Report whether a support module's source could give pytest a fixture or hook in a way the
+    test selector cannot read: it imports pytest or another module of `package`, or answers
+    attribute lookups itself with a module-level `__getattr__` or `__dir__` (#1735)."""
+    from devops_cli.config.constants import CONST_PYTEST_MODULES
+
+    def names_pytest_or_support(module: str) -> bool:
+        return module.partition(".")[0] in CONST_PYTEST_MODULES or (
+            module == package or module.startswith(f"{package}.")
+        )
+
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    imported = [
+        node.level > 0 or names_pytest_or_support(node.module or "")
+        if isinstance(node, ast.ImportFrom)
+        else any(names_pytest_or_support(alias.name) for alias in node.names)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    answers_lookups = any(
+        isinstance(node, ast.FunctionDef) and node.name in {"__getattr__", "__dir__"}
+        for node in tree.body
+    )
+    return any(imported) or answers_lookups
+
+
+def _is_plain_helper(name: str, package: str, defines: Callable[[Path], bool]) -> bool:
+    """Report whether support module `name` is a plain helper: its source defines no fixture or
+    hook the test selector sees and could hand pytest none another way. Such a module loads when
+    a test imports it, not at every start-up (#1735)."""
+    spec = importlib.util.find_spec(name)
+    source = Path(spec.origin) if spec is not None and spec.origin else None
+    return (
+        source is not None
+        and source.suffix == ".py"
+        and not defines(source)
+        and not _may_hand_pytest_a_plugin(source, package)
+    )
+
+
 def register_support_plugins(
     pluginmanager: pytest.PytestPluginManager, package: ModuleType
 ) -> None:
-    """Register every submodule and subpackage of `package` as a pytest plugin, so a fixture or
-    hook one defines reaches every test. One that fails to import fails the registration, named
-    by `import_plugin`, and so do a test module or conftest under the package, and a module in
-    which pytest finds a fixture or hook that the test selector's `defines_fixture_or_hook` does
-    not, in a narrowed run as in the full one."""
+    """Register each submodule and subpackage of `package` that could give pytest a fixture or
+    hook as a pytest plugin, so a fixture or hook one defines reaches every test. A plain helper,
+    which defines none the test selector sees and imports neither pytest nor another support
+    module, is left for its importers to load (#1735). One registration imports and that fails to
+    import fails the registration, named by `import_plugin`, and so do a test module or conftest
+    under the package, and a module in which pytest finds a fixture or hook that the test
+    selector's `defines_fixture_or_hook` does not, in a narrowed run as in the full one."""
     from devops_cli.core.test_selection import defines_fixture_or_hook
 
     prefix = f"{package.__name__}."
     for info in pkgutil.walk_packages(package.__path__, prefix):
         _refuse_a_test_file(info.name)
+        if _is_plain_helper(info.name, package.__name__, defines_fixture_or_hook):
+            continue
         pluginmanager.import_plugin(info.name)
         module = pluginmanager.get_plugin(info.name)
         if isinstance(module, ModuleType):

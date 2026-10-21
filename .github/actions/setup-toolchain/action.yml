@@ -41,9 +41,11 @@ runs:
         restore-keys: |
           tooling-${{ inputs.cache-suffix }}-${{ runner.os }}-
 
+    # A fresh runner's environment holds no bytecode: compiling it once here, in parallel, spares
+    # each xdist worker compiling the same modules while it collects (#1735).
     - name: Synchronize dependencies
       shell: bash
-      run: uv sync --all-groups --all-extras
+      run: uv sync --all-groups --all-extras --compile-bytecode
 
     - name: Initialize workspace directories
       shell: bash

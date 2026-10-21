@@ -704,6 +704,24 @@ def test_github_workflows_name_their_runner_and_use_managed_python() -> None:
     )
 
 
+def test_the_toolchain_compiles_bytecode_when_it_syncs() -> None:
+    """The shared toolchain action's `uv sync` compiles the environment's bytecode once, in
+    parallel, so each xdist worker of a fresh runner imports compiled modules instead of
+    compiling the same ones itself (#1735)."""
+    import yaml
+
+    action = yaml.safe_load(
+        Path(".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
+    )
+    syncs = [
+        str(step.get("run", ""))
+        for step in action["runs"]["steps"]
+        if isinstance(step, dict) and str(step.get("run", "")).startswith("uv sync")
+    ]
+
+    assert (len(syncs), all("--compile-bytecode" in sync for sync in syncs)) == (1, True)
+
+
 def test_ci_workflow_has_tooling_cache_step() -> None:
     """Validate the shared toolchain action caches incremental tool state with a stable key.
 
