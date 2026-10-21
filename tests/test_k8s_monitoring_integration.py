@@ -262,6 +262,7 @@ def test_each_alloy_collector_runs_in_one_controller_preset() -> None:
             "alloy-metrics": ["statefulset"],
             "alloy-singleton": ["singleton"],
             "alloy-logs": ["daemonset"],
+            "alloy-profiles": ["daemonset"],
         },
         ["singleton"],
         False,
@@ -957,4 +958,32 @@ def test_no_stack_values_file_sets_a_debug_log_level() -> None:
         {},
         ["pyroscope.extraArgs.log.level=debug"],
         ["extraArgs[0]=-log.level=debug"],
+    )
+
+
+def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
+    """Profiling runs on `k8s-monitoring`'s `alloy-profiles` DaemonSet instead of Pyroscope's
+    bundled Alloy subchart (#1134)."""
+    pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
+    values = _k8s_monitoring_values()
+    destination = values["destinations"]["localPyroscope"]
+    endpoint = urlsplit(destination["url"])
+    profiling = values["profiling"]
+    collector = values["collectors"]["alloy-profiles"]
+
+    assert (
+        pyroscope["alloy"],
+        (destination["type"], endpoint.hostname, endpoint.port),
+        (profiling["enabled"], profiling["collector"], profiling["ebpf"], profiling["pprof"]),
+        collector["presets"],
+    ) == (
+        {"enabled": False},
+        ("pyroscope", "pyroscope.monitoring.svc.cluster.local", 4040),
+        (
+            True,
+            "alloy-profiles",
+            {"enabled": True, "targetingScheme": "all"},
+            {"enabled": True},
+        ),
+        ["daemonset", "privileged"],
     )

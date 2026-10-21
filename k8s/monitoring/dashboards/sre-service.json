@@ -989,9 +989,9 @@
             "type": "grafana-pyroscope-datasource",
             "uid": "pyroscope"
           },
-          "expr": "process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name=~\".*$service.*\"}",
+          "expr": "process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_namespace=\"$namespace\", service_name=~\"$service\"}",
           "groupBy": [],
-          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "labelSelector": "{service_namespace=\"$namespace\", service_name=~\"$service\"}",
           "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
           "queryType": "profile",
           "refId": "A"
@@ -1020,9 +1020,9 @@
             "type": "grafana-pyroscope-datasource",
             "uid": "pyroscope"
           },
-          "expr": "memory:inuse_space:bytes:space:bytes{service_name=~\".*$service.*\"}",
+          "expr": "memory:inuse_space:bytes:space:bytes{service_namespace=\"$namespace\", service_name=~\"$service\"}",
           "groupBy": [],
-          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "labelSelector": "{service_namespace=\"$namespace\", service_name=~\"$service\"}",
           "profileTypeId": "memory:inuse_space:bytes:space:bytes",
           "queryType": "profile",
           "refId": "A"
@@ -1116,21 +1116,17 @@
           "value": "$__all"
         },
         "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
+          "type": "grafana-pyroscope-datasource",
+          "uid": "pyroscope"
         },
-        "definition": "label_values(kube_pod_info{namespace=~\"$namespace\"}, created_by_name)",
+        "definition": "label_values({service_namespace=\"$namespace\"}, service_name)",
         "hide": 0,
         "includeAll": true,
         "label": "Service / Workload",
         "multi": false,
         "name": "service",
         "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(kube_pod_info{namespace=~\"$namespace\"}, created_by_name)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
+        "query": "label_values({service_namespace=\"$namespace\"}, service_name)",
         "refresh": 2,
         "regex": "",
         "sort": 1,
@@ -1147,7 +1143,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(kube_pod_info{namespace=~\"$namespace\", created_by_name=~\"$service\"}, pod)",
+        "definition": "label_values(kube_pod_info{namespace=~\"$namespace\", pod=~\"$service.*\"}, pod)",
         "hide": 0,
         "includeAll": true,
         "label": "Pod",
@@ -1156,7 +1152,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(kube_pod_info{namespace=~\"$namespace\", created_by_name=~\"$service\"}, pod)",
+          "query": "label_values(kube_pod_info{namespace=~\"$namespace\", pod=~\"$service.*\"}, pod)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

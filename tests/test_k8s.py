@@ -1557,6 +1557,9 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     grafana_values = yaml.safe_load(
         Path("k8s/monitoring/grafana-values.yaml").read_text(encoding="utf-8")
     )
+    k8s_mon_values = yaml.safe_load(
+        Path("k8s/monitoring/k8s-monitoring-values.yaml").read_text(encoding="utf-8")
+    )
     grafana_datasources = grafana_values["datasources"]["datasources.yaml"]["datasources"]
     pyro_ds = next((ds for ds in grafana_datasources if ds.get("uid") == "pyroscope"), None)
 
@@ -1565,7 +1568,7 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
         pyro_release["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
         pyro_values["pyroscope"]["service"]["port"],
         pyro_values["architecture"]["microservices"]["enabled"],
-        pyro_values["alloy"]["alloy"]["enableReporting"],
+        k8s_mon_values["collectors"]["alloy-profiles"]["alloy"]["enableReporting"],
         pyro_ds is not None,
         (pyro_ds["type"], pyro_ds["url"]) if pyro_ds else None,
     ) == (

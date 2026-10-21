@@ -423,6 +423,16 @@ serverFiles:
             annotations:
               summary: "Loki fails {{ $value | humanizePercentage }} of {{ $labels.route }} requests"
               description: "Over 5% of Loki's {{ $labels.route }} requests have returned a 5xx status for 15 minutes."
+          # Pyroscope 5xx errors (such as torn-segment reads on local-path storage, #1134), over
+          # the series #1131's ServiceMonitor scrapes.
+          - alert: PyroscopeQueryErrors
+            expr: sum by (route) (rate(pyroscope_request_duration_seconds_count{status_code=~"5.."}[15m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pyroscope is returning 5xx responses on {{ $labels.route }}"
+              description: "Pyroscope's {{ $labels.route }} route has returned 5xx errors over 15 minutes for 15 minutes."
           # Loki keeps logs 30 days (`retention_period: 720h`), but only its compactor's retention
           # deletes them, on every compaction (every 10 minutes). #550 turns that retention on
           # (`compactor.retention_enabled`), and it takes effect with #550's Loki migration; this

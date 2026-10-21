@@ -186,35 +186,27 @@
   "templating": {
     "list": [
       {
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": "All",
-          "value": ".*"
+          "value": "$__all"
         },
+        "datasource": {
+          "type": "grafana-pyroscope-datasource",
+          "uid": "pyroscope"
+        },
+        "definition": "label_values(service_name)",
         "hide": 0,
         "includeAll": true,
         "label": "Service",
         "multi": false,
         "name": "service",
-        "options": [
-          {
-            "selected": true,
-            "text": "All",
-            "value": ".*"
-          },
-          {
-            "selected": false,
-            "text": "monitoring/pyroscope",
-            "value": "monitoring/pyroscope"
-          },
-          {
-            "selected": false,
-            "text": "monitoring/alloy",
-            "value": "monitoring/alloy"
-          }
-        ],
-        "query": "monitoring/pyroscope, monitoring/alloy",
-        "type": "custom"
+        "options": [],
+        "query": "label_values(service_name)",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
       }
     ]
   },
