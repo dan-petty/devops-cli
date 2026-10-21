@@ -43,6 +43,9 @@ class CachedLLMResponse(BaseModel):
     tokens: dict[str, int | None] = Field(default_factory=dict)
     wall_seconds: float = 0.0
     backend_info: str | None = None
+    # The backend and model that answered, which `model` (the requested alias) does not name.
+    served_by: str | None = None
+    response_model: str | None = None
 
     def is_expired(self, ttl_seconds: float) -> bool:
         """Check if this cached response has exceeded its time-to-live."""
@@ -256,6 +259,8 @@ class LLMResponseCache:
         tokens: dict[str, int | None] | None = None,
         wall_seconds: float = 0.0,
         backend_info: str | None = None,
+        served_by: str | None = None,
+        response_model: str | None = None,
     ) -> CachedLLMResponse:
         """Persist an LLM response into memory and disk cache."""
         sys_hash = hashlib.sha256(system.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
@@ -277,6 +282,8 @@ class LLMResponseCache:
             tokens=tokens or {},
             wall_seconds=wall_seconds,
             backend_info=backend_info,
+            served_by=served_by,
+            response_model=response_model,
         )
 
         if not self.enabled:

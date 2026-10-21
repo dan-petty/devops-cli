@@ -2785,10 +2785,10 @@ CONST_OLLAMA_DONE_REASONS: Final[dict[str, FinishReason | None]] = {
 # recorded with.
 CONST_FINISH_REASON_LENGTH: Final[FinishReason] = "length"
 CONST_FINISH_REASON_ERROR: Final[FinishReason] = "error"
-# Replies the response cache never stores: one cut short, filtered or failed is not the answer
-# the prompt asked for, and serving it again for 7 days would repeat the cut.
+# Replies the response cache never stores: one cut short, filtered, failed or asking for a tool
+# call is not the answer the prompt asked for, and serving it again for 7 days would repeat it.
 CONST_UNCACHED_FINISH_REASONS: Final[frozenset[FinishReason]] = frozenset(
-    {"length", "content_filter", "error"}
+    {"length", "content_filter", "error", "tool_call"}
 )
 # How a review profile counts a reply whose provider gave no finish reason.
 CONST_FINISH_REASON_UNKNOWN: Final[str] = "unknown"
