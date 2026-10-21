@@ -994,6 +994,19 @@ class TestPrCommands:
                 200, headers={"content-type": "application/json"}, content=mock_checks_json.encode()
             ),
         )
+        mock_statuses_json = json.dumps(
+            {
+                "state": "success",
+                "total_count": 1,
+                "statuses": [
+                    {
+                        "context": "ci/status",
+                        "state": "success",
+                        "target_url": "https://example.com/status/1",
+                    }
+                ],
+            }
+        )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
@@ -1002,6 +1015,7 @@ class TestPrCommands:
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
+                    MagicMock(returncode=0, stdout=mock_statuses_json, stderr=""),
                 ],
             ),
         ):
@@ -1010,7 +1024,8 @@ class TestPrCommands:
                 res.exit_code,
                 "Validation" in res.output,
                 "Analyze" in res.output,
-            ) == (1, True, True)
+                "ci/status" in res.output,
+            ) == (1, True, True, True)
 
     def test_pr_edit_fallback(self, runner: CliRunner) -> None:
         """devops pr edit falls back to REST PATCH when gh pr edit fails."""
