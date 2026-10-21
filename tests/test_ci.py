@@ -761,6 +761,83 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
     assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
 
 
+def _job_runs_on_event(workflow: dict[str, Any], job: dict[str, Any], event: str) -> bool:
+    """Return True when a workflow triggers on `event` and `job` is not gated off `event`."""
+    triggers = workflow.get("on") or workflow.get(True) or {}
+    if event not in triggers:
+        return False
+    job_if = str(job.get("if", ""))
+    if "github.event_name == 'schedule'" in job_if:
+        return False
+    if event == "pull_request" and "github.event_name == 'push'" in job_if:
+        return False
+    if event == "push" and "github.event_name == 'pull_request'" in job_if:
+        return False
+    return True
+
+
+def _step_saves_uv_cache(step: dict[str, Any], default_composite_save: bool) -> bool:
+    """Return True when a step invokes setup-uv or setup-toolchain and saves the uv cache."""
+    uses = str(step.get("uses", ""))
+    with_args = step.get("with") or {}
+    if "astral-sh/setup-uv" in uses:
+        if not with_args.get("enable-cache"):
+            return False
+        raw = with_args.get("save-cache", True)
+        return str(raw).lower() != "false"
+    if uses == "./.github/actions/setup-toolchain":
+        raw = with_args.get("save-uv-cache", default_composite_save)
+        return str(raw).lower() != "false"
+    return False
+
+
+def test_toolchain_cache_runs_on_node24_and_one_job_per_event_saves_uv_cache() -> None:
+    """setup-toolchain pins Node 24 actions/cache v6.1.0, and at most one job per push/PR saves setup-uv cache (#1495)."""
+    import yaml
+
+    action = (
+        yaml.safe_load(
+            Path(".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
+        )
+        or {}
+    )
+    steps = action["runs"]["steps"]
+    uv_step = next(s for s in steps if "astral-sh/setup-uv" in str(s.get("uses", "")))
+    cache_step = next(s for s in steps if "actions/cache" in str(s.get("uses", "")))
+
+    save_input = action.get("inputs", {}).get("save-uv-cache", {})
+    default_save = str(save_input.get("default", "true")).lower() != "false"
+
+    writers_by_event: dict[str, list[str]] = {"pull_request": [], "push": []}
+    for wf_name in ("ci.yml", "release.yml"):
+        wf = yaml.safe_load((Path(".github/workflows") / wf_name).read_text(encoding="utf-8")) or {}
+        for job_id, job in wf.get("jobs", {}).items():
+            if not isinstance(job, dict):
+                continue
+            saves = any(
+                _step_saves_uv_cache(step, default_save)
+                for step in job.get("steps", [])
+                if isinstance(step, dict)
+            )
+            if not saves:
+                continue
+            for event in writers_by_event:
+                if _job_runs_on_event(wf, job, event):
+                    writers_by_event[event].append(f"{wf_name}:{job_id}")
+
+    assert (
+        cache_step.get("uses"),
+        save_input.get("default"),
+        uv_step.get("with", {}).get("save-cache"),
+        writers_by_event,
+    ) == (
+        "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+        "true",
+        "${{ inputs.save-uv-cache }}",
+        {"pull_request": ["ci.yml:static"], "push": ["ci.yml:static"]},
+    )
+
+
 def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
     """Pull requests get an advisory diff-cover report against their own base branch (#850).
 
