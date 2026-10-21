@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sqlite3
 from typing import Any
 
@@ -303,7 +304,7 @@ def test_direct_model_request_stream_records_spend(monkeypatch: pytest.MonkeyPat
 
 
 def _ledger_rows(ledger: SpendLedger) -> list[tuple[str, str | None]]:
-    with sqlite3.connect(ledger.db_path) as conn:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
         return conn.execute(
             "SELECT request_type, finish_reason FROM ai_spend_records ORDER BY id"
         ).fetchall()
@@ -364,7 +365,7 @@ def test_a_cache_lookup_that_answers_nothing_is_recorded_once_as_a_dispatch(
     with observe_llm_calls(seen.append):
         reply = client.chat("system", "user", use_cache=True, **options)
 
-    with sqlite3.connect(spend_ledger.db_path) as conn:
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
         rows = conn.execute("SELECT request_type, cached FROM ai_spend_records").fetchall()
     assert (reply.cached, [call["cached"] for call in seen], rows) == (
         False,

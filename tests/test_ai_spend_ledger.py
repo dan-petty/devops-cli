@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,7 +18,7 @@ def test_spend_ledger_schema_and_wal_initialization(tmp_path: Path) -> None:
     db_path = tmp_path / "spend.db"
     SpendLedger(db_path=db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         journal_mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
         tables = [
             row[0]
@@ -175,7 +176,7 @@ def test_track_request_spend_graceful_error_handling(monkeypatch: pytest.MonkeyP
 def test_spend_ledger_stage_column_migration_in_place(tmp_path: Path) -> None:
     """Verify an existing database without a stage column is migrated in-place."""
     db_path = tmp_path / "spend_legacy.db"
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(
             """
             CREATE TABLE ai_spend_records (
@@ -206,7 +207,7 @@ def test_spend_ledger_stage_column_migration_in_place(tmp_path: Path) -> None:
         )
 
     ledger = SpendLedger(db_path=db_path)
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()
         }
@@ -507,12 +508,12 @@ CREATE TABLE ai_spend_records (
 
 
 def _columns(db_path: Path) -> set[str]:
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         return {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);")}
 
 
 def _finish_reasons(db_path: Path) -> list[tuple[str, str | None]]:
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         return conn.execute(
             "SELECT model, finish_reason FROM ai_spend_records ORDER BY id"
         ).fetchall()
@@ -545,7 +546,7 @@ def test_a_ledger_records_each_replys_finish_reason(tmp_path: Path) -> None:
 def test_an_existing_ledger_gains_the_finish_reason_column(tmp_path: Path) -> None:
     """Verify a ledger written before finish_reason existed keeps its rows and records it."""
     db_path = tmp_path / "spend.db"
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(_SCHEMA_BEFORE_FINISH_REASON)
         conn.execute(
             "INSERT INTO ai_spend_records (timestamp, provider, server, model) "
@@ -573,7 +574,7 @@ def test_spend_ledger_init_db_duplicate_column_tolerance(tmp_path: Path) -> None
     # Calling _init_db again when columns exist is safe and idempotent
     ledger._init_db()
 
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
 
     assert ("served_by" in cols, "stage" in cols, "finish_reason" in cols) == (True, True, True)
@@ -611,7 +612,7 @@ def test_add_column_duplicate_tolerance_and_stale_column_check(
     db_path = tmp_path / "stale_check.db"
     ledger = SpendLedger(db_path=db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
         _add_column(conn, "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;")
 
     # Simulate stale column check in _init_db returning empty cursor
@@ -641,7 +642,7 @@ def test_add_column_duplicate_tolerance_and_stale_column_check(
     monkeypatch.setattr(ledger, "_get_connection", lambda: StaleConnProxy(real_get_conn()))
     ledger._init_db()
 
-    with sqlite3.connect(db_path) as conn:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
     assert ("served_by" in cols, "stage" in cols, "finish_reason" in cols) == (True, True, True)
 
