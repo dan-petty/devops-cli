@@ -27,6 +27,8 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
 
+pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+
 runner = CliRunner()
 
 

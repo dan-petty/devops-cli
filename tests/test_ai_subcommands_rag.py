@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 from devops_cli.commands.ai import _try_retrieve_rag_context
 from devops_cli.main import app as main_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 
@@ -32,6 +34,7 @@ def test_try_retrieve_rag_context_success(
     ):
         mock_st.return_value.ai.rag.enabled = True
         mock_st.return_value.qdrant.url = f"http://127.0.0.1:{refusing_port}"
+        mock_st.return_value.qdrant.api_key = None
         mock_st.return_value.qdrant.collection_prefix = "devops"
         mock_ctx.return_value.has_results = True
         mock_ctx.return_value.formatted_text = "<rag_context>mock content</rag_context>"

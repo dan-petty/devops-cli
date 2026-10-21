@@ -32,6 +32,7 @@ from tests.support.workspace_tripwire import (
 )
 
 pytest_plugins = ("pytester",)
+pytestmark = pytest.mark.live("python")
 
 _BOOTSTRAP_CONFTEST = 'pytest_plugins = ("tests.support.bootstrap",)\n'
 _SUPPORT_UNDER_TEST = "registered_support_under_test"

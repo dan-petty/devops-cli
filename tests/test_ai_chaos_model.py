@@ -27,8 +27,11 @@ from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 
 
 @pytest.fixture(autouse=True)
-def clean_telemetry(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
+def clean_telemetry(
+    monkeypatch: pytest.MonkeyPatch, config: Any
+) -> list[tuple[str, dict[str, Any]]]:
     """Reset tracer and metric counters before each test."""
+    config(telemetry={"enabled": True})
     reset_tracer()
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
     tracer = get_tracer()

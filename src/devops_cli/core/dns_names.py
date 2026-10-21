@@ -84,6 +84,13 @@ def _parse_non_root_dns_name(value: str) -> dns.name.Name:
     return parsed
 
 
+def reset_dns_names_cache() -> None:
+    """Clear the cached TLD extractor, special-use PSL roots, and parsed DNS names."""
+    get_tld_extractor.cache_clear()
+    _special_use_psl_roots.cache_clear()
+    _parse_non_root_dns_name.cache_clear()
+
+
 def is_public_dns_name(host: str) -> bool:
     """Return True when `host` is a valid DNS name with a registrable PSL domain outside `arpa.` and `onion.`."""
     import dns.exception

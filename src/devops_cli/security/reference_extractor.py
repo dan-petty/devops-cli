@@ -483,6 +483,21 @@ def is_trusted_registry_host(host: str) -> bool:
     )
 
 
+def reset_reference_extractor_caches() -> None:
+    """Clear all LRU caches on reference-extraction classifiers."""
+    network_target_address.cache_clear()
+    is_example_ip.cache_clear()
+    is_example_or_invalid_domain.cache_clear()
+    is_example_phone_number.cache_clear()
+    _is_unspecified_ip_host.cache_clear()
+    classify_network_target.cache_clear()
+    is_public_ip.cache_clear()
+    is_private_or_local_ip.cache_clear()
+    is_local_or_reserved_domain.cache_clear()
+    is_lockfile_or_ignore_file.cache_clear()
+    is_trusted_registry_host.cache_clear()
+
+
 def _is_url_local_host(host: str, is_example: bool, exclude_examples: bool) -> bool:
     """Determine whether a URL's host represents a local, private, or loopback endpoint."""
     if host == "localhost" or "." not in host:

@@ -33,6 +33,8 @@ from devops_cli.security.reference_extractor import NetworkReference
 from devops_cli.security.registry import global_scanner_registry
 from tests.support.fakes.scanners import ScannerFake
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_osv_scanner_command_builder(tmp_path: Path) -> None:
     """build_osv_scan_cmd builds offline JSON command over target lockfiles."""

@@ -200,3 +200,9 @@ def get_daemon_manager() -> PortForwardDaemonManager:
     if _GLOBAL_DAEMON_MANAGER is None:
         _GLOBAL_DAEMON_MANAGER = PortForwardDaemonManager()
     return _GLOBAL_DAEMON_MANAGER
+
+
+def reset_daemon_manager() -> None:
+    """Drop the global PortForwardDaemonManager singleton."""
+    global _GLOBAL_DAEMON_MANAGER
+    _GLOBAL_DAEMON_MANAGER = None

@@ -130,6 +130,11 @@ def _commonmark(anchors: bool = False) -> MarkdownIt:
     return parser.use(anchors_plugin, min_level=1, max_level=6) if anchors else parser
 
 
+def reset_changelog_fragments_cache() -> None:
+    """Clear the cached CommonMark parsers."""
+    _commonmark.cache_clear()
+
+
 def _entry(lines: Sequence[str], tokens: list[Token], index: int) -> ChangelogEntry | None:
     """The entry a top-level block opens: a list item's first paragraph and the rest, or a block.
 

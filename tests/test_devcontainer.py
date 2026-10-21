@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -241,7 +241,11 @@ class TestDevcontainerCli:
         assert "Spawned background Minikube & Kubernetes bootstrap" in result2.output
 
     def test_bootstrap_k8s_autostarts_minikube_when_stopped(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        docker_engine: Any,
     ) -> None:
         """devops devcontainer bootstrap-k8s must start minikube if stopped."""
         calls: list[list[str]] = []
@@ -264,13 +268,20 @@ class TestDevcontainerCli:
         )
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        with docker_engine(MagicMock()):
+            result = runner.invoke(
+                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
+            )
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
 
     def test_bootstrap_k8s_minikube_falls_back_to_cpu_when_no_gpu(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        docker_engine: Any,
     ) -> None:
         """devops devcontainer bootstrap-k8s must fallback to CPU minikube if no GPU is found."""
         calls: list[list[str]] = []
@@ -296,7 +307,10 @@ class TestDevcontainerCli:
             lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
         )
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        with docker_engine(MagicMock()):
+            result = runner.invoke(
+                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
+            )
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker)" in result.output
         assert any(c == ["minikube", "start", "--driver=docker"] for c in calls)
@@ -1303,6 +1317,7 @@ def test_devcontainer_template_contains_no_git_daemon(minikube: bool) -> None:
     ) == (False, False, False, False)
 
 
+@pytest.mark.unreachable("bus")
 def test_post_start_starts_the_session_bus_named_by_the_container_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1325,6 +1340,7 @@ def test_post_start_starts_the_session_bus_named_by_the_container_env(
     assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
 
 
+@pytest.mark.unreachable("bus")
 def test_the_session_bus_runtime_dir_is_private(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1361,6 +1377,7 @@ def test_a_running_session_bus_is_left_alone(
     assert actions == [f"D-Bus session bus is already running at {socket_path}"]
 
 
+@pytest.mark.unreachable("bus")
 def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """dbus-daemon refuses to bind over a leftover socket file from a stopped container."""
     import socket
@@ -1391,6 +1408,7 @@ def test_no_session_bus_is_started_without_a_configured_address(
     assert calls == []
 
 
+@pytest.mark.unreachable("bus")
 def test_a_failed_session_bus_start_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1887,6 +1905,7 @@ def test_post_start_never_prompts_without_a_terminal(
     assert (result.exit_code, calls) == (0, [])
 
 
+@pytest.mark.unreachable("bus")
 def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1927,6 +1946,7 @@ def test_post_create_adds_the_unlock_hook_to_each_shell_once(
         assert content.count("devops-cli keyring unlock") == 1
 
 
+@pytest.mark.live("bash", "zsh", "sh")
 def test_the_unlock_hook_is_valid_in_bash_and_zsh(tmp_path: Path) -> None:
     """A syntax error here would print on every terminal the user ever opens."""
     import shutil
@@ -1942,6 +1962,7 @@ def test_the_unlock_hook_is_valid_in_bash_and_zsh(tmp_path: Path) -> None:
             assert checked.returncode == 0, f"{shell}: {checked.stderr}"
 
 
+@pytest.mark.live("bash", "zsh", "sh")
 def test_the_unlock_hook_stays_quiet_once_the_keyring_is_open(tmp_path: Path) -> None:
     """Without the marker the hook must not even start devops: every new shell pays for it."""
     import subprocess

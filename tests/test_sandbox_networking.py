@@ -132,6 +132,7 @@ def test_sandbox_network_mode_enum_and_constants() -> None:
     assert SandboxNetworkMode.BRIDGE.value == CONST_SANDBOX_NETWORK_BRIDGE
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_sandbox_network_config_normalization_and_aliases() -> None:
     """Verify string mode normalization and user-friendly aliases."""
     assert SandboxNetworkConfig(mode="isolated").mode == SandboxNetworkMode.ISOLATED
@@ -361,6 +362,7 @@ def test_an_entry_that_resolves_to_no_address_adds_no_rule() -> None:
     assert _build_whitelist_egress(["example.com"], lambda _host: []) == [_build_dns_egress_rule()]
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_sandbox_deploy_config_integration(tmp_path: Path) -> None:
     """Verify SandboxDeployConfig seamlessly integrates SandboxNetworkConfig."""
     # Default is isolated
@@ -516,29 +518,35 @@ def test_cli_docker_sandbox_network_options(tmp_path: Path) -> None:
     assert "none" in res.stdout
 
 
-def test_docker_runner_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
+@pytest.mark.usefixtures("public_dns")
+def test_docker_runner_whitelist_fail_closed_without_proxy(
+    tmp_path: Path, docker_engine: Any
+) -> None:
     """Verify WorkloadSandboxRunner fails closed if whitelist modes lack an egress proxy."""
+    from unittest.mock import MagicMock
+
     from devops_cli.exceptions.docker import DockerSandboxError
 
-    cfg_pub = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["echo", "test"],
-        network_mode="public_whitelist",
-        public_whitelist=["github.com"],
-    )
-    runner_pub = WorkloadSandboxRunner(cfg_pub)
-    with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
-        runner_pub.run()
+    with docker_engine(MagicMock()):
+        cfg_pub = WorkloadSandboxConfig(
+            workspace_dir=tmp_path,
+            command=["echo", "test"],
+            network_mode="public_whitelist",
+            public_whitelist=["github.com"],
+        )
+        runner_pub = WorkloadSandboxRunner(cfg_pub)
+        with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
+            runner_pub.run()
 
-    cfg_loc = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["echo", "test"],
-        network_mode="local_whitelist",
-        local_whitelist=["http://localhost:11434"],
-    )
-    runner_loc = WorkloadSandboxRunner(cfg_loc)
-    with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
-        runner_loc.run()
+        cfg_loc = WorkloadSandboxConfig(
+            workspace_dir=tmp_path,
+            command=["echo", "test"],
+            network_mode="local_whitelist",
+            local_whitelist=["http://localhost:11434"],
+        )
+        runner_loc = WorkloadSandboxRunner(cfg_loc)
+        with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
+            runner_loc.run()
 
 
 def test_workload_sandbox_result_secret_masking() -> None:
@@ -556,19 +564,27 @@ def test_workload_sandbox_result_secret_masking() -> None:
     assert "<masked-github-token>" in res.stderr
 
 
-def test_sandbox_engine_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
+@pytest.mark.usefixtures("public_dns")
+def test_sandbox_engine_whitelist_fail_closed_without_proxy(
+    tmp_path: Path, docker_engine: Any
+) -> None:
     """Verify WorkloadSandboxEngine fails closed if deploy config whitelist lacks egress proxy."""
+    from unittest.mock import MagicMock
+
     from devops_cli.exceptions.sandbox import SandboxValidationError
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
-    engine = WorkloadSandboxEngine()
-    deploy_cfg = SandboxDeployConfig(
-        workspace_dir=tmp_path,
-        network_mode="public_whitelist",
-        public_whitelist=["github.com"],
-    )
-    with pytest.raises(SandboxValidationError, match="cannot enforce egress whitelist boundaries"):
-        engine._build_create_kwargs(deploy_cfg, tmp_path, [])
+    with docker_engine(MagicMock()):
+        engine = WorkloadSandboxEngine()
+        deploy_cfg = SandboxDeployConfig(
+            workspace_dir=tmp_path,
+            network_mode="public_whitelist",
+            public_whitelist=["github.com"],
+        )
+        with pytest.raises(
+            SandboxValidationError, match="cannot enforce egress whitelist boundaries"
+        ):
+            engine._build_create_kwargs(deploy_cfg, tmp_path, [])
 
 
 def test_a_whitelist_entry_parses_into_its_host_and_port() -> None:

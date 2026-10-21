@@ -22,6 +22,7 @@ THREADS_AFTER_CONFTEST_THEN_NUMPY = (
 )
 
 
+@pytest.mark.live("python")
 @pytest.mark.skipif(not PROC_STATUS.is_file(), reason="reads a thread count from /proc")
 def test_numpy_imported_after_the_root_conftest_starts_no_openblas_threads() -> None:
     """A process that imports tests/conftest.py and then numpy holds one thread, whatever

@@ -245,6 +245,11 @@ def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
     return domain_index
 
 
+def reset_document_chunker_cache() -> None:
+    """Clear the cached domain knowledge-base vocabulary index."""
+    _get_domain_knowledge_base_index.cache_clear()
+
+
 def _build_section_chunk(
     words_slice: list[str], heading: str, source_name: str, s_idx: int, chunk_counter: int
 ) -> DocumentSectionChunk:

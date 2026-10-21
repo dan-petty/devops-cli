@@ -88,6 +88,15 @@ def _non_public_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Networ
     )
 
 
+def reset_network_caches() -> None:
+    """Clear the cached private, link-local, and non-public network tuples."""
+    _private_networks.cache_clear()
+    _link_local_ipv4_networks.cache_clear()
+    _link_local_ipv6_networks.cache_clear()
+    _link_local_networks.cache_clear()
+    _non_public_networks.cache_clear()
+
+
 def _exhaustive_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Address]:
     """Decode every standardized embedding position unconditionally."""
     packed = ip.packed

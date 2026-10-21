@@ -89,6 +89,8 @@ from devops_cli.roadmap.store import (
 )
 from tests.llm_stream_fakes import route_llm_clients
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 REPO = "example/roadmap"
 
 BOARD_OPTIONS = {
@@ -735,7 +737,7 @@ def test_run_due_table_refine_adapter(git_repo: Path, store: InMemoryRoadmapStor
 # ── A failed model call skips only its item (#1363) ────────────────────────────────────────
 
 _GATEWAY_CONFIG = (
-    "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+    "telemetry:\n  enabled: false\n  endpoint: http://localhost:4318\n"
     "ai:\n  allow_private_network: true\n  provider: gateway\n"
     "  gateway_url: http://example.com:4000/v1\n  model: demo-model\n  rag:\n    enabled: false\n"
     "qdrant:\n  url: http://localhost:6333\n"
@@ -852,7 +854,11 @@ def test_a_proposal_that_never_fits_the_schema_skips_only_its_item(
         _written(store),
         (store.read_issue_body(first), _require_item(store, first).status),
         "StructuredOutputValidationError, 3 schema violation(s)" in rendered,
-        [record.getMessage() for record in caplog.records],
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "devops_cli.roadmap.refine"
+        ],
         "leaked_model_key" in rendered + caplog.text,
     ) == (
         [(first, "StructuredOutputValidationError", 3)],
@@ -978,7 +984,11 @@ def test_a_research_plan_that_never_fits_its_schema_refines_without_search_resul
         _requests_per_item(sent),
         proposal_request["search_results"],
         _written(store),
-        [record.getMessage() for record in caplog.records],
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "devops_cli.roadmap.refine"
+        ],
     ) == (
         {None: 3, first: 1},
         [],

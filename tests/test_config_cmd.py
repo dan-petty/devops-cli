@@ -13,6 +13,8 @@ from typer.testing import CliRunner
 from devops_cli.commands.config import app
 from devops_cli.main import app as main_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner(env={"COLUMNS": "250"})
 
 

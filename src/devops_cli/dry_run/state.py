@@ -52,6 +52,14 @@ def mark_dry_run_invocation(requested: bool) -> None:
     _INVOCATION_DRY_RUN = requested
 
 
+def reset_dry_run_state() -> None:
+    """Clear both in-process dry-run flags and the dry-run environment variable."""
+    global _ACTIVATED_HERE, _INVOCATION_DRY_RUN
+    _ACTIVATED_HERE = False
+    _INVOCATION_DRY_RUN = False
+    os.environ.pop(_DRY_RUN_ENV, None)
+
+
 def in_dry_run_invocation() -> bool:
     """Whether this invocation is a dry run, by its own `--dry-run` or the dry-run state."""
     return _INVOCATION_DRY_RUN or is_dry_run()

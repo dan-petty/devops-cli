@@ -57,3 +57,10 @@ def reads_untrusted_trees() -> bool:
     from devops_cli.core.repo import is_own_source_repository
 
     return not is_own_source_repository()
+
+
+def reset_untrusted_trees() -> None:
+    """Reset the active untrusted-tree depth counter to zero."""
+    global _RUNNING
+    with _LOCK:
+        _RUNNING = 0

@@ -124,3 +124,8 @@ def get_project_description(pyproject_path: Path | None = None) -> str:
 def get_project_python_version(pyproject_path: Path | None = None) -> str:
     """Return project Python runtime version."""
     return load_project_metadata(pyproject_path).python_version
+
+
+def reset_project_metadata_cache() -> None:
+    """Clear the cached project metadata."""
+    load_project_metadata.cache_clear()

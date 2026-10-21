@@ -27,8 +27,11 @@ INFERENCE_REQUIRED = load_genai_snapshot()["spans"]["gen_ai.inference.client"]["
 
 
 @pytest.fixture
-def sent_spans(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict[str, Any]]]:
+def sent_spans(
+    monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+) -> Iterator[list[dict[str, Any]]]:
     """Capture every OTLP payload the tracer sends."""
+    config(telemetry={"enabled": True})
     reset_tracer()
     payloads: list[dict[str, Any]] = []
     monkeypatch.setattr(get_tracer(), "_send_payload", lambda path, p: payloads.append(p))

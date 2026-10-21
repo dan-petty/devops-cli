@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import (
@@ -501,6 +502,7 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
     )
 
 
+@pytest.mark.live("jq")
 def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None:
     """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
     import json

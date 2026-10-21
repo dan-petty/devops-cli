@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.ai.client import LLMClient, build_llm_client, get_llm_client
 from devops_cli.config.settings import AIConfig, Settings
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_get_llm_client_default() -> None:

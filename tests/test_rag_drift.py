@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 from devops_cli.ai.rag.drift import RAGDriftDetector, RAGDriftReport
 from devops_cli.main import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 
@@ -210,12 +212,14 @@ def test_drift_detector_defensive_boundaries(tmp_path: Path) -> None:
     assert (stale_sym, new_sym) == ([], [])
 
     # 3. Path outside root_dir (traversal)
-    outside_dir = tmp_path.parent / "outside_dir"
-    outside_dir.mkdir(exist_ok=True)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
     outside_file = outside_dir / "external.py"
     outside_file.write_text("z = 1\n", encoding="utf-8")
     stale_out, new_out = [], []
-    _scan_file_drift(outside_file, tmp_path, "proj", {}, stale_out, new_out)
+    _scan_file_drift(outside_file, repo_dir, "proj", {}, stale_out, new_out)
     assert (stale_out, new_out) == ([], [])
 
     # 4. Oversized file (> 5MB)

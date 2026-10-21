@@ -365,11 +365,16 @@ def get_ollama_waiting_counts() -> dict[str, int]:
 
 def reset_ollama_slots() -> None:
     """Reset all active slot leases and waiting queues to zero (for testing)."""
+    global global_ollama_url_index
     with ollama_slot_condition:
         active_ollama_requests.clear()
         for p in RequestPriority:
             waiting_priority_requests[p] = 0
         ollama_slot_condition.notify_all()
+    with ollama_sem_lock:
+        ollama_semaphores.clear()
+    with global_ollama_url_lock:
+        global_ollama_url_index = 0
 
 
 def size_limit_text(limit_bytes: int) -> str:

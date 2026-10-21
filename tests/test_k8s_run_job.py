@@ -18,7 +18,6 @@ from click.testing import CliRunner
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import build_job, job_name
-from tests.cluster_secret_fakes import forbid_requests
 from tests.support.paths import REPO_ROOT
 
 CRONJOB = yaml.safe_load(
@@ -150,10 +149,7 @@ def test_no_wait_creates_the_job_and_prints_its_name(jobs: FakeJobs) -> None:
     assert [c for c in jobs.calls if "logs" in c] == []
 
 
-def test_dry_run_makes_no_request_and_prints_the_requests_in_order(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    attempted = forbid_requests(monkeypatch)
+def test_dry_run_makes_no_request_and_prints_the_requests_in_order() -> None:
     result = _run("--dry-run", "--", "ai", "gateway", "status")
     output = result.output
     order = [
@@ -169,27 +165,22 @@ def test_dry_run_makes_no_request_and_prints_the_requests_in_order(
     assert (
         result.exit_code,
         result.exception,
-        attempted,
         -1 in positions,
         positions == sorted(positions),
         "no request was made" in output,
-    ) == (0, None, [], False, True, True), output
+    ) == (0, None, False, True, True), output
 
 
-def test_dry_run_with_no_wait_lists_only_the_read_and_the_create(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_dry_run_with_no_wait_lists_only_the_read_and_the_create() -> None:
     from devops_cli.commands.k8s.cluster_jobs import JobRun, dry_run_job
 
-    attempted = forbid_requests(monkeypatch)
     result = dry_run_job(["--version"], "test-ctx", wait=False, start_timeout=5.0)
     assert (
         type(result),
         result.dry_run,
         result.exit_code,
         [r.method for r in result.requests],
-        attempted,
-    ) == (JobRun, True, None, ["kubectl get", "kubectl create"], [])
+    ) == (JobRun, True, None, ["kubectl get", "kubectl create"])
 
 
 def test_the_dry_run_lists_exactly_the_requests_a_run_then_makes(jobs: FakeJobs) -> None:

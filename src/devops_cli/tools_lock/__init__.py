@@ -104,6 +104,11 @@ def load_tools_lock() -> ToolsLock:
     return read_tools_lock(LOCK_DIR)
 
 
+def reset_tools_lock_cache() -> None:
+    """Clear the cached tools.lock parse."""
+    load_tools_lock.cache_clear()
+
+
 def tools_lock_digest(lock_dir: Path = LOCK_DIR) -> str:
     """A digest of the lock and its requirements files, in the form of the review prompt digest.
 

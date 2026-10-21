@@ -142,6 +142,7 @@ def test_ollama_provider_validates_urls() -> None:
 
 
 # 9. Telemetry error sample secret sanitization (Finding 9)
+@pytest.mark.live("python")
 @pytest.mark.asyncio
 async def test_subprocess_telemetry_masks_secrets_in_error_sample(tmp_path: Path) -> None:
     """Verify run_subprocess_async masks secrets in error sample recorded to telemetry."""

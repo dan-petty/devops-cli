@@ -574,6 +574,12 @@ def get_spend_ledger(db_path: Path | str | None = None) -> SpendLedger:
     return _GLOBAL_LEDGER
 
 
+def reset_spend_ledger() -> None:
+    """Drop the global SpendLedger singleton so the next access opens a fresh one."""
+    global _GLOBAL_LEDGER
+    _GLOBAL_LEDGER = None
+
+
 LLMCallObserver = Callable[[dict[str, Any]], None]
 
 # Callbacks shown every LLM call recorded in this context, e.g. a review profiler. The spend

@@ -15,6 +15,8 @@ from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

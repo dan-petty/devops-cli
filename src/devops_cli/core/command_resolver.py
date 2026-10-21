@@ -242,6 +242,12 @@ def module_click_command(module_path: str) -> Any | None:
     return None if app is None else typer.main.get_command(app)
 
 
+def reset_command_resolver_cache() -> None:
+    """Clear the cached root and module Click commands."""
+    _root_command.cache_clear()
+    module_click_command.cache_clear()
+
+
 def _command_declares_dry_run(cmd: Any) -> bool:
     """Whether a Click command declares a --dry-run option."""
     return any(

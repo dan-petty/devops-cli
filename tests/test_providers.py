@@ -18,6 +18,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.mock_provider import MockProvider
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_provider_factory() -> None:
     config = AIConfig()

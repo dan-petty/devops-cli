@@ -56,6 +56,11 @@ def _commonmark() -> MarkdownIt:
     return MarkdownIt("commonmark")
 
 
+def reset_issue_closure_cache() -> None:
+    """Clear the cached CommonMark parser."""
+    _commonmark.cache_clear()
+
+
 def strip_non_prose(body: str) -> str:
     """The body's prose, as markdown-it-py's CommonMark parser reads it: the text of its
     paragraphs, headings and list items outside block quotes, one piece per line.

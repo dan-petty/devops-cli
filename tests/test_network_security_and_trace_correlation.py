@@ -15,6 +15,8 @@ from devops_cli.telemetry.logging_bridge import (
     get_current_trace_correlation,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 # ── Finding #8: SSRF DNS Resolution in Manifest URL ──────────────────────────
 
 

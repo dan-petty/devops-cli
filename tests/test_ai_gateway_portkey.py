@@ -21,6 +21,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_URL
 from devops_cli.config.settings import AIConfig
 
+pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+
 runner = CliRunner()
 PORTKEY_DIR = Path("k8s/llm/portkey")
 

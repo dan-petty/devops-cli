@@ -16,6 +16,8 @@ from devops_cli.commands.serve import app as serve_app
 from devops_cli.server.app import create_app
 from devops_cli.server.json_logs import service_log_config
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

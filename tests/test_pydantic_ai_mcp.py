@@ -34,6 +34,8 @@ from devops_cli.ai.mcp.toolset import (
 )
 from devops_cli.ai.tools.mcp_bridge import get_devops_mcp_toolset, get_mcp_agent_tools
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_native_mcp_type_reexports() -> None:
     """Verify all native classes and types are cleanly re-exported from pydantic_ai.mcp."""

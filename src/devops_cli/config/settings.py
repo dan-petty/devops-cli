@@ -1043,6 +1043,11 @@ def reset_settings_cache() -> None:
         _CONFIG_CACHE.clear()
 
 
+def clear_ephemeral_ci_secrets() -> None:
+    """Clear the in-process ephemeral CI secrets store."""
+    _EPHEMERAL_CI_SECRETS.clear()
+
+
 def load_settings() -> Settings:
     """Load settings: global config → project config → env vars (each layer wins).
 

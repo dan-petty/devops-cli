@@ -29,6 +29,8 @@ from devops_cli.ai.tools.builtin_tools import (
     search_code,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_is_safe_workspace_path(tmp_path: Path) -> None:
     """Verify _is_safe_workspace_path allows workspace paths and denies external/symlinked paths."""

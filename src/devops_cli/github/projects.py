@@ -257,6 +257,13 @@ _CURRENT_USER_CACHE: str | None = None
 _PROJECT_OWNER_ARG_CACHE: dict[str, str] = {}
 
 
+def reset_project_caches() -> None:
+    """Clear the cached authenticated GitHub user and project owner arguments."""
+    global _CURRENT_USER_CACHE
+    _CURRENT_USER_CACHE = None
+    _PROJECT_OWNER_ARG_CACHE.clear()
+
+
 def _get_authenticated_user() -> str | None:
     """Retrieve the username of the currently authenticated GitHub CLI user."""
     global _CURRENT_USER_CACHE

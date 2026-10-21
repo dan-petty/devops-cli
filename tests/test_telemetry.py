@@ -70,7 +70,8 @@ def test_telemetry_span_error_recording(monkeypatch: pytest.MonkeyPatch) -> None
     assert span_data["status"]["message"] == "simulated failure"
 
 
-def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
+    config(telemetry={"enabled": True})
     tracer = get_tracer()
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
     monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
@@ -96,9 +97,10 @@ def test_inject_and_extract_trace_context() -> None:
     assert len(span_id) == 16
 
 
-def test_traced_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_traced_decorator(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
     from devops_cli.telemetry.tracer import traced
 
+    config(telemetry={"enabled": True})
     client = get_tracer()
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
     monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))

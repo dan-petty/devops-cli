@@ -50,6 +50,11 @@ def _load_matrix_data() -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(_MATRIX_JSON_PATH.read_text(encoding="utf-8")))
 
 
+def reset_gpu_matrix_cache() -> None:
+    """Clear the cached GPU hardware matrix data."""
+    _load_matrix_data.cache_clear()
+
+
 def _build_profile_lookup() -> dict[tuple[int, int, str], GpuProfile]:
     """Construct keyed lookup map for all hardware matrix entries."""
     data = _load_matrix_data()

@@ -28,6 +28,8 @@ from devops_cli.core.process import (
 )
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
+pytestmark = pytest.mark.live("python")
+
 
 def test_build_subprocess_env_allowlist_and_denylist(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

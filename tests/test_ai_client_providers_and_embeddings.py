@@ -54,6 +54,8 @@ from tests.llm_stream_fakes import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 @pytest.fixture(autouse=True)
 def _bypass_dns_validation(monkeypatch: pytest.MonkeyPatch) -> None:
