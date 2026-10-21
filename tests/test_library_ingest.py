@@ -186,6 +186,7 @@ def test_introspect_package_not_found() -> None:
         introspector.introspect_package("nonexistent_pkg_xyz_123")
 
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")
 def test_introspect_installed_package() -> None:
     introspector = PackageIntrospector()
     contract = introspector.introspect_package("pydantic", max_depth=1)
@@ -194,6 +195,7 @@ def test_introspect_installed_package() -> None:
     assert "BaseModel" in contract.symbols_index or contract.total_classes > 0
 
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")
 def test_cli_ai_ingest_library(tmp_path: Path) -> None:
     result = runner.invoke(
         ai_app,
@@ -205,6 +207,7 @@ def test_cli_ai_ingest_library(tmp_path: Path) -> None:
     assert saved_file.exists()
 
 
+@pytest.mark.filterwarnings("error::DeprecationWarning")
 def test_cli_ai_ingest_library_json_format(tmp_path: Path) -> None:
     result = runner.invoke(
         ai_app,

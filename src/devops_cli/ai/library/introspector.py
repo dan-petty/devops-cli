@@ -11,6 +11,7 @@ import importlib.metadata
 import inspect
 import logging
 import pkgutil
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -256,22 +257,26 @@ class PackageIntrospector:
         modules_to_inspect.extend(_discover_submodules(root_module, max_depth=max_depth))
 
         extracted_modules: dict[str, ModuleContract] = {}
-        for mod in modules_to_inspect:
-            funcs, classes, consts = _extract_module_symbols(mod)
-            mod_contract = ModuleContract(
-                name=mod.__name__,
-                docstring=inspect.getdoc(mod),
-                all_exports=list(getattr(mod, "__all__", [])),
-                functions=funcs,
-                classes=classes,
-                constants=consts,
-                submodules=[
-                    m.__name__
-                    for m in modules_to_inspect
-                    if m.__name__.startswith(f"{mod.__name__}.")
-                ],
-            )
-            extracted_modules[mod.__name__] = mod_contract
+        # Reading a package's members to catalogue its API does not use that API, so
+        # deprecations emitted on attribute access belong to the inspected package.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            for mod in modules_to_inspect:
+                funcs, classes, consts = _extract_module_symbols(mod)
+                mod_contract = ModuleContract(
+                    name=mod.__name__,
+                    docstring=inspect.getdoc(mod),
+                    all_exports=list(getattr(mod, "__all__", [])),
+                    functions=funcs,
+                    classes=classes,
+                    constants=consts,
+                    submodules=[
+                        m.__name__
+                        for m in modules_to_inspect
+                        if m.__name__.startswith(f"{mod.__name__}.")
+                    ],
+                )
+                extracted_modules[mod.__name__] = mod_contract
 
         symbols_index = _build_symbols_index(extracted_modules)
         total_functions = sum(

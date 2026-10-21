@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shutil
 import sqlite3
@@ -592,7 +593,7 @@ def test_a_profiled_review_counts_cached_persona_pages_apart(
         profiler.build(session_id="s", target="t").write(tmp_path)
 
     profile = ReviewProfile.load(tmp_path)
-    with sqlite3.connect(spend_ledger.db_path) as conn:
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
         rows = conn.execute("SELECT stage, cached FROM ai_spend_records").fetchall()
     assert (
         len(keys),

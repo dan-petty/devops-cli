@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from pathlib import Path
@@ -99,7 +100,7 @@ class TestLedger:
     def test_an_existing_ledger_gains_the_served_by_column(self, tmp_path: Path) -> None:
         """Verify a ledger written before served_by existed keeps its rows and records it."""
         db_path = tmp_path / "spend.db"
-        with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
             conn.execute(_PREVIOUS_SCHEMA)
             conn.execute(
                 "INSERT INTO ai_spend_records (timestamp, provider, server, model) "
@@ -108,7 +109,7 @@ class TestLedger:
 
         _record(SpendLedger(db_path=db_path), REMOTE, 100)
 
-        with sqlite3.connect(db_path) as conn:
+        with contextlib.closing(sqlite3.connect(db_path)) as conn:
             rows = conn.execute(
                 "SELECT model, served_by FROM ai_spend_records ORDER BY id"
             ).fetchall()

@@ -8,6 +8,7 @@ now deltas that the collector adds up.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sqlite3
@@ -404,7 +405,7 @@ def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
     hit_tokens = [
         v for a, v in captured.points("devops_cli_ai_tokens_total") if a["server"] == "cache"
     ]
-    with sqlite3.connect(spend_ledger.db_path) as conn:
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
         rows = conn.execute(
             "SELECT server, cached, prompt_tokens, completion_tokens, cost_usd"
             " FROM ai_spend_records ORDER BY id"
