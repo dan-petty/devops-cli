@@ -454,8 +454,8 @@ serverFiles:
             annotations:
               summary: "Alertmanager cannot deliver {{ $labels.integration }} notifications"
               description: "Alertmanager's {{ $labels.integration }} notifications have failed for 15 minutes. Its log names the error."
-      # Alloy's metric remote-write and log-write drops (#1131), scraped by k8s-monitoring's
-      # Alloy integration (`job="integrations/alloy"`).
+      # Alloy's metric remote-write and log-write drops (#1131) and log-shipper silence (#890),
+      # scraped by k8s-monitoring's Alloy integration (`job="integrations/alloy"`).
       - name: homelab-telemetry-pipeline
         rules:
           - alert: AlloyRemoteWriteSamplesFailed
@@ -474,3 +474,18 @@ serverFiles:
             annotations:
               summary: "Alloy collector {{ $labels.pod }} dropped log entries"
               description: "Alloy collector {{ $labels.pod }} dropped {{ $value | humanize }} log entries on their way to Loki in 15 minutes."
+          # Only alloy-logs ships pod and journal logs from each node; alloy-singleton ships
+          # cluster events, which can be quiet on an idle cluster (#890). Joining kube_pod_info
+          # adds the pod's `node` label, so a planned-maintenance `node=<name>` silence covers it.
+          - alert: PodLogsNotShipped
+            expr: >-
+              sum by (namespace, pod) (rate(loki_write_sent_entries_total{job="integrations/alloy", pod=~".*alloy-logs.*"}[5m]))
+              * on (namespace, pod) group_left (node)
+              max by (namespace, pod, node) (kube_pod_info)
+              == 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} is shipping no logs"
+              description: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} has sent 0 log entries to Loki for 30 minutes."

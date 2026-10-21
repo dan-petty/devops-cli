@@ -17,16 +17,19 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
   - `AlloyLogEntriesDropped`: `increase(loki_write_dropped_entries_total{job="integrations/alloy"}[15m]) > 0`.
 - `tests/fixtures/k8s_monitoring/integrations/alloy.yaml` checks in the `grafana/k8s-monitoring 4.5.2` default allow list for the Alloy integration with the chart version in its header.
 
+### Part 2: Pod Log Shipper Liveness Alert (#890)
+- `k8s/monitoring/prometheus-values.yaml` adds `PodLogsNotShipped` (`for: 30m`, `warning`) to `homelab-telemetry-pipeline`: alerts when an `alloy-logs` DaemonSet pod sends 0 entries to Loki over 5m for 30m, joining `node` from `kube_pod_info` so a node-maintenance silence covers it. (`PodLogsDropped` is superseded by #1131's `AlloyLogEntriesDropped`.)
+
 ## Acceptance Criteria
 - [x] `k8s/monitoring/k8s-monitoring-values.yaml` `integrations` gains the `alloy` (`k8s-monitoring`) and `grafana` (`grafana`) instances.
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `serviceMonitor.enabled: true`, and `test_prometheus_operator_crds_install_before_every_service_monitor` includes `("infra", "pyroscope")`.
-- [x] `k8s/monitoring/prometheus-values.yaml` gains the `homelab-telemetry-pipeline` rule group with `AlloyRemoteWriteSamplesFailed` and `AlloyLogEntriesDropped`.
-- [x] `tests/test_k8s_monitoring_alerting.py` asserts, as one structural tuple, the two rules' names, expressions, `for` durations and severities, the Alloy integration's selector set, the Grafana instance, and that Pyroscope's ServiceMonitor is enabled.
-- [x] `tests/test_k8s_monitoring_alerting.py` asserts that every metric name the `homelab-telemetry-pipeline` rules use is in `tests/fixtures/k8s_monitoring/integrations/alloy.yaml` and that the fixture header matches the `k8s-monitoring` chart version pin in `src/devops_cli/commands/k8s/stack_lifecycle.py`.
+- [x] `k8s/monitoring/prometheus-values.yaml` gains the `homelab-telemetry-pipeline` rule group with `AlloyRemoteWriteSamplesFailed`, `AlloyLogEntriesDropped`, and `PodLogsNotShipped`.
+- [x] `tests/test_k8s_monitoring_alerting.py` asserts, as structural tuples, the pipeline drop rules and scrape settings (#1131) and `PodLogsNotShipped`'s name, expression, `for` duration, and severity (#890).
+- [x] `tests/test_k8s_monitoring_alerting.py` asserts that every Alloy metric name the `homelab-telemetry-pipeline` rules use is in `tests/fixtures/k8s_monitoring/integrations/alloy.yaml` and that the fixture header matches the `k8s-monitoring` chart version pin in `src/devops_cli/commands/k8s/stack_lifecycle.py`.
 - [x] `tests/test_k8s_monitoring_integration.py` `_scrape_owners` handles list-valued `labelSelectors` and chart-default `app.kubernetes.io/name` selectors.
-- [x] `k8s/README.md` documents the Alloy, Grafana, and Pyroscope scrapes and the two new alerts.
-- Remaining children of #1128 delivered in subsequent PRs: #890, #1133, #1134, #822, #1136, #551, and #1367.
+- [x] `k8s/README.md` documents the Alloy, Grafana, and Pyroscope scrapes and the new alerts.
+- Remaining children of #1128 delivered in subsequent PRs: #1133, #1134, #822, #1136, #551, and #1367.
 - Pending a person, after the infra stack is redeployed:
   - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets (4 before #1134), 1 Grafana and 1 Pyroscope;
   - `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;
-  - `AlloyRemoteWriteSamplesFailed` stays inactive for 24h once #1132 has landed.
+  - `AlloyRemoteWriteSamplesFailed` and `PodLogsNotShipped` stay inactive on a healthy cluster.
