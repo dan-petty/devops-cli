@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import typer
 import yaml
@@ -453,7 +454,7 @@ def probe(
         else:
             raise SandboxNotFoundError(f"Sandbox '{identifier}' not found")
     except SandboxNotFoundError as exc:
-        if "://" in identifier or ":" in identifier:
+        if bool(urlsplit(identifier).scheme) or ":" in identifier:
             from devops_cli.sandbox.probe import run_sandbox_probes
 
             report = run_sandbox_probes(
@@ -675,7 +676,7 @@ def metrics(
                 latency_sla_ms=latency_sla_ms,
             )
         except SandboxNotFoundError as exc:
-            if "://" in identifier or ":" in identifier:
+            if bool(urlsplit(identifier).scheme) or ":" in identifier:
                 from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
                 snapshot = collect_sandbox_metrics(

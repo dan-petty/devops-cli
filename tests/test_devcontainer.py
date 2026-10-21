@@ -1408,6 +1408,35 @@ def test_no_session_bus_is_started_without_a_configured_address(
     assert calls == []
 
 
+def test_session_bus_socket_parses_addresses_with_jeepney(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_session_bus_socket parses DBUS_SESSION_BUS_ADDRESS through jeepney with unescaping and multi-address support."""
+    from devops_cli.commands.devcontainer import _session_bus_socket
+
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    assert _session_bus_socket() is None
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "")
+    assert _session_bus_socket() is None
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    assert _session_bus_socket() == Path("/run/user/1000/bus")
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=%2Frun%2Fescaped%20bus,guid=123")
+    assert _session_bus_socket() == Path("/run/escaped bus")
+
+    monkeypatch.setenv(
+        "DBUS_SESSION_BUS_ADDRESS",
+        "unix:path=/first/bus,guid=1;unix:path=/second/bus,guid=2",
+    )
+    assert _session_bus_socket() == Path("/first/bus")
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "tcp:host=localhost,port=1234")
+    assert _session_bus_socket() is None
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "not-a-valid-address")
+    assert _session_bus_socket() is None
+
+
 @pytest.mark.unreachable("bus")
 def test_a_failed_session_bus_start_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

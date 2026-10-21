@@ -1,0 +1,6 @@
+id: net-scheme-in
+valid:
+  - 'has_scheme = urlsplit(url).scheme in ("http", "https")'
+invalid:
+  - 'has_scheme = "://" in url'
+  - 'bare = "://" not in url'

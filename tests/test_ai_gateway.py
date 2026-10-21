@@ -590,3 +590,27 @@ class TestGatewayRouteDiscovery:
 
         msg_orig = str(exc_info_orig.value)
         assert ("DEVOPS_CLI_AI_API_KEY" in msg_orig, "g-123" not in msg_orig) == (True, True)
+
+    def test_use_lan_brackets_ipv6_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify devops ai gateway use-lan properly brackets IPv6 addresses when building base_url."""
+        monkeypatch.setattr(
+            "devops_cli.commands.ai_gateway.node_port_address",
+            lambda *args, **kwargs: ("2001:db8::1", 30400),
+        )
+        probed_urls: list[str] = []
+        monkeypatch.setattr(
+            "devops_cli.commands.ai_gateway.validate_url_egress",
+            lambda url, **kwargs: None,
+        )
+        monkeypatch.setattr(
+            "devops_cli.commands.ai_gateway._probe_gateway_liveliness_and_models",
+            lambda url, *args, **kwargs: probed_urls.append(url),
+        )
+        monkeypatch.setattr(
+            "devops_cli.commands.ai_gateway.save_settings",
+            lambda *args, **kwargs: None,
+        )
+
+        res = runner.invoke(gateway_cli_app, ["connect"])
+        assert res.exit_code == 0
+        assert probed_urls == ["http://[2001:db8::1]:30400"]

@@ -205,12 +205,12 @@ def clone_org(
 def _extract_url_path(url: str) -> tuple[str, bool]:
     """Extract raw path from URL and return whether it is a file:// scheme."""
     clean = url.strip()
-    if ":" in clean and "://" not in clean:
+    parsed = urlsplit(clean)
+    if parsed.scheme:
+        return parsed.path, parsed.scheme == "file"
+    if ":" in clean:
         _, _, path = clean.rpartition(":")
         return path, False
-    if "://" in clean:
-        parsed = urlsplit(clean)
-        return parsed.path, parsed.scheme == "file"
     return clean, False
 
 

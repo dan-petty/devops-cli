@@ -509,7 +509,7 @@ def _is_url_local_host(host: str, is_example: bool, exclude_examples: bool) -> b
 
 def _is_valid_url_target(clean_token: str) -> tuple[urllib.parse.SplitResult, str] | None:
     """Validate URL syntax and extract parsed result and lowercased hostname."""
-    if "://" not in clean_token or "\\" in clean_token or ".*" in clean_token:
+    if "\\" in clean_token or ".*" in clean_token:
         return None
     try:
         parsed = urllib.parse.urlsplit(clean_token)

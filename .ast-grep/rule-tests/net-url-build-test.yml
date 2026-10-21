@@ -1,0 +1,7 @@
+id: net-url-build
+valid:
+  - 'url = str(httpx2.URL(scheme="http", host=host, port=port))'
+  - 'message = f"see {host} for details"'
+invalid:
+  - 'url = f"http://{host}:{port}"'
+  - 'url = f"http://{node_ip}:{node_port}"'

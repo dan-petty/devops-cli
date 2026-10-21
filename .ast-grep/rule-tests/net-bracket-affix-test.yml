@@ -1,0 +1,5 @@
+id: net-bracket-affix
+valid:
+  - 'host = urlsplit(url).hostname'
+invalid:
+  - 'is_v6 = host.startswith("[") and ":" in host'

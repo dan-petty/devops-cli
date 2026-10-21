@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -29,9 +30,11 @@ def _normalize_git_url(url: str) -> str:
     if norm.endswith(".git"):
         norm = norm[:-4]
     if norm.startswith("git@github.com:"):
-        norm = f"https://github.com/{norm[len('git@github.com:') :]}"
-    elif norm.startswith("ssh://git@github.com/"):
-        norm = f"https://github.com/{norm[len('ssh://git@github.com/') :]}"
+        return f"https://github.com/{norm[len('git@github.com:') :]}"
+    parsed = urlsplit(norm)
+    if parsed.scheme == "ssh" and parsed.netloc == "git@github.com":
+        path = parsed.path.lstrip("/")
+        return f"https://github.com/{path}"
     return norm
 
 

@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -455,7 +456,7 @@ def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str
 
 
 def _is_valid_source(src: str, allowed_urls: set[str], source: Path, sha: str) -> bool:
-    if src in allowed_urls or src.startswith("http://") or src.startswith("https://"):
+    if src in allowed_urls or urlsplit(src).scheme in {"http", "https"}:
         return src in allowed_urls
     match = _CITED_PATH_RE.match(src.strip())
     if not match:

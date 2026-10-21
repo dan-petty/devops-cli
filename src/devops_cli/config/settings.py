@@ -12,6 +12,7 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -22,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_KEYRING_UNLOCK_PROBE_KEY,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
+    CONST_VALKEY_SCHEMES,
 )
 from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
@@ -214,13 +216,13 @@ class OpenWebUIConfig(BaseModel):
 
 def _parse_valkey_url(raw_url: str, data: dict[str, Any]) -> None:
     """Derive host, port, and password from valkey connection URL."""
-    from urllib.parse import urlparse
-
+    if not isinstance(raw_url, str):
+        return
     clean_url = raw_url.strip()
-    if "://" not in clean_url:
-        clean_url = f"tcp://{clean_url}"
+    scheme = urlsplit(clean_url).scheme.lower()
+    target = clean_url if scheme in CONST_VALKEY_SCHEMES else f"//{clean_url}"
     try:
-        parsed = urlparse(clean_url)
+        parsed = urlsplit(target)
         if parsed.hostname:
             port = parsed.port or 6379
             h = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
@@ -234,19 +236,22 @@ def _parse_valkey_url(raw_url: str, data: dict[str, Any]) -> None:
 
 def _normalize_valkey_host(raw_host: str, raw_port: Any, data: dict[str, Any]) -> None:
     """Normalize host string and port integer."""
+    if not isinstance(raw_host, str):
+        return
     clean = raw_host.strip()
-    if clean.startswith("[") and "]:" in clean:
-        _, p = clean.rsplit("]:", 1)
-        if p.isdigit():
-            data["host"] = clean
-            data["port"] = int(p)
+    scheme = urlsplit(clean).scheme.lower()
+    target = clean if scheme in CONST_VALKEY_SCHEMES else f"//{clean}"
+    try:
+        parsed = urlsplit(target)
+        if parsed.hostname:
+            port = parsed.port or (int(raw_port) if raw_port is not None else None)
+            h = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+            data["host"] = f"{h}:{port}" if port is not None else h
+            if port is not None:
+                data["port"] = port
             return
-    elif ":" in clean and not clean.startswith("["):
-        parts = clean.rsplit(":", 1)
-        if parts[1].isdigit():
-            data["host"] = clean
-            data["port"] = int(parts[1])
-            return
+    except ValueError, AttributeError:
+        pass
     if raw_port is not None:
         data["host"] = f"{clean}:{raw_port}"
 
