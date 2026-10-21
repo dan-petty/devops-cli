@@ -459,20 +459,18 @@ def test_analyze_explain_commands() -> None:
 
 def test_analyze_path_errors(tmp_path: Path) -> None:
     """Verify analyze path errors on non-existent path and outside repo."""
-    (tmp_path / ".git").mkdir()
-    non_existent = tmp_path / "does_not_exist"
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+    non_existent = repo_root / "does_not_exist"
     res_non = runner.invoke(analyze_app, ["path", str(non_existent)])
     assert res_non.exit_code == 1
 
-    outside = tmp_path.parent / "outside_dir"
-    outside.mkdir(exist_ok=True)
-    try:
-        with patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path):
-            res_out = runner.invoke(analyze_app, ["path", str(outside)])
-            assert res_out.exit_code == 1
-    finally:
-        if outside.exists():
-            outside.rmdir()
+    outside = tmp_path / "outside_dir"
+    outside.mkdir()
+    with patch("devops_cli.commands.analyze.find_repo_root", return_value=repo_root):
+        res_out = runner.invoke(analyze_app, ["path", str(outside)])
+        assert res_out.exit_code == 1
 
 
 def test_analyze_pr_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

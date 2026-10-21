@@ -739,19 +739,24 @@ def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
     assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is True
 
     # Symlink outside repository root
-    outside_dir = tmp_path.parent / "outside_dir"
+    outside_dir = tmp_path.parent / f"outside_{tmp_path.name}"
     outside_dir.mkdir(exist_ok=True)
     outside_file = outside_dir / "secret.txt"
-    outside_file.write_text("secret", encoding="utf-8")
-
-    symlink_file = tmp_path / "linked_secret.txt"
     try:
-        symlink_file.symlink_to(outside_file)
-    except OSError:
-        pass
+        outside_file.write_text("secret", encoding="utf-8")
 
-    listed_files = list_repo_files(tmp_path)
-    assert outside_file not in listed_files
+        symlink_file = tmp_path / "linked_secret.txt"
+        try:
+            symlink_file.symlink_to(outside_file)
+        except OSError:
+            pass
+
+        listed_files = list_repo_files(tmp_path)
+        assert outside_file not in listed_files
+    finally:
+        outside_file.unlink(missing_ok=True)
+        if outside_dir.exists():
+            outside_dir.rmdir()
 
 
 def test_repos_commands_dry_run(tmp_path: Path) -> None:
