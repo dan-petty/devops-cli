@@ -519,6 +519,22 @@ serverFiles:
             annotations:
               summary: "Argo CD application {{ $labels.name }} is {{ $labels.health_status }}"
               description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has reported health {{ $labels.health_status }} for 15 minutes."
+          - alert: ArgoCdAutoSyncDisabled
+            expr: argocd_app_info{autosync_enabled="false"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} has automated sync disabled"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has had automated sync disabled for 15 minutes."
+          - alert: ArgoCdSyncOperationStuck
+            expr: argocd_app_info{operation!=""} == 1
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} has a {{ $labels.operation }} operation running for over an hour"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has been running a {{ $labels.operation }} operation for over an hour."
           - alert: CloudflareTunnelDegraded
             expr: sum(cloudflared_tunnel_ha_connections) < 2
             for: 5m
