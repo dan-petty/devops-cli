@@ -2130,17 +2130,46 @@ def test_every_marker_spelling_ruff_honours_is_counted(tmp_path: Path, marker: s
     assert _c901_suppressions(tmp_path) == {"src/mod.py": 1}
 
 
-def test_manifests_by_stack_files_exist() -> None:
-    """Every Kubernetes manifest declared in _MANIFESTS_BY_STACK must exist on disk."""
-    from devops_cli.commands.k8s.stack_lifecycle import _MANIFESTS_BY_STACK
-
+def _missing_stack_lifecycle_paths(
+    manifests_by_stack: Mapping[str, Sequence[Path]],
+    post_helm_by_stack: Mapping[str, Sequence[Path]],
+    k8s_dir: Path,
+) -> list[str]:
+    """Return stack:path entries missing from _MANIFESTS_BY_STACK or _POST_HELM_BY_STACK."""
     missing_manifests = [
         f"{stack_name}:{path}"
-        for stack_name, paths in _MANIFESTS_BY_STACK.items()
+        for stack_name, paths in manifests_by_stack.items()
         for path in paths
         if not (path.exists() or (path.parent / f"{path.stem}.example{path.suffix}").exists())
     ]
-    assert missing_manifests == []
+    missing_post_helm = [
+        f"{stack_name}:{k8s_dir / path}"
+        for stack_name, paths in post_helm_by_stack.items()
+        for path in paths
+        if not (k8s_dir / path).exists()
+    ]
+    return [*missing_manifests, *missing_post_helm]
+
+
+def test_manifests_by_stack_files_exist() -> None:
+    """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _MANIFESTS_BY_STACK,
+        _POST_HELM_BY_STACK,
+        DEFAULT_K8S_DIR,
+    )
+
+    assert (
+        _missing_stack_lifecycle_paths(_MANIFESTS_BY_STACK, _POST_HELM_BY_STACK, DEFAULT_K8S_DIR),
+        _missing_stack_lifecycle_paths(
+            {},
+            {"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)},
+            DEFAULT_K8S_DIR,
+        ),
+    ) == (
+        [],
+        [f"llm:{DEFAULT_K8S_DIR / 'llm' / 'gateway' / 'nonexistent-monitor.yaml'}"],
+    )
 
 
 def _inspect_data_path_call(node: ast.Call, rel_path: str) -> str | None:

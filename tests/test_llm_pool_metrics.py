@@ -34,12 +34,13 @@ def _yaml_docs(path: Path) -> list[dict[str, Any]]:
 
 
 def test_monitoring_scrapes_the_gateway() -> None:
-    """Verify k8s-monitoring has prometheusOperatorObjects enabled and defines gateway ServiceMonitor."""
+    """Verify k8s-monitoring has prometheusOperatorObjects enabled and k8s/llm/gateway/servicemonitor.yaml selects the gateway."""
     values = yaml.safe_load((K8S / "monitoring/k8s-monitoring-values.yaml").read_text("utf-8"))
     poo = values["prometheusOperatorObjects"]
-    extra_objects = values.get("extraObjects", [])
     monitors = {
-        m["metadata"]["name"]: m["spec"] for m in extra_objects if m.get("kind") == "ServiceMonitor"
+        m["metadata"]["name"]: m["spec"]
+        for m in _yaml_docs(K8S / "llm/gateway/servicemonitor.yaml")
+        if m.get("kind") == "ServiceMonitor"
     }
     all_services = list(_yaml_docs(K8S / "llm/gateway/service.yaml"))
 
@@ -62,9 +63,11 @@ def test_monitoring_scrapes_the_gateway() -> None:
 
     assert (
         poo["enabled"],
+        "extraObjects" in values,
         gateway_scraped,
     ) == (
         True,
+        False,
         [("llm-gateway", "/metrics/")],
     )
 

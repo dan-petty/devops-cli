@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, _MANIFESTS_BY_STACK
 from tests.k8s_manifests import kustomized_objects, manifest_objects
@@ -56,15 +57,22 @@ def test_kustomization_includes_networkpolicy(namespace: str) -> None:
 def _deploy_stack_network_policies() -> set[tuple[str, str]]:
     """(namespace, name) of every NetworkPolicy `deploy-stack --stack all` applies without Argo CD.
 
-    It applies the root kustomization, then each stack's kustomizations, then its manifest files.
+    It applies the root kustomization, then each stack's kustomizations, then its manifest files,
+    then its post-Helm paths.
     """
     stacks = _resolve_stacks("all")
+    post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(
+        stack_lifecycle, "_POST_HELM_BY_STACK", {}
+    )
+    post_helm = [K8S_DIR / entry for stack in stacks for entry in post_helm_by_stack.get(stack, ())]
     kustomizations = [
         K8S_DIR,
         *(K8S_DIR / entry for stack in stacks for entry in _KUSTOMIZATIONS_BY_STACK.get(stack, ())),
+        *(path for path in post_helm if path.is_dir()),
     ]
     manifests = [
-        REPO_ROOT / path for stack in stacks for path in _MANIFESTS_BY_STACK.get(stack, [])
+        *(REPO_ROOT / path for stack in stacks for path in _MANIFESTS_BY_STACK.get(stack, [])),
+        *(path for path in post_helm if path.is_file()),
     ]
     return {
         policy

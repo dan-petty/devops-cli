@@ -79,9 +79,9 @@ _HELM_REPOS: dict[str, str] = {
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
-        # First: k8s-monitoring's extraObjects, pyroscope's serviceMonitor and qdrant's
-        # metrics.serviceMonitor render ServiceMonitors, and no other chart ships their CRD
-        # (k8s-monitoring 4.x dropped it).
+        # First: argocd's metrics.serviceMonitor, pyroscope's serviceMonitor, qdrant's
+        # metrics.serviceMonitor and k8s/llm/gateway/servicemonitor.yaml define ServiceMonitors,
+        # and no other chart ships their CRD (k8s-monitoring 4.x dropped it).
         {
             "name": "prometheus-operator-crds",
             "chart": "prometheus-community/prometheus-operator-crds",
@@ -227,6 +227,13 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 # kustomization from here: the namespace's perimeter (#913) and the Grafana dashboards (#1297).
 _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("monitoring"), Path("gpu-feature-discovery")),
+}
+
+# Paths under --k8s-dir applied after Helm releases install their CRDs (step 9) and deleted in
+# reverse order before Helm releases uninstall: a directory goes through `_apply_kustomizations`
+# (`kubectl apply -k`) and a file through `_apply_manifest_files` (`kubectl apply -f`) (#1367, #1391).
+_POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
+    "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
@@ -927,6 +934,63 @@ def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]
         runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
 
 
+def _apply_post_helm_paths(
+    paths: Sequence[Path],
+    kubectl_ctx: list[str],
+    domain: str | None = None,
+) -> None:
+    """Apply post-Helm kustomizations (`-k`) and manifest files (`-f`), in order (#1367, #1391)."""
+    for path in paths:
+        if path.is_dir() or not path.suffix:
+            _apply_kustomizations([path], kubectl_ctx)
+        else:
+            _apply_manifest_files([str(path)], kubectl_ctx, domain=domain)
+
+
+def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> None:
+    """Delete post-Helm kustomizations (`-k`) and manifest files (`-f`) before Helm uninstalls."""
+    for path in paths:
+        flag = "-k" if (path.is_dir() or not path.suffix) else "-f"
+        print_info(f"[bold]Deleting {path.name}...[/bold]", prefix=False)
+        runtime._run_cmd(["kubectl", "delete", flag, str(path), "--ignore-not-found"] + kubectl_ctx)
+
+
+def _collect_deploy_targets(
+    selected_stacks: Sequence[str], k8s_dir: Path
+) -> tuple[list[dict[str, str]], list[str], list[Path], list[Path]]:
+    """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks."""
+    all_releases: list[dict[str, str]] = []
+    all_manifests: list[str] = []
+    all_kustomizations: list[Path] = []
+    all_post_helm: list[Path] = []
+    for s_name in selected_stacks:
+        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
+        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+        all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
+        all_post_helm.extend(k8s_dir / p for p in _POST_HELM_BY_STACK.get(s_name, ()))
+    return all_releases, all_manifests, all_kustomizations, all_post_helm
+
+
+def _collect_teardown_targets(
+    selected_stacks: Sequence[str], k8s_dir: Path
+) -> tuple[list[dict[str, str]], list[Path], list[str]]:
+    """Collect Helm uninstalls, post-Helm deletes, and manifest deletes in reverse stack order."""
+    all_uninstalls: list[dict[str, str]] = []
+    all_post_helm_deletes: list[Path] = []
+    all_manifest_deletes: list[str] = []
+    for s_name in reversed(selected_stacks):
+        all_uninstalls.extend(
+            release
+            for release in reversed(_HELM_RELEASES_BY_STACK.get(s_name, []))
+            if release["name"] not in CONST_HELM_TEARDOWN_RETAINED_RELEASES
+        )
+        all_post_helm_deletes.extend(
+            k8s_dir / p for p in reversed(_POST_HELM_BY_STACK.get(s_name, ()))
+        )
+        all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
+    return all_uninstalls, all_post_helm_deletes, all_manifest_deletes
+
+
 def _deploy_native_manifests(
     all_manifests: list[str],
     config_map: str | None,
@@ -1022,14 +1086,9 @@ def deploy_stack(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
-
-    all_releases: list[dict[str, str]] = []
-    all_manifests: list[str] = []
-    all_kustomizations: list[Path] = []
-    for s_name in selected_stacks:
-        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
-        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
-        all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
+    all_releases, all_manifests, all_kustomizations, all_post_helm = _collect_deploy_targets(
+        selected_stacks, k8s_dir
+    )
 
     # 1. Render what git does not hold before anything else: a missing setting stops a dry run
     # and a deploy alike, before either touches the cluster
@@ -1054,6 +1113,7 @@ def deploy_stack(
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
                 "kustomizations": [str(k) for k in all_kustomizations],
+                "post_helm": [str(p) for p in all_post_helm],
                 "config_map": (
                     f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
                     if config_map is not None
@@ -1117,6 +1177,9 @@ def deploy_stack(
         _install_single_release(
             release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
         )
+
+    # 9b. Apply post-Helm custom resources and kustomizations whose CRDs the charts installed
+    _apply_post_helm_paths(all_post_helm, kubectl_ctx, domain=domain)
 
     # 10. Post-deployment networking & credentials
     write_stdout("\n")
@@ -1210,16 +1273,9 @@ def teardown_stack(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
-
-    all_uninstalls: list[dict[str, str]] = []
-    all_manifest_deletes: list[str] = []
-    for s_name in reversed(selected_stacks):
-        all_uninstalls.extend(
-            release
-            for release in reversed(_HELM_RELEASES_BY_STACK.get(s_name, []))
-            if release["name"] not in CONST_HELM_TEARDOWN_RETAINED_RELEASES
-        )
-        all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
+    all_uninstalls, all_post_helm_deletes, all_manifest_deletes = _collect_teardown_targets(
+        selected_stacks, k8s_dir
+    )
 
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -1232,6 +1288,7 @@ def teardown_stack(
                 "stacks": selected_stacks,
                 "context": effective_context,
                 "helm_uninstalls": [r["name"] for r in all_uninstalls],
+                "post_helm_deletes": [str(p) for p in all_post_helm_deletes],
                 "manifest_deletes": all_manifest_deletes,
                 "config_map_delete": (
                     f"devops/{CONST_K8S_DEVOPS_CONFIGMAP}" if "devops" in selected_stacks else None
@@ -1255,7 +1312,9 @@ def teardown_stack(
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 1. Delete manifests
+    # 1. Delete post-Helm custom resources and kustomizations while their operators still run,
+    # then native manifests
+    _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
     for manifest_path in all_manifest_deletes:
         print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
         runtime._run_cmd(

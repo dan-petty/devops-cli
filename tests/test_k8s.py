@@ -381,14 +381,19 @@ def _renders_service_monitor(values: object) -> bool:
 
 
 def test_prometheus_operator_crds_install_before_every_service_monitor() -> None:
-    """The CRD release installs first, ahead of every release whose values render a ServiceMonitor.
+    """The CRD release installs first, ahead of every release or manifest with a ServiceMonitor.
 
     k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
-    Helm refused both releases and the infra stack came up without Alloy (#819).
+    Helm refused both releases and the infra stack came up without Alloy (#819). Pre-Helm
+    `_MANIFESTS_BY_STACK` files apply before any chart, so no pre-Helm manifest may hold a
+    ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `_POST_HELM_BY_STACK` (#1367).
     """
     from devops_cli.commands.k8s.stack_lifecycle import (
         _HELM_RELEASES_BY_STACK,
         _HELM_REPOS_BY_STACK,
+        _MANIFESTS_BY_STACK,
+        _POST_HELM_BY_STACK,
+        DEFAULT_K8S_DIR,
     )
 
     crds = _HELM_RELEASES_BY_STACK["infra"][0]
@@ -398,20 +403,42 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
         for release in releases
         if _renders_service_monitor(yaml.safe_load(Path(release["values"]).read_text("utf-8")))
     ]
+    pre_helm_monitors = [
+        (stack, path.as_posix())
+        for stack, paths in _MANIFESTS_BY_STACK.items()
+        for path in paths
+        if any(
+            isinstance(doc, dict) and doc.get("kind") == "ServiceMonitor"
+            for doc in yaml.safe_load_all(path.read_text("utf-8"))
+        )
+    ]
+    post_helm_monitors = [
+        (stack, path.as_posix())
+        for stack, paths in _POST_HELM_BY_STACK.items()
+        for path in paths
+        if (DEFAULT_K8S_DIR / path).is_file()
+        and any(
+            isinstance(doc, dict) and doc.get("kind") == "ServiceMonitor"
+            for doc in yaml.safe_load_all((DEFAULT_K8S_DIR / path).read_text("utf-8"))
+        )
+    ]
 
     assert (
         (crds["name"], crds["chart"], crds["namespace"]),
         crds["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
         monitor_releases,
+        pre_helm_monitors,
+        post_helm_monitors,
     ) == (
         ("prometheus-operator-crds", "prometheus-community/prometheus-operator-crds", "monitoring"),
         True,
         [
             ("infra", "argocd"),
-            ("infra", "k8s-monitoring"),
             ("infra", "pyroscope"),
             ("llm", "qdrant"),
         ],
+        [],
+        [("llm", "llm/gateway/servicemonitor.yaml")],
     )
 
 
@@ -2239,3 +2266,116 @@ def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
         )
     commands = [tuple(call.args[0]) for call in mock_run.call_args_list]
     assert (res.exit_code, (*removal, *_CONTEXT) in commands) == (0, True)
+
+
+def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_uninstall() -> None:
+    """deploy-stack --stack llm applies k8s/llm/gateway/servicemonitor.yaml after Helm releases,
+    teardown-stack deletes it before Helm uninstalls, and both dry runs list it (#1367)."""
+    monitor = str(Path("k8s", "llm", "gateway", "servicemonitor.yaml"))
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable") as mock_reach,
+        patch("devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed") as mock_argo,
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.run_subprocess") as mock_sub,
+    ):
+        deploy_dry = runner.invoke(
+            app, ["deploy-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
+        )
+        teardown_dry = runner.invoke(
+            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
+        )
+        assert (
+            deploy_dry.exit_code,
+            teardown_dry.exit_code,
+            _dry_run_details(deploy_dry.output).get("post_helm"),
+            _dry_run_details(teardown_dry.output).get("post_helm_deletes"),
+            mock_reach.called,
+            mock_argo.called,
+            mock_cmd.called,
+            mock_sub.called,
+        ) == (0, 0, [monitor], [monitor], False, False, False, False)
+
+    with (
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle._bootstrap_openwebui_account"),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
+            return_value=_mock_proc(0),
+        ) as deploy_run,
+    ):
+        res_deploy = runner.invoke(
+            app,
+            [
+                "deploy-stack",
+                "--stack",
+                "llm",
+                "--no-push-secrets",
+                "--k8s-dir",
+                "k8s",
+                *_CONTEXT,
+            ],
+        )
+    deploy_cmds = [call.args[0] for call in deploy_run.call_args_list]
+    helm_upgrade_indices = [
+        idx for idx, cmd in enumerate(deploy_cmds) if cmd[:3] == ["helm", "upgrade", "--install"]
+    ]
+    monitor_apply_idx = deploy_cmds.index(["kubectl", "apply", "-f", monitor, *_CONTEXT])
+
+    with (
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
+            return_value=_mock_proc(0),
+        ) as teardown_run,
+    ):
+        res_teardown = runner.invoke(
+            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
+        )
+    teardown_cmds = [call.args[0] for call in teardown_run.call_args_list]
+    helm_uninstall_indices = [
+        idx for idx, cmd in enumerate(teardown_cmds) if cmd[:2] == ["helm", "uninstall"]
+    ]
+    monitor_delete_idx = teardown_cmds.index(
+        ["kubectl", "delete", "-f", monitor, "--ignore-not-found", *_CONTEXT]
+    )
+
+    assert (
+        res_deploy.exit_code,
+        bool(helm_upgrade_indices) and monitor_apply_idx > max(helm_upgrade_indices),
+        res_teardown.exit_code,
+        bool(helm_uninstall_indices) and monitor_delete_idx < min(helm_uninstall_indices),
+    ) == (0, True, 0, True)
+
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _apply_post_helm_paths,
+        _delete_post_helm_paths,
+    )
+
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", return_value=_mock_proc(0)
+    ) as dir_run:
+        _apply_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
+        _delete_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
+    assert [call.args[0] for call in dir_run.call_args_list] == [
+        ["kubectl", "apply", "-k", str(Path("k8s", "mattermost")), *_CONTEXT],
+        [
+            "kubectl",
+            "delete",
+            "-k",
+            str(Path("k8s", "mattermost")),
+            "--ignore-not-found",
+            *_CONTEXT,
+        ],
+    ]

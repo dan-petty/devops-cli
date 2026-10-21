@@ -53,6 +53,11 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - `k8s/monitoring/networkpolicy.yaml` adds egress rules from `monitoring` to `argocd` (TCP 8082, 8083, 8084, 9121), `llm` (TCP 9121), and `registry` (TCP 5001), verified by `test_each_annotated_component_has_one_scrape_owner` and `test_every_scrape_port_has_one_egress_rule`.
 - `k8s/monitoring/prometheus-values.yaml` adds the `homelab-services` rule group (`ArgoCdApplicationOutOfSync`, `ArgoCdApplicationUnhealthy`, `CloudflareTunnelDegraded`, and `ValkeyCacheErrors`).
 
+### Part 8: LLM Gateway ServiceMonitor Move to the LLM Stack and Post-Helm Deploy Step (#1367)
+- `k8s/llm/gateway/servicemonitor.yaml` defines the `llm-gateway` `ServiceMonitor` in `k8s/llm` (`k8s/llm/kustomization.yaml`), and `extraObjects` is removed from `k8s/monitoring/k8s-monitoring-values.yaml`.
+- `src/devops_cli/commands/k8s/stack_lifecycle.py` adds `_POST_HELM_BY_STACK` (`"llm": (Path("llm", "gateway", "servicemonitor.yaml"),)`), applying post-Helm kustomizations (`-k`) and manifest files (`-f`) right after Helm releases install their CRDs and deleting them in reverse order before `helm uninstall`, and includes `post_helm` and `post_helm_deletes` in `deploy-stack --dry-run` and `teardown-stack --dry-run`.
+- `k8s/argocd/apps/llm.yaml` adds `syncOptions: [SkipDryRunOnMissingResource=true]`.
+
 ## Acceptance Criteria
 - [x] `k8s/monitoring/k8s-monitoring-values.yaml` `integrations` gains the `alloy` (`k8s-monitoring`) and `grafana` (`grafana`) instances.
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `serviceMonitor.enabled: true`, and `test_prometheus_operator_crds_install_before_every_service_monitor` includes `("infra", "pyroscope")`.
@@ -69,10 +74,12 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - [x] `k8s/monitoring/dashboards/coredns.json` and `tests/fixtures/metrics/coredns.yaml` add the CoreDNS dashboard over captured `coredns_*` series (`job="integrations/kubernetes/kube-dns"`), verified by `tests/test_stack_dashboards.py` and `tests/test_k8s_monitoring_dashboards.py`.
 - [x] `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json`, `k8s-views-nodes.json`, and `otel-collector.json` queries match exported series and labels, verified against `tests/fixtures/metrics/` and `tests/fixtures/k8s_monitoring/cluster_metrics/` in `tests/test_stack_dashboards.py` (#1136).
 - [x] Argo CD (`ServiceMonitor`s for `controller`, `server`, `repoServer`, and `redis-exporter`), `llm/valkey` (`redis-exporter` sidecar via `annotationAutodiscovery`), and `registry` (`annotationAutodiscovery` on port 5001) have exactly one scrape owner and one monitoring egress rule per port, and `homelab-services` alerts on Argo CD sync/health, tunnel HA connections, and Valkey cache errors (#551).
-- Remaining child of #1128 delivered in the final PR: #1367.
-- Pending a person, after the infra and logging stacks are redeployed:
-  - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets, 1 Grafana and 1 Pyroscope;
-  - `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;
+- [x] `k8s/llm/gateway/servicemonitor.yaml` moves the `llm-gateway` `ServiceMonitor` out of `k8s/monitoring/k8s-monitoring-values.yaml` (`extraObjects`) into `k8s/llm` and `_POST_HELM_BY_STACK["llm"]`, applied after Helm releases and deleted before Helm uninstalls, with `SkipDryRunOnMissingResource=true` on `k8s/argocd/apps/llm.yaml` (#1367).
+- The GPU placement node-label warning and README GPU placement section remain tracked on #1367.
+- Pending a person: after the deploy (Argo CD's sync of the merged revision, or `devops k8s deploy-stack` on a cluster without Argo CD):
+  - `count by (job) (up)` lists no `kubernetes-api-servers`, `kubernetes-service-endpoints*`, `kubernetes-pods-slow`, `kubernetes-services` or `prometheus-pushgateway` job, and `prometheus_tsdb_head_series` is below 30k;
+  - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets, 1 Grafana and 1 Pyroscope, and `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;
   - `AlloyRemoteWriteSamplesFailed`, `PodLogsNotShipped`, and `PyroscopeQueryErrors` stay inactive on a healthy cluster;
   - `kubectl get ds -n logging` lists no `loki-canary`, `kubectl get clusterrole grafana-clusterrole` returns NotFound, and `kubectl get role -n monitoring grafana -o jsonpath='{.rules}'` grants `configmaps`;
-  - `kubectl get sts -n monitoring pyroscope-alloy` returns NotFound, `kubectl get ds -n monitoring k8s-monitoring-alloy-profiles` is ready on every node, `kubectl get podlogs.monitoring.grafana.com -A` prints "No resources found" before `kubectl delete crd podlogs.monitoring.grafana.com`, and any zero-length `block.bin` torn segments in Pyroscope's `segments/` directory are backed up and moved aside with Pyroscope scaled to 0.
+  - `kubectl get sts -n monitoring pyroscope-alloy` returns NotFound, `kubectl get ds -n monitoring k8s-monitoring-alloy-profiles` is ready on every node, `kubectl get podlogs.monitoring.grafana.com -A` prints "No resources found" before `kubectl delete crd podlogs.monitoring.grafana.com`, and any zero-length `block.bin` torn segments in Pyroscope's `segments/` directory are backed up and moved aside with Pyroscope scaled to 0;
+  - `up{job="llm-gateway"} == 1` after `deploy-stack --stack llm` alone on a cluster running the infra stack, and `helm get manifest k8s-monitoring -n monitoring | grep -c ServiceMonitor` prints 0.
