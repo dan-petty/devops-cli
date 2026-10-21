@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_RELEASES_BY_STACK,
     _KUSTOMIZATIONS_BY_STACK,
@@ -170,6 +171,12 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
     helm_releases_map: dict[str, dict[str, str]] = {
         r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
     }
+    post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(
+        stack_lifecycle, "_POST_HELM_BY_STACK", {}
+    )
+    post_helm = [
+        (REPO_ROOT / "k8s" / p).resolve() for paths in post_helm_by_stack.values() for p in paths
+    ]
     deploy_stack_kustomizations = {
         (REPO_ROOT / "k8s").resolve(),
         *(
@@ -177,11 +184,15 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
             for ks in _KUSTOMIZATIONS_BY_STACK.values()
             for k in ks
         ),
+        *(p for p in post_helm if p.is_dir()),
     }
     deploy_stack_manifests = {
-        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
-        for ms in _MANIFESTS_BY_STACK.values()
-        for p in ms
+        *(
+            (REPO_ROOT / p if not p.is_absolute() else p).resolve()
+            for ms in _MANIFESTS_BY_STACK.values()
+            for p in ms
+        ),
+        *(p for p in post_helm if p.is_file()),
     }
 
     for app_path_file in sorted(APPS_DIR.glob("*.yaml")):
@@ -208,6 +219,9 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
                 if m not in deploy_stack_manifests
             ]
             assert not missing, f"{name} manifests missing from deploy-stack: {missing}"
+
+    llm_app = _load_yaml(APPS_DIR / "llm.yaml")
+    assert llm_app["spec"]["syncPolicy"].get("syncOptions") == ["SkipDryRunOnMissingResource=true"]
 
 
 def _assert_kustomization_resources(p: Path, name: str) -> None:

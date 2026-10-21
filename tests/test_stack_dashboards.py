@@ -63,13 +63,18 @@ def _yaml(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _gateway_monitored(values: dict[str, Any]) -> bool:
-    """Alloy reads ServiceMonitors, and one selects the gateway."""
-    monitors = [
-        obj for obj in values.get("extraObjects", []) if obj.get("kind") == "ServiceMonitor"
-    ]
-    return values["prometheusOperatorObjects"]["enabled"] is True and any(
-        monitor["metadata"]["name"] == "llm-gateway" for monitor in monitors
+def _gateway_monitored(monitor: dict[str, Any]) -> bool:
+    """The gateway's ServiceMonitor selects `llm-gateway` on `/metrics/`, and Alloy reads ServiceMonitors."""
+    monitoring = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    endpoints = monitor.get("spec", {}).get("endpoints", [])
+    return (
+        monitor.get("kind") == "ServiceMonitor"
+        and monitor.get("metadata", {}).get("name") == "llm-gateway"
+        and monitor.get("spec", {}).get("selector", {}).get("matchLabels")
+        == {"app.kubernetes.io/name": "llm-gateway"}
+        and any(ep.get("port") == "http" and ep.get("path") == "/metrics/" for ep in endpoints)
+        and monitoring["prometheusOperatorObjects"]["enabled"] is True
+        and "extraObjects" not in monitoring
     )
 
 
@@ -204,7 +209,7 @@ class Exporter:
 
 
 EXPORTERS = {
-    "litellm": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _gateway_monitored),
+    "litellm": Exporter(K8S / "llm" / "gateway" / "servicemonitor.yaml", _gateway_monitored),
     "dcgm-exporter": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _dcgm_monitored),
     "qdrant": Exporter(K8S / "llm" / "values-qdrant.yaml", _qdrant_monitored),
     "otel-collector": Exporter(K8S / "otel" / "values.yaml", _collector_annotated),

@@ -344,22 +344,3 @@ collectors:
         limits:
           cpu: 500m
           memory: 512Mi
-
-# ── Extra Monitoring Objects ─────────────────────────────────────────────────
-extraObjects:
-  - apiVersion: monitoring.coreos.com/v1
-    kind: ServiceMonitor
-    metadata:
-      name: llm-gateway
-      namespace: llm
-      labels:
-        app.kubernetes.io/name: llm-gateway
-        app.kubernetes.io/part-of: devops-cli-stack
-    spec:
-      selector:
-        matchLabels:
-          app.kubernetes.io/name: llm-gateway
-      endpoints:
-        - port: http
-          path: /metrics/
-          interval: 15s
