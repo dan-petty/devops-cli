@@ -8,7 +8,9 @@ import socket
 import threading
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
+from devops_cli.config.constants import CONST_VALKEY_SCHEMES
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PATTERN,
@@ -47,18 +49,18 @@ def parse_valkey_endpoint(
     endpoint: str, default_port: int = DEFAULT_VALKEY_PORT
 ) -> tuple[str, int]:
     """Parse a hostname, hostname:port, or Valkey/Redis URI into host and port."""
+    if not isinstance(endpoint, str):
+        return endpoint, default_port
     clean = endpoint.strip()
-    clean = clean.removeprefix("valkey://").removeprefix("redis://").removeprefix("tcp://")
-    if clean.startswith("[") and "]:" in clean:
-        h, p = clean[1:].split("]:", 1)
-        return h, int(p) if p.isdigit() else default_port
-    if clean.startswith("[") and clean.endswith("]"):
-        return clean[1:-1], default_port
-    if clean.count(":") == 1:
-        parts = clean.rsplit(":", 1)
-        if parts[1].isdigit():
-            return parts[0], int(parts[1])
-    return clean, default_port
+    scheme = urlsplit(clean).scheme.lower()
+    target = clean if scheme in CONST_VALKEY_SCHEMES else f"//{clean}"
+    try:
+        parsed = urlsplit(target)
+        host = parsed.hostname or clean
+        port = parsed.port if parsed.port is not None else default_port
+        return host, port
+    except ValueError, AttributeError:
+        return clean, default_port
 
 
 class ValkeyClient:

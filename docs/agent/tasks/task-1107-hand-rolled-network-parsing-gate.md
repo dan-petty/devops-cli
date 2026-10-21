@@ -47,8 +47,33 @@ Delivered across 5 incremental pull requests.
   - `src/devops_cli/ai/kb.py`: knowledge base article sources validation.
 - [x] Add unit tests for case-insensitive scheme matching (`HTTPS://`) and non-URLs, TLS SAN `x509.IPAddress` generation, string JSON output, and `net-address-list` ast-grep scanner detection.
 
+### PR 4: Scheme, URL Authority, and IPv6 Bracket ast-grep Rules (Part of #1107)
+
+- [x] Add `jeepney==0.9.0` to dependencies in `pyproject.toml` and lock with `uv lock`.
+- [x] Add 4 `net-*` rules to `.ast-grep/rules/` and unit tests to `.ast-grep/rule-tests/`:
+  - `net-scheme-in`: flags substring tests `"://" in x` or `not in x`.
+  - `net-scheme-affix`: flags prefix/suffix tests on schemes, unix sockets, or IPv4 prefixes.
+  - `net-bracket-affix`: flags hand-rolled IPv6 bracket parsing with `startswith("[")` and `":" in host`.
+  - `net-url-build`: flags building URL authorities using f-strings instead of `httpx2.URL`.
+- [x] Register `"net-bracket-affix"`, `"net-scheme-affix"`, `"net-scheme-in"`, and `"net-url-build"` in `CONST_NET_CONSTRUCT_RULES` in `src/devops_cli/config/constants.py`.
+- [x] Add `CONST_VALKEY_SCHEMES` to `src/devops_cli/config/constants.py`.
+- [x] Remediate hand-rolled scheme, URL authority, and bracket parsing across `src/`:
+  - `src/devops_cli/valkey/client.py`: parse Valkey and Redis endpoints using `urllib.parse.urlsplit`.
+  - `src/devops_cli/config/settings.py`: parse and normalize Valkey URLs and hosts using `urllib.parse.urlsplit`.
+  - `src/devops_cli/commands/devcontainer.py`: parse `DBUS_SESSION_BUS_ADDRESS` using `jeepney.bus.parse_addresses`.
+  - `src/devops_cli/commands/ai_gateway.py`: construct gateway URL authority with `httpx2.URL(scheme="http", host=host, port=port)`.
+  - `src/devops_cli/commands/ai_runs.py`: construct Valkey run index URL with `httpx2.URL(scheme="valkey", host=host, port=port)`.
+  - `src/devops_cli/commands/k8s/cluster_context.py`: check manifest path scheme with `bool(urlsplit(path).scheme)`.
+  - `src/devops_cli/commands/repos.py`: extract URL path and file scheme using `urllib.parse.urlsplit`.
+  - `src/devops_cli/commands/sandbox.py`: check target schemes with `bool(urlsplit(identifier).scheme)`.
+  - `src/devops_cli/core/paths.py`: check absolute path schemes with `bool(urlsplit(unquoted).scheme)`.
+  - `src/devops_cli/k8s/argocd_gate.py`: normalize git URLs with `urllib.parse.urlsplit`.
+  - `src/devops_cli/roadmap/refine.py`: check HTTP/HTTPS source schemes with `urlsplit(src).scheme in {"http", "https"}`.
+  - `src/devops_cli/security/reference_extractor.py`: validate URL targets using `urllib.parse.urlsplit` without substring checks.
+  - `src/devops_cli/ai/agents/media.py`: check media URI scheme with `urlsplit(data).scheme == "media+sha256"`.
+- [x] Add unit tests for IPv6 host parsing and upper-case schemes in Valkey endpoint and config parsers, IPv6 bracketing in gateway and run store URL builders, `DBUS_SESSION_BUS_ADDRESS` parsing with escaped paths and multiple addresses through `jeepney`, and ast-grep scanner detection for each new rule.
+
 ### Follow-up Pull Requests
 
 - PR 2: AGENTS.md, template, `generate_agents.md`, `architecture.md` instruction updates and `.devops/review.md` house rule under #1107.
-- PR 4: `net-scheme-in`, `net-scheme-affix`, `net-url-build`, `net-bracket-affix` under #1107.
 - PR 5: `net-domain-suffix`, `net-domain-list`, `net-normalise`, `net-hostport` under #1107 (closes #1107).

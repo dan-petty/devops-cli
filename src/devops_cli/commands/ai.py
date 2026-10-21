@@ -205,6 +205,11 @@ def _try_retrieve_rag_context(
 ) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
+        from devops_cli.config.settings import load_settings
+
+        if not load_settings().ai.rag.enabled:
+            return None
+
         from devops_cli.ai.rag.investigator import investigate_rag_context
         from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
         from devops_cli.commands.rag import _get_rag_components

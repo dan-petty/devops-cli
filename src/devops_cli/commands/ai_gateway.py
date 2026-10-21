@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx2
 import typer
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -203,7 +204,7 @@ def connect_cmd(
         print_error(f"Cannot find the LLM gateway: {exc.message}", prefix=False)
         raise typer.Exit(code=1) from exc
 
-    base_url = f"http://{host}:{port}"
+    base_url = str(httpx2.URL(scheme="http", host=host, port=port))
     node_port_url = f"{base_url}/v1"
     validate_url_egress(base_url, purpose="AI gateway", allow_private=True)
 

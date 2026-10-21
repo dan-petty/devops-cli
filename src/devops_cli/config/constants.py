@@ -2597,6 +2597,11 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
+# Schemes recognized for Valkey and Redis connection endpoints
+CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset(
+    {"valkey", "valkeys", "redis", "rediss", "tcp"}
+)
+
 # Characters of a failed embedding reply's body quoted in its EmbeddingsError
 CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500
 
@@ -4078,9 +4083,13 @@ CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
 )
 CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-address-list",
+    "net-bracket-affix",
     "net-cidr-build",
     "net-ip-literal",
     "net-port-table",
+    "net-scheme-affix",
+    "net-scheme-in",
+    "net-url-build",
 )
 CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
     "scan",

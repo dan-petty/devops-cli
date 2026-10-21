@@ -1282,10 +1282,18 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
 
 def _session_bus_socket() -> Path | None:
     """Return the socket path named by a unix:path= DBUS_SESSION_BUS_ADDRESS, if one is set."""
-    address = os.getenv("DBUS_SESSION_BUS_ADDRESS", "")
-    if not address.startswith("unix:path="):
+    address = os.getenv("DBUS_SESSION_BUS_ADDRESS", "").strip()
+    if not address:
         return None
-    return Path(address.removeprefix("unix:path=").split(",", 1)[0])
+    try:
+        from jeepney.bus import parse_addresses  # type: ignore[import-untyped]
+
+        for transport, params in parse_addresses(address):
+            if transport == "unix" and "path" in params:
+                return Path(params["path"])
+    except ValueError, KeyError:
+        return None
+    return None
 
 
 def _is_session_bus_running(socket_path: Path) -> bool:
