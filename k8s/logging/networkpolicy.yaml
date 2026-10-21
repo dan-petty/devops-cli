@@ -11,19 +11,44 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # 1. Intra-namespace communications (Loki canary -> Loki)
+    # 1. Intra-namespace communications
     - from:
         - podSelector: {}
-    # 2. Allow Grafana/Alloy in monitoring and the OTel collector release in otel to push/query
-    # Loki (3100). The otel peer names the collector's pods: Loki has auth disabled, so a
-    # namespace-only peer would admit Tempo and any other otel workload. Unlike the egress
-    # caveat in k8s/cloudflared/networkpolicy.yaml, this cluster's kube-router enforces an
-    # ingress peer that combines namespaceSelector and podSelector with `ports` in the same
-    # rule (checked live, #1100).
+    # 2. Allow Grafana and the k8s-monitoring Alloy collectors in monitoring, plus the OTel
+    # collector release in otel, to push/query Loki (3100). Loki has auth disabled, so each
+    # peer names its release's pods rather than admitting the whole monitoring or otel
+    # namespace (#1100, #1133). Unlike the egress caveat in k8s/cloudflared/networkpolicy.yaml,
+    # this cluster's kube-router enforces an ingress peer that combines namespaceSelector and
+    # podSelector with `ports` in the same rule (checked live, #1100).
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+              app.kubernetes.io/instance: grafana
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alloy-logs
+              app.kubernetes.io/instance: k8s-monitoring-alloy-logs
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alloy-metrics
+              app.kubernetes.io/instance: k8s-monitoring-alloy-metrics
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alloy-singleton
+              app.kubernetes.io/instance: k8s-monitoring-alloy-singleton
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: otel
