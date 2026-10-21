@@ -16,11 +16,6 @@ from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
-from devops_cli.ai.review.chunker import (
-    _extract_header_filenames,
-    _split_source_file_blocks,
-    skips_persona_review,
-)
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.path_classes import load_path_classes, load_review_config
 from devops_cli.ai.review.profile import (
@@ -65,10 +60,18 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.review.diff import (
+    diff_blocks,
+    diff_file_names,
+    number_source_lines,
+)
 from devops_cli.review.suppression import (
     covering_suppressions,
     format_covering_suppressions,
     load_review_suppressions,
+)
+from devops_cli.review.targets import (
+    is_secret_scan_only,
 )
 from devops_cli.security.sanitizer import (
     redact_text,
@@ -359,15 +362,15 @@ def _review_label(path: Path, root: Path, repo_root: Path | None) -> Path:
 
 
 def _partition_candidate_files(root: Path, pattern: str) -> tuple[list[Path], list[Path]]:
-    """The files under root a path review reads, in review order, and those it routes past the
-    personas to the secret scan alone (`skips_persona_review`, #948)."""
+    """The files under root a path review reads, in review order, and those it routes to the
+    secret scan alone (`is_secret_scan_only`, #948, #1151)."""
     repo_root = _git_repo_root(root)
     candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
     reviewed: list[Path] = []
     routed: list[Path] = []
     for p in sorted(candidates):
         if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
-            skipped = skips_persona_review(_review_label(p, root, repo_root))
+            skipped = is_secret_scan_only(_review_label(p, root, repo_root))
             (routed if skipped else reviewed).append(p)
     return reviewed, routed
 
@@ -381,8 +384,8 @@ def _routed_changes(
     base_revision: BaseRevision | None,
     path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
-    """The files a branch or pull request changed that persona review skips, for the secret
-    scan; a deleted file has nothing left to scan."""
+    """The files a branch or pull request changed that review skips, for the secret scan; a
+    deleted file has nothing left to scan."""
     if base_revision is None:
         return []
     deleted = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
@@ -390,7 +393,7 @@ def _routed_changes(
         change.path
         for change in base_revision.changes
         if change.change_type != deleted
-        and skips_persona_review(change.path, path_classes=path_classes)
+        and is_secret_scan_only(change.path, path_classes=path_classes)
     ]
 
 
@@ -406,7 +409,8 @@ def _file_blocks(root: Path, files: Sequence[Path]) -> list[str]:
             continue
         file_label = _review_label(p, root, repo_root)
         suffix = file_label.suffix.lstrip(".") or "text"
-        blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
+        numbered = number_source_lines(text)
+        blocks.append(f"### File: {file_label}\n```{suffix}\n{numbered.removesuffix(chr(10))}\n```")
     return blocks
 
 
@@ -577,7 +581,8 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, l
         )
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
-        blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
+        numbered = number_source_lines(content)
+        blocks = [f"### File: {file_label}\n```{suffix}\n{numbered.removesuffix(chr(10))}\n```"]
         title = str(file_label)
         # A file named as the target is reviewed as asked.
         routed: list[str] = []
@@ -717,11 +722,10 @@ def _branch_base_revision(
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
 ) -> tuple[list[str], str, str, BaseRevision]:
-    """Prepare paginated diff pages, title, resolved target_branch, and the base
+    """Prepare diff blocks, title, resolved target_branch, and the base
     revision the diff starts from."""
     import typer
 
-    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.lang import MESSAGES
 
     settings = load_settings()
@@ -775,10 +779,7 @@ def _prepare_branch_content(
     title = f"Branch `{target_branch}` vs `{effective_base}`"
     base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
     path_classes = load_path_classes(base_revision=base_revision)
-    pages = [
-        redact_text(p)
-        for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS, path_classes=path_classes)
-    ]
+    pages = [redact_text(p) for p in diff_blocks(diff_proc.stdout, path_classes=path_classes)]
     return pages, title, target_branch, base_revision
 
 
@@ -787,14 +788,13 @@ def _prepare_pr_content(
     repo_arg: str | None = None,
     **kwargs: Any,
 ) -> tuple[list[str], str, Any, str, BaseRevision | None]:
-    """Fetch PR details, diff pages, and title for PR review target.
+    """Fetch PR details, diff blocks, and title for PR review target.
 
     With `head_dir`, the PR head's changed files are written under it, and the base revision
     they are compared with is returned; without it, there is none.
     """
     import typer
 
-    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.github.session import get_github_session
     from devops_cli.lang import MESSAGES
 
@@ -821,7 +821,7 @@ def _prepare_pr_content(
         _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
         base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     path_classes = load_path_classes(base_revision=base_revision)
-    pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS, path_classes=path_classes)]
+    pages = [redact_text(p) for p in diff_blocks(diff, path_classes=path_classes)]
     return pages, title, pull, repo, base_revision
 
 
@@ -1019,9 +1019,7 @@ def _run_orchestrator_review(
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
-    diff_map = {
-        f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
-    }
+    diff_map = {f: "\n".join(p for p in pages if f in diff_file_names(p)) for f in all_files}
     with review_stage("payloads"):
         payloads = orchestrator.init_per_file_payloads(
             all_files,
@@ -1192,7 +1190,7 @@ def _execute_review_workflow(
         spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
-    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
     if base_revision is not None and base_revision.changes:
         deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
         all_files = [f for f in all_files if f not in deleted]

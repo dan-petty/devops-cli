@@ -13,7 +13,6 @@ from devops_cli.ai.gateway_tune import (
     GatewayTuneError,
     GpuInfo,
     TuneReport,
-    review_page_tokens,
     tune_pool,
 )
 from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
@@ -28,6 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_TUNE_IMAGE,
     DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
     DEFAULT_GATEWAY_TUNE_MODEL_GROUP,
+    DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
     DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_GATEWAY_TUNE_ROUNDS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -392,12 +392,12 @@ def tune_cmd(
         int, typer.Option("--rounds", help="Requests per worker at each concurrency level.")
     ] = DEFAULT_GATEWAY_TUNE_ROUNDS,
     prompt_tokens: Annotated[
-        int | None,
+        int,
         typer.Option(
             "--prompt-tokens",
-            help="Prompt size in tokens (default: one review page for the analysis task).",
+            help="Prompt size in tokens.",
         ),
-    ] = None,
+    ] = DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
     max_tokens: Annotated[
         int, typer.Option("--max-tokens", help="Completion tokens requested per call.")
     ] = DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
@@ -448,8 +448,7 @@ def tune_cmd(
             rounds=max(1, rounds),
             prompt_tokens=max(
                 1,
-                prompt_tokens
-                or review_page_tokens(settings.ai.for_task("analysis").context_window),
+                prompt_tokens if prompt_tokens is not None else DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
             ),
             max_tokens=max(1, max_tokens),
             request_timeout=DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS,

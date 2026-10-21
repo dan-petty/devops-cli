@@ -148,8 +148,7 @@ def gateway_pool(task: AIConfig) -> list[dict[str, Any]] | None:
 
 
 def review_setup(**extra: Any) -> dict[str, Any]:
-    """What a review's results depend on: models, sampling, the gateway's pool and the page size."""
-    from devops_cli.ai.review.chunker import review_page_chars
+    """What a review's results depend on: models, sampling, and the gateway's pool."""
     from devops_cli.config.settings import load_settings
 
     analysis = load_settings().ai.for_task("analysis")
@@ -159,7 +158,6 @@ def review_setup(**extra: Any) -> dict[str, Any]:
         "sampling": {
             name: {"temperature": t.temperature, "top_p": t.top_p} for name, t in tasks.items()
         },
-        "page_chars": review_page_chars(analysis.context_window),
     }
     gateway_tasks = {t.model: t for t in tasks.values() if t.provider == CONST_AI_GATEWAY_PROVIDER}
     if gateway_tasks:
