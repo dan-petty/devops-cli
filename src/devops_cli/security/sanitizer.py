@@ -14,6 +14,7 @@ from devops_cli.config.constants import (
     CONST_CODE_EXEMPTION_RECEIVERS,
     CONST_URL_CANDIDATE_RE,
 )
+from devops_cli.core.validation import is_loopback_host
 
 # The keyword patterns below match a word following "secret", "token" or "password". In
 # prose that word is usually English: "unify secret resolution" was rewritten to "unify
@@ -390,12 +391,12 @@ def sanitize_telemetry_endpoint(endpoint: str) -> str:
         if not host:
             return "<internal-endpoint>"
         port = parsed.port
-        if host in ("localhost", "127.0.0.1", "::1"):
+        if is_loopback_host(host):
             clean_host = host
         else:
             try:
                 ip = ipaddress.ip_address(host)
-                clean_host = host if ip.is_loopback or ip.is_global else "internal-ip"
+                clean_host = host if ip.is_global else "internal-ip"
             except ValueError:
                 clean_host = host
 

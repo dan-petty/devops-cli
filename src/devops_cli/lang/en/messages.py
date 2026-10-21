@@ -79,10 +79,6 @@ class ReviewMessages:
     updated_finding_status: str = "Updated finding #{index} status → {status}"
     updated_candidate_status: str = "Updated candidate #{index} status → {status}"
     candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"
-    candidate_already_reported: str = (
-        "findings.json already reports candidate #{index}'s defect as finding #{number}; "
-        "give the verdict there with --index {number}."
-    )
     candidate_copy_ambiguous: str = (
         "Finding #{number} in findings.json reports candidates {candidates}, which share a "
         "persona, title, location and description; give the verdict there with --index {number}, "
@@ -325,6 +321,25 @@ class K8sMessages:
         "Fix the cause and rerun; stored keyring values are reused, so nothing is regenerated."
     )
     pushing_secrets: str = "[bold]Pushing cluster Secrets from the keyring...[/bold]"
+    gpu_node_without_total: str = (
+        "GPU node {node} has no {vram_label} label, so no Ollama tier schedules there. "
+        "Label it: kubectl label node {node} {vram_label}=<N>Gi"
+    )
+    gpu_node_total_not_accepted: str = (
+        "GPU node {node} is labelled {vram_label}={value}, which no Ollama tier accepts. "
+        "Label it with a value a tier accepts: kubectl label node {node} {vram_label}=<N>Gi"
+    )
+    gpu_node_architecture_not_accepted: str = (
+        "GPU node {node} has {arch_label}={arch}, but the Ollama tiers that accept "
+        "{vram_label}={value} need one of: {accepted}."
+    )
+    no_ollama_tier_schedules: str = (
+        "No node satisfies any Ollama tier, so no Ollama pod will schedule."
+    )
+    gpu_nodes_unreadable: str = (
+        "Could not read the cluster's nodes, so deploy-stack could not check the GPU labels "
+        "the Ollama tiers need."
+    )
     push_plan_read: str = (
         "Plan only: read {sources}{context}; wrote nothing. "
         "--dry-run lists the requests without making any."
@@ -1055,6 +1070,7 @@ class CIMessages:
     uv_audit: str = "uv audit"
     deptry: str = "deptry"
     deps: str = "deptry"
+    constructs: str = "ast-grep scan (hand-rolled network constructs)"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     zizmor: str = "zizmor (github workflow security)"

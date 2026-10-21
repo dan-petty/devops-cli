@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 
 
 def _create_default_scanners() -> list[BaseSecurityScanner]:
-    """Instantiate the 11 built-in security scanners."""
+    """Instantiate the 13 built-in security scanners."""
     from devops_cli.security.bandit import BanditScanner
     from devops_cli.security.checkov import CheckovScanner
     from devops_cli.security.dive import DiveScanner
     from devops_cli.security.gitleaks import GitleaksScanner
     from devops_cli.security.kubeconform import KubeconformScanner
     from devops_cli.security.kubelinter import KubelinterScanner
+    from devops_cli.security.osv_scanner import OsvScanner
     from devops_cli.security.pluto import PlutoScanner
     from devops_cli.security.popeye import PopeyeScanner
     from devops_cli.security.semgrep import SemgrepScanner
@@ -35,6 +36,7 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
         GitleaksScanner(),
         KubeconformScanner(),
         KubelinterScanner(),
+        OsvScanner(),
         PlutoScanner(),
         PopeyeScanner(),
         SemgrepScanner(),

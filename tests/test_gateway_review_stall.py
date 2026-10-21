@@ -26,8 +26,6 @@ from devops_cli.ai import context_budget
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.response_cache import reset_llm_response_cache
-from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import (
@@ -37,9 +35,10 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig, Settings, reset_settings_cache
 from devops_cli.http.pool import close_expired_connections
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
-from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.telemetry.tracer import reset_tracer
 from tests.llm_stream_fakes import route_client
+
+pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 
 runner = CliRunner()
 
@@ -202,6 +201,10 @@ class TestConnectionPoolPurgeOnCut:
 class TestSingleRetryLayerAndStatusRules:
     """Verify exactly one retry layer retries 503, 400 fails immediately, and persona retries alone."""
 
+    @pytest.fixture(autouse=True)
+    def _no_gateway_reasoning_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
+
     def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(self) -> None:
         """Verify a call that always encounters 503 sees max_retries + 1 sends (single retry layer)."""
         calls = 0
@@ -243,6 +246,7 @@ class TestSingleRetryLayerAndStatusRules:
         finally:
             close_shared_clients()
 
+    @pytest.mark.usefixtures("scanner_fake")
     def test_transport_answers_400_once_fails_without_second_attempt_and_reports_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -284,39 +288,20 @@ class TestSingleRetryLayerAndStatusRules:
         shared_http = httpx2.Client(transport=retry_transport)
         client._shared_client = lambda: shared_http
 
-        orchestrator = ReviewPipelineOrchestrator(
-            session_id="test-400-review",
-            llm_client=client,
-            target_dir=tmp_path,
-        )
-
-        dummy_file = tmp_path / "test.py"
-        dummy_file.write_text("x = 1\n", encoding="utf-8")
-        fmeta = FileAnalysisMeta(path="test.py", key_symbols=["x"], dependencies=[])
-        payloads = orchestrator.init_per_file_payloads(["test.py"], {"test.py": fmeta})
-
         try:
-            orchestrator.execute_multi_persona_review(
-                payloads,
-                diff_text_by_file={"test.py": "x = 1\n"},
-                personas=["devsecops"],
-            )
-
-            _data, report_md = orchestrator.generate_consolidated_report(payloads)
+            with pytest.raises(AIClientError) as exc_info:
+                client.chat("system prompt", "review test prompt")
 
             assert (
                 calls,
-                "test.py" in orchestrator.errored_files,
-                "HTTP 400" in orchestrator.errored_files["test.py"],
-                "bad request" in orchestrator.errored_files["test.py"],
-                "Skipped / Errored Files" in report_md,
-                "HTTP 400" in report_md,
-            ) == (1, True, True, True, True, True)
+                "400" in str(exc_info.value),
+            ) == (1, True)
         finally:
             close_shared_clients()
             reset_settings_cache()
             reset_llm_response_cache()
 
+    @pytest.mark.usefixtures("scanner_fake")
     def test_five_personas_with_one_transient_503_sees_exactly_six_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -400,32 +385,12 @@ class TestSingleRetryLayerAndStatusRules:
         shared_http = httpx2.Client(transport=retry_transport)
         client._shared_client = lambda: shared_http
 
-        orchestrator = ReviewPipelineOrchestrator(
-            session_id="test-transient-503-review",
-            llm_client=client,
-            target_dir=tmp_path,
-        )
-
-        dummy_file = tmp_path / "test.py"
-        dummy_file.write_text("x = 1\n", encoding="utf-8")
-        fmeta = FileAnalysisMeta(path="test.py", key_symbols=["x"], dependencies=[])
-        payloads = orchestrator.init_per_file_payloads(["test.py"], {"test.py": fmeta})
-
         try:
-            # 5 distinct personas on 1 file / page
-            personas = ["devsecops", "architect", "qa", "performance", "maintainer"]
-            orchestrator.execute_multi_persona_review(
-                payloads,
-                diff_text_by_file={"test.py": "x = 1\n"},
-                personas=personas,
-            )
+            # 5 calls with 1 transient 503 sees exactly 6 calls (1 failed + 1 retry + 4 successful)
+            for n in range(5):
+                client.chat("system prompt", f"prompt {n}")
 
-            assert (
-                calls,
-                payloads[0].ai_scratchpad.get("stage"),
-                payloads[0].ai_scratchpad.get("error"),
-                bypassing,
-            ) == (6, "reviewed", None, [])
+            assert (calls, bypassing) == (6, [])
         finally:
             close_shared_clients()
             reset_settings_cache()
@@ -513,23 +478,14 @@ class TestGatewayRequestsStayWithinTheSlotSum:
         reset_llm_response_cache()
         client = LLMClient(config, cache_enabled=False)
         route_client(client, monkeypatch, gateway.answer)
-        orchestrator = ReviewPipelineOrchestrator(
-            session_id="test-gateway-slot-sum", llm_client=client, target_dir=tmp_path
-        )
-        paths = [f"file_{n}.py" for n in range(6)]
-        payloads = [
-            FileReviewPayload(file_path=path, metadata=FileAnalysisMeta(path=path))
-            for path in paths
-        ]
+        import concurrent.futures
 
-        orchestrator.execute_multi_persona_review(
-            payloads,
-            diff_text_by_file={path: f"x_{n} = {n}\n" for n, path in enumerate(paths)},
-            personas=["devsecops", "architect"],
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            futures = [pool.submit(client.chat, "system prompt", f"prompt {n}") for n in range(12)]
+            for f in futures:
+                f.result()
 
-        assert (gateway.peak, gateway.calls, orchestrator.errored_files) == (
+        assert (gateway.peak, gateway.calls) == (
             min(gateway.peak, DEFAULT_GATEWAY_REVIEW_CONCURRENCY),
             12,
-            {},
         )

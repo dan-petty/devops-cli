@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 from pathlib import Path
 from unittest.mock import patch
@@ -655,20 +656,16 @@ def test_format_repo_map_text() -> None:
     assert "# Helper doc" in rendered
 
 
-def test_rich_imports_confined_to_output_submodule() -> None:
+def test_rich_imports_confined_to_output_submodule(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Verify that all direct imports of the 'rich' package are strictly confined to src/devops_cli/output/."""
-    import ast
-
     src_dir = REPO_ROOT / "src" / "devops_cli"
     output_dir = src_dir / "output"
 
     violations: list[str] = []
-    for py_file in src_dir.rglob("*.py"):
+    for py_file, tree in parsed_source_trees.items():
         if py_file.is_relative_to(output_dir):
-            continue
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except Exception:
             continue
 
         for node in ast.walk(tree):

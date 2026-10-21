@@ -36,6 +36,16 @@ loki:
     retention_period: 720h # 30 days
     # The delete-request store opens the log delete API, which needs no credentials while
     # auth_enabled is false. Retention does not use it, so it stays closed.
+    # Note (#1133): in Loki 3.6.11 (grafana/loki chart 7.3.0 appVersion), initQuerier attaches
+    # CacheGenNumberHeaderSetterMiddleware whenever store=tsdb and compactor.retention_enabled=true
+    # (pkg/loki/modules.go:595, 708), and initCacheGenerationLoader passes an unwrapped gRPC client
+    # to NewGenNumberLoader (pkg/loki/modules.go:1167-1194) instead of NewPerTenantDeleteRequestsClient.
+    # Every query therefore calls /grpc.Compactor/GetCacheGenNumbers, which checks validDeletionLimit
+    # and logs "deletion is not available for this tenant" when deletion_mode is disabled
+    # (pkg/compactor/generationnumber/gennumber_loader.go:106-126,
+    # pkg/compactor/deletion/grpc_request_handler.go:63-85; upstream grafana/loki#8468,
+    # grafana/loki#9855). No Loki 3.6.11 config setting disables the lookup while keeping both
+    # retention_enabled: true and deletion_mode: disabled.
     deletion_mode: disabled
     max_query_length: 720h
     max_query_parallelism: 4
@@ -70,6 +80,11 @@ monitoring:
     enabled: false
     grafanaAgent:
       installOperator: false
+
+# Pipeline liveness comes from Alloy's loki_write_sent_entries_total series (#1131, #890),
+# not the chart's internal canary DaemonSet (#1133).
+lokiCanary:
+  enabled: false
 
 test:
   enabled: false

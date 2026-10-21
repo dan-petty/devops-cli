@@ -15,6 +15,10 @@ spec:
       app.kubernetes.io/name: valkey
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        k8s.grafana.com/metrics.container: redis-exporter
       labels:
         app.kubernetes.io/name: valkey
         app.kubernetes.io/part-of: devops-cli-stack
@@ -68,6 +72,44 @@ spec:
           readinessProbe:
             tcpSocket:
               port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        - name: redis-exporter
+          image: ghcr.io/oliver006/redis_exporter:v1.93.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: REDIS_ADDR
+              value: redis://localhost:6379
+            - name: REDIS_EXPORTER_WEB_LISTEN_ADDRESS
+              value: 0.0.0.0:9121
+          ports:
+            - name: metrics
+              containerPort: 9121
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:

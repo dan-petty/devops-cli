@@ -99,6 +99,7 @@ def route_client(
     monkeypatch.setattr(
         client, "_create_http_client", lambda timeout=None: httpx2.Client(transport=transport)
     )
+    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
     return sent
 
 
@@ -125,4 +126,5 @@ def route_llm_clients(
         "_create_http_client",
         lambda self, timeout=None: httpx2.Client(transport=transport),
     )
+    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
     return sent

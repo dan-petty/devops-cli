@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.telemetry import (
     InMemoryMetricsRegistry,
     extract_traceparent,
     inject_traceparent_headers,
 )
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_metrics_registry_counters() -> None:
@@ -126,7 +130,7 @@ def test_both_metrics_routes_parse_via_prometheus_client(
             ) == (True, True)
 
 
-def test_w3c_traceparent_helpers() -> None:
+def test_w3c_traceparent_helpers(tracer: object) -> None:
     valid_header = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
     extracted = extract_traceparent(valid_header)
     assert extracted is not None

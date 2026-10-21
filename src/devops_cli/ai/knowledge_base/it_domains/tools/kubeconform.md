@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:kubeconform@0.6.*"
+sources:
+  - "https://github.com/yannh/kubeconform"
+reviewed: "2026-10-15"
+tags:
+  - "kubeconform"
+  - "k8s"
+  - "kubernetes"
+---
+
 # Kubeconform Tool Reference Manual
 
 ## 1. Overview & Operational Mandate

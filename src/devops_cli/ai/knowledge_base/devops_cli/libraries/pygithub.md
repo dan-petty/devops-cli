@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/pygithub@2.10.*"
+sources:
+  - "https://pygithub.readthedocs.io/"
+  - "https://github.com/PyGithub/PyGithub"
+reviewed: "2026-10-15"
+tags:
+  - "pygithub"
+  - "github"
+---
+
 # Code Library: PyGithub (GitHub REST & GraphQL API Client)
 
 ## 1. Project References
@@ -17,7 +29,7 @@
 
 In `devops-cli`:
 - **PR Management**: Powers the GitHub REST client (`github/client.py`) used by `devops gh`, `devops repos clone-org`, and `devops review pr --post`; `pr` subcommands use the `gh` CLI.
-- **Review Comment Posting**: Formats multi-persona review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
+- **Review Comment Posting**: Formats review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
 - **Release Automation**: Automates version tag pushes, changelog publication, and GitHub Release asset creation (`devops release prepare`).
 
 ---

@@ -9,6 +9,8 @@ import pytest
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.qdrant import QdrantClient
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_qdrant_is_alive() -> None:
     client = QdrantClient("http://localhost:6333", allow_private_network=True)

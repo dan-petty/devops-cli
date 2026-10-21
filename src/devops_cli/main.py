@@ -20,6 +20,11 @@ from devops_cli.lang import HELP
 _timing: dict[str, float] = {}
 
 
+def reset_timing() -> None:
+    """Clear recorded CLI invocation start timestamps."""
+    _timing.clear()
+
+
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]

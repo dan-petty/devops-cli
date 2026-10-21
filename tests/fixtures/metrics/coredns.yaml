@@ -1,0 +1,79 @@
+# Metric families the deployed CoreDNS server serves on port 9153 (#822): names, types and
+# label names, never label values. tests/test_stack_dashboards.py checks coredns.json against them.
+exporter: CoreDNS prometheus plugin
+image: rancher/mirrored-coredns-coredns:1.12.0
+captured: "2026-10-21"
+taken_from: >-
+  kube-dns.kube-system.svc.cluster.local:9153/metrics on the homelab k3s cluster.
+scraped_by: >-
+  k8s-monitoring's clusterMetrics.kubeDNS job (job="integrations/kubernetes/kube-dns") in
+  k8s/monitoring/k8s-monitoring-values.yaml, which discovers the kube-dns EndpointSlice on port
+  metrics (9153) and copies __meta_kubernetes_pod_node_name to node (#1130).
+target_labels: [app, cluster, container, instance, job, namespace, node, pod, service, source, workload]
+families:
+  coredns_build_info: {type: gauge, labels: [goversion, revision, version]}
+  coredns_cache_entries: {type: gauge, labels: [server, type, view, zones]}
+  coredns_cache_hits_total: {type: counter, labels: [server, type, view, zones]}
+  coredns_cache_misses_total: {type: counter, labels: [server, view, zones]}
+  coredns_cache_requests_total: {type: counter, labels: [server, view, zones]}
+  coredns_dns_request_duration_seconds: {type: histogram, labels: [server, view, zone]}
+  coredns_dns_request_size_bytes: {type: histogram, labels: [proto, server, view, zone]}
+  coredns_dns_requests_total: {type: counter, labels: [family, proto, server, type, view, zone]}
+  coredns_dns_response_size_bytes: {type: histogram, labels: [proto, server, view, zone]}
+  coredns_dns_responses_total: {type: counter, labels: [plugin, rcode, server, view, zone]}
+  coredns_forward_healthcheck_broken_total: {type: counter, labels: []}
+  coredns_forward_max_concurrent_rejects_total: {type: counter, labels: []}
+  coredns_health_request_duration_seconds: {type: histogram, labels: []}
+  coredns_health_request_failures_total: {type: counter, labels: []}
+  coredns_hosts_entries: {type: gauge, labels: [hostsfile]}
+  coredns_hosts_reload_timestamp_seconds: {type: gauge, labels: []}
+  coredns_kubernetes_dns_programming_duration_seconds: {type: histogram, labels: [service_kind]}
+  coredns_kubernetes_rest_client_rate_limiter_duration_seconds: {type: histogram, labels: [host, verb]}
+  coredns_kubernetes_rest_client_request_duration_seconds: {type: histogram, labels: [host, verb]}
+  coredns_kubernetes_rest_client_requests_total: {type: counter, labels: [code, host, method]}
+  coredns_local_localhost_requests_total: {type: counter, labels: []}
+  coredns_panics_total: {type: counter, labels: []}
+  coredns_plugin_enabled: {type: gauge, labels: [name, server, view, zone]}
+  coredns_proxy_conn_cache_hits_total: {type: counter, labels: [proto, proxy_name, to]}
+  coredns_proxy_conn_cache_misses_total: {type: counter, labels: [proto, proxy_name, to]}
+  coredns_proxy_healthcheck_failures_total: {type: counter, labels: [proxy_name, to]}
+  coredns_proxy_request_duration_seconds: {type: histogram, labels: [proxy_name, rcode, to]}
+  coredns_reload_failed_total: {type: counter, labels: []}
+  go_gc_duration_seconds: {type: summary, labels: []}
+  go_gc_gogc_percent: {type: gauge, labels: []}
+  go_gc_gomemlimit_bytes: {type: gauge, labels: []}
+  go_goroutines: {type: gauge, labels: []}
+  go_info: {type: gauge, labels: [version]}
+  go_memstats_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes_total: {type: counter, labels: []}
+  go_memstats_buck_hash_sys_bytes: {type: gauge, labels: []}
+  go_memstats_frees_total: {type: counter, labels: []}
+  go_memstats_gc_sys_bytes: {type: gauge, labels: []}
+  go_memstats_heap_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_heap_idle_bytes: {type: gauge, labels: []}
+  go_memstats_heap_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_heap_objects: {type: gauge, labels: []}
+  go_memstats_heap_released_bytes: {type: gauge, labels: []}
+  go_memstats_heap_sys_bytes: {type: gauge, labels: []}
+  go_memstats_last_gc_time_seconds: {type: gauge, labels: []}
+  go_memstats_mallocs_total: {type: counter, labels: []}
+  go_memstats_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mcache_sys_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_sys_bytes: {type: gauge, labels: []}
+  go_memstats_next_gc_bytes: {type: gauge, labels: []}
+  go_memstats_other_sys_bytes: {type: gauge, labels: []}
+  go_memstats_stack_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_stack_sys_bytes: {type: gauge, labels: []}
+  go_memstats_sys_bytes: {type: gauge, labels: []}
+  go_sched_gomaxprocs_threads: {type: gauge, labels: []}
+  go_threads: {type: gauge, labels: []}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_network_receive_bytes_total: {type: counter, labels: []}
+  process_network_transmit_bytes_total: {type: counter, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  process_virtual_memory_max_bytes: {type: gauge, labels: []}

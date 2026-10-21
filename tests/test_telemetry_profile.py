@@ -64,7 +64,7 @@ def test_build_span_waterfall_tree_structure() -> None:
     assert child.attributes.get("db.system") == "sqlite"
 
 
-def test_span_recording_buffer() -> None:
+def test_span_recording_buffer(tracer: object) -> None:
     """Verify that completed spans are captured in the in-memory ring buffer."""
     clear_span_buffer()
     with trace_span("test.buffer.span", attributes={"test.key": "val123"}):
@@ -182,6 +182,7 @@ def test_profile_runs_a_devops_command_through_the_entry_point(no_poll_wait: Non
     ) == (0, [sys.executable, "-P", "-m", "devops_cli.entry", "version"], False)
 
 
+@pytest.mark.live("python")
 def test_profile_child_imports_nothing_from_the_working_directory(tmp_path: Path) -> None:
     """`python -m` put the working directory first on the child's `sys.path`.
 

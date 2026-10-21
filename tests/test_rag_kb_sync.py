@@ -30,6 +30,8 @@ from devops_cli.commands.rag import app
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 from devops_cli.telemetry.instruments import RAG_POINTS
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 class InMemoryQdrantClient:
     """In-memory Qdrant fake supporting count, scroll, get_collection_info, and upsert."""

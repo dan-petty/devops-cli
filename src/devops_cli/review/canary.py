@@ -76,6 +76,8 @@ _CANARY_CACHE: dict[CanaryCacheKey, CanaryResult] = {}
 def clear_canary_cache() -> None:
     """Clear all cached canary results."""
     _CANARY_CACHE.clear()
+    _load_locked_tool_versions.cache_clear()
+    _hash_binary_path.cache_clear()
 
 
 def get_canary_cache() -> dict[CanaryCacheKey, CanaryResult]:

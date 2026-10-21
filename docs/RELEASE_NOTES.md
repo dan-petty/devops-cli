@@ -1,6 +1,6 @@
 # Release Notes — devops-cli v0.2.18
 
-Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and multi-persona AI code reviews.
+Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and automated AI code reviews.
 
 ---
 

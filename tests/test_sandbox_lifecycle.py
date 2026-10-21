@@ -790,18 +790,23 @@ def test_cli_sandbox_deploy_dry_run(tmp_path: Path) -> None:
     assert "my-dry-run-app" in res.output
 
 
-def test_cli_sandbox_status_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_sandbox_status_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, docker_engine: Any
+) -> None:
     """CLI sandbox status displays empty state cleanly."""
     from devops_cli.commands.sandbox import app as sandbox_app
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     runner = CliRunner()
-    res = runner.invoke(sandbox_app, ["status"])
+    with docker_engine(MagicMock()):
+        res = runner.invoke(sandbox_app, ["status"])
     assert res.exit_code == 0
     assert "no sandbox instances found" in res.output.lower() or "empty" in res.output.lower()
 
 
-def test_cli_sandbox_status_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_sandbox_status_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, docker_engine: Any
+) -> None:
     """CLI sandbox status --json outputs valid JSON."""
     from devops_cli.commands.sandbox import app as sandbox_app
 
@@ -821,7 +826,12 @@ def test_cli_sandbox_status_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     runner = CliRunner()
-    res = runner.invoke(sandbox_app, ["status", "--json"])
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value.attrs = {
+        "State": {"Running": True, "Status": "running", "ExitCode": 0}
+    }
+    with docker_engine(mock_client):
+        res = runner.invoke(sandbox_app, ["status", "--json"])
     assert res.exit_code == 0
     data = json.loads(res.output)
     assert len(data) == 1
@@ -1320,18 +1330,21 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
     )
 
 
-def test_sandbox_policy_identical_security_kwargs_across_builders(tmp_path: Path) -> None:
+def test_sandbox_policy_identical_security_kwargs_across_builders(
+    tmp_path: Path, docker_engine: Any
+) -> None:
     """Verify that WorkloadSandboxEngine and WorkloadSandboxRunner produce identical security kwargs."""
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
     policy = SandboxPolicy(read_only=True)
     deploy_cfg = SandboxDeployConfig(read_only=True, policy=policy)
-    engine = WorkloadSandboxEngine()
-    engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
+    with docker_engine(MagicMock()):
+        engine = WorkloadSandboxEngine()
+        engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
 
-    workload_cfg = WorkloadSandboxConfig(command=["sleep", "1"], read_only=True, policy=policy)
-    runner = WorkloadSandboxRunner(workload_cfg)
-    docker_kwargs = runner._build_create_kwargs(tmp_path)
+        workload_cfg = WorkloadSandboxConfig(command=["sleep", "1"], read_only=True, policy=policy)
+        runner = WorkloadSandboxRunner(workload_cfg)
+        docker_kwargs = runner._build_create_kwargs(tmp_path)
 
     security_keys = ("cap_drop", "security_opt", "pids_limit", "read_only", "tmpfs")
     engine_security = {k: engine_kwargs[k] for k in security_keys}

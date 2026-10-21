@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/opentelemetry-api@1.44.*"
+sources:
+  - "https://opentelemetry.io/docs/languages/python/"
+  - "https://grafana.com/docs/tempo/latest/"
+reviewed: "2026-10-15"
+tags:
+  - "opentelemetry"
+  - "tracing"
+  - "observability"
+---
+
 # Code Library: OpenTelemetry & Grafana Tempo (Distributed Tracing & APM)
 
 ## 1. Project References
@@ -16,7 +29,7 @@
 **OpenTelemetry (OTel)** is the vendor-neutral CNCF standard for distributed tracing, metrics, and application observability. The OpenTelemetry Python SDK instruments function calls, HTTP requests, and multi-agent stage pipelines, emitting span telemetry over gRPC/OTLP to Grafana Tempo and OpenTelemetry Collectors.
 
 In `devops-cli`:
-- **Distributed Spans**: Every CLI subcommand, AI persona review phase, and security scan stage is wrapped in `@trace_span` to capture duration, status, and semantic attributes.
+- **Distributed Spans**: Every CLI subcommand, AI review phase, and security scan stage is wrapped in `@trace_span` to capture duration, status, and semantic attributes.
 - **Traceparent Propagation**: Automatically injects W3C `traceparent` headers into subprocess environments and outbound HTTP requests.
 - **In-Memory Waterfall Profiling**: Powers `devops telemetry profile` to render terminal waterfalls and latency heatmaps directly in the console.
 

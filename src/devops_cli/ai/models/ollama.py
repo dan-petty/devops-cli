@@ -97,10 +97,18 @@ def is_ollama_cloud(base_url: str | None = None, model_name: str | None = None) 
     upstream JSON Schema grammar constraints at generation time.
     """
     if base_url:
+        import dns.exception
+        import dns.name
+
         parsed = urlsplit(base_url.strip())
-        hostname = (parsed.hostname or "").lower()
-        if hostname == "ollama.com" or hostname.endswith(".ollama.com"):
-            return True
+        hostname = parsed.hostname
+        if hostname:
+            try:
+                h_name = dns.name.from_text(hostname)
+                if h_name.is_subdomain(dns.name.from_text("ollama.com")):
+                    return True
+            except dns.exception.DNSException, ValueError, AttributeError:
+                pass
 
     if model_name and model_name.strip().lower().endswith("-cloud"):
         return True

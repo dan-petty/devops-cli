@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://fastapi.tiangolo.com/"
+  - "https://www.uvicorn.org/"
+reviewed: "2026-10-15"
+tags:
+  - "rest"
+  - "fastapi"
+  - "api"
+---
+
 # Knowledge Base Topic: REST API Architecture & Service Engineering
 
 ## 1. Overview & Domain Architecture

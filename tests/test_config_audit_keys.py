@@ -11,6 +11,8 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.config import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 _UNPARSABLE_CONFIG = "ai:\n  api_key: FAKE-1022-value: x\n"

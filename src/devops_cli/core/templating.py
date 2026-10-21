@@ -60,6 +60,11 @@ def template_environment() -> SandboxedEnvironment:
     )
 
 
+def reset_template_environment_cache() -> None:
+    """Clear the cached Jinja2 template environment."""
+    template_environment.cache_clear()
+
+
 def render_template(name: str, /, **variables: Any) -> str:
     """Render a packaged template."""
     from jinja2 import TemplateError

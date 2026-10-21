@@ -25,6 +25,16 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.kb import (
+    DriftManual,
+    MatchedManual,
+    filter_kb_manuals_for_group,
+    load_matched_kb_manuals,
+)
+from devops_cli.ai.review.ast_imports import (
+    extract_imports_from_source,
+    group_imports_by_package,
+)
 from devops_cli.ai.review.pool import ReviewWorkerPool
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
@@ -32,12 +42,15 @@ from devops_cli.config.constants import (
     CONST_ANALYSIS_DROP_REASON_BUDGET,
     CONST_ANALYSIS_DROP_REASON_UNAVAILABLE,
     CONST_ANALYSIS_K8S_TOOLS,
+    CONST_ANALYSIS_PLAN_PROMPT_FILENAME,
     CONST_ANALYSIS_PROMPT_FILENAME,
     CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR,
     CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED,
     CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED,
     CONST_FINISH_REASON_LENGTH,
+    CONST_KB_REFERENCE_PREFIX,
     CONST_REVIEW_ANALYSIS_FILENAME,
+    CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_TEMPERATURE,
@@ -60,7 +73,14 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.tools_lock import load_tools_lock
 
 GroupKind = Literal["region", "kubernetes", "advisory"]
-RelationKind = Literal["caller", "callee", "same-symbol", "same-rule"]
+RelationKind = Literal["caller", "callee", "same-symbol", "same-rule", "same-root-cause"]
+CorrelationKeyKind = Literal[
+    "cwe",
+    "rule_family",
+    "symbol_component",
+    "purl",
+    "manifest_source",
+]
 
 _PYTHON_FENCE_RE: Final[re.Pattern[str]] = re.compile(
     r"```(?:python|py)\s*\n(.*?)```",
@@ -116,6 +136,8 @@ class EnvironmentFacts(_StrictModel):
     tool_versions: dict[str, str] = Field(default_factory=dict)
     locked_packages: dict[str, list[str]] = Field(default_factory=dict)
     advisory_fixed_versions: dict[str, list[str]] = Field(default_factory=dict)
+    cyclonedx_inventory: dict[str, Any] = Field(default_factory=dict)
+    kubernetes_version: str = ""
 
 
 class AnalysisJobInput(_StrictModel):
@@ -186,6 +208,47 @@ class RatioRecord(_StrictModel):
     reason: str | None = None
 
 
+class CorrelationEntry(_StrictModel):
+    """An entry in the deterministic cross-group correlation table (#1148)."""
+
+    key_kind: CorrelationKeyKind
+    key_value: StrictStr
+    finding_ids: list[StrictStr]
+
+
+class ReviewPlanStep(_StrictModel):
+    """A single remediation step in the review-level plan covering one or more findings (#1148)."""
+
+    step_number: int
+    title: StrictStr
+    description: StrictStr
+    finding_ids: list[StrictStr]
+    shared_keys: list[StrictStr] = Field(default_factory=list)
+
+
+class DeferredFinding(_StrictModel):
+    """An admitted finding deferred from the active remediation plan with an explicit reason (#1148)."""
+
+    finding_id: StrictStr
+    reason: StrictStr
+
+
+class ReviewPlanOutput(_StrictModel):
+    """Validated model or deterministic output for the review remediation plan (#1148)."""
+
+    summary: StrictStr
+    steps: list[ReviewPlanStep] = Field(default_factory=list)
+    deferred: list[DeferredFinding] = Field(default_factory=list)
+
+
+class ReviewPlanRecord(_StrictModel):
+    """Saved record for the review plan in analysis.json (#1148)."""
+
+    status: Literal["verified", "rejected", "skipped"]
+    output: ReviewPlanOutput | None = None
+    rejected_reasons: list[str] = Field(default_factory=list)
+
+
 class GroupAnalysisRecord(_StrictModel):
     """Saved record for one group job in `analysis.json`."""
 
@@ -204,14 +267,18 @@ class GroupAnalysisRecord(_StrictModel):
 
 
 class AnalysisReport(_StrictModel):
-    """Top-level `analysis.json` payload for a review session."""
+    """Top-level `analysis.json` payload for a review session (#1147, #1148)."""
 
     groups: list[GroupAnalysisRecord]
+    correlation_table: list[CorrelationEntry] = Field(default_factory=list)
+    plan: ReviewPlanRecord | None = None
     sampling: SamplingRecord
     reference_coverage: RatioRecord
     rejections: dict[str, int]
     model_calls: int
     max_concurrency: int = DEFAULT_GATEWAY_REVIEW_CONCURRENCY
+    drift_manuals: list[DriftManual] = Field(default_factory=list)
+    injected_manuals: list[str] = Field(default_factory=list)
 
 
 def _is_k8s_finding(finding: Finding) -> bool:
@@ -278,6 +345,153 @@ def group_findings_for_analysis(
             )
         )
     return groups
+
+
+def _extract_cwe_keys(finding: Finding) -> set[str]:
+    cwes: set[str] = set()
+    cwes_raw = (
+        finding.properties.get("cwe")
+        or finding.properties.get("cwes")
+        or finding.properties.get("cwe_id")
+        or finding.properties.get("cwe_ids")
+    )
+    if cwes_raw is not None:
+        raw_list = cwes_raw if isinstance(cwes_raw, list) else [cwes_raw]
+        for item in raw_list:
+            digits = "".join(c for c in str(item) if c.isdigit())
+            if digits:
+                cwes.add(f"CWE-{digits}")
+    combined = f"{finding.rule_id} {finding.message} {finding.description}"
+    for match in re.finditer(r"\b(?:cwe)[-_]?(\d+)\b", combined, flags=re.IGNORECASE):
+        cwes.add(f"CWE-{match.group(1)}")
+    if (
+        finding.tool.lower() in CONST_ANALYSIS_K8S_TOOLS
+        and finding.rule_id == "no-read-only-root-fs"
+    ):
+        cwes.add("CWE-284")
+    if finding.rule_id in ("E722", "B110", "try_except_pass"):
+        cwes.add("CWE-703")
+    return cwes
+
+
+def _extract_rule_family_keys(finding: Finding) -> set[str]:
+    families: set[str] = set()
+    if finding.properties.get("rule_family"):
+        families.add(str(finding.properties["rule_family"]))
+        return families
+    if finding.rule_id in ("E722", "B110", "try_except_pass") or (
+        "broad" in finding.message.lower() and "except" in finding.message.lower()
+    ):
+        families.add("broad-except")
+        return families
+    tool_lower = finding.tool.lower()
+    if tool_lower in ("kube-linter", "kubelinter"):
+        families.add("kube-linter")
+    elif tool_lower == "bandit":
+        families.add("bandit")
+    elif tool_lower == "semgrep":
+        if "." in finding.rule_id:
+            families.add(f"semgrep:{finding.rule_id.rsplit('.', 1)[0]}")
+        else:
+            families.add("semgrep")
+    elif tool_lower == "ruff":
+        alpha = "".join(c for c in finding.rule_id if c.isalpha())
+        families.add(f"ruff:{alpha}" if alpha else "ruff")
+    else:
+        families.add(tool_lower)
+    return families
+
+
+def _extract_symbol_component_keys(
+    finding: Finding,
+    file_contents: Mapping[str, str] | None,
+) -> set[str]:
+    components: set[str] = set()
+    if finding.properties.get("symbol_component"):
+        components.add(str(finding.properties["symbol_component"]))
+    if finding.properties.get("package"):
+        components.add(str(finding.properties["package"]))
+    contents = file_contents or {}
+    if finding.path.endswith(".py") and finding.path in contents:
+        code = contents[finding.path]
+        imports = extract_imports_from_source(code)
+        pkg_map = group_imports_by_package(imports)
+        line_code = ""
+        if finding.line is not None:
+            code_lines = code.splitlines()
+            if 0 < finding.line <= len(code_lines):
+                line_code = code_lines[finding.line - 1]
+        for pkg, syms in pkg_map.items():
+            if (
+                pkg in line_code
+                or (finding.symbol and pkg in finding.symbol)
+                or pkg in finding.message
+                or any(s in line_code or (finding.symbol and s in finding.symbol) for s in syms)
+            ):
+                components.add(pkg)
+    if finding.symbol and finding.symbol not in ("<module>", ""):
+        components.add(finding.symbol)
+    return components
+
+
+def _extract_purl_keys(finding: Finding) -> set[str]:
+    purls: set[str] = set()
+    if isinstance(finding.anchor, AdvisoryAnchor) and finding.anchor.purl:
+        purls.add(finding.anchor.purl.split("@")[0])
+    if finding.properties.get("purl"):
+        purls.add(str(finding.properties["purl"]).split("@")[0])
+    if finding.logical_location and finding.logical_location.startswith("pkg:"):
+        purls.add(finding.logical_location.split("@")[0])
+    return purls
+
+
+def _extract_manifest_source_keys(finding: Finding) -> set[str]:
+    manifests: set[str] = set()
+    if finding.path.endswith((".yaml", ".yml")):
+        manifests.add(finding.path)
+    if finding.properties.get("manifest_source"):
+        manifests.add(str(finding.properties["manifest_source"]))
+    return manifests
+
+
+def extract_finding_correlation_keys(
+    finding: Finding,
+    file_contents: Mapping[str, str] | None = None,
+) -> dict[CorrelationKeyKind, set[str]]:
+    """Extract deterministic correlation keys (CWE, rule family, symbol component, purl, manifest source) for a finding (#1148)."""
+    return {
+        "cwe": _extract_cwe_keys(finding),
+        "rule_family": _extract_rule_family_keys(finding),
+        "symbol_component": _extract_symbol_component_keys(finding, file_contents),
+        "purl": _extract_purl_keys(finding),
+        "manifest_source": _extract_manifest_source_keys(finding),
+    }
+
+
+def build_correlation_table(
+    findings: Sequence[Finding],
+    file_contents: Mapping[str, str] | None = None,
+) -> list[CorrelationEntry]:
+    """Deterministically build the cross-group correlation table across admitted findings (#1148)."""
+    buckets: dict[tuple[CorrelationKeyKind, str], set[str]] = {}
+    for f in findings:
+        if f.state == FindingState.SUPPRESSED:
+            continue
+        keys = extract_finding_correlation_keys(f, file_contents)
+        for key_kind, values in keys.items():
+            for val in values:
+                buckets.setdefault((key_kind, val), set()).add(f.fingerprint_v2)
+
+    entries: list[CorrelationEntry] = []
+    for (k_kind, k_val), fids in sorted(buckets.items()):
+        entries.append(
+            CorrelationEntry(
+                key_kind=k_kind,
+                key_value=k_val,
+                finding_ids=sorted(fids),
+            )
+        )
+    return entries
 
 
 def _build_anchor_excerpt(
@@ -395,8 +609,13 @@ def _apply_reference_budget(
     return references, needed_keys, received_keys, dropped_keys, coverage
 
 
-def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFacts:
-    """Build default EnvironmentFacts from `tools.lock` and finding metadata."""
+def default_environment_facts(
+    findings: Sequence[Finding] = (),
+    *,
+    cyclonedx_inventory: dict[str, Any] | None = None,
+    kubernetes_version: str | None = None,
+) -> EnvironmentFacts:
+    """Build default EnvironmentFacts from `tools.lock`, findings metadata, and CycloneDX inventory (#1146)."""
     try:
         lock = load_tools_lock()
         python_pin = lock.python_version
@@ -407,16 +626,27 @@ def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFa
 
     locked_packages: dict[str, list[str]] = {}
     advisory_fixed: dict[str, list[str]] = {}
+    effective_cdx: dict[str, Any] = dict(cyclonedx_inventory or {})
     for finding in findings:
-        if finding.tool_version:
-            tool_versions.setdefault(finding.tool.lower(), finding.tool_version)
-        if isinstance(finding.anchor, AdvisoryAnchor):
-            locked_packages.setdefault(finding.anchor.purl, []).append(
-                finding.anchor.locked_version
-            )
+        tv = getattr(finding, "tool_version", None)
+        if tv:
+            tool_name = getattr(finding, "tool", "") or getattr(finding, "_tool", "")
+            if tool_name:
+                tool_versions.setdefault(tool_name.lower(), tv)
+        anchor = getattr(finding, "anchor", None) or getattr(finding, "_anchor", None)
+        if isinstance(anchor, AdvisoryAnchor):
+            locked_packages.setdefault(anchor.purl, []).append(anchor.locked_version)
         fixed = finding.properties.get("fixed_versions")
         if isinstance(fixed, list) and fixed:
-            advisory_fixed[finding.rule_id] = [str(v) for v in fixed]
+            r_id = getattr(finding, "rule_id", "") or (
+                anchor.advisory_id if isinstance(anchor, AdvisoryAnchor) else ""
+            )
+            if r_id:
+                advisory_fixed[r_id] = [str(v) for v in fixed]
+        if not effective_cdx:
+            cdx = finding.properties.get("cyclonedx_inventory")
+            if isinstance(cdx, dict) and cdx:
+                effective_cdx = cdx
 
     return EnvironmentFacts(
         language_floor=DEFAULT_ANALYSIS_PYTHON_FLOOR,
@@ -424,6 +654,8 @@ def default_environment_facts(findings: Sequence[Finding] = ()) -> EnvironmentFa
         tool_versions=tool_versions,
         locked_packages=locked_packages,
         advisory_fixed_versions=advisory_fixed,
+        cyclonedx_inventory=effective_cdx,
+        kubernetes_version=kubernetes_version or "",
     )
 
 
@@ -631,6 +863,75 @@ def _check_python_code_blocks(
     return True
 
 
+def _build_keys_by_fid(
+    correlation_table: Sequence[CorrelationEntry],
+) -> dict[str, set[tuple[str, str]]]:
+    keys_by_fid: dict[str, set[tuple[str, str]]] = {}
+    for entry in correlation_table:
+        for fid in entry.finding_ids:
+            keys_by_fid.setdefault(fid, set()).add((entry.key_kind, entry.key_value))
+    return keys_by_fid
+
+
+def _has_same_root_cause_mention(output: GroupAnalysisOutput) -> bool:
+    has_related = any(
+        item.relation == "same-root-cause" or "same root cause" in item.detail.lower()
+        for item in output.related_items
+    )
+    if has_related:
+        return True
+    return bool(
+        re.search(
+            r"(?:same|common|shared)\s+root\s+cause\s+(?:as|with)\s+[`']?([a-zA-Z0-9_-]+)[`']?",
+            output.root_cause,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _verify_prose_root_cause(
+    root_cause_text: str,
+    group_fids: Sequence[str],
+    group_keys: set[tuple[str, str]],
+    keys_by_fid: dict[str, set[tuple[str, str]]],
+) -> bool:
+    for match in re.finditer(
+        r"(?:same|common|shared)\s+root\s+cause\s+(?:as|with)\s+[`']?([a-zA-Z0-9_-]+)[`']?",
+        root_cause_text,
+        flags=re.IGNORECASE,
+    ):
+        other_fid = match.group(1)
+        if other_fid not in group_fids and other_fid in keys_by_fid:
+            if not (keys_by_fid.get(other_fid, set()) & group_keys):
+                return False
+    return True
+
+
+def _check_same_root_cause_keys(
+    output: GroupAnalysisOutput,
+    job_input: AnalysisJobInput,
+    correlation_table: Sequence[CorrelationEntry] | None,
+) -> bool:
+    if not _has_same_root_cause_mention(output):
+        return True
+    if not correlation_table:
+        return False
+
+    keys_by_fid = _build_keys_by_fid(correlation_table)
+    group_keys: set[tuple[str, str]] = set()
+    for fid in job_input.finding_ids:
+        group_keys.update(keys_by_fid.get(fid, set()))
+
+    for item in output.related_items:
+        if item.relation == "same-root-cause" or "same root cause" in item.detail.lower():
+            if not (keys_by_fid.get(item.target, set()) & group_keys):
+                return False
+
+    return _verify_prose_root_cause(
+        output.root_cause, job_input.finding_ids, group_keys, keys_by_fid
+    )
+
+
 def verify_group_analysis(
     output: GroupAnalysisOutput,
     job_input: AnalysisJobInput,
@@ -639,6 +940,7 @@ def verify_group_analysis(
     file_contents: Mapping[str, str] | None = None,
     rejection_counts: dict[str, int] | None = None,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
+    correlation_table: Sequence[CorrelationEntry] | None = None,
 ) -> tuple[GroupAnalysisOutput | None, list[str]]:
     """Run all G10 checks on a `GroupAnalysisOutput`, recording and dropping any failures."""
     admitted = admitted_finding_ids or set(job_input.finding_ids)
@@ -659,6 +961,10 @@ def verify_group_analysis(
                 job_input.environment.language_floor,
                 python_block_checker,
             ),
+        ),
+        (
+            "unshared-root-cause-key",
+            _check_same_root_cause_keys(output, job_input, correlation_table),
         ),
     )
     reasons = [reason for reason, ok in checks if not ok]
@@ -720,6 +1026,7 @@ def _execute_single_group_job(
     admitted_ids: set[str],
     file_contents: Mapping[str, str],
     python_block_checker: Callable[[str, str], list[str]] | None,
+    correlation_table: Sequence[CorrelationEntry] | None = None,
 ) -> tuple[GroupAnalysisRecord, list[str]]:
     user_prompt = job_input.model_dump_json(indent=2)
     raw = llm_client.chat(
@@ -742,6 +1049,7 @@ def _execute_single_group_job(
         admitted_finding_ids=admitted_ids,
         file_contents=file_contents,
         python_block_checker=python_block_checker,
+        correlation_table=correlation_table,
     )
     return (
         GroupAnalysisRecord(
@@ -762,6 +1070,310 @@ def _execute_single_group_job(
     )
 
 
+def _finding_plan_rank(finding: Finding) -> tuple[int, int, str, int, str]:
+    sev = finding.severity.upper()
+    sev_index = (
+        CONST_SEVERITY_ORDER.index(sev)
+        if sev in CONST_SEVERITY_ORDER
+        else len(CONST_SEVERITY_ORDER)
+    )
+    return (
+        0 if finding.introduced else 1,
+        sev_index,
+        finding.path,
+        finding.line or 0,
+        finding.fingerprint_v2,
+    )
+
+
+def _build_step_title_and_desc(
+    members: Sequence[Finding],
+) -> tuple[str, str]:
+    primary = members[0]
+    count = len(members)
+    if count > 1:
+        title = f"Remediate {primary.rule_id} across {count} components in {primary.path}"
+        desc = (
+            f"Address {primary.message} shared across {count} related findings in `{primary.path}`."
+        )
+    else:
+        title = f"Remediate {primary.rule_id} at {primary.location_display}"
+        desc = f"Address {primary.message} in `{primary.path}`."
+    return title, desc
+
+
+def _group_admitted_into_steps(
+    findings: Sequence[Finding],
+    correlation_table: Sequence[CorrelationEntry],
+) -> list[ReviewPlanStep]:
+    if not findings:
+        return []
+
+    sorted_findings = sorted(findings, key=_finding_plan_rank)
+    cluster_keys: dict[tuple[str, str], list[Finding]] = {}
+
+    for f in sorted_findings:
+        if f.path.endswith((".yaml", ".yml")):
+            cluster_keys.setdefault(("manifest", f"{f.path}:{f.rule_id}"), []).append(f)
+        elif isinstance(f.anchor, AdvisoryAnchor) and f.anchor.purl:
+            cluster_keys.setdefault(("purl", f.anchor.purl.split("@")[0]), []).append(f)
+        elif f.symbol and f.symbol not in ("<module>", ""):
+            cluster_keys.setdefault(("symbol", f"{f.path}:{f.symbol}"), []).append(f)
+        else:
+            cluster_keys.setdefault(("single", f.fingerprint_v2), []).append(f)
+
+    keys_by_fid: dict[str, set[str]] = {}
+    for entry in correlation_table:
+        for fid in entry.finding_ids:
+            keys_by_fid.setdefault(fid, set()).add(f"{entry.key_kind}:{entry.key_value}")
+
+    sorted_clusters = sorted(
+        cluster_keys.values(),
+        key=lambda members: _finding_plan_rank(members[0]),
+    )
+
+    steps: list[ReviewPlanStep] = []
+    for idx, members in enumerate(sorted_clusters, start=1):
+        fids = [f.fingerprint_v2 for f in members]
+        common = (
+            sorted(set.intersection(*(keys_by_fid.get(fid, set()) for fid in fids))) if fids else []
+        )
+        title, desc = _build_step_title_and_desc(members)
+        steps.append(
+            ReviewPlanStep(
+                step_number=idx,
+                title=title,
+                description=desc,
+                finding_ids=fids,
+                shared_keys=common,
+            )
+        )
+    return steps
+
+
+def build_deterministic_review_plan(
+    findings: Sequence[Finding],
+    correlation_table: Sequence[CorrelationEntry],
+    group_records: Sequence[GroupAnalysisRecord] | None = None,
+) -> ReviewPlanOutput:
+    """Deterministically construct a review remediation plan covering all admitted findings (#1148)."""
+    admitted = [f for f in findings if f.state != FindingState.SUPPRESSED]
+    if not admitted:
+        return ReviewPlanOutput(
+            summary="No admitted findings require remediation.",
+            steps=[],
+            deferred=[],
+        )
+    steps = _group_admitted_into_steps(admitted, correlation_table)
+    summary = (
+        f"Review remediation plan covering {len(admitted)} admitted findings "
+        f"across {len(steps)} steps."
+    )
+    return ReviewPlanOutput(
+        summary=summary,
+        steps=steps,
+        deferred=[],
+    )
+
+
+def _check_plan_versions_and_blocks(
+    plan: ReviewPlanOutput,
+    env: EnvironmentFacts | None,
+    checker: Callable[[str, str], list[str]] | None,
+) -> list[str]:
+    reasons: list[str] = []
+    if env is not None:
+        prose_parts = [
+            plan.summary,
+            *(s.title for s in plan.steps),
+            *(s.description for s in plan.steps),
+            *(d.reason for d in plan.deferred),
+        ]
+        dummy_out = GroupAnalysisOutput(
+            explanation="\n".join(prose_parts),
+            root_cause="review plan check",
+        )
+        if not _check_versions_and_packages(dummy_out, env):
+            reasons.append("unverified-version-or-package")
+    if plan.steps:
+        descriptions = "\n".join(s.description for s in plan.steps)
+        dummy_out_code = GroupAnalysisOutput(
+            explanation=descriptions,
+            root_cause="review plan code check",
+        )
+        floor = env.language_floor if env else DEFAULT_ANALYSIS_PYTHON_FLOOR
+        if not _check_python_code_blocks(dummy_out_code, floor, checker):
+            reasons.append("invalid-python-code-block")
+    return reasons
+
+
+def _check_plan_coverage(
+    plan: ReviewPlanOutput,
+    admitted_fids: set[str],
+) -> list[str]:
+    step_fids = [fid for step in plan.steps for fid in step.finding_ids]
+    deferred_fids = [df.finding_id for df in plan.deferred]
+    all_cited = step_fids + deferred_fids
+    reasons: list[str] = []
+    if any(fid not in admitted_fids for fid in all_cited):
+        reasons.append("unknown-finding-id")
+    if set(all_cited) != admitted_fids or len(all_cited) != len(set(all_cited)):
+        reasons.append("plan-incomplete-coverage")
+    return reasons
+
+
+def _check_plan_shared_keys(
+    plan: ReviewPlanOutput,
+    correlation_table: Sequence[CorrelationEntry],
+) -> list[str]:
+    keys_by_fid = _build_keys_by_fid(correlation_table)
+    for step in plan.steps:
+        if len(step.finding_ids) > 1:
+            common = set.intersection(*(keys_by_fid.get(fid, set()) for fid in step.finding_ids))
+            if not common:
+                return ["unshared-root-cause-key"]
+    return []
+
+
+def _check_plan_ordering(
+    plan: ReviewPlanOutput,
+    admitted_map: dict[str, Finding],
+) -> list[str]:
+    ranks: list[tuple[int, int, str, int, str]] = []
+    for step in plan.steps:
+        valid_members = [admitted_map[fid] for fid in step.finding_ids if fid in admitted_map]
+        if valid_members:
+            ranks.append(min(_finding_plan_rank(f) for f in valid_members))
+    if ranks != sorted(ranks):
+        return ["plan-order-violation"]
+    return []
+
+
+def verify_review_plan(
+    plan: ReviewPlanOutput,
+    admitted_findings: Sequence[Finding],
+    correlation_table: Sequence[CorrelationEntry],
+    *,
+    environment: EnvironmentFacts | None = None,
+    python_block_checker: Callable[[str, str], list[str]] | None = None,
+) -> tuple[ReviewPlanOutput | None, list[str]]:
+    """Run all G10 checks on a ReviewPlanOutput (#1148)."""
+    admitted_map = {
+        f.fingerprint_v2: f for f in admitted_findings if f.state != FindingState.SUPPRESSED
+    }
+    reasons: list[str] = []
+    reasons.extend(_check_plan_coverage(plan, set(admitted_map.keys())))
+    reasons.extend(_check_plan_shared_keys(plan, correlation_table))
+    reasons.extend(_check_plan_ordering(plan, admitted_map))
+    reasons.extend(_check_plan_versions_and_blocks(plan, environment, python_block_checker))
+    return (None if reasons else plan), reasons
+
+
+def run_review_plan_job(
+    findings: Sequence[Finding],
+    correlation_table: Sequence[CorrelationEntry],
+    group_records: Sequence[GroupAnalysisRecord],
+    *,
+    llm_client: Any | None,
+    sampling: SamplingRecord,
+    environment: EnvironmentFacts,
+    python_block_checker: Callable[[str, str], list[str]] | None = None,
+) -> tuple[ReviewPlanRecord, list[str]]:
+    """Execute one model review plan job across admitted findings under G10 checks (#1148)."""
+    admitted = [f for f in findings if f.state != FindingState.SUPPRESSED]
+    if not admitted or llm_client is None:
+        plan = build_deterministic_review_plan(findings, correlation_table, group_records)
+        return ReviewPlanRecord(status="verified", output=plan), []
+
+    plan_input = {
+        "admitted_findings": [
+            {
+                "id": f.fingerprint_v2,
+                "tool": f.tool,
+                "rule_id": f.rule_id,
+                "location": f.location_display,
+                "message": mask_secrets(f.message),
+                "severity": f.severity,
+                "introduced": f.introduced,
+                "path": f.path,
+                "line": f.line,
+            }
+            for f in admitted
+        ],
+        "correlation_table": [
+            {
+                "key_kind": entry.key_kind,
+                "key_value": entry.key_value,
+                "finding_ids": entry.finding_ids,
+            }
+            for entry in correlation_table
+        ],
+        "group_analyses": [
+            {
+                "group_id": rec.group_id,
+                "finding_ids": rec.finding_ids,
+                "explanation": rec.output.explanation if rec.output else None,
+                "root_cause": rec.output.root_cause if rec.output else None,
+            }
+            for rec in group_records
+            if rec.output is not None
+        ],
+    }
+
+    try:
+        system_prompt = load_task_prompt(CONST_ANALYSIS_PLAN_PROMPT_FILENAME)
+        raw = llm_client.chat(
+            system_prompt,
+            json.dumps(plan_input, indent=2),
+            temperature=sampling.temperature,
+            top_p=sampling.top_p,
+            seed=sampling.seed,
+        )
+    except RuntimeError, ValueError, OSError, TimeoutError, TypeError, KeyError:
+        reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
+        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+
+    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
+        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+
+    text = raw if isinstance(raw, str) else str(getattr(raw, "content", raw))
+    extracted = extract_json_block(text, default=None)
+    candidate = extracted if isinstance(extracted, dict) else None
+    if candidate is None:
+        try:
+            parsed = json.loads(text)
+            candidate = parsed if isinstance(parsed, dict) else None
+        except ValueError:
+            pass
+
+    if candidate is None or "steps" not in candidate:
+        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
+        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+
+    try:
+        parsed_plan = ReviewPlanOutput.model_validate(candidate)
+    except PydanticValidationError:
+        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
+        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+
+    verified_plan, reasons = verify_review_plan(
+        parsed_plan,
+        admitted,
+        correlation_table,
+        environment=environment,
+        python_block_checker=python_block_checker,
+    )
+    return (
+        ReviewPlanRecord(
+            status="verified" if verified_plan is not None else "rejected",
+            output=verified_plan,
+            rejected_reasons=reasons,
+        ),
+        reasons,
+    )
+
+
 def run_group_analysis(
     findings: Sequence[Finding],
     *,
@@ -775,24 +1387,38 @@ def run_group_analysis(
     session_dir: Path | None = None,
     concurrency: int | None = None,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
+    plan_client: Any | None = None,
+    drift_manuals: Sequence[DriftManual] | None = None,
 ) -> AnalysisReport:
-    """Group admitted findings, dispatch one model job per group via ReviewWorkerPool, and save `analysis.json`."""
+    """Group admitted findings, run model jobs, compute cross-group correlations, plan review, and save `analysis.json`."""
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
     eff_sampling = sampling or SamplingRecord()
     eff_env = environment or default_environment_facts(findings)
-    admitted_ids = {f.fingerprint_v2 for f in findings if f.state != FindingState.SUPPRESSED}
+    admitted_findings = [f for f in findings if f.state != FindingState.SUPPRESSED]
+    admitted_ids = {f.fingerprint_v2 for f in admitted_findings}
+    correlation_table = build_correlation_table(admitted_findings, file_contents=contents)
     capped_concurrency = min(
         max(1, int(concurrency or DEFAULT_GATEWAY_REVIEW_CONCURRENCY)),
         DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     )
+
+    eff_matched_kb: list[Any] = []
+    eff_drift_kb: list[DriftManual] = list(drift_manuals or [])
+    if kb_manuals is None:
+        matched_kb, discovered_drift = load_matched_kb_manuals(environment=eff_env)
+        eff_matched_kb = matched_kb
+        if not eff_drift_kb:
+            eff_drift_kb = discovered_drift
 
     jobs = [
         build_analysis_job_input(
             group,
             file_contents=contents,
             rule_docs=rule_docs,
-            kb_manuals=kb_manuals,
+            kb_manuals=filter_kb_manuals_for_group(
+                group, kb_manuals if kb_manuals is not None else eff_matched_kb
+            ),
             neighbours=(neighbours_by_group or {}).get(group.group_id),
             environment=eff_env,
         )
@@ -815,6 +1441,7 @@ def run_group_analysis(
                 admitted_ids=admitted_ids,
                 file_contents=contents,
                 python_block_checker=python_block_checker,
+                correlation_table=correlation_table,
             ),
             jobs,
             return_exceptions=True,
@@ -848,15 +1475,58 @@ def run_group_analysis(
             for job in jobs
         ]
 
+    if plan_client is not None:
+        plan_record, plan_reasons = run_review_plan_job(
+            admitted_findings,
+            correlation_table,
+            records,
+            llm_client=plan_client,
+            sampling=eff_sampling,
+            environment=eff_env,
+            python_block_checker=python_block_checker,
+        )
+        model_calls += 1
+    else:
+        deterministic = build_deterministic_review_plan(
+            admitted_findings, correlation_table, records
+        )
+        verified_plan, plan_reasons = verify_review_plan(
+            deterministic,
+            admitted_findings,
+            correlation_table,
+            environment=eff_env,
+            python_block_checker=python_block_checker,
+        )
+        plan_record = ReviewPlanRecord(
+            status="verified" if verified_plan is not None else "rejected",
+            output=verified_plan,
+            rejected_reasons=plan_reasons,
+        )
+
+    for reason in plan_reasons:
+        rejections[reason] = rejections.get(reason, 0) + 1
+
     total_received = sum(len(j.received_keys) for j in jobs)
     total_needed = sum(len(j.needed_keys) for j in jobs)
+    injected_keys = sorted(
+        {
+            key
+            for job in jobs
+            for key in job.received_keys
+            if key.startswith(CONST_KB_REFERENCE_PREFIX)
+        }
+    )
     report = AnalysisReport(
         groups=records,
+        correlation_table=correlation_table,
+        plan=plan_record,
         sampling=eff_sampling,
         reference_coverage=RatioRecord(numerator=total_received, denominator=total_needed),
         rejections=rejections,
         model_calls=model_calls,
         max_concurrency=capped_concurrency,
+        drift_manuals=eff_drift_kb,
+        injected_manuals=injected_keys,
     )
     if session_dir is not None:
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -902,9 +1572,55 @@ def _render_group_record_markdown(record: GroupAnalysisRecord) -> list[str]:
     return lines
 
 
+def _render_correlation_table_markdown(entries: Sequence[CorrelationEntry]) -> list[str]:
+    if not entries:
+        return []
+    lines = [
+        "### Deterministic Cross-Group Correlation Table",
+        "| Key Type | Key Value | Findings |",
+        "|---|---|---|",
+    ]
+    for entry in entries:
+        fids_str = ", ".join(f"`{fid}`" for fid in entry.finding_ids)
+        clean_val = entry.key_value.replace("|", "\\|")
+        lines.append(f"| `{entry.key_kind}` | `{clean_val}` | {fids_str} |")
+    lines.append("")
+    return lines
+
+
+def _render_review_plan_markdown(plan_record: ReviewPlanRecord | None) -> list[str]:
+    if plan_record is None:
+        return []
+    lines = ["### Review Remediation Plan"]
+    if plan_record.output is not None:
+        out = plan_record.output
+        lines.append(out.summary)
+        lines.append("")
+        for step in out.steps:
+            fids_str = ", ".join(f"`{fid}`" for fid in step.finding_ids)
+            lines.append(f"#### Step {step.step_number}: {step.title}")
+            lines.append(f"- **Findings**: {fids_str}")
+            if step.shared_keys:
+                keys_str = ", ".join(f"`{k}`" for k in step.shared_keys)
+                lines.append(f"- **Shared Keys**: {keys_str}")
+            lines.append(f"- **Action**: {step.description}")
+            lines.append("")
+        if out.deferred:
+            lines.append("#### Deferred Findings")
+            for df in out.deferred:
+                lines.append(f"- `{df.finding_id}`: {df.reason}")
+            lines.append("")
+    elif plan_record.rejected_reasons:
+        lines.append(f"- **Plan G10 Rejected**: {', '.join(plan_record.rejected_reasons)}")
+        lines.append("")
+    return lines
+
+
 def render_model_analysis_markdown(report: AnalysisReport | None) -> list[str]:
     """Render the `## Model Analysis (Model-Written)` section for `review.md`."""
-    if report is None or not report.groups:
+    if report is None or (
+        not report.groups and not report.correlation_table and not report.drift_manuals
+    ):
         return []
     cov = report.reference_coverage
     cov_pct = (cov.numerator / cov.denominator) if cov.denominator else 1.0
@@ -920,6 +1636,22 @@ def render_model_analysis_markdown(report: AnalysisReport | None) -> list[str]:
         rej_summary = ", ".join(f"`{k}`: {v}" for k, v in sorted(report.rejections.items()))
         lines.append(f"- **G10 Rejections**: {rej_summary}")
     lines.append("")
+    if report.injected_manuals:
+        lines.append("### Reference coverage: injected")
+        lines.append("")
+        for inj in sorted(report.injected_manuals):
+            lines.append(f"- `{inj}`")
+        lines.append("")
+    if report.drift_manuals:
+        lines.append("### Reference coverage: drift")
+        lines.append("")
+        for drift in sorted(report.drift_manuals, key=lambda d: d.path):
+            lines.append(f"- `{drift.path}`: {drift.reason}")
+        lines.append("")
+    if report.correlation_table:
+        lines.extend(_render_correlation_table_markdown(report.correlation_table))
+    if report.plan is not None:
+        lines.extend(_render_review_plan_markdown(report.plan))
     for record in report.groups:
         lines.extend(_render_group_record_markdown(record))
     return lines
@@ -929,22 +1661,37 @@ __all__ = [
     "AnalysisJobInput",
     "AnalysisReport",
     "AnchorExcerpt",
+    "CorrelationEntry",
+    "CorrelationKeyKind",
+    "DeferredFinding",
     "DocQuote",
+    "DriftManual",
     "EnvironmentFacts",
     "FindingGroup",
     "GroupAnalysisOutput",
     "GroupAnalysisRecord",
     "GroupKind",
+    "MatchedManual",
     "PlanStep",
     "RatioRecord",
     "RelatedItem",
     "RelationKind",
+    "ReviewPlanOutput",
+    "ReviewPlanRecord",
+    "ReviewPlanStep",
     "SamplingRecord",
     "SymbolNeighbour",
     "build_analysis_job_input",
+    "build_correlation_table",
+    "build_deterministic_review_plan",
     "default_environment_facts",
+    "extract_finding_correlation_keys",
+    "filter_kb_manuals_for_group",
     "group_findings_for_analysis",
+    "load_matched_kb_manuals",
     "render_model_analysis_markdown",
     "run_group_analysis",
+    "run_review_plan_job",
     "verify_group_analysis",
+    "verify_review_plan",
 ]

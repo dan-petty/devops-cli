@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:ollama@0.6.*"
+sources:
+  - "https://ollama.com/"
+  - "https://github.com/ollama/ollama"
+reviewed: "2026-10-15"
+tags:
+  - "ollama"
+  - "ai"
+  - "llm"
+---
+
 # Knowledge Base: Ollama (Local Large Language Model Inference)
 
 ## 1. Overview & Purpose
@@ -14,7 +27,7 @@ Ollama is an open-source tool for running large language models (LLMs) locally o
   - Default reasoning / review models: `qwen3.8:27b` / `qwen2.5-coder:14b` / `deepseek-r1:14b`.
   - Default embedding model: `qwen3-embedding:0.6b` (768-dimensional vectors).
 - **Concurrency & Parallelism Architecture**:
-  - `OLLAMA_NUM_PARALLEL`: Controls the number of concurrent request slots Ollama allocates per model in VRAM (default: 1). Increasing this to `2` or `4` allows parallel multi-persona file reviews.
+  - `OLLAMA_NUM_PARALLEL`: Controls the number of concurrent request slots Ollama allocates per model in VRAM (default: 1). Increasing this to `2` or `4` allows parallel file reviews and group analysis.
   - `OLLAMA_KV_CACHE_TYPE`: Sets KV cache precision (`f16`, `q8_0`, `q4_0`). Setting `OLLAMA_KV_CACHE_TYPE=q4_0` reduces per-slot VRAM consumption by ~50%, enabling higher parallel request slots without out-of-memory errors.
   - `OLLAMA_MAX_LOADED_MODELS`: Maximum number of models kept concurrent in GPU memory (e.g. running LLM and embedding model concurrently).
 - **Reasoning Models & Token Budgeting**:

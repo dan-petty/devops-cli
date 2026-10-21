@@ -14,31 +14,25 @@ class ReviewStageFlags(BaseModel):
 
     pre_analysis: bool = True
     static_scan: bool = True
-    persona_review: bool = True
-    reranking: bool = True
     group_analysis: bool = True
     reporting: bool = True
 
     def any_enabled(self) -> bool:
         """Return True if at least one review stage is enabled."""
-        return (
-            self.pre_analysis
-            or self.static_scan
-            or self.persona_review
-            or self.reranking
-            or self.group_analysis
-            or self.reporting
-        )
+        return self.pre_analysis or self.static_scan or self.group_analysis or self.reporting
 
     def to_dict(self) -> dict[str, bool]:
         """Serialize flags to a dictionary."""
         return {
             "pre_analysis": self.pre_analysis,
             "static_scan": self.static_scan,
-            "persona_review": self.persona_review,
-            "reranking": self.reranking,
+            "group_analysis": self.group_analysis,
             "reporting": self.reporting,
         }
+
+    def needs_model(self) -> bool:
+        """Return True if any model-driven stage is enabled."""
+        return self.group_analysis
 
 
 def resolve_stage_flags(
@@ -47,12 +41,7 @@ def resolve_stage_flags(
     pre_analysis_only: bool = False,
     no_static_scan: bool = False,
     static_scan_only: bool = False,
-    no_persona_review: bool = False,
-    persona_review_only: bool = False,
-    no_reranking: bool = False,
-    reranking_only: bool = False,
     no_group_analysis: bool = False,
-    group_analysis_only: bool = False,
     no_reporting: bool = False,
     reporting_only: bool = False,
     **kwargs: Any,
@@ -67,9 +56,6 @@ def resolve_stage_flags(
     only_flags = {
         "pre_analysis": pre_analysis_only,
         "static_scan": static_scan_only,
-        "persona_review": persona_review_only,
-        "reranking": reranking_only,
-        "group_analysis": group_analysis_only,
         "reporting": reporting_only,
     }
     has_only = any(only_flags.values())
@@ -78,17 +64,13 @@ def resolve_stage_flags(
         return ReviewStageFlags(
             pre_analysis=pre_analysis_only and not no_pre_analysis,
             static_scan=static_scan_only and not no_static_scan,
-            persona_review=persona_review_only and not no_persona_review,
-            reranking=reranking_only and not no_reranking,
-            group_analysis=group_analysis_only and not no_group_analysis,
+            group_analysis=False,
             reporting=reporting_only and not no_reporting,
         )
 
     return ReviewStageFlags(
         pre_analysis=not no_pre_analysis,
         static_scan=not no_static_scan,
-        persona_review=not no_persona_review,
-        reranking=not no_reranking,
         group_analysis=not no_group_analysis,
         reporting=not no_reporting,
     )

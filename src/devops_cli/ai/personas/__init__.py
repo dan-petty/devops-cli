@@ -70,6 +70,13 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
     )
 
 
+def reset_persona_caches() -> None:
+    """Clear the cached task and persona definitions."""
+    _get_task_review.cache_clear()
+    _get_task_chat.cache_clear()
+    _load_persona.cache_clear()
+
+
 def review_prompt_digest(tasks_dir: Path = _TASKS_DIR, personas_dir: Path = _PERSONAS_DIR) -> str:
     """A digest of every prompt a review can load: each `.md` file under the two directories.
 

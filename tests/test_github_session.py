@@ -479,6 +479,7 @@ print(first, held.rest("GET", "/user")["login"], flush=True)
 """
 
 
+@pytest.mark.live("python")
 def test_a_process_that_sent_a_request_exits_without_closing_its_session(tmp_path: Path) -> None:
     """A session left open at exit is closed while its event loop thread can still run, so the
     interpreter exits instead of waiting forever on the loop it stopped."""

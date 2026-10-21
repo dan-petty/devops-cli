@@ -5,6 +5,9 @@
 
 pyroscope:
   replicaCount: 1
+  # Override the chart's debug default (#1133) while keeping info-level startup and compaction lines.
+  extraArgs:
+    log.level: info
 
   resources:
     requests:
@@ -35,13 +38,9 @@ architecture:
 minio:
   enabled: false
 
+# Profiling is collected by k8s-monitoring's alloy-profiles DaemonSet (#1134), not the bundled subchart.
 alloy:
-  enabled: true
-  controller:
-    type: statefulset
-    replicas: 1
-  alloy:
-    enableReporting: false
+  enabled: false
 
 serviceMonitor:
-  enabled: false
+  enabled: true

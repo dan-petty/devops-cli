@@ -1,0 +1,19 @@
+id: net-scheme-affix
+language: python
+severity: error
+message: Prefix or suffix test on a scheme or an address. Read the scheme with urllib.parse.urlsplit(value).scheme, container-engine endpoints (Podman or Docker) with docker.utils.parse_host and D-Bus addresses with jeepney; classify addresses with ipaddress (is_link_local, is_loopback, is_private).
+rule:
+  kind: call
+  all:
+    - has:
+        field: function
+        kind: attribute
+        has:
+          field: attribute
+          regex: ^(startswith|endswith|removeprefix|removesuffix|replace)$
+    - has:
+        field: arguments
+        has:
+          stopBy: end
+          kind: string
+          regex: '://|^["'']unix:|^["'']\d{1,3}\.(\d{1,3}\.){0,2}["'']$'

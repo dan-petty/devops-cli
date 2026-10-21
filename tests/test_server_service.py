@@ -10,7 +10,6 @@ import logging
 import queue
 import sys
 import threading
-import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -1011,11 +1010,13 @@ def _service(
     jobs: Mapping[str, Callable[[TriggerBatch], None]],
     clock: _Clock,
     reader: PauseReader = service_pause_until,
+    *,
+    drain_timeout: int = 120,
 ) -> ServiceManager:
     """The Service over both repositories, one worker per lane each, the workers started, with no
     poll loop."""
     manager = ServiceManager(
-        config=_make_settings(repos=[REPO_A, REPO_B]).service,
+        config=_make_settings(repos=[REPO_A, REPO_B], drain_timeout=drain_timeout).service,
         secrets={},
         jobs=jobs,
         clock=clock,
@@ -1180,19 +1181,17 @@ def test_a_refusal_whose_reset_has_passed_holds_no_round(caplog: pytest.LogCaptu
 
 
 def test_a_drain_during_a_pause_stops_the_workers_without_running_the_held_rounds() -> None:
-    """A rollout during a pause doesn't wait out the 120 s drain timeout for rounds the pause
-    holds: the drain returns well within it, the workers stop, and the held rounds never run;
+    """A rollout during a pause doesn't wait out the drain timeout for rounds the pause
+    holds: the drain completes cleanly, the workers stop, and the held rounds never run;
     the next pod's start-up poll reads the changes they were for."""
     rounds, clock = _Rounds(_refuse_read, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
-    manager = _service({LANE: rounds}, clock)
+    manager = _service({LANE: rounds}, clock, drain_timeout=1)
     _trigger(manager, REPO_A)
     rounds.wait(1, manager)
     _trigger(manager, REPO_A, REPO_B)
-    started = time.perf_counter()
-    asyncio.run(manager.drain_and_stop())
-    drained = time.perf_counter() - started
+    drained = asyncio.run(manager.drain_and_stop())
     assert (
-        drained < 1.0,
+        drained,
         [w.is_alive() for w in manager.workers.values()],
         rounds.triggers(),
     ) == (True, [False, False], {REPO_A: [1], REPO_B: []})

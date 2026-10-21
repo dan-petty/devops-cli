@@ -11,6 +11,8 @@ import pytest
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.config.settings import AIConfig
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def _fixed_vectors(width: int, value: float = 0.5) -> Any:
     """A `_dispatch_embed` stand-in that answers every text with the same vector."""
@@ -99,27 +101,36 @@ def test_ollama_parallel_batches_raise_when_one_fails_everywhere(
 
 
 @pytest.mark.parametrize(
-    ("reply", "failure"),
+    ("reply", "failure", "waits"),
     [
         (
             httpx2.Response(
                 400, json={"error": {"message": "model 'bge-m3:latest' is not loaded"}}
             ),
             'answered HTTP 400: {"error":{"message":"model \'bge-m3:latest\' is not loaded"}}',
+            0,
         ),
-        (httpx2.Response(200, json={"data": []}), "returned 0 embeddings for 1 texts"),
+        (httpx2.Response(200, json={"data": []}), "returned 0 embeddings for 1 texts", 0),
         (
             httpx2.Response(200, text="<html>bad gateway</html>"),
             "returned 0 embeddings for 1 texts",
+            0,
         ),
-        (httpx2.ConnectError("connection refused"), "failed: ConnectError: connection refused"),
+        (
+            httpx2.ConnectError("connection refused"),
+            "failed: ConnectError: connection refused",
+            3,
+        ),
     ],
     ids=["http-400", "no-data", "not-json", "unreachable"],
 )
 def test_gateway_failures_raise_naming_model_endpoint_and_error(
-    monkeypatch: pytest.MonkeyPatch, reply: httpx2.Response | Exception, failure: str
+    monkeypatch: pytest.MonkeyPatch, reply: httpx2.Response | Exception, failure: str, waits: int
 ) -> None:
-    """A gateway that answers with an error, a malformed reply or not at all raises."""
+    """A gateway that answers with an error, a malformed reply or not at all raises.
+
+    An unreachable gateway is retried: each backoff returns at once and is recorded.
+    """
 
     def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
         if isinstance(reply, Exception):
@@ -130,6 +141,8 @@ def test_gateway_failures_raise_naming_model_endpoint_and_error(
         "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    backoffs: list[float] = []
+    monkeypatch.setattr("time.sleep", backoffs.append)
     ai_cfg = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
     ai_cfg.tasks.embedding.model = "bge-m3:latest"
     engine = EmbeddingsEngine(ai_cfg, api_key="sk-gateway", valkey_client=None)
@@ -137,10 +150,11 @@ def test_gateway_failures_raise_naming_model_endpoint_and_error(
     with pytest.raises(EmbeddingsError) as raised:
         engine.embed_query("where is the retry policy")
 
-    assert (raised.value.message, raised.value.details["model"]) == (
+    assert (raised.value.message, raised.value.details["model"], len(backoffs)) == (
         "Embedding model bge-m3:latest produced no embeddings: "
         f"https://example.com/v1/embeddings {failure}",
         "bge-m3:latest",
+        waits,
     )
 
 
@@ -466,12 +480,15 @@ def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
         return [[0.2] * 384 for _ in batch_texts]
 
     monkeypatch.setattr(engine, "_query_ollama_node_batch", fake_query_node)
+    backoffs: list[float] = []
+    monkeypatch.setattr("time.sleep", backoffs.append)
 
     results = engine._embed_ollama(["test chunk"])
     assert len(results) == 1
     assert len(results[0]) == 384
     assert results[0] == [0.2] * 384
     assert calls == ["http://example.com:11434", "http://example.com:11435"]
+    assert len(backoffs) == 1
 
 
 # =============================================================================
@@ -695,12 +712,15 @@ def test_init_valkey_fast_probe_online(monkeypatch: pytest.MonkeyPatch) -> None:
     assert engine._valkey is not None
 
 
-def test_init_valkey_runs_without_l2_when_valkey_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_init_valkey_runs_without_l2_when_valkey_refuses(
+    monkeypatch: pytest.MonkeyPatch, unexpected_loopback_connects: list[str]
+) -> None:
     """Verify _init_valkey returns None when the network guard refuses the configured Valkey.
 
-    A service listens on the configured port through the C socket type, as a port-forward to a
-    live Valkey does, so the kernel would accept the probe. The guard refuses it with the
-    `ConnectionRefusedError` the client handles, and the service sees no connection.
+    A service binds and listens on the configured port through the C socket type, as a
+    port-forward to a live Valkey does, so the kernel would accept the probe. The guard refuses it
+    with the `ConnectionRefusedError` the client handles and reports the connect, and the service
+    sees no connection.
     """
     import _socket
     import socket
@@ -721,17 +741,26 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(monkeypatch: pytest.Mon
 
     monkeypatch.setattr(ValkeyClient, "_create_socket", recording_create_socket)
     with socket.socket() as service:
-        service.bind(("127.0.0.1", 0))
+        _socket.socket.bind(service, ("127.0.0.1", 0))
         _socket.socket.listen(service)
         service.setblocking(False)
+        port = service.getsockname()[1]
         monkeypatch.setenv("DEVOPS_CLI_VALKEY_HOST", "127.0.0.1")
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PORT", str(service.getsockname()[1]))
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PORT", str(port))
         reset_settings_cache()
         ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
-        engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-        with pytest.raises(BlockingIOError):
-            service.accept()
-    assert (engine._valkey, raised) == (None, [ConnectionRefusedError])
+        try:
+            engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+            with pytest.raises(BlockingIOError):
+                service.accept()
+            reported = list(unexpected_loopback_connects)
+        finally:
+            unexpected_loopback_connects.clear()
+    assert (engine._valkey, raised, reported) == (
+        None,
+        [ConnectionRefusedError],
+        [f"127.0.0.1:{port} (MainThread)"],
+    )
 
 
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
@@ -833,10 +862,12 @@ def test_openai_embeddings_retries_transient_connection_reset(
     )
     ai_cfg.tasks.embedding.model = "bge-m3:latest"
     engine = EmbeddingsEngine(ai_cfg, api_key="sk-test", valkey_client=None)
+    backoffs: list[float] = []
+    monkeypatch.setattr("time.sleep", backoffs.append)
 
     vecs = engine.embed_texts(["retry me"])
 
-    assert (attempts, len(vecs[0])) == (2, 8)
+    assert (attempts, len(vecs[0]), len(backoffs)) == (2, 8, 1)
 
 
 def test_openai_embeddings_retries_http_429(monkeypatch: pytest.MonkeyPatch) -> None:

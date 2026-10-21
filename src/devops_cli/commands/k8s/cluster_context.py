@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import typer
 
@@ -192,7 +193,7 @@ def apply(
     ] = None,
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
-    if "://" in path:
+    if bool(urlsplit(path).scheme):
         validate_url_egress(
             path,
             purpose="manifest",

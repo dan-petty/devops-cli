@@ -1,4 +1,4 @@
-"""Multi-persona review execution runner, model warming, and session management."""
+"""Review execution runner, model warming, and session management."""
 
 from __future__ import annotations
 
@@ -16,11 +16,6 @@ from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
-from devops_cli.ai.review.chunker import (
-    _extract_header_filenames,
-    _split_source_file_blocks,
-    skips_persona_review,
-)
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.path_classes import load_path_classes, load_review_config
 from devops_cli.ai.review.profile import (
@@ -65,10 +60,18 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.review.diff import (
+    diff_blocks,
+    diff_file_names,
+    number_source_lines,
+)
 from devops_cli.review.suppression import (
     covering_suppressions,
     format_covering_suppressions,
     load_review_suppressions,
+)
+from devops_cli.review.targets import (
+    is_secret_scan_only,
 )
 from devops_cli.security.sanitizer import (
     redact_text,
@@ -88,14 +91,7 @@ class ReviewClients(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    analysis: ReviewLLMClient
-
-
-def _orchestrator_personas(all_personas: bool, persona: Persona | None) -> list[str]:
-    """The personas the orchestrated review runs: the one named, all of them, or devsecops."""
-    if persona:
-        return [persona.value]
-    return ["devsecops", "architect", "qa", "auditor", "pm"] if all_personas else ["devsecops"]
+    analysis: ReviewLLMClient | None = None
 
 
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
@@ -366,15 +362,15 @@ def _review_label(path: Path, root: Path, repo_root: Path | None) -> Path:
 
 
 def _partition_candidate_files(root: Path, pattern: str) -> tuple[list[Path], list[Path]]:
-    """The files under root a path review reads, in review order, and those it routes past the
-    personas to the secret scan alone (`skips_persona_review`, #948)."""
+    """The files under root a path review reads, in review order, and those it routes to the
+    secret scan alone (`is_secret_scan_only`, #948, #1151)."""
     repo_root = _git_repo_root(root)
     candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
     reviewed: list[Path] = []
     routed: list[Path] = []
     for p in sorted(candidates):
         if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
-            skipped = skips_persona_review(_review_label(p, root, repo_root))
+            skipped = is_secret_scan_only(_review_label(p, root, repo_root))
             (routed if skipped else reviewed).append(p)
     return reviewed, routed
 
@@ -388,8 +384,8 @@ def _routed_changes(
     base_revision: BaseRevision | None,
     path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
-    """The files a branch or pull request changed that persona review skips, for the secret
-    scan; a deleted file has nothing left to scan."""
+    """The files a branch or pull request changed that review skips, for the secret scan; a
+    deleted file has nothing left to scan."""
     if base_revision is None:
         return []
     deleted = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
@@ -397,7 +393,7 @@ def _routed_changes(
         change.path
         for change in base_revision.changes
         if change.change_type != deleted
-        and skips_persona_review(change.path, path_classes=path_classes)
+        and is_secret_scan_only(change.path, path_classes=path_classes)
     ]
 
 
@@ -413,7 +409,8 @@ def _file_blocks(root: Path, files: Sequence[Path]) -> list[str]:
             continue
         file_label = _review_label(p, root, repo_root)
         suffix = file_label.suffix.lstrip(".") or "text"
-        blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
+        numbered = number_source_lines(text)
+        blocks.append(f"### File: {file_label}\n```{suffix}\n{numbered.removesuffix(chr(10))}\n```")
     return blocks
 
 
@@ -584,7 +581,8 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, l
         )
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
-        blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
+        numbered = number_source_lines(content)
+        blocks = [f"### File: {file_label}\n```{suffix}\n{numbered.removesuffix(chr(10))}\n```"]
         title = str(file_label)
         # A file named as the target is reviewed as asked.
         routed: list[str] = []
@@ -724,11 +722,10 @@ def _branch_base_revision(
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
 ) -> tuple[list[str], str, str, BaseRevision]:
-    """Prepare paginated diff pages, title, resolved target_branch, and the base
+    """Prepare diff blocks, title, resolved target_branch, and the base
     revision the diff starts from."""
     import typer
 
-    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.lang import MESSAGES
 
     settings = load_settings()
@@ -782,10 +779,7 @@ def _prepare_branch_content(
     title = f"Branch `{target_branch}` vs `{effective_base}`"
     base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
     path_classes = load_path_classes(base_revision=base_revision)
-    pages = [
-        redact_text(p)
-        for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS, path_classes=path_classes)
-    ]
+    pages = [redact_text(p) for p in diff_blocks(diff_proc.stdout, path_classes=path_classes)]
     return pages, title, target_branch, base_revision
 
 
@@ -794,14 +788,13 @@ def _prepare_pr_content(
     repo_arg: str | None = None,
     **kwargs: Any,
 ) -> tuple[list[str], str, Any, str, BaseRevision | None]:
-    """Fetch PR details, diff pages, and title for PR review target.
+    """Fetch PR details, diff blocks, and title for PR review target.
 
     With `head_dir`, the PR head's changed files are written under it, and the base revision
     they are compared with is returned; without it, there is none.
     """
     import typer
 
-    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.github.session import get_github_session
     from devops_cli.lang import MESSAGES
 
@@ -828,7 +821,7 @@ def _prepare_pr_content(
         _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
         base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     path_classes = load_path_classes(base_revision=base_revision)
-    pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS, path_classes=path_classes)]
+    pages = [redact_text(p) for p in diff_blocks(diff, path_classes=path_classes)]
     return pages, title, pull, repo, base_revision
 
 
@@ -920,16 +913,6 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
         reported=sum(1 for f in findings if f.reportable),
         verdict_distributions=compute_verdict_distributions(findings),
     )
-    if not profiler._persona_replies:
-        for p in payloads:
-            for r in getattr(p, "ai_scratchpad", {}).get("persona_replies", []):
-                profiler.record_persona_reply(
-                    file=getattr(p, "file_path", ""),
-                    persona=r.get("persona", "unknown"),
-                    outcome=r.get("outcome", "unparsed"),
-                    persona_title=r.get("persona_title", ""),
-                    page=r.get("page", 1),
-                )
 
 
 def _write_review_profile(
@@ -960,16 +943,12 @@ def _write_review_profile(
     return profile
 
 
-def _finding_persona(persona: PersonaDefinition, finding: Finding) -> str:
-    """Return the finding's persona name if set, else the result's persona name."""
-    p = getattr(finding, "persona", None)
+def _finding_producer(finding: Finding) -> str:
+    """Return the finding's producer name if set, else 'unknown'."""
+    p = getattr(finding, "producer", None)
     if isinstance(p, str) and p.strip():
-        val = p.strip()
-        try:
-            return Persona(val.lower()).value
-        except ValueError:
-            return val
-    return persona.name
+        return p.strip()
+    return "unknown"
 
 
 def _record_review_metrics(
@@ -977,19 +956,21 @@ def _record_review_metrics(
     seconds: float,
     target_type: str,
 ) -> None:
-    """Send the review's wall time, and its findings by persona, severity and status."""
+    """Send the review's wall time, and its findings by producer, severity and status."""
     from devops_cli.telemetry.instruments import FINDINGS_TOTAL, REVIEW_DURATION, emit
 
     emit(REVIEW_DURATION, seconds, {"target_type": target_type})
     counts = Counter(
-        (_finding_persona(persona, finding), finding.severity.upper(), finding.status.upper())
-        for persona, result in results
+        (_finding_producer(finding), finding.severity.upper(), finding.status.upper())
+        for _, result in results
         if isinstance(result, ReviewResult)
         for finding in result.findings
     )
-    for (persona_name, severity, status), count in counts.items():
+    for (producer_name, severity, status), count in counts.items():
         emit(
-            FINDINGS_TOTAL, count, {"persona": persona_name, "severity": severity, "status": status}
+            FINDINGS_TOTAL,
+            count,
+            {"producer": producer_name, "severity": severity, "status": status},
         )
 
 
@@ -998,8 +979,6 @@ def _run_profiled_session(
     all_files: list[str],
     target_dir: Path,
     pages: list[str],
-    active_p: list[str],
-    persona: Persona | None,
     target_type: Literal["branch", "pr", "path"],
     target_ref: str,
     stage_flags: ReviewStageFlags | None,
@@ -1023,8 +1002,6 @@ def _run_profiled_session(
             metadata_by_path,
             target_dir,
             pages,
-            active_p,
-            persona,
             stage_flags=stage_flags,
         )
         if not is_dry_run():
@@ -1039,14 +1016,10 @@ def _run_orchestrator_review(
     metadata_by_path: dict[str, FileAnalysisMeta],
     target_dir: Path | None,
     pages: list[str],
-    active_p: list[str],
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
-    diff_map = {
-        f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
-    }
+    diff_map = {f: "\n".join(p for p in pages if f in diff_file_names(p)) for f in all_files}
     with review_stage("payloads"):
         payloads = orchestrator.init_per_file_payloads(
             all_files,
@@ -1057,17 +1030,11 @@ def _run_orchestrator_review(
             pages=pages,
         )
     if not is_dry_run():
-        with review_stage("persona_review"):
-            orchestrator.execute_multi_persona_review(
-                payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
-            )
         candidates = sum(len(p.findings) for p in payloads)
-        with review_stage("reranking"):
-            orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
         _record_profile_findings(payloads, candidates)
 
     with review_stage("report"):
-        return _report_review(orchestrator, payloads, active_p, persona, stage_flags)
+        return _report_review(orchestrator, payloads, stage_flags)
 
 
 def _finding_from_admitted_scanner(af: Any) -> SavedFinding:
@@ -1087,8 +1054,8 @@ def _finding_from_admitted_scanner(af: Any) -> SavedFinding:
         description=getattr(af, "description", "") or getattr(af, "message", ""),
         fix=getattr(af, "fix", ""),
         status="VERIFIED",
-        persona="devsecops",
-        persona_title="Principal DevSecOps Engineer",
+        fingerprint=getattr(af, "fingerprint_v2", "") or getattr(af, "fingerprint", ""),
+        producer=getattr(af, "tool", ""),
     )
     if hasattr(af, "tool"):
         object.__setattr__(sf, "_tool", af.tool)
@@ -1129,15 +1096,13 @@ def _collect_review_findings(
 def _report_review(
     orchestrator: ReviewPipelineOrchestrator,
     payloads: list[Any],
-    active_p: list[str],
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Write the session's report and findings, and return them as the review's result."""
     payload_data, report_md = orchestrator.generate_consolidated_report(
-        payloads, stage_flags=stage_flags, personas=active_p
+        payloads, stage_flags=stage_flags
     )
-    p_def = PERSONAS[persona or Persona.DEVSECOPS]
+    p_def = PERSONAS[Persona.DEVSECOPS]
     findings_list = _collect_review_findings(orchestrator, payloads, payload_data, stage_flags)
     raw_analyzers = getattr(orchestrator, "static_analyzers", None)
     analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
@@ -1152,7 +1117,6 @@ def _report_review(
 
 def _review_routed_files_only(
     orchestrator: ReviewPipelineOrchestrator,
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """A review whose every file is routed past the personas: the secret scan reads them, the
@@ -1167,7 +1131,7 @@ def _review_routed_files_only(
     )
     print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
     payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
-    return _report_review(orchestrator, payloads, [], persona, stage_flags)
+    return _report_review(orchestrator, payloads, stage_flags)
 
 
 def _check_and_warn_perimeter_changes(
@@ -1192,8 +1156,6 @@ def _check_and_warn_perimeter_changes(
 def _execute_review_workflow(
     pages: list[str],
     title: str,
-    all_personas: bool,
-    persona: Persona | None,
     summary_only: bool,
     clients: ReviewClients,
     *,
@@ -1203,7 +1165,6 @@ def _execute_review_workflow(
     stage_flags: ReviewStageFlags | None = None,
     concurrency: int | None = None,
     parallel: bool = True,
-    ground_contracts: bool = True,
     base_revision: BaseRevision | None = None,
     full_output: bool = False,
     routed_files: Sequence[str] = (),
@@ -1229,7 +1190,7 @@ def _execute_review_workflow(
         spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
-    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
     if base_revision is not None and base_revision.changes:
         deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
         all_files = [f for f in all_files if f not in deleted]
@@ -1254,9 +1215,7 @@ def _execute_review_workflow(
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,
-        ground_contracts=ground_contracts,
         subject=subject,
-        conventions_revision=base_revision.revision if base_revision else None,
         full_output=full_output,
         secret_scan_files=sorted(
             {
@@ -1268,11 +1227,10 @@ def _execute_review_workflow(
         partial_context=partial_context,
     )
     if not all_files:
-        return _review_routed_files_only(orchestrator, persona, stage_flags)
+        return _review_routed_files_only(orchestrator, stage_flags)
 
     server_info = orchestrator.get_server_info()
     n_af = len(all_files)
-    active_p = _orchestrator_personas(all_personas, persona)
     with trace_span(
         "review.session",
         attributes={
@@ -1280,7 +1238,6 @@ def _execute_review_workflow(
             "target_type": target_type,
             "target_ref": target_ref,
             "file_count": n_af,
-            "personas": ", ".join(active_p),
         },
     ):
         print_info(
@@ -1293,8 +1250,6 @@ def _execute_review_workflow(
             all_files,
             target_dir,
             pages,
-            active_p,
-            persona,
             target_type,
             target_ref,
             stage_flags,

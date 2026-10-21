@@ -1,0 +1,69 @@
+# Metric families the deployed Traefik ingress controller serves on port 9100 (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# ingress-tunnel.json against them.
+exporter: Traefik ingress controller
+image: docker.io/traefik:v3.7.13
+chart: traefik/traefik 39.0.8
+captured: "2026-10-21"
+taken_from: >-
+  The Traefik pod's port 9100 /metrics in kube-system on the homelab k3s cluster, read
+  through the Kubernetes API pod proxy.
+scraped_by: >-
+  k8s-monitoring's annotationAutodiscovery (job="traefik") in
+  k8s/monitoring/k8s-monitoring-values.yaml, through the prometheus.io/* pod annotations
+  enabled by ports.metrics in k8s/ingress/traefik-values.yaml (#1130).
+target_labels: [cluster, container, instance, job, namespace, node, pod]
+families:
+  go_gc_duration_seconds: {type: summary, labels: []}
+  go_gc_gogc_percent: {type: gauge, labels: []}
+  go_gc_gomemlimit_bytes: {type: gauge, labels: []}
+  go_goroutines: {type: gauge, labels: []}
+  go_info: {type: gauge, labels: [version]}
+  go_memstats_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes_total: {type: counter, labels: []}
+  go_memstats_buck_hash_sys_bytes: {type: gauge, labels: []}
+  go_memstats_frees_total: {type: counter, labels: []}
+  go_memstats_gc_sys_bytes: {type: gauge, labels: []}
+  go_memstats_heap_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_heap_idle_bytes: {type: gauge, labels: []}
+  go_memstats_heap_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_heap_objects: {type: gauge, labels: []}
+  go_memstats_heap_released_bytes: {type: gauge, labels: []}
+  go_memstats_heap_sys_bytes: {type: gauge, labels: []}
+  go_memstats_last_gc_time_seconds: {type: gauge, labels: []}
+  go_memstats_mallocs_total: {type: counter, labels: []}
+  go_memstats_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mcache_sys_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_sys_bytes: {type: gauge, labels: []}
+  go_memstats_next_gc_bytes: {type: gauge, labels: []}
+  go_memstats_other_sys_bytes: {type: gauge, labels: []}
+  go_memstats_stack_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_stack_sys_bytes: {type: gauge, labels: []}
+  go_memstats_sys_bytes: {type: gauge, labels: []}
+  go_sched_gomaxprocs_threads: {type: gauge, labels: []}
+  go_threads: {type: gauge, labels: []}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_network_receive_bytes_total: {type: counter, labels: []}
+  process_network_transmit_bytes_total: {type: counter, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  process_virtual_memory_max_bytes: {type: gauge, labels: []}
+  traefik_config_last_reload_success: {type: gauge, labels: []}
+  traefik_config_reloads_total: {type: counter, labels: []}
+  traefik_entrypoint_request_duration_seconds: {type: histogram, labels: [code, entrypoint, method, protocol]}
+  traefik_entrypoint_requests_bytes_total: {type: counter, labels: [code, entrypoint, method, protocol]}
+  traefik_entrypoint_requests_total: {type: counter, labels: [code, entrypoint, method, protocol]}
+  traefik_entrypoint_responses_bytes_total: {type: counter, labels: [code, entrypoint, method, protocol]}
+  traefik_open_connections: {type: gauge, labels: [entrypoint, protocol]}
+  traefik_router_request_duration_seconds: {type: histogram, labels: [code, method, protocol, router, service]}
+  traefik_router_requests_bytes_total: {type: counter, labels: [code, method, protocol, router, service]}
+  traefik_router_requests_total: {type: counter, labels: [code, method, protocol, router, service]}
+  traefik_router_responses_bytes_total: {type: counter, labels: [code, method, protocol, router, service]}
+  traefik_service_request_duration_seconds: {type: histogram, labels: [code, method, protocol, service]}
+  traefik_service_requests_bytes_total: {type: counter, labels: [code, method, protocol, service]}
+  traefik_service_requests_total: {type: counter, labels: [code, method, protocol, service]}
+  traefik_service_responses_bytes_total: {type: counter, labels: [code, method, protocol, service]}

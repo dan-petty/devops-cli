@@ -99,7 +99,20 @@ spec:
           port: 9100
         - protocol: TCP
           port: 10250
-    # 4. Allow cross-namespace metrics scraping (LLM and OTel)
+    # 4. Allow cross-namespace metrics scraping (Argo CD, LLM, Registry, and OTel)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 9121
     - to:
         - namespaceSelector:
             matchLabels:
@@ -112,6 +125,16 @@ spec:
         # The LLM gateway (#546)
         - protocol: TCP
           port: 4000
+        # Valkey redis_exporter (#551)
+        - protocol: TCP
+          port: 9121
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: registry
+      ports:
+        - protocol: TCP
+          port: 5001
     - to:
         - namespaceSelector:
             matchLabels:

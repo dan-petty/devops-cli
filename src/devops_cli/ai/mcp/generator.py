@@ -54,6 +54,11 @@ def resolve_click_command(path: tuple[str, ...]) -> Any:
     return curr
 
 
+def reset_click_command_cache() -> None:
+    """Clear the cached Click command resolutions."""
+    resolve_click_command.cache_clear()
+
+
 def _is_sequence_param(param: Any) -> bool:
     """Determine whether parameter accepts multiple values."""
     return bool(getattr(param, "multiple", False) or getattr(param, "nargs", 1) != 1)

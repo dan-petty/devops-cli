@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:opentofu@1.9.*"
+sources:
+  - "https://opentofu.org/"
+  - "https://github.com/opentofu/opentofu"
+reviewed: "2026-10-15"
+tags:
+  - "opentofu"
+  - "terraform"
+  - "iac"
+---
+
 # Knowledge Base: OpenTofu & Terraform (Infrastructure as Code Engine)
 
 ## 1. Overview & Purpose

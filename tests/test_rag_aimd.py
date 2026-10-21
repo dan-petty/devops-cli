@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.defaults import (
     DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS,
     DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
 )
 from devops_cli.config.settings import AIConfig
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_aimd_multiplicative_decrease_on_degradation() -> None:

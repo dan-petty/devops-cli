@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.analyze.symbols import BaseRevision
-from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.protocol import ReviewLLMClient
@@ -150,8 +149,6 @@ def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metad
         _execute_review_workflow(
             [f"### File: runner.py\n{_RUNNER}"],
             "Path review",
-            False,
-            Persona.DEVSECOPS,
             True,
             ReviewClients(analysis=MagicMock(spec=ReviewLLMClient)),
             target_type="path",
@@ -175,8 +172,6 @@ def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> 
         result = _execute_review_workflow(
             ["### File: app.py\ndef foo(): pass\n"],
             "Path review",
-            False,
-            Persona.DEVSECOPS,
             True,
             ReviewClients(analysis=mock_client),
             target_type="path",
@@ -193,6 +188,7 @@ def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> 
     ) == ([], False, False, False, False)
 
 
+@pytest.mark.usefixtures("scanner_fake")
 def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> None:
     """Verify a review of routed files only (such as uv.lock) invokes _review_routed_files_only
     with zero model calls and succeeds (#948, #995)."""
@@ -203,8 +199,6 @@ def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> N
     result = _execute_review_workflow(
         [],
         "Branch `feature` vs `main`",
-        False,
-        Persona.DEVSECOPS,
         False,
         ReviewClients(analysis=mock_client),
         target_type="branch",
@@ -289,8 +283,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
         location="app.py:2",
         description="Missing unit tests",
         fix="Add test cases",
-        persona="qa",
-        persona_title="QA Engineer",
+        producer="qa",
     )
     admitted = AdmittedFinding(
         anchor=ToolAnchor(run_id="bandit", result_index=0, rule_id="B602"),
@@ -306,9 +299,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
     )
     orchestrator.admitted_scanner_findings = [admitted]
 
-    flags_no_rep = resolve_stage_flags(
-        no_reporting=True, no_persona_review=True, no_static_scan=True
-    )
+    flags_no_rep = resolve_stage_flags(no_reporting=True, no_static_scan=True)
     with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
         results_no_rep = _run_orchestrator_review(
             orchestrator,
@@ -316,8 +307,6 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
             {},
             repo,
             ["app.py"],
-            ["qa"],
-            Persona.DEVSECOPS,
             stage_flags=flags_no_rep,
         )
 
@@ -330,7 +319,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
             if call.args[0].name == "devops_cli_findings_total"
         ]
 
-    flags_rep = resolve_stage_flags(no_reporting=False, no_persona_review=True, no_static_scan=True)
+    flags_rep = resolve_stage_flags(no_reporting=False, no_static_scan=True)
     with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
         results_rep = _run_orchestrator_review(
             orchestrator,
@@ -338,8 +327,6 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
             {},
             repo,
             ["app.py"],
-            ["qa"],
-            Persona.DEVSECOPS,
             stage_flags=flags_rep,
         )
 
@@ -365,12 +352,12 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
         True,
         True,
         [
-            (1, {"persona": "qa", "severity": "MEDIUM", "status": "VERIFIED"}),
-            (1, {"persona": "devsecops", "severity": "HIGH", "status": "VERIFIED"}),
+            (1, {"producer": "qa", "severity": "MEDIUM", "status": "VERIFIED"}),
+            (1, {"producer": "bandit", "severity": "HIGH", "status": "VERIFIED"}),
         ],
         False,
         True,
-        [(1, {"persona": "qa", "severity": "MEDIUM", "status": "VERIFIED"})],
+        [(1, {"producer": "qa", "severity": "MEDIUM", "status": "VERIFIED"})],
     )
 
 
@@ -388,15 +375,13 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
         llm_client=mock_client,
         target_dir=repo,
     )
-    flags = resolve_stage_flags(no_static_scan=True, no_persona_review=True, no_reporting=True)
+    flags = resolve_stage_flags(no_static_scan=True, no_reporting=True)
     results = _run_orchestrator_review(
         orchestrator,
         ["app.py"],
         {},
         repo,
         ["app.py"],
-        ["devsecops"],
-        None,
         stage_flags=flags,
     )
     comment = format_pr_review_comment(results, files=["app.py"])

@@ -71,6 +71,11 @@ def pack_rule_ids(rules_dir: Path = RULE_PACK_DIR) -> frozenset[str]:
     return frozenset(discover_pack_rules(rules_dir))
 
 
+def reset_rules_pack_cache() -> None:
+    """Clear the cached rule pack IDs."""
+    pack_rule_ids.cache_clear()
+
+
 def normalize_pack_check_id(check_id: str, rules_dir: Path = RULE_PACK_DIR) -> str:
     """Strip Semgrep's directory-derived prefix when `check_id` ends with a pack rule ID."""
     tail = check_id.rsplit(".", 1)[-1]

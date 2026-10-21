@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -138,9 +139,10 @@ class Tool(NativeTool):
 
             raise ApprovalRequired(f"Tool '{self.name}' requires human approval")
         fn = cast(Callable[..., Any], self.function)
-        if self.takes_ctx and ctx is not None:
-            return fn(ctx, **kwargs)
-        return fn(**kwargs)
+        res = fn(ctx, **kwargs) if self.takes_ctx and ctx is not None else fn(**kwargs)
+        if inspect.isawaitable(res):
+            return _run_coroutine_sync(res)
+        return res
 
     def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate and filter tool arguments against the declared parameter schema."""
@@ -379,13 +381,8 @@ def deny_all_requests(
     return requests.build_results(approvals=approvals)
 
 
-def matches_tool_selector_sync(
-    selector: ToolSelector[Any],
-    ctx: RunContext[Any],
-    tool_def: ToolDefinition,
-) -> bool:
-    """Synchronous evaluation wrapper for matches_tool_selector."""
-    coro = matches_tool_selector(selector, ctx, tool_def)
+def _run_coroutine_sync(coro: Any) -> Any:
+    """Run an awaitable to completion from synchronous code, even inside a running event loop."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -397,6 +394,15 @@ def matches_tool_selector_sync(
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, coro).result()
     return asyncio.run(coro)
+
+
+def matches_tool_selector_sync(
+    selector: ToolSelector[Any],
+    ctx: RunContext[Any],
+    tool_def: ToolDefinition,
+) -> bool:
+    """Synchronous evaluation wrapper for matches_tool_selector."""
+    return bool(_run_coroutine_sync(matches_tool_selector(selector, ctx, tool_def)))
 
 
 __all__ = [

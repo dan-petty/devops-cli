@@ -45,6 +45,8 @@ from devops_cli.config.settings import (
 from devops_cli.k8s import node_port
 from devops_cli.main import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
 
@@ -170,12 +172,12 @@ def test_the_index_holds_each_record_by_mechanism_and_subject(valkey: FakeValkey
 
 
 def test_runs_are_kept_locally_when_no_index_is_configured_or_reachable(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
     """Verify a run is kept in the data directory and says why it was not shared."""
     unconfigured = record_run(Mechanism.PROMPT_EVAL, setup={}, subject={}, results={})
     settings = load_settings()
-    settings.runs.index_url = "valkey://127.0.0.1:9"
+    settings.runs.index_url = f"valkey://127.0.0.1:{refusing_port}"
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: settings)
     unreachable = record_run(Mechanism.PROMPT_EVAL, setup={}, subject={}, results={})
 
@@ -287,15 +289,15 @@ def test_a_review_benchmark_is_kept_with_its_setup_and_corpus(
     monkeypatch.setattr(review_commands, "path", fake_review)
     monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
-    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "1", "--all"])
+    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "1"])
     (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
 
     assert (
         result.exit_code,
-        (record.setup["all_personas"], record.setup["page_chars"] > 0),
+        "page_chars" not in record.setup,
         record.subject == {"corpus_digest": record.results["corpus_digest"], "target": "corpus"},
         "Kept on this workstation only" in result.output,
-    ) == (0, (True, True), True, True)
+    ) == (0, True, True, True)
 
 
 @pytest.mark.parametrize(

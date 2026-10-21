@@ -214,12 +214,12 @@ def synthesize_report_executive_summary(
         )
     elif not reportable_findings:
         summary_stmt = (
-            "The automated multi-persona review evaluated the target scope with "
+            "The automated review evaluated the target scope with "
             "**0 reportable defects** across successfully analyzed files."
         )
     else:
         summary_stmt = (
-            f"The automated multi-persona review reported {_reported(reportable_findings)} "
+            f"The automated review reported {_reported(reportable_findings)} "
             f"{_remediation_statement(reportable_findings)}"
         )
 

@@ -92,6 +92,11 @@ _MAX_OVERFLOW_FALLBACK_ENTRIES = 128
 _OVERFLOW_MEMORY_FALLBACK: OrderedDict[str, bytes] = OrderedDict()
 
 
+def reset_overflow_memory_fallback() -> None:
+    """Clear the in-memory overflow fallback store."""
+    _OVERFLOW_MEMORY_FALLBACK.clear()
+
+
 class LocalFileStore(BaseModel):
     """Filesystem-backed store for spilled tool return payloads."""
 

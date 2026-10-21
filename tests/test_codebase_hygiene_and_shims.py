@@ -238,24 +238,17 @@ def _imported_modules(tree: ast.AST) -> set[str]:
     return names
 
 
-def test_the_model_verifier_its_catalog_and_its_guards_are_gone() -> None:
+def test_the_model_verifier_its_catalog_and_its_guards_are_gone(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """No source imports the verifier, the catalog, the guards or the ledger, which no longer
     exist; the verifier prompts are gone, no MCP or agent tool records a verdict, and no flag or
     task configures a verification stage (#1150)."""
     src = REPO_ROOT / "src" / "devops_cli"
-    # A module imports one only in a form its text spells out: the dotted name, a `from` import
-    # of its package, or a relative import. Only such modules are parsed.
-    spellings = (
-        *_DELETED_REVIEW_MODULES,
-        *{f"{module.rsplit('.', 1)[0]} import" for module in _DELETED_REVIEW_MODULES},
-        "from .",
-    )
-    sources = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     importers = sorted(
         f"{path.relative_to(src)}: {name}"
-        for path, text in sources.items()
-        if any(spelling in text for spelling in spellings)
-        for name in _imported_modules(ast.parse(text))
+        for path, tree in parsed_source_trees.items()
+        for name in _imported_modules(tree)
         if name in _DELETED_REVIEW_MODULES
     )
     agent_tools = {

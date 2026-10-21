@@ -297,9 +297,9 @@ def test_scrape_prometheus_metrics_server_error(prom_server: str) -> None:
     assert metrics == []
 
 
-def test_scrape_prometheus_metrics_unreachable() -> None:
+def test_scrape_prometheus_metrics_unreachable(refusing_port: int) -> None:
     """Test scraping unreachable Prometheus endpoint gracefully returns empty list."""
-    metrics = scrape_prometheus_metrics("http://127.0.0.1:9999/metrics", timeout=0.2)
+    metrics = scrape_prometheus_metrics(f"http://127.0.0.1:{refusing_port}/metrics", timeout=0.2)
     assert metrics == []
 
 
@@ -945,9 +945,9 @@ def test_prometheus_exposition_timestamp_preservation() -> None:
     assert metrics[0].timestamp == "1716300000000"
 
 
-def test_scrape_prometheus_metrics_sanitizes_credentials_and_errors() -> None:
+def test_scrape_prometheus_metrics_sanitizes_credentials_and_errors(refusing_port: int) -> None:
     """Test scrape_prometheus_metrics masks credentials in scrape target and error message."""
-    url = "http://admin:supersecret@127.0.0.1:65530/metrics"
+    url = f"http://admin:supersecret@127.0.0.1:{refusing_port}/metrics"
     res = scrape_prometheus_metrics(url, timeout=0.5)
     assert res.error is not None
     assert "supersecret" not in res.error

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -92,27 +92,49 @@ def _offending_lines(
     return lines
 
 
-def _violations(root: Path, python_files: Sequence[str]) -> list[str]:
+def _violations(
+    root: Path,
+    python_files: Sequence[str],
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[str]:
     """`path:line` of each read of a module's own `__file__` and each import of a test module or
     a conftest in the Python files under `root`'s `tests/` but `tests/fixtures/`, each parsed
     once."""
     found: list[str] = []
-    for path in sorted((root / _TESTS).rglob("*.py")):
+    if trees is not None:
+        file_tree_pairs = [
+            (path, tree)
+            for path, tree in sorted(trees.items())
+            if not path.relative_to(root).is_relative_to(_FIXTURES)
+        ]
+    else:
+        file_tree_pairs = [
+            (path, ast.parse(path.read_bytes()))
+            for path in sorted((root / _TESTS).rglob("*.py"))
+            if not path.relative_to(root).is_relative_to(_FIXTURES)
+        ]
+    for path, tree in file_tree_pairs:
         relative = path.relative_to(root)
-        if relative.is_relative_to(_FIXTURES):
-            continue
-        lines = _offending_lines(ast.parse(path.read_bytes()), relative, root, python_files)
+        lines = _offending_lines(tree, relative, root, python_files)
         found.extend(f"{relative.as_posix()}:{line}" for line in sorted(lines))
     return found
 
 
 def test_no_test_module_finds_a_path_from_its_own_file_or_imports_a_test_module(
     pytestconfig: pytest.Config,
+    parsed_test_trees: dict[Path, ast.Module],
 ) -> None:
     """Every module under `tests/` reads the repository root and its test data through
     `tests.support.paths` and shares code only through `tests/support/`, so it reads the same
     paths at any depth and moves with no other edit (#1312)."""
-    assert _violations(pytestconfig.rootpath, pytestconfig.getini("python_files")) == []
+    assert (
+        _violations(
+            pytestconfig.rootpath,
+            pytestconfig.getini("python_files"),
+            trees=parsed_test_trees,
+        )
+        == []
+    )
 
 
 # The seeded sources spell each banned form, and each devops-cli module name, in parts, so that

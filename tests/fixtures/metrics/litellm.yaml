@@ -13,7 +13,7 @@ taken_from: >-
   The llm-gateway Service's /metrics/ on the homelab cluster, read in the plain text format
   (version 0.0.4) through the Kubernetes API service proxy.
 scraped_by: >-
-  The llm-gateway ServiceMonitor (k8s/monitoring/k8s-monitoring-values.yaml), read by Alloy
+  The llm-gateway ServiceMonitor (k8s/llm/gateway/servicemonitor.yaml), read by Alloy
   (k8s-monitoring 4.5.2), which remote-writes to the Prometheus server.
 target_labels: [cluster, container, endpoint, instance, job, namespace, pod, service]
 families:

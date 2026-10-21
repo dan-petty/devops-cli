@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:gitleaks@8.30.*"
+sources:
+  - "https://github.com/gitleaks/gitleaks"
+reviewed: "2026-10-15"
+tags:
+  - "gitleaks"
+  - "secrets"
+  - "security"
+---
+
 # Knowledge Base: Gitleaks (Sub-Millisecond Secret Pre-Filter)
 
 ## 1. Overview & Purpose

@@ -644,8 +644,7 @@ def three_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_corpus_score_scores_the_latest_runs_oldest_first_as_one_arm(three_runs: Path) -> None:
-    """Verify --runs takes the corpus's reviews oldest first, each with its tokens and unparsed
-    replies, and records the personas that replied in its setup (#413)."""
+    """Verify --runs takes the corpus's reviews oldest first, each with its tokens (#413)."""
     result = cli.invoke(
         review_commands.corpus_app, ["score", str(three_runs), "--runs", "3", "--json"]
     )
@@ -654,19 +653,16 @@ def test_corpus_score_scores_the_latest_runs_oldest_first_as_one_arm(three_runs:
 
     assert (
         (result.exit_code, arm["runs"], arm["prompt_digest"]),
-        [
-            (r["session_id"], r["prompt_tokens"], r["completion_tokens"], r["unparsed_replies"])
-            for r in arm["sessions"]
-        ],
-        (record.setup["personas"], record.setup["runs"], record.setup["prompt_digest"]),
+        [(r["session_id"], r["prompt_tokens"], r["completion_tokens"]) for r in arm["sessions"]],
+        (record.setup["runs"], record.setup["prompt_digest"]),
     ) == (
         (0, 3, "d1"),
         [
-            ("20260924-100000", 100, 10, 1),
-            ("20260924-110000", 200, 20, 1),
-            ("20260924-120000", 300, 30, 1),
+            ("20260924-100000", 100, 10),
+            ("20260924-110000", 200, 20),
+            ("20260924-120000", 300, 30),
         ],
-        (["devsecops", "qa"], 3, "d1"),
+        (3, "d1"),
     )
 
 

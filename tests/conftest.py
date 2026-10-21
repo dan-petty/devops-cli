@@ -13,6 +13,9 @@ import os
 # OpenBLAS parks an idle thread per CPU in each process that loads numpy, against pids.max.
 # pytest-randomly (`devops ci test --repeat`) loads numpy before this line, so that run keeps them.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+# Textual reads its animation level once, on import. Off, a tab switch moves its underline at once
+# instead of over 0.3 s of frames that the pilot waits out after every key and pause (#1725).
+os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
 import functools
@@ -23,12 +26,12 @@ import subprocess
 import sys
 import threading
 import weakref
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import typer.rich_utils
@@ -86,14 +89,100 @@ def register_test_mock_provider():
     register_provider("mock", MockProvider)
 
 
-@pytest.fixture(autouse=True)
-def reset_rag_verified_models_per_test() -> Iterator[None]:
-    """Ensure every unit test starts and ends with clean RAG verified collection models."""
-    from devops_cli.ai.rag.retriever import reset_search_verified_models
+_PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
+    "devops_cli.ai.benchmark.document_chunker": ("reset_document_chunker_cache",),
+    "devops_cli.ai.benchmark.embedding_tasks": ("reset_embedding_tasks_cache",),
+    "devops_cli.ai.client.factory": ("reset_llm_client_override",),
+    "devops_cli.ai.client.network": ("reset_ollama_slots",),
+    "devops_cli.ai.concurrency": ("reset_shared_limiters",),
+    "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),
+    "devops_cli.ai.gateway": ("clear_gateway_reasoning_cache",),
+    "devops_cli.ai.harness.compaction": ("reset_overflow_memory_fallback",),
+    "devops_cli.ai.kb": ("reset_uv_lock_cache",),
+    "devops_cli.ai.mcp.dispatcher": ("reset_mcp_dispatcher",),
+    "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),
+    "devops_cli.ai.mcp.server": ("reset_hydrated_domains",),
+    "devops_cli.ai.personas": ("reset_persona_caches",),
+    "devops_cli.ai.providers": ("reset_providers",),
+    "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache",),
+    "devops_cli.ai.rag.investigator": ("clear_investigation_cache",),
+    "devops_cli.ai.rag.kb_sync": ("reset_kb_sync_state",),
+    "devops_cli.ai.rag.retriever": ("reset_search_verified_models",),
+    "devops_cli.ai.response_cache": ("reset_llm_response_cache",),
+    "devops_cli.ai.spend.ledger": ("reset_spend_ledger",),
+    "devops_cli.ai.spend.pricing": ("reset_pricing_registry",),
+    "devops_cli.cache.tiered": ("reset_cache",),
+    "devops_cli.commands.vault": ("reset_lease_registry",),
+    "devops_cli.config.metadata": ("reset_project_metadata_cache",),
+    "devops_cli.config.settings": ("reset_settings_cache", "clear_ephemeral_ci_secrets"),
+    "devops_cli.core.command_resolver": ("reset_command_resolver_cache",),
+    "devops_cli.core.dns_names": ("reset_dns_names_cache",),
+    "devops_cli.core.gitignore": ("reset_indexes",),
+    "devops_cli.core.process": ("reset_github_token",),
+    "devops_cli.core.repo": ("reset_repo_caches",),
+    "devops_cli.core.templating": ("reset_template_environment_cache",),
+    "devops_cli.core.untrusted_trees": ("reset_untrusted_trees",),
+    "devops_cli.core.validation": ("reset_network_caches",),
+    "devops_cli.docker.engine": ("DockerEngineService.reset_instance",),
+    "devops_cli.dry_run.state": ("reset_dry_run_state",),
+    "devops_cli.git.operations": ("reset_known_host_cache",),
+    "devops_cli.github.issue_closure": ("reset_issue_closure_cache",),
+    "devops_cli.github.projects": ("reset_project_caches",),
+    "devops_cli.github.rate_limiter": ("reset_github_rate_limiter",),
+    "devops_cli.github.request_classifier": ("reset_request_classifier_cache",),
+    "devops_cli.github.session": ("reset_github_session",),
+    "devops_cli.http.broker": ("reset_broker",),
+    "devops_cli.http.pool": ("close_shared_clients",),
+    "devops_cli.k8s.context": ("reset_context_cache",),
+    "devops_cli.k8s.gpu_matrix": ("reset_gpu_matrix_cache",),
+    "devops_cli.k8s.port_forward_daemon": ("reset_daemon_manager",),
+    "devops_cli.k8s.service": ("KubernetesService.reset_instance",),
+    "devops_cli.k8s.service_proxy": ("reset_configuration_cache",),
+    "devops_cli.main": ("reset_timing",),
+    "devops_cli.output.console": ("reset_console",),
+    "devops_cli.release.changelog_fragments": ("reset_changelog_fragments_cache",),
+    "devops_cli.review.canary": ("clear_canary_cache",),
+    "devops_cli.review.rules_pack": ("reset_rules_pack_cache",),
+    "devops_cli.roadmap.store": ("reset_roadmap_store_cache",),
+    "devops_cli.security.reference_extractor": ("reset_reference_extractor_caches",),
+    "devops_cli.security.secrets": ("reset_resolver",),
+    "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),
+    "devops_cli.telemetry.tracer": ("clear_span_buffer", "reset_tracer"),
+    "devops_cli.tools_lock": ("reset_tools_lock_cache",),
+    "devops_cli.valkey.pool": ("reset_pool",),
+}
 
-    reset_search_verified_models()
+
+def _reset_loaded_process_state() -> None:
+    """Call the public reset of every loaded src module and close shared HTTP clients (#1310)."""
+    for module_name, resets in _PROCESS_STATE_RESETS.items():
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        for reset_spec in resets:
+            target: Any = module
+            for attr in reset_spec.split("."):
+                target = getattr(target, attr, None)
+                if target is None:
+                    break
+            if callable(target):
+                target()
+    providers_module = sys.modules.get("devops_cli.ai.providers")
+    if providers_module is not None:
+        from tests.mock_provider import MockProvider
+
+        providers_module.register_provider("mock", MockProvider)
+
+
+@pytest.fixture(autouse=True)
+def reset_process_wide_state() -> Iterator[None]:
+    """Reset all process-wide state in loaded src modules after every test (#1310).
+
+    Defined first among function-scoped autouse fixtures so its teardown runs after monkeypatch
+    has restored every patched attribute and environment variable.
+    """
     yield
-    reset_search_verified_models()
+    _reset_loaded_process_state()
 
 
 def _is_loopback(host: str) -> bool:
@@ -106,7 +195,10 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def _is_numeric_host(host: Any, resolve: Callable[..., Any]) -> bool:
+_ORIG_GETADDRINFO = socket.getaddrinfo
+
+
+def _is_numeric_host(host: Any, resolve: Callable[..., Any] = _ORIG_GETADDRINFO) -> bool:
     """Report whether a host is numeric in any spelling glibc accepts, which needs no DNS query.
 
     `2852039166` and `0xa9fea9fe` are 169.254.169.254 to glibc, so they resolve in tests as they
@@ -119,90 +211,402 @@ def _is_numeric_host(host: Any, resolve: Callable[..., Any]) -> bool:
     return True
 
 
-def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
-    """Report whether the network guard refuses a connect; raise for a host that is not loopback."""
+# Unfaked edge reaches recorded during a test (`unexpected_loopback_connects` clears and fails
+# the test at teardown, even when the code under test caught the raised error).
+_UNEXPECTED_LOOPBACK_CONNECTS: list[str] = []
+_ALLOWED_LIVE_BINARIES: set[str] = set()
+_UNREACHABLE_TARGETS: set[str] = set()
+
+
+def _matches_unreachable(host: str, port: int | None, unreachable: set[str]) -> bool:
+    """Report whether `host` and `port` match an `@pytest.mark.unreachable(...)` declaration."""
+    if not unreachable:
+        return False
+    candidates = {host}
+    if port is None and "/" in host:
+        candidates.add(Path(host).name)
+    if _is_loopback(host):
+        candidates.update({"localhost", "127.0.0.1", "::1"})
+    if port is not None:
+        candidates.update({f"{h}:{port}" for h in list(candidates)} | {f":{port}", str(port)})
+    return bool(candidates & unreachable)
+
+
+def _resolve_unix_socket_candidates(address: str | bytes | os.PathLike[Any]) -> set[str]:
+    """Return raw and resolved string spellings for an AF_UNIX socket path."""
+    raw = os.fsdecode(address)
+    if not raw or raw.startswith("\x00"):
+        return {raw} if raw else set()
+    try:
+        return {raw, str(Path(raw).resolve())}
+    except OSError, RuntimeError:
+        return {raw}
+
+
+def _refuses_connect(
+    address: Any, owned_ports: set[int], owned_unix_paths: set[str] | None = None
+) -> bool:
+    """Report whether the network guard refuses a connect, recording a refused loopback port;
+    raise for a host that is not loopback or an unowned AF_UNIX socket."""
+    if isinstance(address, (str, bytes, os.PathLike)):
+        candidates = _resolve_unix_socket_candidates(address)
+        if owned_unix_paths and (candidates & owned_unix_paths):
+            return False
+        unix_target = os.fsdecode(address)
+        if _matches_unreachable(unix_target, None, _UNREACHABLE_TARGETS):
+            return True
+        msg = (
+            f"network edge reached without a fake: unix:{unix_target} "
+            f"(External network call blocked during test execution: {unix_target})"
+        )
+        _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{msg} ({threading.current_thread().name})")
+        raise RuntimeError(msg)
     if not (isinstance(address, tuple) and len(address) >= 2):
         return False
     host = str(address[0])
+    port = int(address[1])
     if not _is_loopback(host):
-        raise RuntimeError(
-            f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
-            "All external APIs and endpoints must be mocked in tests."
+        msg = (
+            f"network edge reached without a fake: {host}:{port} "
+            f"(External network call blocked during test execution: attempt to connect to {host}:{port}. "
+            "All external APIs and endpoints must be mocked in tests.)"
         )
-    return address[1] not in owned_ports
+        if not _matches_unreachable(host, port, _UNREACHABLE_TARGETS):
+            _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{msg} ({threading.current_thread().name})")
+        raise RuntimeError(msg)
+    if port in owned_ports:
+        return False
+    if not _matches_unreachable(host, port, _UNREACHABLE_TARGETS):
+        _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{host}:{port} ({threading.current_thread().name})")
+    return True
 
 
-@pytest.fixture(autouse=True, scope="session")
-def prevent_external_network_calls() -> None:
-    """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
+class _BoundPorts:
+    """The ports and AF_UNIX paths sockets in this process bind, each owned while its socket is open.
 
-    A loopback connect reaches only a port this test process listens on, and only while that
-    listener is open. Any other loopback port refuses, as if nothing listened there, so a
-    `kubectl port-forward` or a daemon on the workstation is never reached and every machine takes
-    CI's offline path. Once a test closes its server, the port refuses again, so whatever binds it
-    next, such as another xdist worker or a port-forward, is not reached either. The refusal is the
-    `ConnectionRefusedError` that clients already handle: a `RuntimeError` would escape them and
-    send the test down a path no user reaches. Non-loopback connects raise `RuntimeError`.
-
-    The guard patches this process only. A subprocess a test spawns is not guarded, and a server
-    a test starts in a subprocess is refused like any other port this process does not own.
+    `listen` binds a socket that was not bound yet, to a port of the kernel's choosing. A closed
+    socket reports fileno -1, and one that was collected has already left the weak mapping.
     """
-    import socket
+
+    def __init__(self) -> None:
+        self._ports: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
+        self._unix_paths: weakref.WeakKeyDictionary[socket.socket, set[str]] = (
+            weakref.WeakKeyDictionary()
+        )
+        self._lock = threading.RLock()
+
+    def own(self, sock: socket.socket) -> None:
+        """Own the port or AF_UNIX path `sock` is bound to."""
+        try:
+            name = sock.getsockname()
+        except OSError:
+            return
+        if isinstance(name, tuple) and len(name) >= 2 and isinstance(name[1], int):
+            with self._lock:
+                self._ports[sock] = name[1]
+        elif isinstance(name, (str, bytes)) and name:
+            with self._lock:
+                self._unix_paths[sock] = _resolve_unix_socket_candidates(name)
+
+    def owned(self) -> set[int]:
+        """The ports of the bound sockets still open."""
+        with self._lock:
+            return {port for sock, port in self._ports.items() if sock.fileno() != -1}
+
+    def owned_unix(self) -> set[str]:
+        """The AF_UNIX socket paths of the bound sockets still open."""
+        with self._lock:
+            paths: set[str] = set()
+            for sock, sock_paths in self._unix_paths.items():
+                if sock.fileno() != -1:
+                    paths.update(sock_paths)
+            return paths
+
+
+_BOUND_PORTS = _BoundPorts()
+_NETWORK_GUARD_INSTALLED = False
+_PROCESS_GUARD_INSTALLED = False
+_DENY_KEYRING_INSTANCE: Any = None
+
+
+def _guarded_getaddrinfo(
+    host: Any, orig_getaddrinfo: Callable[..., Any], *args: Any, **kwargs: Any
+) -> Any:
+    """Resolve numeric or loopback names and fail any external DNS lookup."""
+    name = host.decode() if isinstance(host, bytes) else str(host)
+    flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
+    if (
+        host is None
+        or bool(flags & socket.AI_NUMERICHOST)
+        or _is_loopback(name)
+        or _is_numeric_host(host, orig_getaddrinfo)
+    ):
+        return orig_getaddrinfo(host, *args, **kwargs)
+    msg = (
+        f"network edge reached without a fake: dns:{name} "
+        f"(External DNS lookup blocked during test execution: {name}. "
+        "All external APIs and endpoints must be mocked in tests.)"
+    )
+    if not _matches_unreachable(name, None, _UNREACHABLE_TARGETS):
+        _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{msg} ({threading.current_thread().name})")
+    raise socket.gaierror(socket.EAI_NONAME, msg)
+
+
+def _install_network_guard() -> None:
+    """Install socket connect/bind/listen/getaddrinfo guards once per process."""
+    global _NETWORK_GUARD_INSTALLED
+    if _NETWORK_GUARD_INSTALLED:
+        return
+    _NETWORK_GUARD_INSTALLED = True
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
+    orig_bind = socket.socket.bind
     orig_listen = socket.socket.listen
     orig_getaddrinfo = socket.getaddrinfo
-    listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
-    listeners_lock = threading.RLock()
 
-    # A blocked connect still pays for a real DNS query first. Fail external
-    # names the way an unresolvable one does, so callers take their existing gaierror path at once.
     def guarded_getaddrinfo(host, *args, **kwargs):
-        name = host.decode() if isinstance(host, bytes) else str(host)
-        flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
-        if (
-            host is None
-            or bool(flags & socket.AI_NUMERICHOST)
-            or _is_loopback(name)
-            or _is_numeric_host(host, orig_getaddrinfo)
-        ):
-            return orig_getaddrinfo(host, *args, **kwargs)
-        raise socket.gaierror(
-            socket.EAI_NONAME,
-            f"External DNS lookup blocked during test execution: {name}. "
-            "All external APIs and endpoints must be mocked in tests.",
-        )
+        return _guarded_getaddrinfo(host, orig_getaddrinfo, *args, **kwargs)
+
+    def guarded_bind(self, address):
+        orig_bind(self, address)
+        _BOUND_PORTS.own(self)
 
     def guarded_listen(self, *args):
         orig_listen(self, *args)
-        name = self.getsockname()
-        if isinstance(name, tuple):
-            with listeners_lock:
-                listeners[self] = name[1]
-
-    # A listener's port is owned while the socket is open. A closed one reports fileno -1, and one
-    # that was collected has already left the weak mapping.
-    def owned_ports() -> set[int]:
-        with listeners_lock:
-            return {port for sock, port in listeners.items() if sock.fileno() != -1}
+        _BOUND_PORTS.own(self)
 
     def guarded_connect(self, address):
-        if _refuses_connect(address, owned_ports()):
+        if _refuses_connect(address, _BOUND_PORTS.owned(), _BOUND_PORTS.owned_unix()):
             raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
         return orig_connect(self, address)
 
     def guarded_connect_ex(self, address):
-        if _refuses_connect(address, owned_ports()):
+        if _refuses_connect(address, _BOUND_PORTS.owned(), _BOUND_PORTS.owned_unix()):
             return errno.ECONNREFUSED
         return orig_connect_ex(self, address)
 
-    # Installed for the rest of the process, not undone at teardown: an export a test queued on a
-    # worker thread, or one `atexit` flushes, still runs after the last fixture is torn down.
     socket.socket.connect = guarded_connect
     socket.socket.connect_ex = guarded_connect_ex
+    socket.socket.bind = guarded_bind
     socket.socket.listen = guarded_listen
     socket.getaddrinfo = guarded_getaddrinfo
+
+
+@pytest.fixture(autouse=True, scope="session")
+def prevent_external_network_calls() -> Iterator[None]:
+    """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
+
+    A loopback connect reaches only a port a socket in this test process binds, and only while
+    that socket is open: a server the test started, or `refusing_port`. Any other loopback port
+    refuses, as if nothing listened there, so a `kubectl port-forward` or a daemon on the
+    workstation is never reached and every machine takes CI's offline path, and the connect fails
+    the test (`unexpected_loopback_connects`). Once a test closes its socket, the port refuses
+    again, so whatever binds it next, such as another xdist worker or a port-forward, is not reached
+    either. The refusal is the `ConnectionRefusedError` that clients already handle: a
+    `RuntimeError` would escape them and send the test down a path no user reaches. Non-loopback
+    connects and unowned AF_UNIX connects raise `RuntimeError`.
+
+    The guard patches this process only. A subprocess a test spawns is not guarded, and a server
+    a test starts in a subprocess is refused like any other port this process does not own.
+    """
+    _install_network_guard()
+    yield
+    if _UNEXPECTED_LOOPBACK_CONNECTS:
+        late_reaches = ", ".join(_UNEXPECTED_LOOPBACK_CONNECTS)
+        _UNEXPECTED_LOOPBACK_CONNECTS.clear()
+        pytest.fail(f"Edge reached outside a test: {late_reaches}", pytrace=False)
+
+
+def _started_words(args: Any) -> list[str]:
+    """Return the tokenized argv words `subprocess.Popen(args)` starts."""
+    if isinstance(args, (str, bytes, os.PathLike)):
+        return os.fsdecode(args).split()
+    return [os.fsdecode(word) for word in args] if args else []
+
+
+def _started_program(args: Any) -> str:
+    """The name of the program `subprocess.Popen(args)` starts: a command line's first word."""
+    words = _started_words(args)
+    return Path(words[0]).name if words else ""
+
+
+def _is_allowed_kubectl_renderer(words: list[str]) -> bool:
+    """Report whether `kubectl` argv invokes an offline renderer (`kustomize` or `patch --local`)."""
+    if len(words) < 2:
+        return False
+    subcommand = words[1]
+    if subcommand == "kustomize":
+        return True
+    if subcommand == "patch":
+        return any(token == "--local" or token.startswith("--local=") for token in words[2:])
+    return False
+
+
+def _is_allowed_process(words: list[str]) -> bool:
+    """Report whether `words` names an allowed process (`git`, `bwrap`, offline kubectl, or `@pytest.mark.live`)."""
+    if not words:
+        return True
+    raw_program = words[0]
+    program = Path(raw_program).name
+    if program in {"git", "bwrap"}:
+        return True
+    if program in _ALLOWED_LIVE_BINARIES or raw_program in _ALLOWED_LIVE_BINARIES:
+        return True
+    return program == "kubectl" and _is_allowed_kubectl_renderer(words)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def refuse_real_programs() -> None:
+    """Deny any process other than git, bwrap, offline kubectl renderers, or `@pytest.mark.live` tools (#1310).
+
+    The refusal sits on `subprocess.Popen`, beneath `run_subprocess`, `run_gh`, `subprocess.run`
+    and asyncio's subprocesses, so a test that fakes any of those is untouched and only a program
+    that would really start is refused. Every reach is recorded and raises `RuntimeError`, so a
+    test whose code catches `Exception` still fails at teardown.
+    """
+    global _PROCESS_GUARD_INSTALLED
+    if _PROCESS_GUARD_INSTALLED:
+        return
+    _PROCESS_GUARD_INSTALLED = True
+
+    import platform
+
+    platform.platform()
+    real_init = subprocess.Popen.__init__
+
+    def refusing_init(self: subprocess.Popen[Any], args: Any, *rest: Any, **kwargs: Any) -> None:
+        words = _started_words(args)
+        if not _is_allowed_process(words):
+            program = Path(words[0]).name if words else ""
+            target = " ".join([program, *words[1:]])[:256]
+            msg = (
+                f"process edge reached without a fake: {target} "
+                f"(A test started a real {program}: fake it through its seam or mark @pytest.mark.live)"
+            )
+            _UNEXPECTED_LOOPBACK_CONNECTS.append(msg)
+            pytest.fail(msg, pytrace=False)
+        real_init(self, args, *rest, **kwargs)
+
+    # Installed for the rest of the process, as the network block is.
+    setattr(subprocess.Popen, "__init__", refusing_init)
+
+
+def _raise_keyring_deny(service: str, username: str | None) -> NoReturn:
+    """Record and raise an unfaked keyring edge reach."""
+    target = f"{service}/{username}" if username is not None else service
+    msg = f"keyring edge reached without a fake: {target}"
+    _UNEXPECTED_LOOPBACK_CONNECTS.append(msg)
+    raise RuntimeError(msg)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def deny_real_keyring() -> None:
+    """Install a default-deny keyring backend before the first test so backend discovery never runs (#1310)."""
+    global _DENY_KEYRING_INSTANCE
+    import keyring
+    from keyring.backend import KeyringBackend
+
+    if _DENY_KEYRING_INSTANCE is None:
+
+        class _DenyKeyring(KeyringBackend):
+            priority = 1
+
+            def __init__(self) -> None:
+                super().__init__()
+
+            def get_password(self, service: str, username: str) -> str | None:
+                _raise_keyring_deny(service, username)
+
+            def set_password(self, service: str, username: str, password: str) -> None:
+                _raise_keyring_deny(service, username)
+
+            def delete_password(self, service: str, username: str) -> None:
+                _raise_keyring_deny(service, username)
+
+            def get_credential(self, service: str, username: str | None) -> Any:
+                _raise_keyring_deny(service, username)
+
+        _DENY_KEYRING_INSTANCE = _DenyKeyring()
+
+    keyring.set_keyring(_DENY_KEYRING_INSTANCE)
+
+
+def _register_live_binary(raw_binary: Any) -> None:
+    """Register a `@pytest.mark.live` binary name and any Python interpreter aliases."""
+    binary = str(raw_binary)
+    name = Path(binary).name
+    _ALLOWED_LIVE_BINARIES.update({binary, name})
+    if name in {"python", "python3"}:
+        _ALLOWED_LIVE_BINARIES.update(
+            {"python", "python3", sys.executable, Path(sys.executable).name}
+        )
+
+
+@pytest.fixture(autouse=True)
+def configure_edge_markers(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Populate `_ALLOWED_LIVE_BINARIES` and `_UNREACHABLE_TARGETS` from the test's markers (#1310)."""
+    _ALLOWED_LIVE_BINARIES.clear()
+    _UNREACHABLE_TARGETS.clear()
+    for marker in request.node.iter_markers("live"):
+        for binary in marker.args:
+            _register_live_binary(binary)
+    for marker in request.node.iter_markers("unreachable"):
+        for target in marker.args:
+            _UNREACHABLE_TARGETS.add(str(target))
+    yield
+    _ALLOWED_LIVE_BINARIES.clear()
+    _UNREACHABLE_TARGETS.clear()
+
+
+@pytest.fixture(autouse=True)
+def unexpected_loopback_connects() -> Iterator[list[str]]:
+    """Fail a test that reached a process, network, or keyring edge without a fake (#1310).
+
+    The guard refuses such a reach and records it; the record fails the test here even when the
+    code under test swallowed the error. A test of the guard itself reads its reaches from this
+    list and clears it.
+    """
+    yield _UNEXPECTED_LOOPBACK_CONNECTS
+    reached = list(_UNEXPECTED_LOOPBACK_CONNECTS)
+    _UNEXPECTED_LOOPBACK_CONNECTS.clear()
+    if reached:
+        pytest.fail(
+            "network edge reached without a fake — Connected to a loopback port no socket in this "
+            f"test process binds or reached an unfaked edge: {', '.join(reached)}. "
+            "Fake the service at its edge, or refuse it through `refusing_port`.",
+            pytrace=False,
+        )
+
+
+@contextmanager
+def _bound_refusing_socket() -> Iterator[int]:
+    """Bind a loopback port and never listen on it, so the kernel refuses every connect to it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        yield sock.getsockname()[1]
+
+
+@pytest.fixture
+def refusing_port(prevent_external_network_calls: None) -> Iterator[int]:
+    """A loopback port whose every connect is refused: the double of a service that is down.
+
+    The test binds it, so the network guard lets connects through and the kernel refuses them.
+    """
+    with _bound_refusing_socket() as port:
+        yield port
+
+
+@pytest.fixture(scope="session")
+def unserved_side_channel_port(prevent_external_network_calls: None) -> Iterator[int]:
+    """The refusing port the floor's config names for telemetry export and the Valkey cache.
+
+    Both are best-effort side channels the code under test survives without, and every test
+    reaches them, so the floor binds one port for the run that refuses them as an unserved
+    workstation does. A test that checks either channel installs its own double.
+    """
+    with _bound_refusing_socket() as port:
+        yield port
 
 
 @pytest.fixture
@@ -218,19 +622,25 @@ def public_dns(monkeypatch: pytest.MonkeyPatch) -> str:
     guarded = socket.getaddrinfo
 
     def resolve(host, port, *args, **kwargs):
-        try:
+        name = host.decode() if isinstance(host, bytes) else str(host)
+        flags = kwargs.get("flags", args[2] if len(args) >= 3 else 0) or 0
+        if (
+            host is None
+            or bool(flags & socket.AI_NUMERICHOST)
+            or _is_loopback(name)
+            or _is_numeric_host(host, _ORIG_GETADDRINFO)
+        ):
             return guarded(host, port, *args, **kwargs)
-        except socket.gaierror:
-            number = int(port) if isinstance(port, int) or str(port or "").isdigit() else 0
-            return [
-                (
-                    socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    socket.IPPROTO_TCP,
-                    "",
-                    (address, number),
-                )
-            ]
+        number = int(port) if isinstance(port, int) or str(port or "").isdigit() else 0
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (address, number),
+            )
+        ]
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     return address
@@ -316,12 +726,11 @@ def reset_dry_run_state():
     typer.rich_utils.FORCE_TERMINAL = None
     os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
-    dry_run_state.mark_dry_run_invocation(False)
-    console_module._CONSOLE = None
-    console_module._STDERR_CONSOLE = None
+    dry_run_state.reset_dry_run_state()
+    console_module.reset_console()
     yield
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
-    dry_run_state.mark_dry_run_invocation(False)
+    dry_run_state.reset_dry_run_state()
 
 
 @pytest.fixture(autouse=True)
@@ -350,7 +759,7 @@ def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger
 
 
 @pytest.fixture
-def tracer() -> Iterator[Any]:
+def tracer(config: Callable[..., Path]) -> Iterator[Any]:
     """An enabled tracer with a clean span buffer and no trace context inherited from the run."""
     from devops_cli.config.constants import (
         CONST_TRACEPARENT_ENV_VAR,
@@ -358,6 +767,7 @@ def tracer() -> Iterator[Any]:
     )
     from devops_cli.telemetry.tracer import clear_span_buffer, get_tracer, reset_tracer
 
+    config(telemetry={"enabled": True})
     environment = dict(os.environ)
     environment.pop(CONST_TRACEPARENT_ENV_VAR, None)
     environment.pop(CONST_TRACEPARENT_HEADER, None)
@@ -422,30 +832,6 @@ def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def isolate_vault_token() -> Iterator[None]:
-    """Keep a Vault token, or any other ephemeral CI secret, from outliving the test that left
-    it (#709).
-
-    Brokers read the `devops vault login` record from the in-process secret store, the
-    process-wide resolver's `VaultProvider` keeps the broker it built, token and all, and `vault
-    leases` keeps its session registry. Each would let a later test reach Vault with a token. The
-    store is cleared in place, since tests hold the dict itself; the registry is dropped only once
-    something has imported the command. Every secret in the store is cleared, not only the Vault
-    record: in a serial run, a `DEVOPS_CLI_HEADLESS_AUTH` secret `test_config_commands` stored
-    reached `test_embedding_benchmark` (#853, one slice of #1310).
-    """
-    yield
-    from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
-    from devops_cli.security.secrets import reset_resolver
-
-    _EPHEMERAL_CI_SECRETS.clear()
-    reset_resolver()
-    vault_commands = sys.modules.get("devops_cli.commands.vault")
-    if vault_commands is not None:
-        vault_commands.reset_lease_registry()
-
-
-@pytest.fixture(autouse=True)
 def isolate_session_bus(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
     """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets.
 
@@ -498,8 +884,8 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
             session_module.reset_github_session()
 
     drop_session()
+    process.reset_github_token()
     monkeypatch.setattr(process, "_github_token", PINNED_GITHUB_TOKEN)
-    monkeypatch.setattr(process, "_github_lookup_failure", None)
     yield PINNED_GITHUB_TOKEN
     drop_session()
 
@@ -632,7 +1018,7 @@ def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
 
 
 @pytest.fixture(autouse=True)
-def isolate_keyring_backends() -> Iterator[None]:
+def isolate_keyring_backends(deny_real_keyring: None) -> Iterator[None]:
     """Unregister the keyring backend classes a test defines and restore keyring's chosen backend,
     so no test's fake backend becomes a later test's keyring (`tests/keyring_isolation.py`)."""
     from tests.keyring_isolation import keyring_backends_restored
@@ -642,8 +1028,15 @@ def isolate_keyring_backends() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG."""
+def isolate_devops_cli_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
+) -> Iterator[Path]:
+    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG.
+
+    Telemetry export is off by default; when a test opts in through `config`, export goes to the
+    floor's refusing port, as the Valkey cache does. Qdrant's address is one no test binds, so a
+    test that reaches Qdrant without a double fails.
+    """
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
@@ -652,62 +1045,88 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     test_config_dir = (tmp_path / ".test_config").resolve()
     test_config_dir.mkdir(parents=True, exist_ok=True)
     test_config = test_config_dir / "config.yaml"
+    side_channel = f"127.0.0.1:{unserved_side_channel_port}"
     test_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        f"telemetry:\n  enabled: false\n  endpoint: http://{side_channel}\n"
         "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
-        "qdrant:\n  url: http://localhost:6333\n",
+        "qdrant:\n  url: http://localhost:6333\n"
+        f"valkey:\n  host: {side_channel}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
-    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", f"http://{side_channel}")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     yield test_config
     reset_settings_cache()
     reset_tracer()
 
 
-@pytest.fixture(autouse=True, scope="session")
-def guard_live_rag_data() -> None:
-    """Ensure no test ever interacts with or mutates live Qdrant endpoints."""
-    from qdrant_client import QdrantClient as NativeQdrantClient
+def _deep_merge_config(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
+    """Recursively merge `updates` into a copy of `base`."""
+    merged = dict(base)
+    for key, value in updates.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            merged[key] = _deep_merge_config(dict(merged[key]), value)
+        else:
+            merged[key] = value
+    return merged
 
-    from devops_cli.ai.rag.qdrant import QdrantClient
 
-    orig_init = QdrantClient.__init__
-    orig_native_init = NativeQdrantClient.__init__
+@pytest.fixture
+def config(isolate_devops_cli_config: Path) -> Callable[..., Path]:
+    """Write overrides into the per-test `config.yaml` and reset the settings cache (#1310)."""
+    import yaml
 
-    cfg_domain = ""
-    try:
-        from devops_cli.config.settings import load_settings
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.telemetry.tracer import reset_tracer
 
-        s = load_settings()
-        cfg_domain = (getattr(getattr(s, "k8s", None), "domain", None) or "").strip().lower()
-    except Exception:
-        pass
+    def apply(overrides: Mapping[str, Any] | None = None, **sections: Any) -> Path:
+        current = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8")) or {}
+        combined: dict[str, Any] = {}
+        if overrides:
+            combined = _deep_merge_config(combined, overrides)
+        if sections:
+            combined = _deep_merge_config(combined, sections)
+        updated = _deep_merge_config(current, combined)
+        isolate_devops_cli_config.write_text(
+            yaml.safe_dump(updated, sort_keys=False), encoding="utf-8"
+        )
+        reset_settings_cache()
+        reset_tracer()
+        return isolate_devops_cli_config
 
-    def guarded_init(
-        self, base_url: str = "http://localhost:6333", *args: Any, **kwargs: Any
-    ) -> None:
-        url_str = str(base_url).lower()
-        if cfg_domain and cfg_domain in url_str:
-            raise RuntimeError(
-                f"Test attempted to connect to live Qdrant endpoint: {base_url}. "
-                "Tests must use localhost, example.com, or mocks."
-            )
-        orig_init(self, base_url, *args, **kwargs)
+    return apply
 
-    def guarded_native_init(self, *args: Any, **kwargs: Any) -> None:
-        raw_url = kwargs.get("url") or (args[0] if args else "")
-        url_str = str(raw_url).lower()
-        if cfg_domain and cfg_domain in url_str:
-            raise RuntimeError(
-                f"Test attempted to connect to live Qdrant endpoint: {raw_url}. "
-                "Tests must use localhost, example.com, or mocks."
-            )
-        orig_native_init(self, *args, **kwargs)
 
-    QdrantClient.__init__ = guarded_init
-    NativeQdrantClient.__init__ = guarded_native_init
+@pytest.fixture
+def cli() -> Callable[..., Any]:
+    """Run `devops <args>` in process through `devops_cli.main.app` with the floor's terminal settings (#1310)."""
+    from typer.testing import CliRunner
+
+    from devops_cli.main import app
+
+    runner = CliRunner(env=_TERMINAL_ENV)
+
+    def invoke(
+        *args: str | Sequence[str],
+        input: str | bytes | None = None,
+        env: Mapping[str, str | None] | None = None,
+        catch_exceptions: bool = True,
+    ) -> Any:
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            argv = [str(item) for item in args[0]]
+        else:
+            argv = [str(item) for item in args]
+        merged_env = {**_TERMINAL_ENV, **(env or {})}
+        return runner.invoke(
+            app,
+            argv,
+            input=input,
+            env=merged_env,
+            catch_exceptions=catch_exceptions,
+        )
+
+    return invoke
 
 
 @pytest.fixture
@@ -853,40 +1272,15 @@ def review_history(tmp_path: Path, write_review_session: Callable[..., Path]) ->
 
 
 @pytest.fixture
-def tmp_ssh_dir(tmp_path: Path) -> Path:
-    ssh_dir = tmp_path / ".ssh"
-    ssh_dir.mkdir()
-    return ssh_dir
-
-
-@pytest.fixture
-def tmp_repos_dir(tmp_path: Path) -> Path:
-    repos_dir = tmp_path / "repos"
-    repos_dir.mkdir()
-    return repos_dir
-
-
-@pytest.fixture
 def mock_keyring():
-    with (
-        patch("keyring.get_password", return_value=None),
-        patch("keyring.set_password"),
-    ):
-        yield
+    """Install a fresh in-memory FakeKeyring for the test (#1310)."""
+    import keyring
 
+    from tests.cluster_secret_fakes import FakeKeyring
 
-@pytest.fixture
-def mock_settings(tmp_path: Path):
-    settings = MagicMock()
-    settings.repos.base_dir = tmp_path / "repos"
-    settings.ssh.key_dir = tmp_path / ".ssh"
-    settings.ssh.rotation_days = 90
-    settings.workspace.file = tmp_path / ".code-workspace"
-    settings.github.default_org = None
-    settings.grafana.url = None
-    settings.prometheus.url = None
-    settings.argocd.url = None
-    return settings
+    fake = FakeKeyring()
+    keyring.set_keyring(fake)
+    return fake
 
 
 @contextmanager
@@ -906,18 +1300,10 @@ def docker_engine():
     return _patched_docker_engine
 
 
-@pytest.fixture(autouse=True)
-def reset_docker_engine_singleton():
-    """Guarantee no Engine API socket connection leaks between tests."""
-    from devops_cli.docker.engine import DockerEngineService
-
-    DockerEngineService.reset_instance()
-    yield
-    DockerEngineService.reset_instance()
-
-
 @pytest.fixture
-def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def docker_endpoint_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
+):
     """Provide an isolated environment for Docker endpoint resolution tests (#1108)."""
     import hashlib
     import json
@@ -941,7 +1327,7 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     endpoint_config = tmp_path / "devops_endpoint_config.yaml"
     endpoint_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        f"telemetry:\n  enabled: false\n  endpoint: http://127.0.0.1:{unserved_side_channel_port}\n"
         "ai:\n  allow_private_network: false\n  rag:\n    enabled: false\n"
         "qdrant:\n  url: http://localhost:6333\n",
         encoding="utf-8",
@@ -984,12 +1370,33 @@ def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_settings_cache()
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register `pytester` so subpackage test modules such as `tests/invariants/` can use it."""
+    if not config.pluginmanager.has_plugin("pytester"):
+        config.pluginmanager.import_plugin("pytester")
+
+
+def _missing_live_binary(item: pytest.Item) -> str | None:
+    """Return the first `@pytest.mark.live` binary missing from PATH, or None."""
+    import shutil
+
+    for marker in item.iter_markers("live"):
+        for raw_binary in marker.args:
+            binary = str(raw_binary)
+            if shutil.which(binary) is None and not Path(binary).is_file():
+                return binary
+    return None
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832, #1337)."""
+    """Skip live bubblewrap and `@pytest.mark.live(...)` tests where the binary is not installed (#832, #1310, #1337)."""
     from devops_cli.sandbox.host import HostSandbox
 
-    if not HostSandbox().is_available():
-        skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
-        for item in items:
-            if "bwrap" in item.keywords:
-                item.add_marker(skip_bwrap)
+    bwrap_available = HostSandbox().is_available()
+    skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
+    for item in items:
+        if not bwrap_available and "bwrap" in item.keywords:
+            item.add_marker(skip_bwrap)
+        missing = _missing_live_binary(item)
+        if missing is not None:
+            item.add_marker(pytest.mark.skip(reason=f"{missing} is not installed"))

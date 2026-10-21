@@ -1,3 +1,17 @@
+---
+applies_to:
+  - "pkg:pypi/opentelemetry-api@1.44.*"
+sources:
+  - "https://opentelemetry.io/"
+  - "https://www.jaegertracing.io/"
+reviewed: "2026-10-15"
+tags:
+  - "opentelemetry"
+  - "jaeger"
+  - "tracing"
+  - "observability"
+---
+
 # Knowledge Base: OpenTelemetry & Jaeger (Distributed Tracing & APM)
 
 ## 1. Overview & Purpose

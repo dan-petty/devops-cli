@@ -20,6 +20,7 @@ from devops_cli.ai.retries import (
     normalize_agent_retries,
     wait_retry_after,
 )
+from tests.support.fakes.clock import ClockFake
 
 
 class TestPydanticAIRetriesSubsystem:
@@ -118,7 +119,7 @@ class TestPydanticAIRetriesSubsystem:
         assert wait_seconds == 2.5
         fallback.assert_called_once_with(mock_state)
 
-    def test_httpx2_tenacity_transport_sync_retry(self) -> None:
+    def test_httpx2_tenacity_transport_sync_retry(self, clock: ClockFake) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on transient 503."""
         attempts = 0
 
@@ -132,18 +133,21 @@ class TestPydanticAIRetriesSubsystem:
 
         transport = create_retry_transport(
             max_attempts=3,
-            min_wait=0.001,
-            max_wait=0.01,
+            min_wait=1.0,
+            max_wait=10.0,
             wrapped=FlakyTransport(),
         )
         with httpx2.Client(transport=transport) as client:
             resp = client.get("https://example.com/ai")
-            assert resp.status_code == 200
-            assert resp.json() == {"result": "recovered"}
-            assert attempts == 2
+            assert (resp.status_code, resp.json(), attempts, clock.waits) == (
+                200,
+                {"result": "recovered"},
+                2,
+                [1.0],
+            )
 
     @pytest.mark.asyncio
-    async def test_async_httpx2_tenacity_transport_retry(self) -> None:
+    async def test_async_httpx2_tenacity_transport_retry(self, clock: ClockFake) -> None:
         """Verify async AsyncHTTPX2TenacityTransport retries and recovers on transient 429."""
         attempts = 0
 
@@ -152,20 +156,23 @@ class TestPydanticAIRetriesSubsystem:
                 nonlocal attempts
                 attempts += 1
                 if attempts < 2:
-                    return httpx2.Response(429, headers={"retry-after": "0"}, request=request)
+                    return httpx2.Response(429, headers={"retry-after": "3"}, request=request)
                 return httpx2.Response(200, json={"status": "ok"}, request=request)
 
         transport = create_async_retry_transport(
             max_attempts=3,
-            min_wait=0.001,
-            max_wait=0.01,
+            min_wait=1.0,
+            max_wait=10.0,
             wrapped=FlakyAsyncTransport(),
         )
         async with httpx2.AsyncClient(transport=transport) as client:
             resp = await client.get("https://example.com/ai/async")
-            assert resp.status_code == 200
-            assert resp.json() == {"status": "ok"}
-            assert attempts == 2
+            assert (resp.status_code, resp.json(), attempts, clock.waits) == (
+                200,
+                {"status": "ok"},
+                2,
+                [3.0],
+            )
 
     def test_normalize_agent_retries(self) -> None:
         """Verify normalization of diverse retries configurations into standard AgentRetries."""
@@ -188,7 +195,7 @@ class TestPydanticAIRetriesSubsystem:
         r_model = normalize_agent_retries(model_retries)
         assert r_model == {"tools": 5, "output": 3}
 
-    def test_httpx2_tenacity_transport_retries_on_http_524(self) -> None:
+    def test_httpx2_tenacity_transport_retries_on_http_524(self, clock: ClockFake) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on Cloudflare HTTP 524 gateway timeout."""
         attempts = 0
 
@@ -203,13 +210,18 @@ class TestPydanticAIRetriesSubsystem:
 
         transport = create_retry_transport(
             max_attempts=4,
-            min_wait=0.001,
-            max_wait=0.01,
+            min_wait=1.0,
+            max_wait=10.0,
             wrapped=CloudflareTimeoutTransport(),
         )
         with httpx2.Client(transport=transport) as client:
             resp = client.post("https://example.com/v1/chat/completions", json={"prompt": "hi"})
-            assert (resp.status_code, resp.json(), attempts) == (200, {"status": "recovered"}, 3)
+            assert (resp.status_code, resp.json(), attempts, clock.waits) == (
+                200,
+                {"status": "recovered"},
+                3,
+                [1.0, 2.0],
+            )
 
     def test_request_limited_json_rejects_4xx_and_5xx_responses(self) -> None:
         """Verify request_limited_json raises for 4xx and 5xx replies and never parses them."""

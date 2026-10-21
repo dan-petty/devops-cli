@@ -10,6 +10,7 @@ resources:
   - gateway/deployment.yaml
   - gateway/service.yaml
   - gateway/networkpolicy.yaml
+  - gateway/servicemonitor.yaml
   - portkey/configmap.yaml
   - portkey/deployment.yaml
   - portkey/service.yaml

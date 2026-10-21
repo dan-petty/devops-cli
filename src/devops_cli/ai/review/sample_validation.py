@@ -21,9 +21,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.ast.engine import TreeSitterEngine
-from devops_cli.ai.review.chunker import find_repo_files
 from devops_cli.ai.review.defects import CorpusScore
 from devops_cli.ai.review.samples import SampleRepository
+from devops_cli.review.targets import find_repo_files
 
 TREE_SITTER = "tree-sitter"
 NO_AST = "none"

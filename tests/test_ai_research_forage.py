@@ -235,3 +235,15 @@ def test_keyword_anchor_resolution(forage_fixture_repo: Path) -> None:
     crawler = ForageCrawler(repo_root=forage_fixture_repo, max_nodes=5, min_score=0.0)
     trail = crawler.forage(anchor="processor", query="telemetry")
     assert trail.anchor == "pkg/processor.py"
+
+
+def test_clean_markdown_href_schemes_and_paths() -> None:
+    """_clean_markdown_href strips external schemes case-insensitively and keeps local paths (#1107)."""
+    from devops_cli.ai.research.edges import _clean_markdown_href
+
+    assert _clean_markdown_href("HTTPS://example.com/page.md") is None
+    assert _clean_markdown_href("http://example.com/page.md") is None
+    assert _clean_markdown_href("MAILTO:dev@example.com") is None
+    assert _clean_markdown_href("ftp://archive.example.com/file") is None
+    assert _clean_markdown_href("#heading") is None
+    assert _clean_markdown_href("doc/guide.md#section?foo=bar") == "doc/guide.md"

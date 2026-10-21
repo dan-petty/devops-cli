@@ -7,6 +7,7 @@ import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
 
@@ -170,7 +171,7 @@ def _clean_markdown_href(href: str) -> str | None:
     if not href:
         return None
     clean = href.strip()
-    if clean.startswith(("#", "http://", "https://", "mailto:", "ftp://")):
+    if clean.startswith("#") or urlsplit(clean).scheme in {"http", "https", "mailto", "ftp"}:
         return None
     clean = clean.split("#", 1)[0].split("?", 1)[0]
     return clean if clean else None

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import math
+import os
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -13,25 +17,70 @@ from pydantic import BaseModel, Field
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_MAX_CONTEXT_TOKENS,
+    DEFAULT_TIKTOKEN_CACHE_ENV_VARS,
+    DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS,
     DEFAULT_TIKTOKEN_MODEL,
 )
 
 logger = logging.getLogger(__name__)
 
 
+def _resolve_tiktoken_cache_dir() -> Path:
+    """Resolve the local directory tiktoken reads its cached BPE files from."""
+    for env_var in DEFAULT_TIKTOKEN_CACHE_ENV_VARS:
+        if configured := os.environ.get(env_var):
+            return Path(configured)
+    candidates = (
+        Path.home() / ".cache" / "tiktoken",
+        *(Path(p) for p in DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS),
+    )
+    for candidate in candidates:
+        if candidate.is_dir() and any(candidate.iterdir()):
+            return candidate
+    return Path(tempfile.gettempdir()) / "data-gym-cache"
+
+
+@contextlib.contextmanager
+def _tiktoken_cache_env(cache_dir: Path) -> Iterator[None]:
+    """Point tiktoken at `cache_dir` for the duration of an encoding load."""
+    if any(os.environ.get(var) for var in DEFAULT_TIKTOKEN_CACHE_ENV_VARS):
+        yield
+        return
+    os.environ["TIKTOKEN_CACHE_DIR"] = str(cache_dir)
+    try:
+        yield
+    finally:
+        os.environ.pop("TIKTOKEN_CACHE_DIR", None)
+
+
 @functools.lru_cache(maxsize=16)
 def _get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
     """Retrieve cached tiktoken encoding instance with graceful fallback."""
+    cache_dir = _resolve_tiktoken_cache_dir()
     try:
         import tiktoken
 
-        try:
-            return tiktoken.encoding_for_model(model)
-        except KeyError, ValueError:
-            return tiktoken.get_encoding("cl100k_base")
+        if not cache_dir.is_dir() or not any(cache_dir.iterdir()):
+            raise FileNotFoundError(f"tiktoken cache directory is missing or empty: {cache_dir}")
+        with _tiktoken_cache_env(cache_dir):
+            try:
+                return tiktoken.encoding_for_model(model)
+            except KeyError, ValueError:
+                return tiktoken.get_encoding("cl100k_base")
     except Exception as exc:
-        logger.debug("Failed to initialize tiktoken encoding for model %s: %s", model, exc)
+        logger.warning(
+            "Failed to load tiktoken encoding for model %s from cache directory %s (%s); "
+            "falling back to character heuristic.",
+            model,
+            cache_dir,
+            exc,
+        )
         return None
+
+
+def reset_tiktoken_encoding_cache() -> None:
+    """Clear cached tiktoken encoding instances."""
+    _get_tiktoken_encoding.cache_clear()
 
 
 def count_tokens(text: str, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:

@@ -545,7 +545,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kube_hpa_labels{cluster=~\"$cluster\"})",
+          "expr": "sum(kube_horizontalpodautoscaler_labels{cluster=~\"$cluster\"})",
           "interval": "",
           "legendFormat": "Horizontal Pod Autoscalers",
           "refId": "J"

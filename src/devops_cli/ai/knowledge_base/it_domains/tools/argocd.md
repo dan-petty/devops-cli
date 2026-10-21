@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:argocd@3.5.*"
+sources:
+  - "https://argo-cd.readthedocs.io/"
+  - "https://github.com/argoproj/argo-cd"
+reviewed: "2026-10-15"
+tags:
+  - "argocd"
+  - "gitops"
+  - "k8s"
+---
+
 # Knowledge Base: ArgoCD (Declarative GitOps Delivery Engine)
 
 ## 1. Overview & Purpose

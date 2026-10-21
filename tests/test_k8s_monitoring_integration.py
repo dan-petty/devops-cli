@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -55,6 +56,7 @@ COREDNS_NAMESPACE = "kube-system"
 COREDNS_METRICS_PORT = 9153
 LOKI_METRICS_PORT = 3100  # Loki's http-metrics port, which the Loki integration scrapes
 DCGM_METRICS_PORT = 9400
+ARGOCD_METRICS_PORTS = (8082, 8083, 8084, 9121)
 
 
 def _k8s_yaml(relative: str) -> Any:
@@ -153,6 +155,7 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "kube_pod_container_status_terminated",
         "kube_pod_container_status_waiting",
         "kube_deployment_status_replicas_unavailable",
+        "kube_horizontalpodautoscaler_labels",
     }
 
     assert (required_cadvisor.issubset(cadvisor_inc), required_ksm.issubset(ksm_inc)) == (
@@ -261,6 +264,7 @@ def test_each_alloy_collector_runs_in_one_controller_preset() -> None:
             "alloy-metrics": ["statefulset"],
             "alloy-singleton": ["singleton"],
             "alloy-logs": ["daemonset"],
+            "alloy-profiles": ["daemonset"],
         },
         ["singleton"],
         False,
@@ -347,21 +351,63 @@ def test_otel_collector_is_scraped_once_through_its_pod_annotations() -> None:
 
 
 def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
-    """Alloy's prometheus.receive_http serves only POST /api/v1/metrics/write, on the receiver
-    feature's port (9090 in k8s-monitoring 4.5.2). It answers 404 on /api/v1/write, and the
-    collector drops every devops-cli point as a permanent error (#829)."""
+    """The OTel collector remote-writes directly to Prometheus server in one hop (#1132).
+
+    Avoids two-hop Alloy path where one late CLI sample poisons unrelated cluster metrics batches.
+    """
     with open(K8S_DIR / "otel" / "values.yaml", encoding="utf-8") as f:
         otel = yaml.safe_load(f)
     with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
-        receiver = yaml.safe_load(f)["prometheusMetricsReceiver"]
+        k8s_mon = yaml.safe_load(f)
+    with open(K8S_DIR / "monitoring" / "prometheus-values.yaml", encoding="utf-8") as f:
+        prom = yaml.safe_load(f)
 
-    endpoint = urlsplit(otel["config"]["exporters"]["prometheusremotewrite"]["endpoint"])
-    assert (receiver.get("enabled"), endpoint.hostname, endpoint.port, endpoint.path) == (
-        True,
-        f"k8s-monitoring-{receiver['collector']}.monitoring.svc.cluster.local",
-        receiver.get("port", 9090),
-        "/api/v1/metrics/write",
+    # 1. prometheus_remote_write is the only metrics exporter and carries cluster label
+    metrics_exporters = otel["config"]["service"]["pipelines"]["metrics"]["exporters"]
+    assert metrics_exporters == ["prometheus_remote_write"]
+    prw = otel["config"]["exporters"]["prometheus_remote_write"]
+    endpoint = urlsplit(prw["endpoint"])
+    assert (endpoint.hostname, endpoint.port, endpoint.path) == (
+        "prometheus-server.monitoring.svc.cluster.local",
+        9090,
+        "/api/v1/write",
     )
+    cluster_name = k8s_mon["cluster"]["name"]
+    assert prw.get("external_labels", {}).get("cluster") == cluster_name
+    assert prw.get("translation_strategy") == "UnderscoreEscapingWithoutSuffixes"
+
+    # 2. image.tag is absent
+    assert "tag" not in otel.get("image", {})
+
+    # 3. Prometheus server flags & tsdb out-of-order window
+    server_cfg = prom.get("server", {})
+    assert server_cfg.get("tsdb", {}).get("out_of_order_time_window") == "10m"
+    assert "web.enable-remote-write-receiver" in server_cfg.get("extraArgs", {})
+
+    # 4. prometheusMetricsReceiver is not enabled
+    assert not k8s_mon.get("prometheusMetricsReceiver", {}).get("enabled", False)
+
+    # 5. jaeger, zipkin, prometheus receivers are null
+    receivers = otel["config"]["receivers"]
+    assert receivers.get("jaeger") is None
+    assert receivers.get("zipkin") is None
+    assert receivers.get("prometheus") is None
+    assert "otlp" in receivers
+
+    # 6. debug is absent from every pipeline and exporters
+    assert "debug" not in otel["config"].get("exporters", {})
+    for pipe_name, pipe in otel["config"]["service"]["pipelines"].items():
+        assert "debug" not in pipe.get("exporters", []), f"debug exporter present in {pipe_name}"
+
+    # 7. memory_limiter percentage settings are null
+    mem_limiter = otel["config"]["processors"]["memory_limiter"]
+    assert mem_limiter.get("limit_percentage") is None
+    assert mem_limiter.get("spike_limit_percentage") is None
+
+    # 8. unused ports are disabled
+    ports = otel.get("ports", {})
+    for p in ("jaeger-compact", "jaeger-thrift", "jaeger-grpc", "zipkin"):
+        assert ports.get(p, {}).get("enabled") is False, f"port {p} not disabled"
 
 
 # Services declared in plain manifests that sit in a namespace where a Helm release installs.
@@ -542,6 +588,7 @@ class _Pods:
 
 def _repo_scrape_sources() -> dict[str, Any]:
     """The values and manifests that decide what scrapes each annotated component."""
+    valkey_docs = list(yaml.safe_load_all((K8S_DIR / "llm/valkey.yaml").read_text("utf-8")))
     return {
         "prometheus": _k8s_yaml("monitoring/prometheus-values.yaml"),
         "k8s-monitoring": _k8s_monitoring_values(),
@@ -550,7 +597,21 @@ def _repo_scrape_sources() -> dict[str, Any]:
         "loki": _k8s_yaml("logging/loki-values.yaml"),
         "cloudflared": _k8s_yaml("cloudflared/deployment.yaml"),
         "roadmap-service": _k8s_yaml("devops/roadmap-service/deployment.yaml"),
+        "argocd": _k8s_yaml("argocd/values.yaml"),
+        "valkey": next(
+            d for d in valkey_docs if isinstance(d, dict) and d.get("kind") == "Deployment"
+        ),
+        "registry": _k8s_yaml("registry/deployment.yaml"),
     }
+
+
+def _argocd_monitored(argocd: dict[str, Any]) -> bool:
+    """Whether Argo CD's controller, server, repoServer, and Valkey exporter ServiceMonitors are on (#551)."""
+    return all(
+        argocd.get(comp, {}).get("metrics", {}).get("enabled") is True
+        and argocd.get(comp, {}).get("metrics", {}).get("serviceMonitor", {}).get("enabled") is True
+        for comp in ("controller", "server", "repoServer", "redis")
+    ) and (argocd.get("redis", {}).get("exporter", {}).get("enabled") is True)
 
 
 def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
@@ -561,10 +622,18 @@ def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
 
 
 def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
-    """The components the server's pod discovery scraped before #1130, and DCGM."""
+    """The components the server's pod discovery scraped before #1130, DCGM, and #551's additions."""
     return {
         "cloudflared": _deployment_pods(sources["cloudflared"]),
         "roadmap-service": _deployment_pods(sources["roadmap-service"]),
+        "valkey": _deployment_pods(sources["valkey"]),
+        "registry": _deployment_pods(sources["registry"]),
+        "argocd": _Pods(
+            _argo_namespace("argocd"),
+            {"app.kubernetes.io/part-of": "argocd"},
+            {},
+            chart_monitor=_argocd_monitored(sources["argocd"]),
+        ),
         "alertmanager": _Pods(
             _argo_namespace("prometheus"),
             ALERTMANAGER_POD_LABELS,
@@ -590,13 +659,24 @@ def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
     }
 
 
+def _selector_matches(selectors: dict[str, str | list[str]], labels: dict[str, str]) -> bool:
+    """Whether pod labels match an integration's labelSelectors (string or list of strings)."""
+    return all(
+        labels.get(key) in (values if isinstance(values, list) else [values])
+        for key, values in selectors.items()
+    )
+
+
 def _scrape_owners(sources: dict[str, Any]) -> dict[str, list[str]]:
     """Every scrape that claims each annotated component."""
     server_namespaces = _server_pod_namespaces(sources["prometheus"])
     values = sources["k8s-monitoring"]
     autodiscovery = values["annotationAutodiscovery"]
     instances = [
-        (f"integrations/{kind}", instance["labelSelectors"])
+        (
+            f"integrations/{kind}",
+            instance.get("labelSelectors", {"app.kubernetes.io/name": instance["name"]}),
+        )
         for kind, integration in values["integrations"].items()
         if isinstance(integration, dict)
         for instance in integration.get("instances", [])
@@ -614,7 +694,7 @@ def _scrape_owners(sources: dict[str, Any]) -> dict[str, list[str]]:
         return [
             *(["kubernetes-pods"] if server else []),
             *(["annotationAutodiscovery"] if autodiscovered else []),
-            *(owner for owner, selectors in instances if selectors.items() <= pods.labels.items()),
+            *(owner for owner, selectors in instances if _selector_matches(selectors, pods.labels)),
             *(["chart ServiceMonitor"] if pods.chart_monitor else []),
         ]
 
@@ -627,6 +707,9 @@ def test_each_annotated_component_has_one_scrape_owner() -> None:
     assert _scrape_owners(_repo_scrape_sources()) == {
         "cloudflared": ["annotationAutodiscovery"],
         "roadmap-service": ["annotationAutodiscovery"],
+        "valkey": ["annotationAutodiscovery"],
+        "registry": ["annotationAutodiscovery"],
+        "argocd": ["chart ServiceMonitor"],
         "alertmanager": ["annotationAutodiscovery"],
         "otel-collector": ["kubernetes-pods"],
         "loki": ["integrations/loki"],
@@ -738,6 +821,7 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
             for pods in _annotated_components(_repo_scrape_sources()).values()
             if "prometheus.io/port" in pods.annotations
         ),
+        *((_argo_namespace("argocd"), port) for port in ARGOCD_METRICS_PORTS),
         (_argo_namespace("traefik"), traefik_port),
         (COREDNS_NAMESPACE, COREDNS_METRICS_PORT),
         (_argo_namespace("loki"), LOKI_METRICS_PORT),
@@ -749,14 +833,20 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
     }
 
     assert sorted(counts.items()) == [
+        (("argocd", 8082), 1),
+        (("argocd", 8083), 1),
+        (("argocd", 8084), 1),
+        (("argocd", 9121), 1),
         (("cloudflared", 2000), 1),
         (("devops", 8000), 1),
         (("kube-system", 9100), 1),
         (("kube-system", 9153), 1),
+        (("llm", 9121), 1),
         (("logging", 3100), 1),
         (("monitoring", 9093), 1),
         (("monitoring", 9400), 1),
         (("otel", 8888), 1),
+        (("registry", 5001), 1),
     ]
 
 
@@ -797,3 +887,138 @@ def test_otel_and_logging_network_policies_allow_telemetry_flow() -> None:
         _egress_rules_to(otel_egress, "otel", "logging", 3100) > 0,
         _egress_rules_to(otel_egress, "otel", "monitoring", 9090) > 0,
     ) == (True, True, True)
+
+
+LOG_LEVEL_KEYS = {"log.level", "logLevel", "log_level"}
+
+
+def _dashboard_configmap_namespaces() -> list[str | None]:
+    """The target namespace of every `grafana_dashboard`-labelled ConfigMap kustomizations generate."""
+    namespaces: list[str | None] = []
+    for path in sorted(K8S_DIR.rglob("kustomization.yaml")):
+        kustomization = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        shared_labels = kustomization.get("generatorOptions", {}).get("labels", {})
+        for generator in kustomization.get("configMapGenerator", []):
+            labels = {**shared_labels, **generator.get("options", {}).get("labels", {})}
+            if "grafana_dashboard" in labels:
+                namespaces.append(kustomization.get("namespace", generator.get("namespace")))
+    return namespaces
+
+
+def test_loki_pyroscope_and_grafana_turn_off_unused_chart_defaults() -> None:
+    """Loki canary, Pyroscope debug logging, and Grafana's cluster-wide sidecar watch stay off (#1133).
+
+    Loki keeps retention enabled with `deletion_mode: disabled` (#550), Pyroscope logs at `info`
+    rather than the chart's `debug` default, and Grafana disables its datasource sidecar and scopes
+    its dashboard sidecar and RBAC to ConfigMaps in `monitoring`, where every generated dashboard
+    ConfigMap lives.
+    """
+    loki = _k8s_yaml("logging/loki-values.yaml")
+    pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
+    grafana = _k8s_yaml("monitoring/grafana-values.yaml")
+    dashboards_sc = grafana.get("sidecar", {}).get("dashboards", {})
+    datasources_sc = grafana.get("sidecar", {}).get("datasources", {})
+    dashboard_namespaces = _dashboard_configmap_namespaces()
+
+    assert (
+        loki.get("lokiCanary", {}).get("enabled"),
+        loki["loki"]["limits_config"]["deletion_mode"],
+        loki["loki"]["compactor"]["retention_enabled"],
+        pyroscope.get("pyroscope", {}).get("extraArgs", {}).get("log.level"),
+        datasources_sc.get("enabled"),
+        (dashboards_sc.get("searchNamespace"), dashboards_sc.get("resource")),
+        grafana.get("rbac", {}).get("namespaced"),
+        (bool(dashboard_namespaces), set(dashboard_namespaces)),
+    ) == (
+        False,
+        "disabled",
+        True,
+        "info",
+        False,
+        ("monitoring", "configmap"),
+        True,
+        (True, {"monitoring"}),
+    )
+
+
+def _debug_log_settings(node: Any, path: str = "") -> list[str]:
+    """Every log-level key or `-log.level=debug` argument under `node` set to `debug`."""
+    if isinstance(node, dict):
+        return [
+            *(
+                f"{path}.{key}={value}" if path else f"{key}={value}"
+                for key, value in node.items()
+                if key in LOG_LEVEL_KEYS and str(value).strip().lower() == "debug"
+            ),
+            *(
+                hit
+                for key, value in node.items()
+                for hit in _debug_log_settings(value, f"{path}.{key}" if path else str(key))
+            ),
+        ]
+    if isinstance(node, list):
+        return [
+            hit
+            for index, item in enumerate(node)
+            for hit in _debug_log_settings(item, f"{path}[{index}]")
+        ]
+    if isinstance(node, str) and node.strip().lstrip("-").lower() == "log.level=debug":
+        return [f"{path}={node}"]
+    return []
+
+
+def test_no_stack_values_file_sets_a_debug_log_level() -> None:
+    """No values file the stack lifecycle installs sets a debug log level (#1133)."""
+    values_by_release = {
+        release["name"]: yaml.safe_load(Path(release["values"]).read_text(encoding="utf-8")) or {}
+        for releases in _HELM_RELEASES_BY_STACK.values()
+        for release in releases
+    }
+    debug_in_repo = {
+        name: hits for name, doc in values_by_release.items() if (hits := _debug_log_settings(doc))
+    }
+    mutated_pyroscope = {
+        **values_by_release["pyroscope"],
+        "pyroscope": {
+            **values_by_release["pyroscope"].get("pyroscope", {}),
+            "extraArgs": {"log.level": "debug"},
+        },
+    }
+
+    assert (
+        debug_in_repo,
+        _debug_log_settings(mutated_pyroscope),
+        _debug_log_settings({"extraArgs": ["-log.level=debug"]}),
+    ) == (
+        {},
+        ["pyroscope.extraArgs.log.level=debug"],
+        ["extraArgs[0]=-log.level=debug"],
+    )
+
+
+def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
+    """Profiling runs on `k8s-monitoring`'s `alloy-profiles` DaemonSet instead of Pyroscope's
+    bundled Alloy subchart (#1134)."""
+    pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
+    values = _k8s_monitoring_values()
+    destination = values["destinations"]["localPyroscope"]
+    endpoint = urlsplit(destination["url"])
+    profiling = values["profiling"]
+    collector = values["collectors"]["alloy-profiles"]
+
+    assert (
+        pyroscope["alloy"],
+        (destination["type"], endpoint.hostname, endpoint.port),
+        (profiling["enabled"], profiling["collector"], profiling["ebpf"], profiling["pprof"]),
+        collector["presets"],
+    ) == (
+        {"enabled": False},
+        ("pyroscope", "pyroscope.monitoring.svc.cluster.local", 4040),
+        (
+            True,
+            "alloy-profiles",
+            {"enabled": True, "targetingScheme": "all"},
+            {"enabled": True},
+        ),
+        ["daemonset", "privileged"],
+    )

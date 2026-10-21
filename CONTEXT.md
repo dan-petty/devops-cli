@@ -133,8 +133,18 @@ _Avoid_: queue, track, worker
 ## Code review
 
 **Finding**:
-A reviewer's claim that something in the code is wrong, with where it is and the evidence for it.
-_Avoid_: issue, alert, problem
+A defect at a location in the reviewed commit, reported by one of these producers: a tool, an advisory, a confirmed version fact, a rule-pack rule or a replayed sandbox observation. It carries the anchor that shows where it came from.
+_Avoid_: claim, issue, alert
+
+**Anchor**:
+The record that ties a finding to its producer: a tool run's result, an advisory, a fact, a rule-pack rule or a replayed observation.
+
+**State**:
+Open, suppressed, fixed or confirmed.
+- Tool runs open and fix findings.
+- Reviewed project configuration suppresses them.
+- Only a person's valid verdict or a replayed observation confirms one.
+_Avoid_: status, verdict
 
 **Verdict**:
 The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check or a person; sessions saved before #1150 also record the verifier model or an agent.
@@ -144,9 +154,18 @@ _Avoid_: status, resolution
 One review run: what was reviewed, every finding it raised and their verdicts.
 _Avoid_: review run, report
 
-**Known false positive**:
-A kind of finding reviewers keep raising wrongly, recorded once as a `.devops/review.toml` suppression with its reason and an expiry.
-_Avoid_: common hallucination, hallucination entry
+**Suppression**:
+A rule, with a reason and an expiry, that hides a finding. It lives in project configuration read at the base revision, or in an inline marker that already exists at the base revision.
+_Avoid_: known false positive, hallucination entry
+
+**Coverage gap**:
+A file a tool did not scan, or a reference item a review or model job needed and did not get, stated in the review.
+
+**Lead**:
+An unconfirmed suggestion from a model or a matcher. It is never a finding.
+
+**Rule pack**:
+devops-cli's own Semgrep rules. Each has passing `ruleid:`/`ok:` tests, and a rule joins only when a person merges it.
 
 ## Verification
 

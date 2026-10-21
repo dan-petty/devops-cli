@@ -16,6 +16,8 @@ from devops_cli.lang import MESSAGES
 from devops_cli.main import _COMMAND_SPECS
 from devops_cli.main import app as main_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 @pytest.fixture
 def runner() -> CliRunner:
@@ -35,10 +37,17 @@ def test_rag_query_dry_run(runner: CliRunner) -> None:
     assert (result.exit_code, "devops ai rag query" in result.output) == (0, True)
 
 
-def test_rag_status_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rag_status_command(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, refusing_port: int
+) -> None:
+    """The status table lists each collection; Qdrant refuses the sample reads behind its model and
+    digest columns, through `refusing_port`, and their retries wait at once."""
     from devops_cli.ai.rag.qdrant import QdrantClient
 
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
+    backoffs: list[float] = []
+    monkeypatch.setattr("time.sleep", backoffs.append)
     monkeypatch.setattr(QdrantClient, "is_alive", lambda self: True)
     monkeypatch.setattr(QdrantClient, "list_collections", lambda self: ["devops_code"])
     monkeypatch.setattr(
@@ -52,6 +61,7 @@ def test_rag_status_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) 
     assert "RAG Vector Store Status" in result.output
     assert "devops_code" in result.output
     assert "42" in result.output
+    assert backoffs == [0.5, 1.0]
 
 
 def test_rag_clear_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

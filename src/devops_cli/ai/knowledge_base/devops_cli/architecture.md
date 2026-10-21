@@ -6,7 +6,7 @@ This document provides foundational context and technical specifications for the
 
 ## 1. Architectural Philosophy & Principles
 
-The DevOps CLI is designed as an agentic workstation automation platform, unified developer CLI, and multi-persona AI code reviewer built with modern Python 3.14+ runtime capabilities.
+The DevOps CLI is designed as an agentic workstation automation platform, unified developer CLI, and automated code review platform built with modern Python 3.14+ runtime capabilities.
 
 ```
                      ┌──────────────────────────────────────────────┐
@@ -18,7 +18,7 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
                ▼                            ▼                            ▼
    ┌───────────────────────┐   ┌───────────────────────────┐   ┌───────────────────────┐
    │    AI Engine Layer    │   │  Workstation Operations   │   │  Core Foundation      │
-   │  - Multi-Persona Rev  │   │  - K8s / Helm / Minikube  │   │  - Settings & Keyring │
+   │  - Code Review Engine │   │  - K8s / Helm / Minikube  │   │  - Settings & Keyring │
    │  - RAG & Vector Store │   │  - OpenTofu / Terraform   │   │  - Output & Dry-Run   │
    │  - LLM Clients/Spans  │   │  - TLS & SSH Crypto Mgmt  │   │  - Language Catalogs  │
    │  - Prompt Tasks (.md) │   │  - Telemetry & Tracing    │   │  - Process Execution  │
@@ -39,9 +39,9 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
 
 ---
 
-## 2. Multi-Persona Code Review Engine & Stage Pipeline
+## 2. Code Review Engine & Stage Pipeline
 
-The multi-persona code review pipeline orchestrates specialized AI reviewer personas and static analysis tools across target diffs and workspaces:
+The automated code review pipeline orchestrates tool-anchored inspection and group model analysis across target diffs and workspaces:
 
 ```
                           ┌───────────────────────────┐
@@ -61,19 +61,14 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Multi-Persona LLM Inspection (Concurrent Workers)                 │
-    │   (DevSecOps, Architect, QA, Auditor, PM, Challenger)             │
-    └───────────────────────────────────┬───────────────────────────────┘
-                                        │
-                                        ▼
-    ┌───────────────────────────────────────────────────────────────────┐
-    │ Finding Re-Ranking & Severity Deduplication                       │
+    │ Group Model Analysis & Admission Filtering                        │
+    │   (Installed rule documentation, symbol/purl grouping)            │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
     │ Consolidated Markdown Report & JSON Payload Export                │
-    │   (<persona>-review.md, summary.md, findings.json, Table)         │
+    │   (review.md, summary.md, findings.json, SARIF, Table)            │
     └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,17 +76,17 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
 Every stage in the review pipeline can be selectively enabled or bypassed via CLI feature flags:
 - `--no-pre-analysis` / `--pre-analysis-only`: Pre-analysis control.
 - `--no-static-scan` / `--static-scan-only`: Static security scan control.
-- `--no-persona-review` / `--persona-review-only`: Persona review control.
-- `--no-reranking` / `--reranking-only`: Re-ranking control.
+- `--no-group-analysis` / `--group-analysis-only`: Group analysis control.
 - `--no-reporting` / `--reporting-only`: Consolidated reporting control.
 
-### Review Personas
+### Chat Personas
+Specialized personas available for interactive conversations via `devops ai chat --persona <name>`:
 - **`devsecops`**: Zero-Trust security, credential exposure, dependency CVEs, SAST rules (Bandit/Trivy), injection vulnerabilities.
 - **`architect`**: Separation of concerns, indentation limits, functional naming, standard library leverage, system scalability.
 - **`pm`**: Product scope alignment, user experience, documentation freshness, release readiness.
 - **`auditor`**: Compliance, license integrity, regulatory hygiene, audit trail logging.
 - **`qa`**: Deterministic test isolation, edge-case coverage, mock boundaries, flaky test mitigation.
-- **`challenger`**: Adversarial challenger that contests other personas' findings.
+- **`challenger`**: Argues against a claim, design, or plan put to it in chat and names the evidence that would settle it.
 
 ---
 

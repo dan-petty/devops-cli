@@ -1,0 +1,6 @@
+id: net-port-table
+valid:
+  - 'port = httpx2.URL(url).origin.port'
+invalid:
+  - 'port = 443 if secure else 80'
+  - 'port = 80 if plain else 443'

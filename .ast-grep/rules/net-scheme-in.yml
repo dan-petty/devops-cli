@@ -1,0 +1,12 @@
+id: net-scheme-in
+language: python
+severity: error
+message: Scheme detected by substring. Read it with urllib.parse.urlsplit(value).scheme.
+rule:
+  any:
+    - pattern: $S in $X
+    - pattern: $S not in $X
+constraints:
+  S:
+    kind: string
+    regex: "://"

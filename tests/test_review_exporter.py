@@ -57,7 +57,7 @@ def test_export_invalidated_feedback_records(tmp_path: Path) -> None:
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record["session_id"] == "session-1"
-    assert record["persona"] == "devsecops"
+    assert record["producer"] == "devsecops"
     assert record["title"] == "SQL Injection Risk"
     assert record["invalidation_reason"] == "Query uses parameterized statement builder"
 

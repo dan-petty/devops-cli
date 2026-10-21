@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -304,3 +306,16 @@ def test_tls_enable_k8s_applies_the_rendered_secret_over_the_live_one(tmp_path: 
         ],
         True,
     )
+
+
+def test_tls_homelab_dry_run_default_ips_are_strings(tmp_path: Path) -> None:
+    """devops tls homelab --dry-run outputs default_ips as a list of strings (#1107)."""
+    result = runner.invoke(app, ["homelab", "--dry-run", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    match = re.search(r"\{.*\}", result.output, re.DOTALL)
+    assert match is not None
+    data = json.loads(match.group(0))
+    default_ips = data["details"]["default_ips"]
+    assert isinstance(default_ips, list)
+    assert all(isinstance(ip, str) for ip in default_ips)
+    assert default_ips == ["127.0.0.1", "::1", "192.168.49.2"]

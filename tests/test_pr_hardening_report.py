@@ -166,14 +166,17 @@ def test_hardening_report_list_merged_prs() -> None:
             "labels": [{"name": "type/security"}],
             "files": [
                 {"path": "src/devops_cli/secrets.py", "additions": 12, "deletions": 3},
-                {"path": "common_hallucinations.json", "additions": 6, "deletions": 0},
+                {"path": ".devops/review.toml", "additions": 6, "deletions": 0},
             ],
         },
         {
             "number": 204,
             "title": "fix: unhardened patch",
             "labels": [],
-            "files": [{"path": "patch.py", "additions": 5, "deletions": 1}],
+            "files": [
+                {"path": "patch.py", "additions": 5, "deletions": 1},
+                {"path": "common_hallucinations.json", "additions": 6, "deletions": 0},
+            ],
         },
     ]
 

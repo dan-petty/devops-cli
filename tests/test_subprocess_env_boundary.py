@@ -28,6 +28,8 @@ from devops_cli.core.process import (
 )
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
+pytestmark = pytest.mark.live("python")
+
 
 def test_build_subprocess_env_allowlist_and_denylist(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -107,6 +109,28 @@ def test_build_subprocess_env_extra_allowed_keys(monkeypatch: pytest.MonkeyPatch
     env = build_subprocess_env(extra_allowed_keys={"SPECIAL_BUILD_TARGET"})
     assert env.get("SPECIAL_BUILD_TARGET") == "linux-amd64"
     assert "UNAPPROVED_VAR" not in env
+
+
+def test_a_child_uv_keeps_the_runners_uv_settings_but_not_its_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `uv run` the gate starts uses the interpreter, cache and Python install directory the
+    CI runner configured for uv, so it keeps the environment `uv sync` built instead of
+    rebuilding it on another Python with an empty cache (#1735). A uv credential is still
+    stripped."""
+    monkeypatch.setenv("UV_PYTHON", "3.14")
+    monkeypatch.setenv("UV_CACHE_DIR", "/runner/_temp/setup-uv-cache")
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", "/runner/_temp/uv-python-dir")
+    monkeypatch.setenv("UV_PUBLISH_TOKEN", "example-token")
+
+    env = build_subprocess_env()
+
+    assert (
+        env.get("UV_PYTHON"),
+        env.get("UV_CACHE_DIR"),
+        env.get("UV_PYTHON_INSTALL_DIR"),
+        "UV_PUBLISH_TOKEN" in env,
+    ) == ("3.14", "/runner/_temp/setup-uv-cache", "/runner/_temp/uv-python-dir", False)
 
 
 def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch) -> None:

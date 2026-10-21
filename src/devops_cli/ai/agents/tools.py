@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     import pydantic_ai.mcp as pydantic_mcp
@@ -153,7 +154,7 @@ class MCPToolset(AbstractToolset):
         **kwargs: Any,
     ) -> None:
         if isinstance(target, str):
-            if target.startswith(("http://", "https://")):
+            if urlsplit(target).scheme in {"http", "https"}:
                 url = target
             else:
                 script_path = target

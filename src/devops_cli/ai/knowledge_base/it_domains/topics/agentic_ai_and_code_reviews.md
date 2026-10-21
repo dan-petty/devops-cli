@@ -1,17 +1,30 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://ollama.com/"
+  - "https://github.com/ollama/ollama"
+reviewed: "2026-10-15"
+tags:
+  - "ai"
+  - "agentic-ai"
+  - "review"
+---
+
 # Knowledge Base Topic: Agentic AI & Automated Code Review Systems
 
 ## 1. Overview & Domain Architecture
 
-Agentic AI systems leverage large language models (LLMs) not merely for text generation, but as reasoning engines capable of multi-step problem solving, deterministic code inspection, closed-loop verification, and grounded domain feedback. In the `devops-cli` ecosystem, Agentic AI powers automated multi-persona code reviews (`devops review`), RAG semantic context indexing (`devops ai rag`), and automated instruction scaffolding (`devops ai agents`).
+Agentic AI systems leverage large language models (LLMs) not merely for text generation, but as reasoning engines capable of multi-step problem solving, deterministic code inspection, closed-loop verification, and grounded domain feedback. In the `devops-cli` ecosystem, Agentic AI powers automated code reviews (`devops review`), RAG semantic context indexing (`devops ai rag`), and automated instruction scaffolding (`devops ai agents`).
 
 ```mermaid
 graph TD
     A[Code Diff / File Path / PR] --> B[Pre-Analysis & Static Scanners]
-    B --> C[Persona Prompt: role, review protocol, conventions, isolation guardrails, RAG chunks]
-    C --> D[Personas: DevSecOps by default; Architect, QA, Auditor, PM with --all]
+    B --> C[Stage Pipeline: Scanners, Rule Packs, Verification]
+    C --> D[Finding-Group Model Analysis]
     D --> E[LLM Inference Engine: Ollama / Claude / OpenAI]
-    E --> F[JSON Repair & Duplicate Consolidation]
-    F --> H[Report: scanner findings capped by path class, persona findings unverified]
+    E --> F[Duplicate Consolidation & Suppression Filtering]
+    F --> H[Report: scanner and rule-pack findings capped by path class]
     H --> I[Verdicts: devops review verify, by a person]
 ```
 
@@ -19,15 +32,15 @@ graph TD
 
 ## 2. Key Concepts & Theoretical Foundations
 
-- **Multi-Persona Code Review**: Code review quality improves substantially when diffs are evaluated from distinct cognitive perspectives rather than a single generic prompt. Personas embody specialized heuristics:
+- **AI Code Review and Group Analysis**: Code review quality improves substantially when static scanner findings, rule packs, and AST analysis are evaluated and synthesized by reasoning models for actionable root-cause insights. Analysis focuses on:
   - **DevSecOps**: CWE compliance, injection vulnerabilities, secret leakage, egress risks, subprocess safety.
-  - **Architect**: SOLID principles, coupling, cohesion, interface stability, strict typing, standard library parsers.
-  - **Auditor**: License obligations, log sanitization, data privacy, compliance standards.
-  - **QA**: Edge cases, exception handling, mock deterministic isolation, flaky test prevention.
-  - **PM**: Requirement completeness, changelog accuracy, documentation integrity.
+  - **Architecture**: SOLID principles, coupling, cohesion, interface stability, strict typing, standard library parsers.
+  - **Compliance & Audit**: License obligations, log sanitization, data privacy, compliance standards.
+  - **QA & Reliability**: Edge cases, exception handling, mock deterministic isolation, flaky test prevention.
+  - **Requirements & Documentation**: Requirement completeness, changelog accuracy, documentation integrity.
 - **Closed-Loop Feedback & Self-Improvement**:
-  - **Verdicts**: No model and no criterion gives a finding its verdict. A persona's finding is reported unverified until a person judges it with `devops review verify`, which labels that session's files and nothing else.
-  - **Persona Independence**: Each selected persona reviews independently, with its own system prompt; no persona agreement or debate is computed, and `challenger` runs only when `--persona challenger` names it.
+  - **Verdicts**: No model and no criterion gives a finding its verdict. A finding is reported unverified until a person judges it with `devops review verify`, which labels that session's files and nothing else.
+  - **Stage Independence**: Static scanners and rule packs execute deterministically; finding-group model analysis synthesizes related findings without hallucinating candidate discoveries.
   - **Known False Positives**: A false positive that recurs is a reviewed `[[suppressions]]` entry in `.devops/review.toml` with a rule, a path, a reason and an expiry; a scanner finding it covers is listed as suppressed and not reported.
   - **Structured Feedback Dataset**: Verdicts are appended to one JSONL feedback dataset, `.data/feedback_dataset.jsonl` (`devops review export-feedback --status ALL`), which `devops ai prompt-eval` counts per labeller. Nothing else reads it.
   - **Lockfile-Aware Dependency Resolution**: Evaluates dependency vulnerability alerts against exact cryptographic package releases resolved from authoritative lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to prevent false alarms on loose manifest ranges (`>=`, `~=`).
@@ -36,7 +49,7 @@ graph TD
   - **Path & Boundary Validation**: Evaluators verify that file operations, release paths, and workspace tools enforce repository containment (`Path.is_relative_to`) to prevent path traversal.
   - **Zero-Trust Secret Verification**: Evaluators confirm that credentials use secure OS Keyring backends (`keyring>=25`) and reject unencrypted plaintext store additions.
   - **Information Exposure, Bounded Exceptions & Network Invariants (CWE-200 / CWE-209 / CWE-400)**: Evaluators verify that exception messages, CLI error output, and logs mask private IP addresses, internal hostnames, and credentials. Structured exception details dictionaries must enforce bounded string length caps ($\le 256$ characters) on caller inputs, public documentation must strictly use RFC 5737 documentation blocks (`192.0.2.0/24`), and token budget loops must maintain linear $O(N)$ execution.
-  - **Knowledge Feedback**: Everything changes through a commit: a recurring false positive becomes a `.devops/review.toml` suppression, a project's review rule goes into its `.devops/review.md`, and a prompt changes when someone edits it. No verdict reaches the RAG index or a later review.
+  - **Knowledge Feedback**: Everything changes through a commit: a recurring false positive becomes a `.devops/review.toml` suppression, a rule goes into `src/devops_cli/review/rules/`, and prompt templates change when someone edits them. No verdict reaches the RAG index or a later review.
 - **Adaptive Two-Axis LLM Routing**:
   - **Complexity Axis**: Dispatches simple tasks (format, summarize) to fast mini/local models and complex architectural synthesis to frontier models.
   - **Freshness Axis**: Dynamically decides whether live web/MCP grounding is required, avoiding redundant search latency and saving up to 92% in inference costs.
@@ -46,7 +59,7 @@ graph TD
 - **Model Dependency Chaos Engineering & Slow-Zone Resilience**:
   - Implements "Chaos Monkey for Models" by testing system workflows against degraded/fallback models to ensure operational continuity when frontier APIs experience downtime or policy changes.
   - Prioritizes complete, synchronized CLI `--help` and documentation so fallback models can pilot complex tasks autonomously.
-- **Context Grounding via RAG**: With RAG enabled, each file's persona prompt carries up to three chunks the RAG index returns for the file's path and key symbols, marked as untrusted context. The conventions themselves (`AGENTS.md` and `.devops/review.md`) are read from the target, not from the index.
+- **Context Grounding via RAG**: RAG semantic search provides relevant context chunks from the repository index for interactive chat sessions and documentation lookups. Project conventions are read directly from target configuration and `AGENTS.md`.
 - **LLM Response Caching & Warm Starting Points**:
   - **Deterministic Caching**: Multi-tiered in-memory and persistent disk caching (`.data/cache/llm/`) hashes model, system instructions, and messages with SHA-256 (`usedforsecurity=False`), eliminating redundant LLM dispatches and reducing review latency to 0ms for unmodified inputs.
   - **Warm Baseline Starting Points**: When refining previous analyses or reviewing modified code diffs, prior cached responses are injected as structured `<starting_point>` baselines. This guides the model to preserve valid conclusions, revise outdated findings, and converge quickly.
@@ -57,15 +70,15 @@ graph TD
 ## 3. Operational Patterns & Workflows in DevOps CLI
 
 ### Prompt Task Isolation
-All system prompts, task instructions and evaluation rubrics are stored in dedicated Markdown files: task prompts under `src/devops_cli/ai/tasks/` (e.g. `review.md`, `code_review_prompt.md`) and each persona's `role.md` and `prompt.md` under `src/devops_cli/ai/personas/<persona>/`. Prompt text is never declared inline in Python code.
+All system prompts, task instructions and evaluation rubrics are stored in dedicated Markdown files under `src/devops_cli/ai/tasks/` and `src/devops_cli/ai/personas/`. Prompt text is never declared inline in Python code.
 
 ### Canonical Instruction Model (`AGENTS.md`)
 AI assistants operate best when provided with a single authoritative source of truth. `devops-cli` establishes `AGENTS.md` at the repository root as the canonical instruction file, while `CLAUDE.md` and `.github/copilot-instructions.md` serve as thin redirection pointers.
 
 ### Common Commands
 ```bash
-# Review active working directory git diff with DevSecOps persona
-devops ai review branch --persona devsecops
+# Review active working directory git diff
+devops ai review branch
 
 # Review an entire target project path
 devops ai review path repos/my-org/my-project
@@ -112,7 +125,7 @@ devops ai rag index docs/
 ## 6. General Standards & Engineering Guidelines
 
 - **Task Prompt Location**: `src/devops_cli/ai/tasks/*.md`.
-- **Persona Identifiers**: `devsecops`, `architect`, `auditor`, `qa`, `pm`, `challenger`.
+- **Chat Persona Identifiers**: `devsecops`, `architect`, `auditor`, `qa`, `pm`, `challenger`.
 - **Finding Schema**: Pydantic models `Finding` and `SavedFinding` (`src/devops_cli/ai/review_schema.py`) with strict typing.
 - **Indentation Limits & Modularity**: Aim for fewer than 6 indentations project-wide; extract complex multi-branch and nested loops into dedicated, single-responsibility functions.
 

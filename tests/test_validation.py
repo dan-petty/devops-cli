@@ -234,6 +234,19 @@ def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch
     with patch("socket.getaddrinfo", return_value=mock_pub_addrinfo):
         _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "test")
 
+    # Default ports 443 and 80 derived from URL scheme via httpx2.URL(url).origin.port
+    resolved_ports: list[int | None] = []
+
+    def _mock_resolve(host: str, port: int | None = None, **_kwargs: object) -> list[Any]:
+        resolved_ports.append(port)
+        return [ipaddress.ip_address("93.184.216.34")]
+
+    with patch("devops_cli.core.validation._resolve_host_ips", side_effect=_mock_resolve):
+        _enforce_non_private_ssrf("https://example.com", "example.com", "https", None, "test")
+        _enforce_non_private_ssrf("http://example.com", "example.com", "http", None, "test")
+
+    assert resolved_ports == [443, 80]
+
 
 def test_validation_edge_cases() -> None:
     """Verify validate_safe_directory_path and validate_session_id."""
@@ -376,7 +389,9 @@ def test_validate_url_egress() -> None:
     assert socket.getdefaulttimeout() == initial_timeout
 
 
-def test_network_guard_blocks_external_socket_calls() -> None:
+def test_network_guard_blocks_external_socket_calls(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify that tests are prevented from making unmocked external socket connections."""
     import socket
 
@@ -388,47 +403,70 @@ def test_network_guard_blocks_external_socket_calls() -> None:
             sock.connect(("192.0.2.1", 80))
     finally:
         sock.close()
+        unexpected_loopback_connects.clear()
 
 
-def test_network_guard_blocks_external_dns_lookups() -> None:
+def test_network_guard_blocks_external_dns_lookups(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify that tests cannot resolve external hostnames, while loopback names still resolve."""
     import socket
 
-    with pytest.raises(socket.gaierror, match="External DNS lookup blocked during test execution"):
-        socket.getaddrinfo("api.osv.dev", 443)
+    try:
+        with pytest.raises(
+            socket.gaierror, match="External DNS lookup blocked during test execution"
+        ):
+            socket.getaddrinfo("api.osv.dev", 443)
+    finally:
+        unexpected_loopback_connects.clear()
     assert socket.getaddrinfo("localhost", 80)
     assert socket.getaddrinfo("127.0.0.1", 80)
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
-def test_network_guard_refuses_loopback_services_the_test_did_not_start(host: str) -> None:
-    """A loopback port the test process does not listen on refuses, even when a service answers.
+def test_network_guard_refuses_and_reports_loopback_services_the_test_did_not_bind(
+    host: str, unexpected_loopback_connects: list[str]
+) -> None:
+    """A loopback port no socket in the test process binds refuses, even when a service answers,
+    and the connect is reported, which fails the test that made it.
 
-    The service listens through the C socket type, as a port-forward in another process does: the
-    kernel accepts connections on a port the guard never saw a test open.
+    The service binds and listens through the C socket type, as a port-forward in another process
+    does: the kernel accepts connections on a port the guard never saw a test bind.
     """
     import _socket
     import errno
     import socket
 
     with socket.socket() as service, socket.socket() as client, socket.socket() as probe:
-        service.bind(("127.0.0.1", 0))
+        _socket.socket.bind(service, ("127.0.0.1", 0))
         _socket.socket.listen(service)
         address = (host, service.getsockname()[1])
-        with pytest.raises(ConnectionRefusedError) as refused:
-            client.connect(address)
-        assert (refused.value.errno, probe.connect_ex(address)) == (
-            errno.ECONNREFUSED,
-            errno.ECONNREFUSED,
-        )
+        try:
+            with pytest.raises(ConnectionRefusedError) as refused:
+                client.connect(address)
+            outcome = (
+                refused.value.errno,
+                probe.connect_ex(address),
+                list(unexpected_loopback_connects),
+            )
+        finally:
+            unexpected_loopback_connects.clear()
+
+    assert outcome == (
+        errno.ECONNREFUSED,
+        errno.ECONNREFUSED,
+        [f"{host}:{address[1]} (MainThread)"] * 2,
+    )
 
 
-def test_network_guard_refuses_a_port_once_the_test_closes_its_server() -> None:
-    """A port is the test's only while its listener is open; whoever holds it next is refused.
+def test_network_guard_refuses_and_reports_a_port_once_the_test_closes_its_server(
+    unexpected_loopback_connects: list[str],
+) -> None:
+    """A port is the test's only while its socket is open; whoever holds it next is refused.
 
-    The service shares the port through SO_REUSEPORT and listens through the C socket type, so it
-    still answers there after the test closes its server, as a port-forward that binds the freed
-    port in another process would.
+    The service shares the port through SO_REUSEPORT and binds and listens through the C socket
+    type, so it still answers there after the test closes its server, as a port-forward that binds
+    the freed port in another process would.
     """
     import _socket
     import errno
@@ -444,13 +482,37 @@ def test_network_guard_refuses_a_port_once_the_test_closes_its_server() -> None:
         service.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         server.bind(("127.0.0.1", 0))
         server.listen()
-        service.bind(server.getsockname())
+        _socket.socket.bind(service, server.getsockname())
         _socket.socket.listen(service)
         server.close()
         address = service.getsockname()
-        with pytest.raises(ConnectionRefusedError):
-            client.connect(address)
-        assert probe.connect_ex(address) == errno.ECONNREFUSED
+        try:
+            with pytest.raises(ConnectionRefusedError):
+                client.connect(address)
+            outcome = (probe.connect_ex(address), list(unexpected_loopback_connects))
+        finally:
+            unexpected_loopback_connects.clear()
+
+    assert outcome == (errno.ECONNREFUSED, [f"127.0.0.1:{address[1]} (MainThread)"] * 2)
+
+
+def test_a_refusing_port_is_refused_by_the_kernel_and_not_reported(
+    refusing_port: int, unexpected_loopback_connects: list[str]
+) -> None:
+    """The test binds `refusing_port` and never listens on it, so the guard lets a connect through
+    and the kernel refuses it, as a service that is down would, with nothing reported."""
+    import errno
+    import socket
+
+    with socket.socket() as client, socket.socket() as probe:
+        with pytest.raises(ConnectionRefusedError) as refused:
+            client.connect(("127.0.0.1", refusing_port))
+        outcome = (refused.value.errno, probe.connect_ex(("127.0.0.1", refusing_port)))
+
+    assert (outcome, unexpected_loopback_connects) == (
+        (errno.ECONNREFUSED, errno.ECONNREFUSED),
+        [],
+    )
 
 
 def test_network_guard_lets_a_test_reach_a_server_it_started() -> None:
@@ -708,7 +770,9 @@ def test_dns_resolution_patched_to_metadata_is_refused(monkeypatch: pytest.Monke
         validate_url_egress("http://example.com/", allow_private=False)
 
 
-def test_conftest_dns_guard_ai_numerichost() -> None:
+def test_conftest_dns_guard_ai_numerichost(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify test DNS guard passes AI_NUMERICHOST calls positionally and via keyword."""
     import socket
 
@@ -719,8 +783,11 @@ def test_conftest_dns_guard_ai_numerichost() -> None:
     assert (bool(res_pos), bool(res_kw)) == (True, True)
 
     # External domain without AI_NUMERICHOST raises gaierror from guard
-    with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
-        socket.getaddrinfo("nonexistent.unmocked.domain", 80)
+    try:
+        with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
+            socket.getaddrinfo("nonexistent.unmocked.domain", 80)
+    finally:
+        unexpected_loopback_connects.clear()
 
 
 _PUBLIC_DNS_NAME_TABLE: tuple[tuple[str, bool], ...] = (

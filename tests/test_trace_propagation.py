@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
@@ -371,8 +372,11 @@ def test_the_header_injector_still_does_not_mutate_its_argument(tracer: Any) -> 
     assert (headers, CONST_TRACEPARENT_HEADER in returned) == ({}, True)
 
 
-def test_a_span_adopts_a_valid_context_inherited_from_a_parent_process() -> None:
+def test_a_span_adopts_a_valid_context_inherited_from_a_parent_process(
+    config: Callable[..., Any],
+) -> None:
     """A nested CLI invocation continues its parent's trace rather than starting one."""
+    config(telemetry={"enabled": True})
     with patch.dict(
         os.environ,
         {"DEVOPS_OTEL_ENABLED": "1", CONST_TRACEPARENT_ENV_VAR: VALID_TRACEPARENT},
@@ -386,12 +390,15 @@ def test_a_span_adopts_a_valid_context_inherited_from_a_parent_process() -> None
     assert adopted == VALID_TRACE_ID
 
 
-def test_a_span_ignores_a_malformed_context_inherited_from_a_parent_process() -> None:
+def test_a_span_ignores_a_malformed_context_inherited_from_a_parent_process(
+    config: Callable[..., Any],
+) -> None:
     """Ambient input is validated before it becomes a trace id.
 
     Adopting an unvalidated value would export a trace keyed on whatever the environment
     happened to contain.
     """
+    config(telemetry={"enabled": True})
     with patch.dict(
         os.environ,
         {"DEVOPS_OTEL_ENABLED": "1", CONST_TRACEPARENT_ENV_VAR: "00-nothex-nothex-01"},

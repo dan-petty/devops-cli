@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.settings import AIConfig
+
+pytestmark = [
+    pytest.mark.usefixtures("mock_keyring"),
+    pytest.mark.unreachable("example.com"),
+]
 
 
 class FixedVectorEngine(EmbeddingsEngine):

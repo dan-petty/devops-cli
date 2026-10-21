@@ -13,7 +13,7 @@ flowchart LR
     P1[1. Inception & Planning] --> P2[2. TDD Specification]
     P2 --> P3[3. Implementation & Invariants]
     P3 --> P4[4. Shift-Left Verification]
-    P4 --> P5[5. Multi-Persona AI Review]
+    P4 --> P5[5. Automated Code Review]
     P5 --> P6[6. PR & Release Choreography]
     P6 --> P7[7. Observability & DORA]
 ```
@@ -23,9 +23,9 @@ flowchart LR
 2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit` in every `devops ci` run, hash-pinned tool downloads (`tools.lock`), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
-5. **Multi-Persona AI Review & Fact Grounding**: Multi-agent code review pipeline evaluates all changes across five specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`), grounded by the local DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`).
+5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
 6. **Branch Isolation & Human-in-the-Loop Governance**: Strict Git hierarchy isolating features to topic branches targeting active release branches (`release/vX.Y.Z`). AI agents cannot merge code autonomously; maintainers approve and squash-merge.
-7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and agentic review stage.
+7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and review stage.
 
 ---
 
@@ -39,7 +39,7 @@ sequenceDiagram
     participant Test as Test-First Specification
     participant Code as Implementation & Invariants
     participant Gate as Shift-Left Quality Gate
-    participant Review as Multi-Persona AI Review
+    participant Review as Automated Code Review
     participant Git as GitHub PR & CODEOWNERS
     actor Maintainer as Human Maintainer
     participant CI as GitHub Actions CI
@@ -49,7 +49,7 @@ sequenceDiagram
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
     Dev->>Gate: Execute devops ci (Gated CI quality checks & >=90% coverage)
-    Dev->>Review: Run multi-persona review & verify findings
+    Dev->>Review: Run automated review & verify findings
     Dev->>Git: Push topic branch & open PR targeting release/vX.Y.Z
     Git->>CI: Trigger CI workflows (matrix build, linters, security)
     Git->>Maintainer: Notify CODEOWNERS for mandatory human review
@@ -188,10 +188,10 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
 - `devops-ci-test-changed`: Runs targeted test suite covering staged files.
-- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes.
+- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes. The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged.
 
 #### The Primary CI Verification Gate (`devops ci`)
-Before opening or updating a PR, engineers and agents execute `devops ci` (or `uv run devops ci`). The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
+The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged. The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
 3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
@@ -199,7 +199,7 @@ Before opening or updating a PR, engineers and agents execute `devops ci` (or `u
 5. `format`: Verifies formatting compliance with `ruff format --check`.
 6. `typecheck`: Enforces strict static type analysis with `mypy --strict`.
 7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`.
-8. `security`: Scans `src/` and `tests/`, the targets `.bandit` names, for security antipatterns using `bandit`, at medium severity and above.
+8. `security`: Scans `src/` and `tests/`, the targets `.bandit` names, for security antipatterns using `bandit`, at medium severity and above. Bandit starts under `nice` (`DEFAULT_CI_BANDIT_NICENESS`), so in the full gate it takes the CPU the test row, the gate's critical path, leaves idle.
 9. `actionlint`: Validates `.github/workflows/` against GitHub Actions schema.
 10. `docs`: Regenerates docs (`devops docs generate --sync-readme`) by default; `devops ci --check` verifies freshness with `devops docs check` without changing files.
 11. `uv_check`: Verifies project dependencies and Python environment consistency via `uv check`.
@@ -208,31 +208,25 @@ Before opening or updating a PR, engineers and agents execute `devops ci` (or `u
 
 ---
 
-### Phase 5: Multi-Persona AI & Peer Review Governance
+### Phase 5: Automated Code Review & Peer Review Governance
 
-Code reviews combine automated multi-persona AI analysis with human-in-the-loop maintainer oversight.
+Code reviews combine tool-anchored automated analysis with human-in-the-loop maintainer oversight.
 
 ```mermaid
 flowchart LR
     Diff[Git Diff] --> Engine[devops review branch]
-    Engine --> P_Sec[DevSecOps Persona]
-    Engine --> P_Arch[Architect Persona]
-    Engine --> P_QA[QA Persona]
-    Engine --> P_PM[PM Persona]
-    Engine --> P_Audit[Auditor Persona]
-    P_Sec & P_Arch & P_QA & P_PM & P_Audit --> Dedupe[Deduplication & Fact Grounding]
-    Dedupe --> KB[DevOps CLI Knowledge Base]
-    KB --> Report[Markdown Findings Report]
+    Engine --> Static[Static Security Scanners]
+    Engine --> Vuln[Dependency Vulnerability Audit]
+    Engine --> Secrets[Secret Scanning]
+    Static & Vuln & Secrets --> Dedupe[Deduplication & Admission Filtering]
+    Dedupe --> Group[Group Model Analysis]
+    Group --> Report[Markdown Findings Report]
 ```
 
-#### Multi-Persona Review Engine
-- **Five Specialized Personas**:
-  - `devsecops`: Evaluates credential exposure, SSRF vulnerabilities, least-privilege containers, and subprocess safety.
-  - `architect`: Assesses modular design, separation of concerns, cyclomatic complexity, nesting depth, and exception taxonomy.
-  - `qa`: Analyzes test coverage, deterministic isolation, edge cases, and boundary condition validation.
-  - `pm`: Evaluates documentation alignment, user-facing error messages, and release notes accuracy.
-  - `auditor`: Verifies license compliance, supply chain provenance, and invariant gate conformance.
-- **Knowledge Base Fact Grounding**: Review personas cross-reference findings against the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate hallucinations (such as flagging verified dependencies like `httpx2` as suspicious).
+#### Code Review Engine
+- **Tool-Anchored Defect Detection**: Static analyzers (Bandit, KubeLinter, Pluto, Semgrep), dependency vulnerability auditing, and secret scanning (Gitleaks, Trivy).
+- **Group Model Analysis**: Bounded model analysis for admitted finding groups, grounded in installed-version rule documentation and secret-masked code excerpts.
+- **Knowledge Base Fact Grounding**: Findings and remediations cross-reference the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate false alarms (such as flagging verified dependencies like `httpx2` as suspicious).
 - **Verdicts & Feedback Loop**: No model verifies a finding. A person records a verdict with `devops review verify`, a label on that session's files that ranks review history and nothing else, and `devops review export-feedback` appends every verdict to the feedback dataset (`.data/feedback_dataset.jsonl`). A false positive that recurs becomes a reviewed `[[suppressions]]` entry in `.devops/review.toml`, with a reason and an expiry.
 - **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`docs/ROADMAP.md`, `CHANGELOG.md`, `changelog.d/`, `docs/agent/tasks/`, `docs/adr/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there keeps its severity: `[severity_caps]` in `.devops/review.toml` caps a scanner finding by its path class, never a secret; a change made only of such files calls no model.
 - **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
@@ -351,7 +345,7 @@ flowchart TD
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
-| **5. AI Review**     | Multi-Persona Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
+| **5. AI Review**     | Automated Code Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create --base release/vX.Y.Z` | CODEOWNERS notified; remote CI checks green |
 | **6. Release**       | Release Train | `devops roadmap close --confirm` (manual fallback: `devops release prepare <version> --create-pr`) | Items closed with summaries; release PR cut; tag and GitHub Release |
 | **7. Observability** | Telemetry Audit | `devops telemetry status` | Active trace spans and Prometheus counters |

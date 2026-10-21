@@ -1,0 +1,8 @@
+id: net-scheme-affix
+valid:
+  - 'secure = urlsplit(url).scheme == "https"'
+  - 'is_meta = ipaddress.ip_address(host).is_link_local'
+invalid:
+  - 'secure = url.startswith("https://")'
+  - 'is_meta = host.startswith("169.254.")'
+  - 'path = address.removeprefix("unix:path=")'

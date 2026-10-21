@@ -20,6 +20,8 @@ import pytest
 from devops_cli.config.constants import (
     CONST_AST_GREP_IGNORE_COMMENT_RE,
     CONST_AST_GREP_NET_RULE_ID_RE,
+    CONST_AST_GREP_SCAN_ARGS,
+    CONST_BANNED_HAND_ROLLED_APIS,
     CONST_BLIND_EXCEPTION_TYPES,
     CONST_C901_SUPPRESSION,
     CONST_COMPLEXITY_CAP_ROOTS,
@@ -28,6 +30,7 @@ from devops_cli.config.constants import (
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
+    CONST_NET_CONSTRUCT_RULES,
     CONST_NOQA_COMMENT_RE,
     CONST_NOQA_RULE_CODE_RE,
     CONST_NOSEC_COMMENT_RE,
@@ -79,6 +82,11 @@ from devops_cli.core.import_graph import (
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
+from tests.support.trees import (
+    parse_count,
+    parse_python_file,
+    parse_source_trees,
+)
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -212,14 +220,12 @@ def test_test_model_pytest_collection_disabled() -> None:
 
 def _parse_src() -> dict[Path, ast.Module]:
     """Parse every module under src/devops_cli once, for the whole-tree invariants."""
-    src = REPO_ROOT / "src" / "devops_cli"
-    return {
-        path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for path in sorted(src.rglob("*.py"))
-    }
+    return parse_source_trees(REPO_ROOT)
 
 
-def test_the_source_tree_keeps_its_structural_invariants() -> None:
+def test_the_source_tree_keeps_its_structural_invariants(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Every function under src/devops_cli nests at most DEFAULT_MAX_NESTING_DEPTH deep,
     the module-level import graph has no cycles, and no module outside `devops_cli.commands.*`
     and `devops_cli.main` imports `devops_cli.commands` (#773, #848).
@@ -227,7 +233,7 @@ def test_the_source_tree_keeps_its_structural_invariants() -> None:
     The function body is depth 1, as the structural-invariants commit hook counts it. This is
     the one test that parses the whole tree: further whole-tree rules belong here, on its parse.
     """
-    trees = _parse_src()
+    trees = parsed_source_trees
     too_deep = [
         f"{path}:{fn.line_number}: {fn.name} nesting {fn.max_nesting_depth}"
         for path, tree in trees.items()
@@ -268,7 +274,7 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
 
     for mod_path in modules_to_check:
         assert mod_path.exists(), f"Path {mod_path} does not exist"
-        tree = ast.parse(mod_path.read_text(encoding="utf-8"), filename=str(mod_path))
+        tree = parse_python_file(mod_path)
         raises = [node for node in ast.walk(tree) if isinstance(node, ast.Raise)]
         for node in raises:
             raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
@@ -281,7 +287,9 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     )
 
 
-def test_no_module_runs_python_in_process() -> None:
+def test_no_module_runs_python_in_process(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Name every source module that calls the `exec` or `eval` builtin; there must be none.
 
     Code run by `exec` in this process is not contained by an AST check or a trimmed
@@ -291,13 +299,11 @@ def test_no_module_runs_python_in_process() -> None:
     belongs in the host sandbox (bwrap) instead.
     """
     src = REPO_ROOT / "src" / "devops_cli"
-    texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
     callers = sorted(
         {
             path.relative_to(src).as_posix()
-            for path, text in texts.items()
-            if "exec(" in text or "eval(" in text
-            for node in ast.walk(ast.parse(text, filename=str(path)))
+            for path, tree in parsed_source_trees.items()
+            for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id in ("exec", "eval")
@@ -315,13 +321,17 @@ def _is_review_finding_import(node: ast.AST) -> bool:
     )
 
 
-def _find_review_finding_callers(src: Path, texts: dict[Path, str]) -> list[str]:
+def _find_review_finding_callers(
+    src: Path,
+    texts: dict[Path, str],
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[str]:
     callers: list[str] = []
     for path, text in texts.items():
         if "Finding(" not in text:
             continue
         rel = path.relative_to(src).as_posix()
-        tree = ast.parse(text, filename=str(path))
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         if not any(_is_review_finding_import(node) for node in ast.walk(tree)):
             continue
         for node in ast.walk(tree):
@@ -336,9 +346,12 @@ def _find_review_finding_callers(src: Path, texts: dict[Path, str]) -> list[str]
     return callers
 
 
-def _find_admission_calls_outside_admit(src: Path) -> list[int]:
+def _find_admission_calls_outside_admit(
+    src: Path,
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[int]:
     adm_path = src / "review" / "admission.py"
-    adm_tree = ast.parse(adm_path.read_text(encoding="utf-8"), filename=str(adm_path))
+    adm_tree = trees[adm_path] if trees and adm_path in trees else parse_python_file(adm_path)
     calls: list[int] = []
     for node in adm_tree.body:
         if isinstance(node, ast.FunctionDef) and node.name != "admit":
@@ -352,7 +365,9 @@ def _find_admission_calls_outside_admit(src: Path) -> list[int]:
     return calls
 
 
-def test_finding_is_constructed_only_by_admission() -> None:
+def test_finding_is_constructed_only_by_admission(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """A frozen review Finding is built only by review/admission.py::admit(). (#871)
 
     A test asserts that no other module constructs one. The test reads source text
@@ -364,8 +379,8 @@ def test_finding_is_constructed_only_by_admission() -> None:
 
     src = REPO_ROOT / "src" / "devops_cli"
     texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
-    callers = _find_review_finding_callers(src, texts)
-    calls_outside_admit = _find_admission_calls_outside_admit(src)
+    callers = _find_review_finding_callers(src, texts, trees=parsed_source_trees)
+    calls_outside_admit = _find_admission_calls_outside_admit(src, trees=parsed_source_trees)
 
     assert (tuple(callers), tuple(calls_outside_admit)) == ((), ())
 
@@ -557,17 +572,21 @@ def _helper_modules(tests_root: Path) -> list[Path]:
     )
 
 
-def _acting_on_import(root: Path) -> list[str]:
+def _acting_on_import(root: Path, trees: Mapping[Path, ast.Module] | None = None) -> list[str]:
     """`path:line` of each statement of a helper module under `root`'s tests root, at its top
     level or in a class body, that does more on import than bind names."""
     return [
         f"{path.relative_to(root).as_posix()}:{node.lineno}"
         for path in _helper_modules(root / CONST_TESTS_ROOT_DIR)
-        for node in _acting_statements(ast.parse(path.read_text(encoding="utf-8")).body)
+        for node in _acting_statements(
+            (trees[path] if trees and path in trees else parse_python_file(path)).body
+        )
     ]
 
 
-def test_no_helper_module_under_tests_acts_on_import() -> None:
+def test_no_helper_module_under_tests_acts_on_import(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """Registration imports every support module into every run, and any helper runs on import
     for whichever test imports it first, so the top level of a helper under `tests/`, and each
     class body in it, holds only docstrings, imports at the top level, defs, classes,
@@ -575,7 +594,7 @@ def test_no_helper_module_under_tests_acts_on_import() -> None:
     then reaches every test such a change can (#1312). What still runs on import unchecked is
     each value bound to a name, each decorator, default argument, base class and metaclass, and
     only the full gate catches what those do to tests that do not import the helper."""
-    assert _acting_on_import(REPO_ROOT) == []
+    assert _acting_on_import(REPO_ROOT, trees=parsed_test_trees) == []
 
 
 _BINDS_NAMES_ONLY = (
@@ -690,7 +709,9 @@ def _holds_a_support_package(
     return False
 
 
-def _support_package_imports(root: Path, exempt: Path) -> list[str]:
+def _support_package_imports(
+    root: Path, exempt: Path, trees: Mapping[Path, ast.Module] | None = None
+) -> list[str]:
     """`path:line` of each module under `root`'s tests root, but `exempt`, that gets hold of a
     support package; a module outside `tests/support/` is parsed only if it spells `support`,
     which every such form outside it needs."""
@@ -702,7 +723,7 @@ def _support_package_imports(root: Path, exempt: Path) -> list[str]:
         spelled = _SUPPORT_DIR.name in text or relative.is_relative_to(_SUPPORT_DIR)
         if relative == exempt or not spelled:
             continue
-        tree = ast.parse(text)
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         package = ".".join(relative.parent.parts)
         aliases = _tests_aliases(tree)
         found.extend(
@@ -716,12 +737,14 @@ def _support_package_imports(root: Path, exempt: Path) -> list[str]:
 _BOOTSTRAP = Path(CONST_TESTS_ROOT_DIR, "support", "bootstrap.py")
 
 
-def test_only_bootstrap_imports_the_support_package_itself() -> None:
+def test_only_bootstrap_imports_the_support_package_itself(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """Registration loads every support module, so a module holding the `tests.support` package,
     or a package under it, could read one through it with no import of its own, which the test
     selector would not see. A module imports from a support module with `from tests.support[.x]
     import ...`, and only `bootstrap`, which registers them, holds a package (#1312)."""
-    assert _support_package_imports(REPO_ROOT, _BOOTSTRAP) == []
+    assert _support_package_imports(REPO_ROOT, _BOOTSTRAP, trees=parsed_test_trees) == []
 
 
 def test_a_module_that_names_the_support_package_is_named_with_path_and_line(
@@ -1027,11 +1050,13 @@ def _ruff_enforces(rule: str, select: Sequence[str], ignore: Sequence[str]) -> b
     return ignored is None or ignored < selected
 
 
-def _blind_exception_assertions(tests_dir: Path) -> list[str]:
+def _blind_exception_assertions(
+    tests_dir: Path, trees: Mapping[Path, ast.Module] | None = None
+) -> list[str]:
     """Report every `file:line` in the suite that expects a root exception type."""
     sites: list[str] = []
     for path in sorted(tests_dir.rglob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
         sites.extend(
             f"{path.name}:{node.lineno}"
             for node in ast.walk(tree)
@@ -1041,7 +1066,9 @@ def _blind_exception_assertions(tests_dir: Path) -> list[str]:
     return sites
 
 
-def test_no_test_certifies_a_failure_without_checking_it() -> None:
+def test_no_test_certifies_a_failure_without_checking_it(
+    parsed_test_trees: dict[Path, ast.Module],
+) -> None:
     """A test that expects a failure must say which failure, and Ruff must keep it saying so.
 
     `pytest.raises(Exception)` is satisfied by a `TypeError` an unrelated refactor
@@ -1059,7 +1086,10 @@ def test_no_test_certifies_a_failure_without_checking_it() -> None:
         if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
     )
 
-    assert (_blind_exception_assertions(REPO_ROOT / "tests"), unenforced) == ([], [])
+    assert (
+        _blind_exception_assertions(REPO_ROOT / "tests", trees=parsed_test_trees),
+        unenforced,
+    ) == ([], [])
 
 
 def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
@@ -1252,6 +1282,184 @@ def _complexity_cap_escapes(pyproject: Mapping[str, Any], project: Path) -> list
         *([] if exclude == expected else [widened]),
         *_lint_escapes(ruff.get("lint", {})),
         *_tree_escapes(project),
+    ]
+
+
+def _sgconfig_escapes(project: Path) -> list[str]:
+    """Report unlisted keys, modified ruleDirs, or extra sgconfig.yml files (#1107)."""
+    sgconfig = project / "sgconfig.yml"
+    if not sgconfig.is_file():
+        return ["sgconfig.yml: missing"]
+    import yaml
+
+    try:
+        raw = yaml.safe_load(sgconfig.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return [f"[sgconfig.yml] malformed: {exc}"]
+    unlisted = [
+        f"[sgconfig.yml] {k}: outside the allowlist"
+        for k in sorted(set(raw.keys()) - {"ruleDirs", "testConfigs"})
+    ]
+    rule_dirs = raw.get("ruleDirs")
+    rule_dirs_escape = (
+        []
+        if rule_dirs == [".ast-grep/rules"]
+        else [f"[sgconfig.yml] ruleDirs: {rule_dirs}, not ['.ast-grep/rules']"]
+    )
+    seconds = [
+        f"{p.relative_to(project).as_posix()}: a second sgconfig.yml"
+        for p in sorted(project.rglob("sgconfig.yml"))
+        if p != sgconfig and not any(part == "repos" for part in p.parts)
+    ]
+    return [*unlisted, *rule_dirs_escape, *seconds]
+
+
+def _rule_file_escapes(data: dict[str, Any], rid: str) -> list[str]:
+    """Check rule properties: severity must be error, and files/ignores may not be set."""
+    escapes: list[str] = []
+    if data.get("severity") != "error":
+        escapes.append(f"[{rid}] severity: {data.get('severity')}, not error")
+    if "files" in data:
+        escapes.append(f"[{rid}] files: outside the allowlist")
+    if "ignores" in data:
+        escapes.append(f"[{rid}] ignores: outside the allowlist")
+    return escapes
+
+
+def _read_rule_files(project: Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Read rule definition YAML files from .ast-grep/rules/."""
+    import yaml
+
+    rules_dir = project / ".ast-grep" / "rules"
+    rule_files = sorted(rules_dir.glob("*.yml")) if rules_dir.is_dir() else []
+    rules: dict[str, dict[str, Any]] = {}
+    rule_escapes: list[str] = []
+    for rf in rule_files:
+        try:
+            data = yaml.safe_load(rf.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        rid = data.get("id")
+        if isinstance(rid, str) and rid:
+            rules[rid] = data
+            rule_escapes.extend(_rule_file_escapes(data, rid))
+    return rules, rule_escapes
+
+
+def _read_test_files(project: Path) -> dict[str, dict[str, Any]]:
+    """Read rule test YAML files from .ast-grep/rule-tests/."""
+    import yaml
+
+    tests_dir = project / ".ast-grep" / "rule-tests"
+    test_files = sorted(tests_dir.glob("*.yml")) if tests_dir.is_dir() else []
+    tests: dict[str, dict[str, Any]] = {}
+    for tf in test_files:
+        try:
+            data = yaml.safe_load(tf.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        tid = data.get("id")
+        if isinstance(tid, str) and tid:
+            tests[tid] = data
+    return tests
+
+
+def _rule_test_case_escapes(tests: dict[str, dict[str, Any]]) -> list[str]:
+    """Verify each net construct rule has at least one valid and one invalid case."""
+    escapes: list[str] = []
+    for rid in sorted(CONST_NET_CONSTRUCT_RULES):
+        tdata = tests.get(rid)
+        if not tdata or not tdata.get("valid"):
+            escapes.append(f"[{rid}] has no valid case")
+        if not tdata or not tdata.get("invalid"):
+            escapes.append(f"[{rid}] has no invalid case")
+    return escapes
+
+
+def _ast_grep_rules_and_tests_escapes(project: Path) -> list[str]:
+    """Report missing or unlisted ast-grep rules, severity/filter escapes, or missing test cases."""
+    rules, rule_escapes = _read_rule_files(project)
+    found_ids = set(rules.keys())
+    expected_ids = set(CONST_NET_CONSTRUCT_RULES)
+    id_escapes = [
+        f"{rid}: missing from .ast-grep/rules" for rid in sorted(expected_ids - found_ids)
+    ] + [f"[{rid}] outside CONST_NET_CONSTRUCT_RULES" for rid in sorted(found_ids - expected_ids)]
+    tests = _read_test_files(project)
+    return [*id_escapes, *rule_escapes, *_rule_test_case_escapes(tests)]
+
+
+def _pre_commit_scan_cmd_escapes(project: Path, expected_cmd: list[str]) -> list[str]:
+    """Report whether the ast-grep-scan pre-commit hook runs the expected scan command."""
+    import yaml
+
+    pre_commit_file = project / ".pre-commit-config.yaml"
+    if not pre_commit_file.is_file():
+        return []
+    try:
+        cfg = yaml.safe_load(pre_commit_file.read_text(encoding="utf-8")) or {}
+        hooks = [h for r in cfg.get("repos", []) for h in r.get("hooks", [])]
+        scan_hook = next((h for h in hooks if h.get("id") == "ast-grep-scan"), None)
+        if scan_hook is None:
+            return ["ast-grep-scan hook: missing from .pre-commit-config.yaml"]
+        entry = scan_hook.get("entry", "").split()
+        args = scan_hook.get("args", [])
+        cmd = [*entry, *args]
+        if cmd != expected_cmd:
+            return [f"ast-grep-scan hook cmd: {cmd}, not {expected_cmd}"]
+    except Exception as exc:
+        return [f"[.pre-commit-config.yaml] malformed: {exc}"]
+    return []
+
+
+def _scan_command_escapes(project: Path) -> list[str]:
+    """Report scan commands differing from CONST_AST_GREP_SCAN_ARGS in CI or pre-commit."""
+    expected_cmd = ["uv", "run", "ast-grep", *CONST_AST_GREP_SCAN_ARGS]
+    from devops_cli.commands.ci import get_check_specs
+
+    specs = {s.name: s for s in get_check_specs()}
+    constructs_spec = specs.get("constructs")
+    ci_escapes: list[str] = []
+    if constructs_spec is None:
+        ci_escapes.append("constructs row: missing from get_check_specs()")
+    elif constructs_spec.cmd != expected_cmd:
+        ci_escapes.append(f"constructs row cmd: {constructs_spec.cmd}, not {expected_cmd}")
+
+    return [*ci_escapes, *_pre_commit_scan_cmd_escapes(project, expected_cmd)]
+
+
+def _tid251_escapes(lint: Mapping[str, Any]) -> list[str]:
+    """Report unenforced TID251, per-file waivers of TID251, or missing banned socket APIs."""
+    select = [*lint.get("select", []), *lint.get("extend-select", [])]
+    ignore = [*lint.get("ignore", []), *lint.get("extend-ignore", [])]
+    rule = "TID251"
+    escapes: list[str] = []
+    if rule not in select or not _ruff_enforces(rule, select, ignore):
+        escapes.append(f"{rule}: not enforced")
+
+    for table in CONST_RUFF_PER_FILE_IGNORE_KEYS:
+        for pattern, codes in lint.get(table, {}).items():
+            if any(_names_rule(rule, code) for code in codes):
+                escapes.append(f"[tool.ruff.lint.{table}] {pattern}: waives {rule}")
+
+    banned = lint.get("flake8-tidy-imports", {}).get("banned-api", {})
+    for api in sorted(CONST_BANNED_HAND_ROLLED_APIS):
+        if api not in banned:
+            escapes.append(f"{api}: missing from flake8-tidy-imports.banned-api")
+
+    return escapes
+
+
+def _network_construct_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
+    """Report every way a committed file lets a hand-rolled network construct past the gate (#1107)."""
+    lint = pyproject.get("tool", {}).get("ruff", {}).get("lint", {})
+    covered = [p for p in (project / "src").rglob("*") if p.is_file()]
+    sources = [p for p in covered if p.suffix in CONST_RUFF_SOURCE_SUFFIXES]
+    return [
+        *_sgconfig_escapes(project),
+        *_ast_grep_rules_and_tests_escapes(project),
+        *_scan_command_escapes(project),
+        *_ignore_file_escapes(project, covered, sources),
+        *_tid251_escapes(lint),
     ]
 
 
@@ -1625,6 +1833,254 @@ def test_the_complexity_cap_has_no_escape() -> None:
     assert _complexity_cap_escapes(pyproject, REPO_ROOT) == []
 
 
+def _complying_network_construct_pyproject() -> dict[str, Any]:
+    """Build, as a fresh dict, a pyproject.toml the network construct meta-test accepts."""
+    lint = {
+        "select": ["E", "TID251"],
+        "ignore": [],
+        "flake8-tidy-imports": {
+            "banned-api": {
+                api: {"msg": "Parse and format addresses with ipaddress.ip_address."}
+                for api in sorted(CONST_BANNED_HAND_ROLLED_APIS)
+            }
+        },
+    }
+    ruff = {"target-version": "py314", "line-length": 100, "exclude": [*CONST_RUFF_EXCLUDE]}
+    return {"tool": {"ruff": {**ruff, "lint": lint}}}
+
+
+def _populate_complying_network_construct_tree(project: Path) -> None:
+    """Populate a tmp_path tree with files complying with the network construct gate."""
+    (project / "sgconfig.yml").write_text(
+        "ruleDirs:\n  - .ast-grep/rules\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n",
+        encoding="utf-8",
+    )
+    (project / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: ast-grep-scan\n"
+        f"        entry: uv run ast-grep {' '.join(CONST_AST_GREP_SCAN_ARGS)}\n",
+        encoding="utf-8",
+    )
+    (project / "src").mkdir(parents=True, exist_ok=True)
+    (project / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (project / ".gitignore").write_text("target/\n", encoding="utf-8")
+
+    rules_dir = project / ".ast-grep" / "rules"
+    tests_dir = project / ".ast-grep" / "rule-tests"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    tests_dir.mkdir(parents=True, exist_ok=True)
+
+    for rid in CONST_NET_CONSTRUCT_RULES:
+        (rules_dir / f"{rid}.yml").write_text(
+            f"id: {rid}\nlanguage: python\nseverity: error\nmessage: msg\nrule:\n  pattern: $X\n",
+            encoding="utf-8",
+        )
+        (tests_dir / f"{rid}-test.yml").write_text(
+            f"id: {rid}\nvalid:\n  - 'x = 1'\ninvalid:\n  - 'y = 2'\n",
+            encoding="utf-8",
+        )
+
+
+_NETWORK_CONSTRUCT_ESCAPES = [
+    pytest.param((), None, {}, [], id="complying"),
+    pytest.param(
+        (),
+        None,
+        {
+            "sgconfig.yml": (
+                "ruleDirs:\n  - .ast-grep/rules\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n"
+                "extraKey: true\n"
+            )
+        },
+        ["[sgconfig.yml] extraKey: outside the allowlist"],
+        id="sgconfig-unlisted-key",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            "sgconfig.yml": (
+                "ruleDirs:\n  - .ast-grep/other\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n"
+            )
+        },
+        ["[sgconfig.yml] ruleDirs: ['.ast-grep/other'], not ['.ast-grep/rules']"],
+        id="sgconfig-ruledirs-modified",
+    ),
+    pytest.param(
+        (),
+        None,
+        {"subdir/sgconfig.yml": "ruleDirs: []\n"},
+        ["subdir/sgconfig.yml: a second sgconfig.yml"],
+        id="second-sgconfig",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".ast-grep/rules/net-port-table.yml": None},
+        ["net-port-table: missing from .ast-grep/rules"],
+        id="rule-missing",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-custom.yml": (
+                "id: net-custom\nlanguage: python\nseverity: error\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-custom] outside CONST_NET_CONSTRUCT_RULES"],
+        id="rule-unlisted",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: warning\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] severity: warning, not error"],
+        id="rule-severity-not-error",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: error\nfiles: [src]\n"
+                "rule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] files: outside the allowlist"],
+        id="rule-files-set",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: error\nignores: [src]\n"
+                "rule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] ignores: outside the allowlist"],
+        id="rule-ignores-set",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rule-tests/net-port-table-test.yml": "id: net-port-table\ninvalid:\n  - 'x = 1'\n"
+        },
+        ["[net-port-table] has no valid case"],
+        id="rule-no-valid-case",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rule-tests/net-port-table-test.yml": "id: net-port-table\nvalid:\n  - 'x = 1'\n"
+        },
+        ["[net-port-table] has no invalid case"],
+        id="rule-no-invalid-case",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".pre-commit-config.yaml": (
+                "repos:\n  - repo: local\n    hooks:\n      - id: ast-grep-scan\n"
+                "        entry: uv run ast-grep scan src\n"
+            )
+        },
+        [
+            f"ast-grep-scan hook cmd: ['uv', 'run', 'ast-grep', 'scan', 'src'], "
+            f"not {['uv', 'run', 'ast-grep', *CONST_AST_GREP_SCAN_ARGS]}"
+        ],
+        id="precommit-scan-cmd-changed",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".pre-commit-config.yaml": "repos: []\n"},
+        ["ast-grep-scan hook: missing from .pre-commit-config.yaml"],
+        id="precommit-scan-hook-missing",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".gitignore": "src/app.py\n"},
+        ["src/app.py: matched by .gitignore"],
+        id="ignore-file-hides-source",
+    ),
+    pytest.param(
+        ("lint", "select"),
+        ["E"],
+        {},
+        ["TID251: not enforced"],
+        id="tid251-unselected",
+    ),
+    pytest.param(
+        ("lint", "ignore"),
+        ["TID251"],
+        {},
+        ["TID251: not enforced"],
+        id="tid251-ignored",
+    ),
+    pytest.param(
+        ("lint", "per-file-ignores"),
+        {"src/*": ["TID251"]},
+        {},
+        ["[tool.ruff.lint.per-file-ignores] src/*: waives TID251"],
+        id="tid251-waived",
+    ),
+    pytest.param(
+        ("lint", "flake8-tidy-imports", "banned-api"),
+        {"socket.inet_ntoa": {"msg": "x"}},
+        {},
+        [
+            "socket.inet_aton: missing from flake8-tidy-imports.banned-api",
+            "socket.inet_ntop: missing from flake8-tidy-imports.banned-api",
+            "socket.inet_pton: missing from flake8-tidy-imports.banned-api",
+        ],
+        id="banned-api-missing",
+    ),
+]
+
+
+@pytest.mark.parametrize("path, value, files, expected", _NETWORK_CONSTRUCT_ESCAPES)
+def test_every_network_construct_escape_is_reported(
+    tmp_path: Path,
+    path: Sequence[str],
+    value: object,
+    files: Mapping[str, str | None],
+    expected: list[str],
+) -> None:
+    """Every way to bypass the network construct gate without detection is reported (#1107)."""
+    _populate_complying_network_construct_tree(tmp_path)
+    pyproject = _complying_network_construct_pyproject()
+    if path:
+        _edit(pyproject["tool"]["ruff"], path, value)
+    for name, content in files.items():
+        dest = tmp_path / name
+        if content is None:
+            if dest.exists():
+                dest.unlink()
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+
+    assert _network_construct_escapes(pyproject, tmp_path) == expected
+
+
+def test_the_network_construct_gate_has_no_escape() -> None:
+    """The ast-grep rules, sgconfig, pre-commit and TID251 gate network constructs with no escape (#1107)."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert _network_construct_escapes(pyproject, REPO_ROOT) == []
+
+
 def test_c901_suppressions_stay_under_the_ceiling() -> None:
     """The functions over the cap when Ruff began enforcing it may only become fewer.
 
@@ -1674,17 +2130,46 @@ def test_every_marker_spelling_ruff_honours_is_counted(tmp_path: Path, marker: s
     assert _c901_suppressions(tmp_path) == {"src/mod.py": 1}
 
 
-def test_manifests_by_stack_files_exist() -> None:
-    """Every Kubernetes manifest declared in _MANIFESTS_BY_STACK must exist on disk."""
-    from devops_cli.commands.k8s.stack_lifecycle import _MANIFESTS_BY_STACK
-
+def _missing_stack_lifecycle_paths(
+    manifests_by_stack: Mapping[str, Sequence[Path]],
+    post_helm_by_stack: Mapping[str, Sequence[Path]],
+    k8s_dir: Path,
+) -> list[str]:
+    """Return stack:path entries missing from _MANIFESTS_BY_STACK or _POST_HELM_BY_STACK."""
     missing_manifests = [
         f"{stack_name}:{path}"
-        for stack_name, paths in _MANIFESTS_BY_STACK.items()
+        for stack_name, paths in manifests_by_stack.items()
         for path in paths
         if not (path.exists() or (path.parent / f"{path.stem}.example{path.suffix}").exists())
     ]
-    assert missing_manifests == []
+    missing_post_helm = [
+        f"{stack_name}:{k8s_dir / path}"
+        for stack_name, paths in post_helm_by_stack.items()
+        for path in paths
+        if not (k8s_dir / path).exists()
+    ]
+    return [*missing_manifests, *missing_post_helm]
+
+
+def test_manifests_by_stack_files_exist() -> None:
+    """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _MANIFESTS_BY_STACK,
+        _POST_HELM_BY_STACK,
+        DEFAULT_K8S_DIR,
+    )
+
+    assert (
+        _missing_stack_lifecycle_paths(_MANIFESTS_BY_STACK, _POST_HELM_BY_STACK, DEFAULT_K8S_DIR),
+        _missing_stack_lifecycle_paths(
+            {},
+            {"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)},
+            DEFAULT_K8S_DIR,
+        ),
+    ) == (
+        [],
+        [f"llm:{DEFAULT_K8S_DIR / 'llm' / 'gateway' / 'nonexistent-monitor.yaml'}"],
+    )
 
 
 def _inspect_data_path_call(node: ast.Call, rel_path: str) -> str | None:
@@ -1718,19 +2203,23 @@ def _inspect_data_path_node(node: ast.AST, rel_posix: str) -> str | None:
     return None
 
 
-def _file_data_path_violations(py_file: Path, repo_root: Path) -> list[str]:
+def _file_data_path_violations(
+    py_file: Path, repo_root: Path, tree: ast.Module | None = None
+) -> list[str]:
     rel_posix = py_file.relative_to(repo_root).as_posix()
     if rel_posix == "src/devops_cli/config/defaults.py":
         return []
-    tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    parsed = tree or parse_python_file(py_file)
     return [
         violation
-        for node in ast.walk(tree)
+        for node in ast.walk(parsed)
         if (violation := _inspect_data_path_node(node, rel_posix)) is not None
     ]
 
 
-def test_no_direct_data_dir_path_construction_in_src() -> None:
+def test_no_direct_data_dir_path_construction_in_src(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """An invariant test fails on any Path built from a .data literal or from DEFAULT_DATA_DIR
     in src/ outside config/defaults.py that does not go through the helper (#1036).
     """
@@ -1738,7 +2227,9 @@ def test_no_direct_data_dir_path_construction_in_src() -> None:
     violations = [
         v
         for py_file in sorted(src_root.rglob("*.py"))
-        for v in _file_data_path_violations(py_file, REPO_ROOT)
+        for v in _file_data_path_violations(
+            py_file, REPO_ROOT, tree=parsed_source_trees.get(py_file)
+        )
     ]
     assert violations == [], (
         f"Found direct Path construction from .data literal or DEFAULT_DATA_DIR outside "
@@ -2067,7 +2558,9 @@ def _collect_facade_import_violations(
     return violations
 
 
-def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
+def test_ai_and_github_package_inits_hold_only_docstrings(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
     init_paths = [
         REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
@@ -2077,7 +2570,7 @@ def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
     ]
     failures = []
     for path in init_paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = parsed_source_trees.get(path) or parse_python_file(path)
         is_only_docstring = (
             len(tree.body) == 1
             and isinstance(tree.body[0], ast.Expr)
@@ -2089,7 +2582,9 @@ def test_ai_and_github_package_inits_hold_only_docstrings() -> None:
     assert failures == []
 
 
-def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
+def test_no_non_submodule_imports_from_ai_and_github_facades(
+    parsed_repo_trees: dict[Path, ast.Module],
+) -> None:
     """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
     facade_packages = {
         "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
@@ -2102,17 +2597,12 @@ def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
     }
     violations: list[str] = []
 
-    for search_dir in (REPO_ROOT / "src", REPO_ROOT / "tests"):
-        for py_file in search_dir.rglob("*.py"):
-            try:
-                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-                violations.extend(
-                    _collect_facade_import_violations(
-                        tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
-                    )
-                )
-            except SyntaxError:
-                continue
+    for py_file, tree in parsed_repo_trees.items():
+        violations.extend(
+            _collect_facade_import_violations(
+                tree, allowed_submodules, str(py_file.relative_to(REPO_ROOT))
+            )
+        )
 
     fenced_re = re.compile(r"```python\n(.*?)```", re.DOTALL)
     kb_dir = REPO_ROOT / "src" / "devops_cli" / "ai" / "knowledge_base"
@@ -2133,3 +2623,388 @@ def test_no_non_submodule_imports_from_ai_and_github_facades() -> None:
                     continue
 
     assert violations == []
+
+
+_CONTAINER_MUTATING_METHODS: frozenset[str] = frozenset(
+    {
+        "clear",
+        "update",
+        "pop",
+        "popitem",
+        "setdefault",
+        "append",
+        "extend",
+        "insert",
+        "remove",
+        "add",
+        "discard",
+    }
+)
+
+
+def _extract_conftest_state_resets(conftest_tree: ast.Module) -> dict[str, tuple[str, ...]]:
+    """Extract `_PROCESS_STATE_RESETS` from `tests/conftest.py`'s AST without importing conftest."""
+    for stmt in conftest_tree.body:
+        if (
+            isinstance(stmt, ast.AnnAssign)
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id == "_PROCESS_STATE_RESETS"
+            and stmt.value is not None
+        ):
+            raw = ast.literal_eval(stmt.value)
+            return {str(k): tuple(str(x) for x in v) for k, v in raw.items()}
+    return {}
+
+
+def _assigned_names(stmt: ast.stmt) -> list[str]:
+    """Return top-level variable names bound by an `Assign` or `AnnAssign` statement."""
+    if isinstance(stmt, ast.Assign):
+        return [target.id for target in stmt.targets if isinstance(target, ast.Name)]
+    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+        return [stmt.target.id]
+    return []
+
+
+def _index_top_level_defs(
+    tree: ast.Module,
+) -> tuple[
+    dict[str, int], dict[str, ast.ClassDef], dict[str, ast.FunctionDef | ast.AsyncFunctionDef]
+]:
+    """Index top-level variable assignment lines, classes, and functions in `tree`."""
+    assigns: dict[str, int] = {}
+    classes: dict[str, ast.ClassDef] = {}
+    funcs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for stmt in tree.body:
+        for name in _assigned_names(stmt):
+            assigns[name] = getattr(stmt, "lineno", 1)
+        if isinstance(stmt, ast.ClassDef):
+            classes[stmt.name] = stmt
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs[stmt.name] = stmt
+    return assigns, classes, funcs
+
+
+def _find_class_method(
+    cls_node: ast.ClassDef | None, method_name: str
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """Return the method AST node named `method_name` on `cls_node`, or None."""
+    if cls_node is None:
+        return None
+    for item in cls_node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == method_name:
+            return item
+    return None
+
+
+def _collect_local_callee_specs(
+    fn_node: ast.AST,
+    classes: Mapping[str, ast.ClassDef],
+    funcs: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[str]:
+    """Return local function or classmethod specs called inside `fn_node`."""
+    callees: list[str] = []
+    for sub in ast.walk(fn_node):
+        if not isinstance(sub, ast.Call):
+            continue
+        if isinstance(sub.func, ast.Name) and sub.func.id in funcs:
+            callees.append(sub.func.id)
+        elif (
+            isinstance(sub.func, ast.Attribute)
+            and isinstance(sub.func.value, ast.Name)
+            and sub.func.value.id in classes
+        ):
+            callees.append(f"{sub.func.value.id}.{sub.func.attr}")
+    return callees
+
+
+def _resolve_reset_nodes(
+    registered_resets: Sequence[str],
+    classes: Mapping[str, ast.ClassDef],
+    funcs: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[tuple[str | None, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Resolve registered public reset names and their transitive local helpers to `(cls_name, node)`."""
+    resolved: list[tuple[str | None, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+    visited: set[str] = set()
+    queue = [spec for spec in registered_resets if not spec.split(".")[-1].startswith("_")]
+    while queue:
+        spec = queue.pop()
+        if spec in visited:
+            continue
+        visited.add(spec)
+        if "." in spec:
+            cls_name, meth_name = spec.split(".", 1)
+            method_node = _find_class_method(classes.get(cls_name), meth_name)
+            if method_node is not None:
+                resolved.append((cls_name, method_node))
+        elif (fn_node := funcs.get(spec)) is not None:
+            resolved.append((None, fn_node))
+            queue.extend(_collect_local_callee_specs(fn_node, classes, funcs))
+    return resolved
+
+
+def _record_assign_target_reset(
+    target: ast.expr,
+    cls_name: str | None,
+    reset_containers: set[str],
+    reset_cls_attrs: set[tuple[str, str]],
+) -> None:
+    """Record a subscript container reset or class attribute rebind from an assignment target."""
+    if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
+        reset_containers.add(target.value.id)
+    elif (
+        cls_name is not None
+        and isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id in {"cls", cls_name}
+    ):
+        reset_cls_attrs.add((cls_name, target.attr))
+
+
+def _record_call_reset(sub: ast.Call, reset_containers: set[str], reset_caches: set[str]) -> None:
+    """Record a `cache_clear()` or container-mutating method call inside a reset function."""
+    if not (isinstance(sub.func, ast.Attribute) and isinstance(sub.func.value, ast.Name)):
+        return
+    target_id = sub.func.value.id
+    if sub.func.attr == "cache_clear":
+        reset_caches.add(target_id)
+    elif sub.func.attr in _CONTAINER_MUTATING_METHODS:
+        reset_containers.add(target_id)
+
+
+def _record_assign_reset(
+    sub: ast.Assign,
+    cls_name: str | None,
+    reset_containers: set[str],
+    reset_cls_attrs: set[tuple[str, str]],
+) -> None:
+    """Record container resets or class attribute rebinds across all targets of `sub`."""
+    for target in sub.targets:
+        _record_assign_target_reset(target, cls_name, reset_containers, reset_cls_attrs)
+
+
+def _record_node_resets(
+    cls_name: str | None,
+    rnode: ast.FunctionDef | ast.AsyncFunctionDef,
+    reset_globals: set[str],
+    reset_containers: set[str],
+    reset_caches: set[str],
+    reset_cls_attrs: set[tuple[str, str]],
+) -> None:
+    """Record the globals, containers, caches, and class attributes reset inside `rnode`."""
+    for sub in ast.walk(rnode):
+        if isinstance(sub, ast.Global):
+            reset_globals.update(sub.names)
+        if isinstance(sub, ast.Call):
+            _record_call_reset(sub, reset_containers, reset_caches)
+        if isinstance(sub, ast.Assign):
+            _record_assign_reset(sub, cls_name, reset_containers, reset_cls_attrs)
+
+
+def _decorator_short_name(dec: ast.expr) -> str:
+    """Return the bare name of a decorator (`cache`, `lru_cache`, `classmethod`, etc.)."""
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    if isinstance(target, ast.Name):
+        return target.id
+    return target.attr if isinstance(target, ast.Attribute) else ""
+
+
+def _mutated_container_names_in_node(sub: ast.AST) -> list[str]:
+    """Return container variable names mutated by `sub` via method call or subscript assignment."""
+    if (
+        isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and isinstance(sub.func.value, ast.Name)
+        and sub.func.attr in _CONTAINER_MUTATING_METHODS
+    ):
+        return [sub.func.value.id]
+    if isinstance(sub, (ast.Assign, ast.Delete)):
+        return [
+            target.value.id
+            for target in sub.targets
+            if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+        ]
+    return []
+
+
+def _collect_mutated_containers(
+    tree: ast.Module, assigns: Mapping[str, int], seen_globals: set[str]
+) -> dict[str, int]:
+    """Return module-level containers mutated inside functions or methods, mapped to their line."""
+    containers: dict[str, int] = {}
+    scope_stmts = [
+        stmt
+        for stmt in tree.body
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    for stmt in scope_stmts:
+        for sub in ast.walk(stmt):
+            for cname in _mutated_container_names_in_node(sub):
+                if cname in assigns and cname not in seen_globals:
+                    containers.setdefault(cname, assigns[cname])
+    return containers
+
+
+def _classmethod_rebound_attrs(
+    cls_name: str, item: ast.FunctionDef | ast.AsyncFunctionDef
+) -> list[tuple[str, int]]:
+    """Return `(attr_name, lineno)` for class attributes rebound inside `@classmethod` `item`."""
+    if not any(_decorator_short_name(d) == "classmethod" for d in item.decorator_list):
+        return []
+    found: list[tuple[str, int]] = []
+    for sub in ast.walk(item):
+        if not isinstance(sub, ast.Assign):
+            continue
+        for target in sub.targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id in {"cls", cls_name}
+            ):
+                found.append((target.attr, sub.lineno))
+    return found
+
+
+def _collect_classmethod_rebinds(
+    classes: Mapping[str, ast.ClassDef],
+) -> list[tuple[str, str, int]]:
+    """Return `(cls_name, attr_name, lineno)` for every class attribute a `@classmethod` rebinds."""
+    rebinds: list[tuple[str, str, int]] = []
+    seen: set[tuple[str, str]] = set()
+    for cls_name, cls_node in classes.items():
+        cls_assigns = _index_top_level_defs(ast.Module(body=cls_node.body, type_ignores=[]))[0]
+        methods = [
+            item
+            for item in cls_node.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        for method in methods:
+            for attr, lineno in _classmethod_rebound_attrs(cls_name, method):
+                if (cls_name, attr) not in seen:
+                    seen.add((cls_name, attr))
+                    rebinds.append((cls_name, attr, cls_assigns.get(attr, lineno)))
+    return rebinds
+
+
+def _collect_global_rebinds(tree: ast.Module, assigns: Mapping[str, int]) -> dict[str, int]:
+    """Return module-level names rebound through `global`, mapped to their line number."""
+    seen_globals: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global):
+            for name in node.names:
+                seen_globals.setdefault(name, assigns.get(name, node.lineno))
+    return seen_globals
+
+
+def _collect_cached_functions(tree: ast.Module) -> list[tuple[str, int]]:
+    """Return `(func_name, lineno)` for every `@cache` or `@lru_cache` function in `tree`."""
+    return [
+        (node.name, node.lineno)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(_decorator_short_name(d) in {"cache", "lru_cache"} for d in node.decorator_list)
+    ]
+
+
+def _find_unreset_process_state(
+    rel_path: str, tree: ast.Module, registered_resets: Sequence[str]
+) -> list[str]:
+    """Return `path:line` violations for any of the 4 process-wide state forms not reset (#1310)."""
+    assigns, classes, funcs = _index_top_level_defs(tree)
+    reset_globals: set[str] = set()
+    reset_containers: set[str] = set()
+    reset_caches: set[str] = set()
+    reset_cls_attrs: set[tuple[str, str]] = set()
+    for cls_name, rnode in _resolve_reset_nodes(registered_resets, classes, funcs):
+        _record_node_resets(
+            cls_name, rnode, reset_globals, reset_containers, reset_caches, reset_cls_attrs
+        )
+
+    seen_globals = _collect_global_rebinds(tree, assigns)
+    containers = _collect_mutated_containers(tree, assigns, set(seen_globals))
+    return [
+        *[
+            f"{rel_path}:{lineno}: global {name} is not reset"
+            for name, lineno in sorted(seen_globals.items(), key=lambda item: item[1])
+            if name not in reset_globals
+        ],
+        *[
+            f"{rel_path}:{lineno}: container {name} is not reset"
+            for name, lineno in sorted(containers.items(), key=lambda item: item[1])
+            if name not in reset_containers
+        ],
+        *[
+            f"{rel_path}:{lineno}: cached function {name} is not reset"
+            for name, lineno in _collect_cached_functions(tree)
+            if name not in reset_caches
+        ],
+        *[
+            f"{rel_path}:{lineno}: class attribute {cls_name}.{attr_name} is not reset"
+            for cls_name, attr_name, lineno in _collect_classmethod_rebinds(classes)
+            if (cls_name, attr_name) not in reset_cls_attrs
+        ],
+    ]
+
+
+def _module_name_for_source_path(path: Path) -> str:
+    """Return the dotted `devops_cli.*` module name for a file under `src/`."""
+    parts = list(path.relative_to(REPO_ROOT / "src").with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def test_every_piece_of_process_wide_state_in_src_is_reset_by_the_floor(
+    parsed_source_trees: dict[Path, ast.Module],
+    parsed_repo_trees: dict[Path, ast.Module],
+) -> None:
+    """Every global rebind, mutated module container, cached function, and classmethod singleton in src is reset after each test (#1310)."""
+    conftest_tree = parsed_repo_trees[REPO_ROOT / "tests" / "conftest.py"]
+    resets_by_module = _extract_conftest_state_resets(conftest_tree)
+    violations: list[str] = []
+    for path, tree in sorted(parsed_source_trees.items()):
+        rel_path = path.relative_to(REPO_ROOT).as_posix()
+        module_name = _module_name_for_source_path(path)
+        violations.extend(
+            _find_unreset_process_state(rel_path, tree, resets_by_module.get(module_name, ()))
+        )
+    assert violations == []
+
+
+def test_process_wide_state_invariant_reports_each_unreset_form() -> None:
+    """The process-wide state scanner reports `path:line` for each of the four forms when unreset (#1310)."""
+    sample = ast.parse(
+        "import functools\n"
+        "_STATE = None\n"
+        "_ITEMS: dict[str, int] = {}\n"
+        "def mutate() -> None:\n"
+        "    global _STATE\n"
+        "    _STATE = 1\n"
+        "    _ITEMS['a'] = 2\n"
+        "@functools.lru_cache(maxsize=1)\n"
+        "def cached_val() -> int:\n"
+        "    return 42\n"
+        "class Service:\n"
+        "    _instance = None\n"
+        "    @classmethod\n"
+        "    def get(cls) -> object:\n"
+        "        cls._instance = object()\n"
+        "        return cls._instance\n"
+    )
+    assert _find_unreset_process_state("src/devops_cli/sample.py", sample, ()) == [
+        "src/devops_cli/sample.py:2: global _STATE is not reset",
+        "src/devops_cli/sample.py:3: container _ITEMS is not reset",
+        "src/devops_cli/sample.py:9: cached function cached_val is not reset",
+        "src/devops_cli/sample.py:12: class attribute Service._instance is not reset",
+    ]
+
+
+def test_every_source_and_test_file_is_parsed_at_most_once(
+    parsed_repo_trees: dict[Path, ast.Module],
+) -> None:
+    """Each file under `src/` and `tests/` is parsed at most once per test process (#1749)."""
+    multiple_parses = [
+        f"{path.name}: parsed {parse_count(path)} times"
+        for path in parsed_repo_trees
+        if parse_count(path) > 1
+    ]
+    assert multiple_parses == []

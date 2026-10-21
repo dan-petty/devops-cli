@@ -1,0 +1,25 @@
+id: net-bracket-affix
+language: python
+severity: error
+message: IPv6 brackets handled by hand. urllib.parse.urlsplit(value).hostname or httpx2.URL(value).host returns the bare host; parse it with ipaddress.ip_address.
+rule:
+  kind: call
+  all:
+    - has:
+        field: function
+        kind: attribute
+        has:
+          field: attribute
+          regex: ^(startswith|endswith)$
+    - has:
+        field: arguments
+        has:
+          kind: string
+          regex: '^["'']\[["'']$'
+    - inside:
+        kind: boolean_operator
+        stopBy: end
+        has:
+          stopBy: end
+          kind: string
+          regex: ':'

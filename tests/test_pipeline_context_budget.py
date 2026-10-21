@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.agents.agent import PydanticAgent
@@ -15,6 +16,8 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
 from devops_cli.config.defaults import DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS
 from devops_cli.config.settings import Settings
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def _create_fake_agent(client: LLMClient, idx: int, name: str | None = None) -> PydanticAgent[Any]:
@@ -207,9 +210,11 @@ def test_pipeline_skip_rag_forwarded() -> None:
     assert (calls_when_skipped, calls_when_enabled) == (0, 2)
 
 
-def test_pipeline_cli_options_and_dry_run() -> None:
+def test_pipeline_cli_options_and_dry_run(unserved_side_channel_port: int) -> None:
     """Verify --stage-context-tokens option, --no-rag forwarding, and dry-run output."""
     runner = CliRunner()
+    settings = Settings()
+    settings.telemetry.endpoint = f"http://127.0.0.1:{unserved_side_channel_port}"
 
     mock_pipeline_inst = MagicMock()
     mock_pipeline_cls = MagicMock(return_value=mock_pipeline_inst)
@@ -222,7 +227,7 @@ def test_pipeline_cli_options_and_dry_run() -> None:
     with (
         patch("devops_cli.ai.agents.pipeline.MultiAgentPipeline", mock_pipeline_cls),
         patch("devops_cli.ai.tools.get_default_tools", return_value=[]),
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
     ):
         res = runner.invoke(
             ai_app,

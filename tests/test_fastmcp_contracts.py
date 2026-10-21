@@ -160,7 +160,6 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
     prompts = asyncio.run(mcp.list_prompts())
     prompt_names = {p.name for p in prompts}
     expected_prompts = {
-        "code_review_prompt",
         "security_audit_prompt",
         "k8s_diagnostics_prompt",
         "architecture_analysis_prompt",
@@ -278,15 +277,12 @@ def test_fastmcp_prompts_rendering() -> None:
     """Verify that FastMCP prompt templates correctly interpolate parameters from task markdown files."""
     from devops_cli.ai.mcp.server import (
         architecture_analysis_prompt,
-        code_review_prompt,
         k8s_diagnostics_prompt,
         security_audit_prompt,
     )
 
-    cr = code_review_prompt(persona="architect", target="src/core")
-    assert "architect" in cr
-    assert "src/core" in cr
-    assert "OWASP" in cr
+    arch = architecture_analysis_prompt(target="src/core")
+    assert "src/core" in arch
 
     sa = security_audit_prompt(target="src/security")
     assert "src/security" in sa
@@ -1078,7 +1074,7 @@ async def test_a_coerced_argument_is_refused_before_the_handler_runs(
         ("review_pr", {"number": 7, "verbose": True}, "verbose", "HALLUCINATED_PARAM"),
         ("review_pr", {"number": "7"}, "number", "TYPE_MISMATCH"),
         ("review_pr", {"number": 7.0}, "number", "TYPE_MISMATCH"),
-        ("review_path", {"persona": "everything"}, "persona", "INVALID_CHOICE"),
+        ("roadmap_intake", {"borrow_reason": "everything"}, "borrow_reason", "INVALID_CHOICE"),
     ],
 )
 async def test_each_violation_is_numbered_with_its_parameter_and_kind(
@@ -1090,15 +1086,15 @@ async def test_each_violation_is_numbered_with_its_parameter_and_kind(
 
 
 async def test_a_parameter_that_breaks_two_keywords_is_listed_once(handler_runner) -> None:
-    """`5` for `review_path`'s `persona` fails its `enum` and its `type`.
+    """`5` for `roadmap_intake`'s `borrow_reason` fails its `enum` and its `type`.
 
     Each failed keyword became an entry with the same expected value and fix, doubling the
     count and taking a second of the five places a violation on another parameter needs.
     """
-    _, reply = await _call("review_path", {"persona": 5})
+    _, reply = await _call("roadmap_intake", {"borrow_reason": 5})
     assert (
         "1 argument violation(s)" in reply,
-        "1. Parameter: `persona`" in reply,
+        "1. Parameter: `borrow_reason`" in reply,
         "2. Parameter" in reply,
     ) == (True, True, False)
 

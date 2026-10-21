@@ -30,7 +30,6 @@ from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
-    _are_findings_duplicate,
 )
 from devops_cli.config.constants import (
     CONST_REVIEW_VERDICT_LOCK_FILENAME,
@@ -60,7 +59,6 @@ _VERDICT_FIELDS = frozenset(
         "invalidation_reason",
         "citation_line",
         "mitigating_mechanism",
-        "verification_note",
     }
 )
 
@@ -164,8 +162,6 @@ def judge_candidate(
     """
     candidate = numbered_finding(candidates.findings, number, field="candidate")
     copy_at = _CandidateIndex(candidates.findings).copy_of(number, reported.findings)
-    if copy_at is None and verdict.status in _REPORTED_VERDICTS:
-        _refuse_reported_elsewhere(reported.findings, candidate, number)
     _record_verdict(candidate, verdict)
     if copy_at is not None:
         reported.findings[copy_at] = _mirrored(reported.findings[copy_at], candidate)
@@ -191,34 +187,9 @@ def _record_verdict(finding: SavedFinding, verdict: Verdict) -> None:
     )
 
 
-def _refuse_reported_elsewhere(
-    reported: Sequence[SavedFinding], candidate: SavedFinding, number: int
-) -> None:
-    """Refuse to add a candidate whose defect findings.json reports under another title.
-
-    The consolidator's own test decides, whatever either verdict: a second copy would count the
-    defect twice in the report, in review history and in the exported dataset.
-    """
-    for reported_number, finding in enumerate(reported, 1):
-        if _are_findings_duplicate(
-            finding, candidate.model_copy(update={"status": finding.status})
-        ):
-            raise ValidationError(
-                MESSAGES.review.candidate_already_reported.format(
-                    index=number, number=reported_number
-                ),
-                field="candidate",
-            )
-
-
-def _identity(finding: SavedFinding) -> tuple[str, str, str]:
-    """The persona, location and title a candidate's copy in findings.json keeps.
-
-    Consolidation keeps the location and title of the first report it merges, and lists the
-    personas of the others after that report's own.
-    """
-    persona = finding.persona.split(",")[0].strip().lower()
-    return persona, finding.location.strip().lower(), finding.title.strip().lower()
+def _identity(finding: SavedFinding) -> tuple[str, str]:
+    """The (fingerprint, location) key that identifies a finding across session files."""
+    return finding.fingerprint.strip().lower(), finding.location.strip().lower()
 
 
 class _CandidateIndex:
@@ -226,7 +197,7 @@ class _CandidateIndex:
 
     def __init__(self, candidates: Sequence[SavedFinding]) -> None:
         self._candidates = candidates
-        self._by_identity: defaultdict[tuple[str, str, str], list[int]] = defaultdict(list)
+        self._by_identity: defaultdict[tuple[str, str], list[int]] = defaultdict(list)
         for number, candidate in enumerate(candidates, 1):
             self._by_identity[_identity(candidate)].append(number)
 
@@ -234,15 +205,12 @@ class _CandidateIndex:
         """The numbers of the candidates `finding` reports.
 
         A copy a verdict moved names its candidate. A finding the review reported is its
-        candidate of the same persona, location and title; of several such candidates, the ones
-        with its description, or all of them when none has it.
+        candidate of the same key.
         """
         moved_from = finding.moved_from_candidate
         if moved_from is not None:
             return [moved_from] if 1 <= moved_from <= len(self._candidates) else []
-        same = self._by_identity.get(_identity(finding), [])
-        described = [n for n in same if self._candidates[n - 1].description == finding.description]
-        return described if len(same) > 1 and described else list(same)
+        return list(self._by_identity.get(_identity(finding), []))
 
     def copy_of(self, number: int, reported: Sequence[SavedFinding]) -> int | None:
         """Where findings.json holds candidate `number`'s copy, if it holds one.

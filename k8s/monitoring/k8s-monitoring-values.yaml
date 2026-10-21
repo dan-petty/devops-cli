@@ -16,6 +16,9 @@ destinations:
   localLoki:
     type: loki
     url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
+  localPyroscope:
+    type: pyroscope
+    url: http://pyroscope.monitoring.svc.cluster.local:4040
 
 # ── Self-Reporting ───────────────────────────────────────────────────────────
 selfReporting:
@@ -45,6 +48,7 @@ clusterMetrics:
         - kube_deployment_labels
         - kube_daemonset_labels
         - kube_statefulset_labels
+        - kube_horizontalpodautoscaler_labels
         - kube_service_info
         - kube_ingress_info
         - kube_namespace_created
@@ -148,8 +152,19 @@ prometheusOperatorObjects:
   collector: alloy-metrics
 
 prometheusMetricsReceiver:
-  enabled: true
+  enabled: false
   collector: alloy-metrics
+
+# Continuous profiling for all pods via eBPF (`targetingScheme: all`) and pprof annotations (#1134),
+# replacing Pyroscope's bundled Alloy subchart.
+profiling:
+  enabled: true
+  collector: alloy-profiles
+  ebpf:
+    enabled: true
+    targetingScheme: all
+  pprof:
+    enabled: true
 
 # Pods annotated for scraping (#1130): cloudflared, Traefik, Alertmanager and roadmap-service,
 # found through the `prometheus.io/*` keys they already carry. The job is the pod's
@@ -216,6 +231,20 @@ integrations:
             source_labels = ["__meta_kubernetes_pod_node_name"]
             target_label  = "instance"
           }
+  # The chart's own Alloy collectors (alloy-metrics, alloy-logs, alloy-singleton), within the
+  # integration's default allow list (#1131).
+  alloy:
+    instances:
+      - name: k8s-monitoring
+        labelSelectors:
+          app.kubernetes.io/name:
+            - alloy-metrics
+            - alloy-logs
+            - alloy-singleton
+  # Grafana's own metrics (#1131); the integration's defaults match the chart's pod and port.
+  grafana:
+    instances:
+      - name: grafana
 
 # ── Telemetry Services ───────────────────────────────────────────────────────
 telemetryServices:
@@ -302,22 +331,16 @@ collectors:
         limits:
           cpu: 500m
           memory: 512Mi
-
-# ── Extra Monitoring Objects ─────────────────────────────────────────────────
-extraObjects:
-  - apiVersion: monitoring.coreos.com/v1
-    kind: ServiceMonitor
-    metadata:
-      name: llm-gateway
-      namespace: llm
-      labels:
-        app.kubernetes.io/name: llm-gateway
-        app.kubernetes.io/part-of: devops-cli-stack
-    spec:
-      selector:
-        matchLabels:
-          app.kubernetes.io/name: llm-gateway
-      endpoints:
-        - port: http
-          path: /metrics/
-          interval: 15s
+  alloy-profiles:
+    presets:
+      - daemonset
+      - privileged
+    alloy:
+      enableReporting: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi

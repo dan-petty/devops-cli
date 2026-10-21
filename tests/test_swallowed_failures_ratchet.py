@@ -11,6 +11,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import takewhile
 from pathlib import Path
@@ -31,6 +32,9 @@ from devops_cli.config.constants import (
     CONST_SWALLOWED_FAILURES_RUFF_RULES,
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.trees import parse_python_file
+
+pytestmark = pytest.mark.live("ruff", "python")
 
 CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
 # The module's dotted name is the same under pytest and under `python -m`, so the command follows
@@ -222,17 +226,30 @@ def _extract_check_false_call(node: ast.AST) -> ast.Call | None:
     return None
 
 
-def collect_ast_unread_check_false(target: Path, repo_root: Path) -> list[SwallowedFailureSite]:
+def collect_ast_unread_check_false(
+    target: Path,
+    repo_root: Path,
+    trees: Mapping[Path, ast.Module] | None = None,
+) -> list[SwallowedFailureSite]:
     """Collect unread check=False process calls using Python AST parsing."""
-    files = [target] if target.is_file() else sorted(target.rglob("*.py"))
+    if trees is not None and not target.is_file():
+        file_tree_pairs = [
+            (p, tree) for p, tree in sorted(trees.items()) if p.is_relative_to(target)
+        ]
+    else:
+        files = [target] if target.is_file() else sorted(target.rglob("*.py"))
+        file_tree_pairs = []
+        for f in files:
+            if not f.name.endswith(".py"):
+                continue
+            try:
+                tree = parse_python_file(f)
+            except SyntaxError, UnicodeDecodeError:
+                continue
+            file_tree_pairs.append((f, tree))
+
     sites: list[SwallowedFailureSite] = []
-    for f in files:
-        if not f.name.endswith(".py"):
-            continue
-        try:
-            tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
-        except SyntaxError, UnicodeDecodeError:
-            continue
+    for f, tree in file_tree_pairs:
         rel = str(f.relative_to(repo_root)) if f.is_relative_to(repo_root) else str(f)
         visitor = _UnreadCheckFalseVisitor(rel)
         visitor.visit(tree)
@@ -242,11 +259,13 @@ def collect_ast_unread_check_false(target: Path, repo_root: Path) -> list[Swallo
 
 
 def collect_all_swallowed_failures(
-    target: Path, repo_root: Path
+    target: Path,
+    repo_root: Path,
+    trees: Mapping[Path, ast.Module] | None = None,
 ) -> dict[str, list[SwallowedFailureSite]]:
     """Group all swallowed failure sites across Ruff and AST checks by relative file path."""
     ruff_sites = collect_ruff_violations(target, repo_root)
-    ast_sites = collect_ast_unread_check_false(target, repo_root)
+    ast_sites = collect_ast_unread_check_false(target, repo_root, trees=trees)
     grouped: dict[str, list[SwallowedFailureSite]] = {}
     for site in [*ruff_sites, *ast_sites]:
         grouped.setdefault(site.path, []).append(site)
@@ -339,10 +358,12 @@ def lower_ceilings(fixture_path: Path, repo_root: Path) -> dict[str, int]:
 # ── Invariant Test ─────────────────────────────────────────────────────────────
 
 
-def test_swallowed_failures_stay_under_or_equal_to_ceiling() -> None:
+def test_swallowed_failures_stay_under_or_equal_to_ceiling(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
     """Ensure swallowed failure sites under src/ do not exceed their ceiling or stay under it."""
     src_dir = REPO_ROOT / "src"
-    measured = collect_all_swallowed_failures(src_dir, REPO_ROOT)
+    measured = collect_all_swallowed_failures(src_dir, REPO_ROOT, trees=parsed_source_trees)
     ceilings = load_ceilings(CONST_CEILINGS_FIXTURE)
     over, under = evaluate_ratchet(measured, ceilings)
 

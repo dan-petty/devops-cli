@@ -34,6 +34,8 @@ from devops_cli.ai.mcp.toolset import (
 )
 from devops_cli.ai.tools.mcp_bridge import get_devops_mcp_toolset, get_mcp_agent_tools
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_native_mcp_type_reexports() -> None:
     """Verify all native classes and types are cleanly re-exported from pydantic_ai.mcp."""
@@ -91,7 +93,7 @@ async def test_create_devops_mcp_toolset() -> None:
     # Discovered prompts and resources on in-process server
     prompts = await ts.list_prompts()
     prompt_names = {p.name for p in prompts}
-    assert "code_review_prompt" in prompt_names
+    assert "architecture_analysis_prompt" in prompt_names
     assert "security_audit_prompt" in prompt_names
 
     resources = await ts.list_resources()
@@ -203,3 +205,71 @@ async def test_pydantic_agent_with_native_mcp_toolset() -> None:
         with agent.override(model=TestModel(custom_output_text="MCP execution successful")):
             res = agent.run("Run cluster check")
             assert res.content == "MCP execution successful"
+
+
+async def test_mcp_derived_default_tools_match_published_fastmcp_schemas() -> None:
+    """Every MCP-derived tool in get_default_tools() matches FastMCP's published schema and runs without session."""
+    import warnings
+
+    from pydantic.json_schema import PydanticJsonSchemaWarning
+
+    from devops_cli.ai.mcp.server import mcp as devops_server
+    from devops_cli.ai.mcp.server import reset_hydrated_domains
+    from devops_cli.ai.tools import Tool, get_default_tools
+
+    mcp_fns = [
+        fn
+        for fn in get_default_tools()
+        if getattr(fn, "__module__", "").startswith("devops_cli.ai.mcp.")
+    ]
+    published_tools = {
+        fn.__name__: (fn, mcp_tool)
+        for fn in mcp_fns
+        if (mcp_tool := await devops_server.get_tool(fn.__name__)) is not None
+    }
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("always", PydanticJsonSchemaWarning)
+        mismatched_schemas = {
+            name: (Tool.from_function(fn).function_schema.json_schema, mcp_tool.parameters)
+            for name, (fn, mcp_tool) in published_tools.items()
+            if Tool.from_function(fn).function_schema.json_schema != mcp_tool.parameters
+        }
+        hydrate_fn, _ = published_tools["hydrate_tool_domain"]
+        hydrate_agent_tool = Tool.from_function(hydrate_fn)
+
+    schema_warnings = [
+        str(item.message)
+        for item in recorded_warnings
+        if issubclass(item.category, PydanticJsonSchemaWarning)
+    ]
+    try:
+        hydrate_result = hydrate_agent_tool.execute(domain="k8s")
+    finally:
+        reset_hydrated_domains()
+
+    assert (
+        len(published_tools) >= 150,
+        mismatched_schemas,
+        schema_warnings,
+        hydrate_result,
+    ) == (
+        True,
+        {},
+        [],
+        {"domain": "k8s", "hydrated": True, "advertised_domains": ["k8s"]},
+    )
+
+
+def test_agent_mcp_toolset_url_and_script_target() -> None:
+    """AgentMCPToolset parses URLs case-insensitively and sets script_path for paths (#1107)."""
+    ts1 = AgentMCPToolset("HTTPS://example.com/sse")
+    assert ts1.url == "HTTPS://example.com/sse"
+    assert ts1.script_path is None
+
+    ts2 = AgentMCPToolset("http://example.com/sse")
+    assert ts2.url == "http://example.com/sse"
+    assert ts2.script_path is None
+
+    ts3 = AgentMCPToolset("scripts/mcp_server.py")
+    assert ts3.url is None
+    assert ts3.script_path == "scripts/mcp_server.py"

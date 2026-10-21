@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/qdrant-client@1.19.*"
+sources:
+  - "https://qdrant.tech/documentation/"
+  - "https://github.com/qdrant/qdrant-client-python"
+reviewed: "2026-10-15"
+tags:
+  - "qdrant"
+  - "rag"
+  - "embeddings"
+---
+
 # Code Library: Qdrant Client (Vector Embeddings & Semantic Search)
 
 ## 1. Project References

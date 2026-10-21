@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 
 import pytest
 
@@ -22,6 +23,8 @@ from devops_cli.config.defaults import (
 from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+
+pytestmark = pytest.mark.live("python")
 
 
 def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -40,53 +43,6 @@ def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]
     if extra:
         env.update(extra)
     return env
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["--help"],
-        ["ci", "--help"],
-        ["workspace", "--help"],
-    ],
-)
-def test_cli_help_imports_no_telemetry(argv: list[str]) -> None:
-    """Verify top-level and subcommand help dispatches import neither logfire nor pydantic_ai."""
-    code = f"""
-import json
-import sys
-import devops_cli.entry
-
-try:
-    devops_cli.entry.main({argv!r})
-except SystemExit:
-    pass
-
-result = {{
-    "logfire": "logfire" in sys.modules,
-    "opentelemetry.sdk": "opentelemetry.sdk" in sys.modules,
-    "pydantic_ai": "pydantic_ai" in sys.modules,
-}}
-print("__TELEMETRY_STATUS__" + json.dumps(result))
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        env=_clean_subprocess_env(),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    found_line = next(
-        line for line in proc.stdout.splitlines() if line.startswith("__TELEMETRY_STATUS__")
-    )
-    status = json.loads(found_line.removeprefix("__TELEMETRY_STATUS__"))
-
-    assert (
-        status["logfire"],
-        status["opentelemetry.sdk"],
-        status["pydantic_ai"],
-    ) == (False, False, False)
 
 
 def test_entry_toggle_ast_invariants() -> None:
@@ -222,43 +178,6 @@ print("__SDKS__" + json.dumps(result))
 
 _HEAVY_MODULES = CONST_CLI_HEAVY_MODULES
 
-_ALL_HELP_ARGVS = [
-    ["--version"],
-    ["--help"],
-] + [[cmd, "--help"] for cmd in sorted(_COMMAND_SPECS.keys())]
-
-
-@pytest.mark.parametrize("argv", _ALL_HELP_ARGVS)
-def test_cli_help_imports_no_heavy_modules(argv: list[str]) -> None:
-    """Verify top-level and subcommand help dispatches import zero heavy modules."""
-    code = f"""
-import json
-import sys
-import devops_cli.entry
-
-try:
-    devops_cli.entry.main({argv!r})
-except SystemExit:
-    pass
-
-heavy = {_HEAVY_MODULES!r}
-loaded = [m for m in heavy if m in sys.modules]
-print("__HEAVY_STATUS__" + json.dumps(loaded))
-"""
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        env=_clean_subprocess_env(),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    found_line = next(
-        line for line in proc.stdout.splitlines() if line.startswith("__HEAVY_STATUS__")
-    )
-    loaded = json.loads(found_line.removeprefix("__HEAVY_STATUS__"))
-    assert loaded == []
-
-
 _GITHUB_HELP_ARGVS = [["--help"], ["gh", "--help"], ["roadmap", "--help"], ["pr", "--help"]]
 
 
@@ -375,6 +294,102 @@ print("__EXC_STATUS__" + json.dumps({"before": before, "after": after}))
     assert (status["before"], status["after"]) == (False, True)
 
 
+# Each argv below runs once, in a fresh interpreter of its own, and every check on that argv reads
+# that one run: separate interpreters keep one command's imports out of another's count, and one
+# run per argv keeps two checks from measuring the same start twice.
+_STARTUP_PROBE = """
+import sys
+import devops_cli.entry
+
+try:
+    devops_cli.entry.main(sys.argv[1:])
+except SystemExit:
+    pass
+print("\\n__MODULES__", *sys.modules)
+"""
+
+
+@dataclass(frozen=True)
+class _StartupImports:
+    """What one fresh interpreter running `devops <argv>` imported."""
+
+    loaded: frozenset[str]
+    """Every name in `sys.modules` once the command returned."""
+    imported: frozenset[str]
+    """Every module `-X importtime` reported, failed imports included: what the budgets count."""
+    slowest: tuple[tuple[str, float], ...]
+    """The ten slowest imports by cumulative seconds, a diagnostic only."""
+
+    @property
+    def devops_modules(self) -> frozenset[str]:
+        """The devops_cli modules among those imported."""
+        return frozenset(m for m in self.imported if m.startswith("devops_cli"))
+
+    def found(self, modules: tuple[str, ...]) -> list[str]:
+        """Return those of `modules` the run loaded or tried to import."""
+        return [m for m in modules if m in self.loaded or m in self.imported]
+
+    def report(self) -> str:
+        """Describe the counts and the slowest imports for a failure message."""
+        slowest = "\n".join(f"  {mod}: {sec:.4f}s" for mod, sec in self.slowest)
+        return (
+            f"{len(self.imported)} modules, {len(self.devops_modules)} devops_cli modules. "
+            f"Slowest imports:\n{slowest}"
+        )
+
+
+@dataclass(frozen=True)
+class _ImportBudget:
+    """A structural startup budget (#1687): how many modules, and devops_cli modules, a start imports."""
+
+    name: str
+    total: int
+    devops: int
+
+    def admits(self, probe: _StartupImports) -> bool:
+        """Return whether the run stayed within both counts."""
+        return len(probe.imported) <= self.total and len(probe.devops_modules) <= self.devops
+
+
+_MAIN_AND_VERSION_BUDGET = _ImportBudget(
+    "main and version",
+    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
+)
+_COMMAND_HELP_BUDGET = _ImportBudget(
+    "command help",
+    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
+    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
+)
+
+# The budgets an argv holds besides the heavy-module check every help argv holds.
+_BUDGETS_BY_ARGV: dict[tuple[str, ...], tuple[_ImportBudget, ...]] = {
+    ("--version",): (_MAIN_AND_VERSION_BUDGET,),
+    ("--help",): (_MAIN_AND_VERSION_BUDGET, _COMMAND_HELP_BUDGET),
+    ("ai", "--help"): (_COMMAND_HELP_BUDGET,),
+    ("ai", "benchmark", "--help"): (_COMMAND_HELP_BUDGET,),
+    ("review", "--help"): (_COMMAND_HELP_BUDGET,),
+    ("k8s", "--help"): (_COMMAND_HELP_BUDGET,),
+}
+
+# The argvs that also import no telemetry and no pydantic_ai (#858).
+_TELEMETRY_FREE_ARGVS: frozenset[tuple[str, ...]] = frozenset(
+    {("--help",), ("ci", "--help"), ("workspace", "--help")}
+)
+_TELEMETRY_MODULES = ("logfire", "opentelemetry.sdk", "pydantic_ai")
+
+# `--version`, the root `--help`, every command group's `--help`, and every argv the tables name.
+_HELP_ARGVS: list[tuple[str, ...]] = sorted(
+    {
+        ("--version",),
+        ("--help",),
+        *((cmd, "--help") for cmd in _COMMAND_SPECS),
+        *_BUDGETS_BY_ARGV,
+        *_TELEMETRY_FREE_ARGVS,
+    }
+)
+
+
 def _parse_importtime_line(line: str) -> tuple[str, float] | None:
     if not line.strip().startswith("import time:"):
         return None
@@ -389,120 +404,70 @@ def _parse_importtime_line(line: str) -> tuple[str, float] | None:
     return mod, cum_us / 1_000_000
 
 
-def _parse_importtime_lines(
-    stderr: str,
-) -> tuple[set[str], set[str], list[tuple[str, float]]]:
-    module_cum_s: dict[str, float] = {}
-    for line in stderr.splitlines():
-        parsed = _parse_importtime_line(line)
-        if parsed is None:
-            continue
-        mod, cum_s = parsed
-        if mod not in module_cum_s or cum_s > module_cum_s[mod]:
-            module_cum_s[mod] = cum_s
-    unique_mods = set(module_cum_s.keys())
-    devops_mods = {m for m in unique_mods if m.startswith("devops_cli")}
-    slowest = sorted(module_cum_s.items(), key=lambda item: item[1], reverse=True)
-    return unique_mods, devops_mods, slowest
+def _parse_importtime(stderr: str) -> dict[str, float]:
+    """Map each module `-X importtime` reported to its largest cumulative import time in seconds."""
+    cumulative: dict[str, float] = {}
+    for parsed in map(_parse_importtime_line, stderr.splitlines()):
+        if parsed is not None:
+            mod, seconds = parsed
+            cumulative[mod] = max(seconds, cumulative.get(mod, 0.0))
+    return cumulative
 
 
-def _measure_startup_imports(
-    argv: list[str],
-) -> tuple[set[str], set[str], list[tuple[str, float]]]:
-    """Execute devops command with -X importtime and extract imported modules and timing."""
+def _probe_startup_imports(argv: list[str], preamble: str = "") -> _StartupImports:
+    """Run `devops <argv>` in a fresh interpreter under `-X importtime` and record its imports.
+
+    The interpreter imports `devops_cli.entry` and calls its `main`, as the `devops` script does.
+    `preamble` runs first in the same interpreter, for the control that imports a heavy package.
+    """
     proc = subprocess.run(
-        [sys.executable, "-X", "importtime", "-m", "devops_cli.entry", *argv],
+        [sys.executable, "-X", "importtime", "-c", preamble + _STARTUP_PROBE, *argv],
         env=_clean_subprocess_env(),
         capture_output=True,
         text=True,
         check=True,
     )
-    return _parse_importtime_lines(proc.stderr)
-
-
-def _format_slowest_report(slowest: list[tuple[str, float]], limit: int = 10) -> str:
-    """Format the slowest imported modules as an informational diagnostic report."""
-    return "\n".join(f"  {mod}: {sec:.4f}s" for mod, sec in slowest[:limit])
-
-
-@pytest.mark.parametrize("argv", [["--version"], ["--help"]])
-def test_cli_startup_import_budget_main_and_version(argv: list[str]) -> None:
-    """Verify devops --help and --version stay within structural module budgets."""
-    unique_mods, devops_mods, slowest = _measure_startup_imports(argv)
-    report = _format_slowest_report(slowest)
-    print(
-        f"\nStartup import timing report for {argv} "
-        f"({len(unique_mods)} total modules, {len(devops_mods)} devops_cli modules):\n{report}"
-    )
-
-    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
-    assert (
-        heavy_found,
-        len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
-        len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
-    ) == ([], True, True), (
-        f"{argv} breached structural budget: heavy={heavy_found}, "
-        f"total={len(unique_mods)} (limit {DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION}), "
-        f"devops={len(devops_mods)} (limit {DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION}).\n"
-        f"Slowest imports:\n{report}"
+    modules_line = next(line for line in proc.stdout.splitlines() if line.startswith("__MODULES__"))
+    cumulative = _parse_importtime(proc.stderr)
+    slowest = sorted(cumulative.items(), key=lambda item: item[1], reverse=True)[:10]
+    return _StartupImports(
+        loaded=frozenset(modules_line.split()[1:]),
+        imported=frozenset(cumulative),
+        slowest=tuple(slowest),
     )
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["--help"],
-        ["ai", "--help"],
-        ["ai", "benchmark", "--help"],
-        ["review", "--help"],
-        ["k8s", "--help"],
-    ],
-)
-def test_cli_startup_import_budget_command_help(argv: list[str]) -> None:
-    """Verify any devops <command> --help stays within structural module budgets."""
-    unique_mods, devops_mods, slowest = _measure_startup_imports(argv)
-    report = _format_slowest_report(slowest)
-    print(
-        f"\nStartup import timing report for {argv} "
-        f"({len(unique_mods)} total modules, {len(devops_mods)} devops_cli modules):\n{report}"
-    )
+@pytest.mark.parametrize("argv", _HELP_ARGVS)
+def test_cli_help_startup_imports(argv: tuple[str, ...]) -> None:
+    """Verify each help argv, run once in a fresh interpreter, imports no heavy module.
 
-    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
-    assert (
-        heavy_found,
-        len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
-        len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
-    ) == ([], True, True), (
-        f"{argv} breached structural budget: heavy={heavy_found}, "
-        f"total={len(unique_mods)} (limit {DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP}), "
-        f"devops={len(devops_mods)} (limit {DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP}).\n"
-        f"Slowest imports:\n{report}"
+    The same run checks what else applies to the argv: the root help and the help of `ci` and
+    `workspace` import neither logfire, opentelemetry.sdk nor pydantic_ai (#858), and `--version`,
+    the root help and a few commands' help stay within their structural module budgets (#1687).
+    """
+    probe = _probe_startup_imports(list(argv))
+    telemetry = (
+        [m for m in _TELEMETRY_MODULES if m in probe.loaded]
+        if argv in _TELEMETRY_FREE_ARGVS
+        else []
+    )
+    budgets = _BUDGETS_BY_ARGV.get(argv, ())
+    breached = [budget for budget in budgets if not budget.admits(probe)]
+    print(f"\nStartup imports for {list(argv)}: {probe.report()}")
+
+    assert (probe.found(CONST_CLI_HEAVY_MODULES), telemetry, breached) == ([], [], []), (
+        f"{list(argv)} imported heavy or telemetry modules or breached a budget of {budgets}: "
+        f"{probe.report()}"
     )
 
 
 def test_startup_structural_budget_fails_when_extra_heavy_package_imported() -> None:
     """Verify injecting a heavy package causes the structural import budget to fail."""
-    code = (
-        "import pydantic_ai\n"
-        "import devops_cli.entry\n"
-        "try:\n"
-        "    devops_cli.entry.main(['--help'])\n"
-        "except SystemExit:\n"
-        "    pass\n"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-X", "importtime", "-c", code],
-        env=_clean_subprocess_env(),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    unique_mods, _, _ = _parse_importtime_lines(proc.stderr)
-    heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+    probe = _probe_startup_imports(["--help"], preamble="import pydantic_ai\n")
 
     assert (
-        "pydantic_ai" in heavy_found,
-        len(unique_mods) > DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+        "pydantic_ai" in probe.found(CONST_CLI_HEAVY_MODULES),
+        len(probe.imported) > DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
     ) == (True, True)
 
 
@@ -524,12 +489,12 @@ def test_startup_structural_budget_passes_under_cpu_load() -> None:
                     start_new_session=True,
                 )
             )
-        unique_mods, devops_mods, _ = _measure_startup_imports(["--help"])
-        heavy_found = [m for m in CONST_CLI_HEAVY_MODULES if m in unique_mods]
+        probe = _probe_startup_imports(["--help"])
         assert (
-            heavy_found,
-            len(unique_mods) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
-            len(devops_mods) <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
+            probe.found(CONST_CLI_HEAVY_MODULES),
+            len(probe.imported) <= DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
+            len(probe.devops_modules)
+            <= DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
         ) == ([], True, True)
     finally:
         for p in workers:
@@ -541,39 +506,27 @@ def test_startup_structural_budget_passes_under_cpu_load() -> None:
                 p.wait()
 
 
-def test_cli_dry_run_imports_only_plan_dependencies() -> None:
+@pytest.mark.parametrize(
+    ("argv", "forbidden"),
+    [
+        (["ai", "benchmark", "--dry-run"], CONST_CLI_HEAVY_MODULES),
+        (["k8s", "deploy-stack", "--dry-run"], CONST_CLI_HEAVY_MODULES),
+        (["review", "path", "README.md", "--dry-run"], ("kubernetes", "docker", "qdrant_client")),
+    ],
+)
+def test_cli_dry_run_imports_only_plan_dependencies(
+    argv: list[str], forbidden: tuple[str, ...]
+) -> None:
     """Verify --dry-run paths import only what their plan needs.
 
     - ai benchmark --dry-run: loads zero heavy modules (simulation only).
     - k8s deploy-stack --dry-run: loads zero heavy modules (manifest planning without cluster client).
     - review path --dry-run: loads only review pipeline modules (pydantic_ai, fastmcp, opentelemetry)
       and neither kubernetes, docker, nor qdrant_client.
+
+    The review case can take over 5 s: its one run imports the whole review pipeline, about 2,500
+    modules, and runs the review's dry run, and what that run imports is what the case checks.
     """
-    dry_runs = [
-        (["ai", "benchmark", "--dry-run"], CONST_CLI_HEAVY_MODULES),
-        (["k8s", "deploy-stack", "--dry-run"], CONST_CLI_HEAVY_MODULES),
-        (["review", "path", "README.md", "--dry-run"], ("kubernetes", "docker", "qdrant_client")),
-    ]
-    for argv, forbidden in dry_runs:
-        code = f"""
-import sys, json, devops_cli.entry
-try:
-    devops_cli.entry.main({argv!r})
-except SystemExit:
-    pass
-forbidden = {forbidden!r}
-loaded = [m for m in forbidden if m in sys.modules]
-print("__FORBIDDEN__" + json.dumps(loaded))
-"""
-        proc = subprocess.run(
-            [sys.executable, "-c", code],
-            env=_clean_subprocess_env(),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        found_line = next(
-            line for line in proc.stdout.splitlines() if line.startswith("__FORBIDDEN__")
-        )
-        loaded = json.loads(found_line.removeprefix("__FORBIDDEN__"))
-        assert loaded == [], f"{argv} eagerly imported forbidden modules: {loaded}"
+    probe = _probe_startup_imports(argv)
+    loaded = [m for m in forbidden if m in probe.loaded]
+    assert loaded == [], f"{argv} eagerly imported forbidden modules: {loaded}"

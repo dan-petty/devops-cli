@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -489,10 +490,14 @@ def test_the_retry_prompt_names_every_violation_of_the_last_reply(
 
 
 def test_the_validation_error_holds_no_key_the_model_invented(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
+    public_dns: str,
+    caplog: pytest.LogCaptureFixture,
+    config: Callable[..., Any],
 ) -> None:
     """Verify the error's message carries the violation count and error types alone, so a key
     the model invented reaches neither the message nor the chat_structured span nor a log."""
+    config(telemetry={"enabled": True})
     exported: list[dict[str, Any]] = []
     monkeypatch.setattr(
         get_tracer(), "_send_payload", lambda _path, payload: exported.append(payload)

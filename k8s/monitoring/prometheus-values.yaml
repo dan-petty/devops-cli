@@ -11,6 +11,11 @@ server:
   retention: 30d
   retentionSize: 16GB
 
+  # Accept out-of-order samples within 10m (#1132). The v1 remote-write handler otherwise
+  # drops a whole batch for one late sample.
+  tsdb:
+    out_of_order_time_window: 10m
+
   extraArgs:
     web.enable-remote-write-receiver: ""
     enable-feature: native-histograms
@@ -418,6 +423,16 @@ serverFiles:
             annotations:
               summary: "Loki fails {{ $value | humanizePercentage }} of {{ $labels.route }} requests"
               description: "Over 5% of Loki's {{ $labels.route }} requests have returned a 5xx status for 15 minutes."
+          # Pyroscope 5xx errors (such as torn-segment reads on local-path storage, #1134), over
+          # the series #1131's ServiceMonitor scrapes.
+          - alert: PyroscopeQueryErrors
+            expr: sum by (route) (rate(pyroscope_request_duration_seconds_count{status_code=~"5.."}[15m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pyroscope is returning 5xx responses on {{ $labels.route }}"
+              description: "Pyroscope's {{ $labels.route }} route has returned 5xx errors over 15 minutes for 15 minutes."
           # Loki keeps logs 30 days (`retention_period: 720h`), but only its compactor's retention
           # deletes them, on every compaction (every 10 minutes). #550 turns that retention on
           # (`compactor.retention_enabled`), and it takes effect with #550's Loki migration; this
@@ -449,3 +464,98 @@ serverFiles:
             annotations:
               summary: "Alertmanager cannot deliver {{ $labels.integration }} notifications"
               description: "Alertmanager's {{ $labels.integration }} notifications have failed for 15 minutes. Its log names the error."
+      # Alloy's metric remote-write and log-write drops (#1131) and log-shipper silence (#890),
+      # scraped by k8s-monitoring's Alloy integration (`job="integrations/alloy"`).
+      - name: homelab-telemetry-pipeline
+        rules:
+          - alert: AlloyRemoteWriteSamplesFailed
+            expr: increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[15m]) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy collector {{ $labels.pod }} failed to remote-write samples"
+              description: "Alloy collector {{ $labels.pod }} failed to send {{ $value | humanize }} samples to Prometheus in 15 minutes, so those samples were dropped."
+          - alert: AlloyLogEntriesDropped
+            expr: increase(loki_write_dropped_entries_total{job="integrations/alloy"}[15m]) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy collector {{ $labels.pod }} dropped log entries"
+              description: "Alloy collector {{ $labels.pod }} dropped {{ $value | humanize }} log entries on their way to Loki in 15 minutes."
+          # Only alloy-logs ships pod and journal logs from each node; alloy-singleton ships
+          # cluster events, which can be quiet on an idle cluster (#890). Joining kube_pod_info
+          # adds the pod's `node` label, so a planned-maintenance `node=<name>` silence covers it.
+          - alert: PodLogsNotShipped
+            expr: >-
+              sum by (namespace, pod) (rate(loki_write_sent_entries_total{job="integrations/alloy", pod=~".*alloy-logs.*"}[5m]))
+              * on (namespace, pod) group_left (node)
+              max by (namespace, pod, node) (kube_pod_info)
+              == 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} is shipping no logs"
+              description: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} has sent 0 log entries to Loki for 30 minutes."
+      # Argo CD sync and health, Cloudflare Tunnel HA connectivity, Valkey cache health (#551),
+      # and CoreDNS SERVFAIL rate (#822).
+      - name: homelab-services
+        rules:
+          - alert: ArgoCdApplicationOutOfSync
+            expr: argocd_app_info{sync_status!="Synced"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} is {{ $labels.sync_status }}"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has been {{ $labels.sync_status }} for 15 minutes."
+          - alert: ArgoCdApplicationUnhealthy
+            expr: argocd_app_info{health_status!~"Healthy|Progressing"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} is {{ $labels.health_status }}"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has reported health {{ $labels.health_status }} for 15 minutes."
+          - alert: ArgoCdAutoSyncDisabled
+            expr: argocd_app_info{autosync_enabled="false"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} has automated sync disabled"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has had automated sync disabled for 15 minutes."
+          - alert: ArgoCdSyncOperationStuck
+            expr: argocd_app_info{operation!=""} == 1
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} has a {{ $labels.operation }} operation running for over an hour"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has been running a {{ $labels.operation }} operation for over an hour."
+          - alert: CloudflareTunnelDegraded
+            expr: sum(cloudflared_tunnel_ha_connections) < 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Cloudflare Tunnel has {{ $value }} active HA connections"
+              description: "Fewer than 2 Cloudflare Tunnel HA connections have been active across cloudflared replicas for 5 minutes."
+          - alert: CoreDnsServfailResponses
+            expr: sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns", rcode="SERVFAIL"}[5m])) / sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns"}[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "CoreDNS returns SERVFAIL for {{ $value | humanizePercentage }} of queries"
+              description: "Over 5% of CoreDNS responses have returned SERVFAIL over 5 minutes for 5 minutes."
+          - alert: ValkeyCacheErrors
+            expr: redis_up == 0 or increase(redis_rejected_connections_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Valkey cache {{ $labels.namespace }}/{{ $labels.instance }} is down or rejecting connections"
+              description: "Valkey exporter {{ $labels.namespace }}/{{ $labels.instance }} reports redis_up == 0 or rejected client connections over the last 5 minutes."

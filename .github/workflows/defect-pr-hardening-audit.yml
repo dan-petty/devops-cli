@@ -69,7 +69,8 @@ jobs:
           - `AGENTS.md`
           - `src/devops_cli/ai/tasks/*.md`
           - `src/devops_cli/ai/knowledge_base/`
-          - `common_hallucinations.json`
+          - `.devops/review.toml`
+          - `src/devops_cli/review/rules/`
 
           Per project invariants (`AGENTS.md`), defect fixes must codify root-cause guardrails into at least one declared surface to prevent recurrent regressions.
           EOF

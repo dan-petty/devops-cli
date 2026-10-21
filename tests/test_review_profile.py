@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -13,15 +12,10 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai import context_budget, personas
-from devops_cli.ai.client import LLMClient, LLMResponse
+from devops_cli.ai import personas
 from devops_cli.ai.personas import review_prompt_digest
-from devops_cli.ai.rag import investigator
-from devops_cli.ai.response_cache import LLMResponseCache
-from devops_cli.ai.review import pipeline as pipeline_module
 from devops_cli.ai.review import profile as profile_module
 from devops_cli.ai.review import runner
-from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
@@ -43,10 +37,8 @@ from devops_cli.ai.review.runner import (
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_request_spend
 from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
-from devops_cli.config.settings import AIConfig
 from devops_cli.lang import MESSAGES
 from devops_cli.main import app
-from devops_cli.models.ai import ChatMessage, FileAnalysisMeta
 from devops_cli.tools_lock import tools_lock_digest
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -231,14 +223,14 @@ def test_orchestrated_review_profiles_each_stage_and_its_findings() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
 
     with profiling() as profiler:
-        _run_orchestrator_review(orchestrator, ["a.yaml"], {}, None, ["a.yaml"], ["qa"], None)
+        _run_orchestrator_review(orchestrator, ["a.yaml"], {}, Path("."), ["a.yaml"])
         profile = profiler.build(session_id="s", target="t")
 
     assert (
         [s.name for s in profile.stages],
         (profile.candidate_findings, profile.verified_findings, profile.reported_findings),
     ) == (
-        ["payloads", "persona_review", "reranking", "report"],
+        ["payloads", "report"],
         (2, 1, 1),
     )
 
@@ -288,7 +280,7 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
     under different conventions looked alike. A review whose target has no conventions records
     an empty digest, as one that never read them does, not the digest of an empty text.
     """
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review.review_environment import nearest_review_conventions
     from devops_cli.ai.run_store import digest
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
@@ -303,7 +295,9 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
             session_id=name, llm_client=MagicMock(), target_dir=project
         )
         with profiling() as profiler:
-            conventions = orchestrator._read_target_conventions()
+            conventions = nearest_review_conventions(project)
+            if conventions:
+                profiler.set_conventions(conventions)
             _write_review_profile(profiler, orchestrator, str(project), 1)
         saved = ReviewProfile.load(orchestrator.session_dir)
         recorded.append((saved.conventions_digest if saved else None, conventions))
@@ -345,16 +339,16 @@ def test_benchmark_command_reviews_each_run_without_the_cache(
     monkeypatch.setattr(review_commands, "path", fake_review)
     monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
 
-    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "3", "--all"])
+    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "3"])
     saved = list((reviews / "benchmarks").glob("*.json"))
     summary = BenchmarkSummary(**json.loads(saved[0].read_text()))
 
     assert (
         result.exit_code,
-        [(c["no_cache"], c["all_personas"], c["targets"]) for c in calls],
+        [(c["no_cache"], c["targets"]) for c in calls],
         (summary.runs, summary.median_wall_seconds, summary.corpus_digest),
         "Median per Stage" in result.output,
-    ) == (0, [(True, True, [corpus])] * 3, (3, 200.0, _corpus_digest([corpus], "*")), True)
+    ) == (0, [(True, [corpus])] * 3, (3, 200.0, _corpus_digest([corpus], "*")), True)
 
 
 def test_corpus_digest_changes_only_with_the_reviewed_files(tmp_path: Path) -> None:
@@ -385,9 +379,17 @@ def test_backend_labels_drop_the_cluster_dns_suffix() -> None:
     """Verify in-cluster backends are labelled by pod or service, other backends by host."""
     assert [
         _backend_host("http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434"),
-        _backend_host("http://ollama-16gib.llm.svc.cluster.local:11434"),
+        _backend_host("http://OLLAMA-16GIB.llm.svc.cluster.local.:11434"),
+        _backend_host("http://evil-svc.cluster.local.evil.com:11434"),
+        _backend_host("http://[::1]:11434"),
         _backend_host(REMOTE),
-    ] == ["ollama-0", "ollama-16gib", "remote.example.com"]
+    ] == [
+        "ollama-0",
+        "ollama-16gib",
+        "evil-svc.cluster.local.evil.com",
+        "::1",
+        "remote.example.com",
+    ]
 
 
 def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:
@@ -503,103 +505,3 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
         saved.code_changed_during_run if saved else None,
         warnings,
     ) == (changed, changed, [MESSAGES.review.code_changed_during_run] if changed else [])
-
-
-# ── A review whose replies the response cache answered (#816) ─────────────────────────────────
-
-_REVIEWED = "deploy.yaml"
-_REVIEWED_TEXT = "".join(f"key_{line}: value_{line}\n" for line in range(40))
-_PERSONA_REPLY = (
-    "```json\n"
-    + json.dumps(
-        {
-            "findings": [
-                {
-                    "title": "Plaintext value",
-                    "severity": "HIGH",
-                    "location": f"{_REVIEWED}:3",
-                    "description": "value_2 is stored in plain text.",
-                    "category": "security",
-                }
-            ]
-        }
-    )
-    + "\n```"
-)
-
-
-def _review_in_two_pages(client: LLMClient, target: Path) -> None:
-    """Review one file in two pages with one persona, stage by stage.
-
-    No static scanner runs, and the file is no Python source, so no check starts a process.
-    """
-    orchestrator = ReviewPipelineOrchestrator(session_id="s", llm_client=client, target_dir=target)
-    flags = ReviewStageFlags(static_scan=False)
-    meta = {_REVIEWED: FileAnalysisMeta(path=_REVIEWED, key_symbols=[], dependencies=[])}
-    payloads = orchestrator.init_per_file_payloads([_REVIEWED], meta, stage_flags=flags)
-    diffs = {_REVIEWED: _REVIEWED_TEXT}
-    with review_stage("persona_review"):
-        orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file=diffs, personas=["devsecops"], stage_flags=flags
-        )
-
-
-@pytest.mark.usefixtures("fixed_prompt_digest")
-def test_a_profiled_review_counts_cached_persona_pages_apart(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
-) -> None:
-    """Verify a reply the response cache answers to a persona page is a cached call of its stage
-    and its spend stage, and no LLM call (#816).
-
-    A first review records each request's cache key; the cache then keeps page 1's reply, so the
-    profiled review sends only page 2 to the model.
-    """
-    target = tmp_path / "repo"
-    target.mkdir()
-    (target / _REVIEWED).write_text(_REVIEWED_TEXT, encoding="utf-8")
-    # Payloads probe the working directory for manifests, which is otherwise this repository.
-    monkeypatch.chdir(target)
-    # Persona agents count tokens; loading the tokenizer is not under test.
-    monkeypatch.setattr(context_budget, "_get_tiktoken_encoding", lambda *_args: None)
-    monkeypatch.setattr(pipeline_module, "review_page_chars", lambda _window: 400)
-    monkeypatch.setattr(investigator, "investigate_rag_context", lambda *_a, **_k: None)
-    keys: list[str] = []
-
-    def model(
-        _self: LLMClient, system: str, messages: list[ChatMessage], **options: Any
-    ) -> LLMResponse:
-        keys.append(
-            LLMResponseCache.generate_key(
-                "ollama",
-                "llama3:8b",
-                system,
-                messages,
-                {"enable_thinking": options["enable_thinking"]},
-            )
-        )
-        return LLMResponse(_PERSONA_REPLY)
-
-    monkeypatch.setattr(LLMClient, "_ollama_messages", model)
-    client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
-    _review_in_two_pages(client, target)
-    # The first review sent page 1 and page 2.
-    client.cache.clear()
-    client.cache.set(keys[0], "ollama", "llama3:8b", "", "", _PERSONA_REPLY)
-    spend_ledger.reset()
-
-    with profiling() as profiler:
-        _review_in_two_pages(client, target)
-        profiler.build(session_id="s", target="t").write(tmp_path)
-
-    profile = ReviewProfile.load(tmp_path)
-    with sqlite3.connect(spend_ledger.db_path) as conn:
-        rows = conn.execute("SELECT stage, cached FROM ai_spend_records").fetchall()
-    assert (
-        len(keys),
-        [(s.name, s.llm_calls, s.cached_calls) for s in profile.stages] if profile else [],
-        sorted(rows),
-    ) == (
-        3,
-        [("persona_review", 1, 1)],
-        [("review.file_review", 0), ("review.file_review", 1)],
-    )

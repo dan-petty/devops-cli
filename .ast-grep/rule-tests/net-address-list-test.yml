@@ -1,0 +1,11 @@
+id: net-address-list
+valid:
+  - 'sans = ["localhost", ipaddress.ip_address("127.0.0.1")]'
+  - 'ips = (ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1"))'
+  - 'urlsplit(value).scheme in {"http", "https"}'
+  - 'clean.startswith("#") or urlsplit(clean).scheme in {"http", "https"}'
+invalid:
+  - 'sans = ["localhost", "127.0.0.1"]'
+  - 'ips = ("127.0.0.1", "::1", "192.168.49.2")'
+  - 'schemes = ("http://", "https://")'
+  - 'clean.startswith(("#", "http://", "https://", "mailto:", "ftp://"))'

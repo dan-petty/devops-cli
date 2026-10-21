@@ -11,6 +11,8 @@ import pytest
 from devops_cli.ai.agents.testing import TestModel
 from devops_cli.config.settings import Settings
 
+pytestmark = pytest.mark.usefixtures("public_dns")
+
 
 def test_native_ollama_reexports() -> None:
     """Verify devops_cli.ai.models.ollama exports all native classes, helpers, and profiles."""
@@ -112,7 +114,11 @@ def test_is_ollama_cloud() -> None:
 
     # By base_url
     assert is_ollama_cloud(base_url="https://ollama.com/v1") is True
+    assert is_ollama_cloud(base_url="https://OLLAMA.COM/v1") is True
+    assert is_ollama_cloud(base_url="https://ollama.com./v1") is True
     assert is_ollama_cloud(base_url="https://api.ollama.com/v1") is True
+    assert is_ollama_cloud(base_url="https://evilollama.com/v1") is False
+    assert is_ollama_cloud(base_url="http://[::1]:11434/v1") is False
     assert is_ollama_cloud(base_url="http://localhost:11434/v1") is False
     assert is_ollama_cloud(base_url="http://192.168.1.50:11434/v1") is False
     assert is_ollama_cloud(base_url="https://attacker-ollama.com/v1") is False

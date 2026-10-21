@@ -194,8 +194,9 @@ def _is_configured_ai_server_host(host: str) -> bool:
 def _is_local_host(host: str) -> bool:
     from devops_cli.core.dns_names import is_public_dns_name
 
+    clean = urlsplit(f"//{host}").hostname or host
     try:
-        ip = ipaddress.ip_address(host.strip("[]"))
+        ip = ipaddress.ip_address(clean)
         if ip.is_loopback or ip.is_private:
             return True
     except ValueError:
@@ -691,3 +692,9 @@ def get_pricing_registry(data_dir: Path | None = None) -> PricingRegistry:
     if _GLOBAL_REGISTRY is None or data_dir is not None:
         _GLOBAL_REGISTRY = PricingRegistry(data_dir=data_dir)
     return _GLOBAL_REGISTRY
+
+
+def reset_pricing_registry() -> None:
+    """Drop the global PricingRegistry singleton."""
+    global _GLOBAL_REGISTRY
+    _GLOBAL_REGISTRY = None

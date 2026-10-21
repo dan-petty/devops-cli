@@ -1,0 +1,5 @@
+id: net-domain-list
+valid:
+  - 'LOCAL_DOMAIN = "example.com"'
+invalid:
+  - 'LOCAL_DOMAIN_SUFFIXES = (".internal", ".home.arpa")'

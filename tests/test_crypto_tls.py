@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import ipaddress
 import stat
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
+
+from cryptography import x509
+from cryptography.x509.oid import ExtensionOID
 
 from devops_cli.config.constants import (
     CONST_CA_CERT_NAME,
     CONST_CA_KEY_NAME,
 )
+from devops_cli.config.defaults import DEFAULT_HOMELAB_IPS
 from devops_cli.crypto.tls_certificates import (
     generate_ca_certificate,
     generate_homelab_tls_bundle,
@@ -16,6 +22,7 @@ from devops_cli.crypto.tls_certificates import (
     inspect_certificate,
     verify_certificate,
 )
+from devops_cli.models.tls import CertGenerationRequest
 
 
 def test_generate_ca_certificate(tmp_path: Path) -> None:
@@ -52,7 +59,7 @@ def test_generate_server_certificate_ca_signed(tmp_path: Path) -> None:
     """generate_server_certificate creates a leaf cert signed by CA with SANs."""
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, validity_days=60)
 
-    sans = ["example.com", "192.0.2.50", "127.0.0.1", "::1"]
+    sans = ["example.com", ipaddress.ip_address("192.0.2.50"), "127.0.0.1", "::1"]
     srv_cert, srv_key, fullchain = generate_server_certificate(
         common_name="example.com",
         sans=sans,
@@ -129,6 +136,24 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
 
     # Cryptographically verify the server cert against the generated CA
     assert verify_certificate(summary.server_cert_path, summary.ca_cert_path) is True
+
+    # Verify that default homelab IPs are represented as x509.IPAddress entries in SAN extension
+    cert_data = Path(summary.server_cert_path).read_bytes()
+    cert = x509.load_pem_x509_certificate(cert_data)
+    san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+    assert isinstance(san_ext.value, x509.SubjectAlternativeName)
+    ip_sans = [entry.value for entry in san_ext.value if isinstance(entry, x509.IPAddress)]
+    for default_ip in DEFAULT_HOMELAB_IPS:
+        assert default_ip in ip_sans
+
+
+def test_default_homelab_ips_and_cert_request_sans() -> None:
+    """DEFAULT_HOMELAB_IPS and CertGenerationRequest.sans hold ipaddress objects (#1107)."""
+    assert all(isinstance(ip, (IPv4Address, IPv6Address)) for ip in DEFAULT_HOMELAB_IPS)
+    req = CertGenerationRequest()
+    assert req.sans[0] == "localhost"
+    assert isinstance(req.sans[1], (IPv4Address, IPv6Address))
+    assert req.sans[1] == ipaddress.ip_address("127.0.0.1")
 
 
 def test_verify_certificate_tampered(tmp_path: Path) -> None:

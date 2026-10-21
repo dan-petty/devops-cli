@@ -16,7 +16,7 @@
 # =============================================================================
 
 title: "devops-cli"
-description: "Workstation DevOps CLI & Multi-Persona AI Code Reviewer"
+description: "Workstation DevOps CLI & Automated Code Review Platform"
 url: "https://dan-petty.github.io"
 baseurl: "/devops-cli"
 repository: "dan-petty/devops-cli"

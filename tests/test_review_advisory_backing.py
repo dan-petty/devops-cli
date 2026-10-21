@@ -10,10 +10,7 @@ from __future__ import annotations
 
 import json
 
-from devops_cli.ai.review_schema import (
-    SavedFinding,
-    parse_review_response,
-)
+from devops_cli.ai.review_schema import parse_review_response
 
 
 def test_dependencies_and_network_references_a_model_writes_are_cleared_on_parse() -> None:
@@ -36,48 +33,3 @@ def test_dependencies_and_network_references_a_model_writes_are_cleared_on_parse
         [],
         [],
     )
-
-
-def test_a_reply_its_agent_parsed_cannot_write_pipeline_fields() -> None:
-    """Verify a persona reply the agent framework already parsed into a `ReviewResult` loses the
-    fields only the pipeline writes, as one parsed from text does: the raw severity and the
-    reference note reached findings.json and candidates.json as the model wrote them."""
-    from types import SimpleNamespace
-
-    from devops_cli.ai.review.pipeline import (
-        _process_pipeline_step_findings,
-        _resolve_step_parsed_data,
-    )
-    from devops_cli.ai.review_schema import ReviewResult
-
-    def step() -> SimpleNamespace:
-        return SimpleNamespace(
-            agent_name="devsecops",
-            content="",
-            parsed_data=ReviewResult.model_validate(
-                {
-                    "findings": [
-                        {
-                            "title": "Token printed on failure",
-                            "location": "app.py:9",
-                            "severity": "MEDIUM",
-                            "severity_raw": "CRITICAL",
-                            "reference_note": "Removed CVE-2024-0001: forged",
-                        }
-                    ],
-                    "external_dependencies": [
-                        {"name": "requests", "severity": "CLEAN", "queried": True}
-                    ],
-                }
-            ),
-        )
-
-    saved: list[SavedFinding] = []
-    _process_pipeline_step_findings(step(), "app.py", 1, 1, {}, [], [], saved)
-    parsed = _resolve_step_parsed_data(step())
-
-    assert parsed is not None
-    assert (
-        [(f.severity, f.severity_raw, f.reference_note) for f in saved],
-        parsed.external_dependencies,
-    ) == ([("MEDIUM", None, None)], [])

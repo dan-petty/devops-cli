@@ -34,12 +34,13 @@ def _yaml_docs(path: Path) -> list[dict[str, Any]]:
 
 
 def test_monitoring_scrapes_the_gateway() -> None:
-    """Verify k8s-monitoring has prometheusOperatorObjects enabled and defines gateway ServiceMonitor."""
+    """Verify k8s-monitoring has prometheusOperatorObjects enabled and k8s/llm/gateway/servicemonitor.yaml selects the gateway."""
     values = yaml.safe_load((K8S / "monitoring/k8s-monitoring-values.yaml").read_text("utf-8"))
     poo = values["prometheusOperatorObjects"]
-    extra_objects = values.get("extraObjects", [])
     monitors = {
-        m["metadata"]["name"]: m["spec"] for m in extra_objects if m.get("kind") == "ServiceMonitor"
+        m["metadata"]["name"]: m["spec"]
+        for m in _yaml_docs(K8S / "llm/gateway/servicemonitor.yaml")
+        if m.get("kind") == "ServiceMonitor"
     }
     all_services = list(_yaml_docs(K8S / "llm/gateway/service.yaml"))
 
@@ -62,9 +63,11 @@ def test_monitoring_scrapes_the_gateway() -> None:
 
     assert (
         poo["enabled"],
+        "extraObjects" in values,
         gateway_scraped,
     ) == (
         True,
+        False,
         [("llm-gateway", "/metrics/")],
     )
 
@@ -217,9 +220,9 @@ def test_load_needs_prometheus_and_a_valid_window(monkeypatch: pytest.MonkeyPatc
     )
 
 
-def test_prometheus_errors_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prometheus_errors_are_reported(refusing_port: int) -> None:
     """Verify an unreachable Prometheus is reported, not raised."""
-    query = pool_load_module.prometheus_query("http://127.0.0.1:9", timeout=1)
+    query = pool_load_module.prometheus_query(f"http://127.0.0.1:{refusing_port}", timeout=1)
 
     with pytest.raises(pool_load_module.PoolLoadError, match="did not answer"):
         query("up")

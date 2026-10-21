@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://containers.dev/"
+  - "https://docs.docker.com/"
+reviewed: "2026-10-15"
+tags:
+  - "devcontainers"
+  - "workstation"
+---
+
 # Knowledge Base Topic: Reproducible DevContainers & Workstation Automation
 
 ## 1. Overview & Domain Architecture

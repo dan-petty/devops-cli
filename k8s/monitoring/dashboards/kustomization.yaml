@@ -44,3 +44,4 @@ configMapGenerator:
       - prometheus-server.json
       - pyroscope.json
       - nvidia-dcgm.json
+      - coredns.json

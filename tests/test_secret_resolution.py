@@ -42,6 +42,8 @@ from devops_cli.security.vault_lease import (
     transit_encrypt,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 @pytest.fixture(autouse=True)
 def _reset_resolver_singleton() -> Any:

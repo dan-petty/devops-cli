@@ -17,17 +17,36 @@ def test_review_stage_flags_defaults() -> None:
     flags = ReviewStageFlags()
     assert flags.pre_analysis is True
     assert flags.static_scan is True
-    assert flags.persona_review is True
-    assert flags.reranking is True
+    assert flags.group_analysis is True
     assert flags.reporting is True
     assert flags.any_enabled() is True
     assert flags.to_dict() == {
         "pre_analysis": True,
         "static_scan": True,
-        "persona_review": True,
-        "reranking": True,
+        "group_analysis": True,
         "reporting": True,
     }
+
+
+def test_review_stage_flags_needs_model() -> None:
+    """Verify needs_model() returns True if and only if group_analysis is True."""
+    assert ReviewStageFlags(group_analysis=True).needs_model() is True
+    assert ReviewStageFlags(group_analysis=False).needs_model() is False
+
+
+def test_resolve_stage_flags_no_group_analysis() -> None:
+    """Verify resolve_stage_flags with no_group_analysis=True."""
+    flags = resolve_stage_flags(no_group_analysis=True)
+    assert flags.group_analysis is False
+    assert flags.needs_model() is False
+
+
+def test_resolve_stage_flags_no_static_and_no_group_analysis() -> None:
+    """Verify resolve_stage_flags with no_static_scan=True and no_group_analysis=True."""
+    flags = resolve_stage_flags(no_static_scan=True, no_group_analysis=True)
+    assert flags.static_scan is False
+    assert flags.group_analysis is False
+    assert flags.needs_model() is False
 
 
 def test_resolve_stage_flags_no_options() -> None:
@@ -40,13 +59,12 @@ def test_resolve_stage_flags_no_flags() -> None:
     """Verify --no-<stage> disables individual stages."""
     flags = resolve_stage_flags(
         no_pre_analysis=True,
-        no_reranking=True,
+        no_reporting=True,
     )
     assert flags.pre_analysis is False
     assert flags.static_scan is True
-    assert flags.persona_review is True
-    assert flags.reranking is False
-    assert flags.reporting is True
+    assert flags.group_analysis is True
+    assert flags.reporting is False
 
 
 def test_resolve_stage_flags_only_flags() -> None:
@@ -54,8 +72,7 @@ def test_resolve_stage_flags_only_flags() -> None:
     flags = resolve_stage_flags(static_scan_only=True)
     assert flags.pre_analysis is False
     assert flags.static_scan is True
-    assert flags.persona_review is False
-    assert flags.reranking is False
+    assert flags.group_analysis is False
     assert flags.reporting is False
 
 
@@ -63,13 +80,12 @@ def test_resolve_stage_flags_multiple_only_flags() -> None:
     """Verify multiple --<stage>-only flags enable the specified union of stages."""
     flags = resolve_stage_flags(
         static_scan_only=True,
-        persona_review_only=True,
+        reporting_only=True,
     )
     assert flags.pre_analysis is False
     assert flags.static_scan is True
-    assert flags.persona_review is True
-    assert flags.reranking is False
-    assert flags.reporting is False
+    assert flags.group_analysis is False
+    assert flags.reporting is True
 
 
 def test_resolve_stage_flags_conflicting_no_and_only() -> None:
@@ -94,15 +110,36 @@ def test_review_cli_stage_flags_propagation() -> None:
     ):
         result = runner.invoke(
             review_app,
-            ["path", "--no-reranking", "--static-scan-only"],
+            ["path", "--no-pre-analysis", "--static-scan-only"],
         )
         assert result.exit_code == 0
         mock_exec.assert_called_once()
         call_kwargs = mock_exec.call_args[1]
         passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
         assert passed_flags.static_scan is True
-        assert passed_flags.reranking is False
-        assert passed_flags.persona_review is False
+        assert passed_flags.pre_analysis is False
+        assert passed_flags.group_analysis is False
+
+
+def test_review_cli_no_group_analysis_propagation() -> None:
+    """Verify CLI review commands pass --no-group-analysis flag to workflow."""
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch(
+            "devops_cli.commands.review._prepare_path_content",
+            return_value=(["diff"], "title", []),
+        ),
+        patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
+    ):
+        result = runner.invoke(
+            review_app,
+            ["path", "--no-group-analysis"],
+        )
+        assert result.exit_code == 0
+        mock_exec.assert_called_once()
+        call_kwargs = mock_exec.call_args[1]
+        passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
+        assert passed_flags.group_analysis is False
 
 
 def test_orchestrator_stage_bypasses(tmp_path) -> None:
@@ -136,23 +173,7 @@ def test_orchestrator_stage_bypasses(tmp_path) -> None:
     assert len(payloads) == 1
     assert payloads[0].findings == []
 
-    # 3. Skip persona review
-    flags_no_persona = ReviewStageFlags(persona_review=False)
-    orchestrator.execute_multi_persona_review(
-        payloads,
-        {str(test_file): "diff"},
-        stage_flags=flags_no_persona,
-    )
-    assert payloads[0].findings == []
-
-    # 4. Skip reranking
-    flags_no_rerank = ReviewStageFlags(reranking=False)
-    orchestrator.execute_finding_reranking(
-        payloads,
-        stage_flags=flags_no_rerank,
-    )
-
-    # 5. Skip reporting
+    # 3. Skip reporting
     flags_no_report = ReviewStageFlags(reporting=False)
     report_dict, report_md = orchestrator.generate_consolidated_report(
         payloads,

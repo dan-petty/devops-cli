@@ -34,6 +34,7 @@ PROVISIONED = {
         "prometheus-server.json",
         "pyroscope.json",
         "nvidia-dcgm.json",
+        "coredns.json",
     ],
 }
 # All dashboards are now provisioned via sidecar ConfigMaps.

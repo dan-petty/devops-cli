@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from devops_cli.ai.review_schema import (
     Finding,
-    _merge_two_findings,
     canonicalize_finding_location,
 )
 from devops_cli.config.constants import (
@@ -21,19 +20,6 @@ def test_finding_positional_identifier_fields_and_aliases() -> None:
     f4 = Finding(title="F4", location="src/d.py:40")
 
     assert (f1.finding_id, f2.finding_id, f3.finding_id, f4.finding_id) == (1, 2, 3, None)
-
-
-def test_finding_merge_preserves_positional_identifier() -> None:
-    """Verify duplicate finding consolidation preserves finding_id."""
-    base = Finding(finding_id=42, title="Bug A", location="src/a.py:10")
-    other = Finding(finding_id=99, title="Bug A", location="src/a.py:10")
-    merged = _merge_two_findings(base, other)
-
-    assert (merged.finding_id, merged.title, merged.location) == (42, "Bug A", "src/a.py:10")
-
-    base_no_id = Finding(title="Bug B", location="src/b.py:20")
-    merged_other_id = _merge_two_findings(base_no_id, other)
-    assert (merged_other_id.finding_id, merged_other_id.title) == (99, "Bug B")
 
 
 def test_canonicalize_location_strict_structural_boundary() -> None:

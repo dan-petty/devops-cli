@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import logging
+import socket
 from pathlib import Path
 
+import pytest
+import tiktoken.load
+import tiktoken.registry
 from typer.testing import CliRunner
 
 from devops_cli.ai.context_budget import (
@@ -15,6 +22,7 @@ from devops_cli.ai.context_budget import (
     validate_and_budget_prompt,
 )
 from devops_cli.commands.ai import app as ai_app
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -125,3 +133,94 @@ def test_budget_diff_chunks_single_file_hunks() -> None:
     assert len(chunks) >= 2
     for c in chunks:
         assert "diff --git a/big.py b/big.py" in c
+
+
+def _prepare_o200k_cache_dir(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Populate `cache_dir` with a synthetic o200k_base BPE file and matching SHA-256 hash."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ranks = {bytes([i]): i for i in range(256)}
+    ranks[b"hello"] = 256
+    ranks[b" world"] = 257
+    bpe_bytes = b"".join(
+        base64.b64encode(token) + f" {rank}\n".encode("ascii") for token, rank in ranks.items()
+    )
+    expected_hash = hashlib.sha256(bpe_bytes).hexdigest()
+    blob_url = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
+    cache_key = hashlib.sha1(blob_url.encode("utf-8"), usedforsecurity=False).hexdigest()
+    (cache_dir / cache_key).write_bytes(bpe_bytes)
+
+    tiktoken.registry._find_constructors()
+    assert tiktoken.registry.ENCODING_CONSTRUCTORS is not None
+    monkeypatch.setitem(
+        tiktoken.registry.ENCODING_CONSTRUCTORS,
+        "o200k_base",
+        lambda: {
+            "name": "o200k_base",
+            "pat_str": r" ?\p{L}+|\s+|\S+",
+            "mergeable_ranks": tiktoken.load.load_tiktoken_bpe(
+                blob_url, expected_hash=expected_hash
+            ),
+            "special_tokens": {},
+        },
+    )
+    monkeypatch.delitem(tiktoken.registry.ENCODINGS, "o200k_base", raising=False)
+
+
+def test_count_tokens_loads_encoding_from_prepared_cache_dir_without_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With sockets blocked, count_tokens loads the encoding from TIKTOKEN_CACHE_DIR with no connection (#1421)."""
+    cache_dir = tmp_path / "tiktoken-cache"
+    _prepare_o200k_cache_dir(cache_dir, monkeypatch)
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(cache_dir))
+
+    connect_attempts: list[object] = []
+
+    def _forbid_connect(self: socket.socket, address: object) -> None:
+        connect_attempts.append(address)
+        raise RuntimeError(f"Unexpected socket connection to {address!r}")
+
+    monkeypatch.setattr(socket.socket, "connect", _forbid_connect)
+
+    tokens = count_tokens("hello world", model="gpt-4o-prepared-cache")
+
+    # Under the loaded BPE encoding, "hello world" is 2 tokens ([256, 257]), whereas the
+    # 4-characters-per-token fallback heuristic would return ceil(11 / 4) == 3.
+    assert (tokens, connect_attempts) == (2, [])
+
+
+def test_failed_encoding_load_logs_one_warning_naming_cache_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When the tiktoken encoding cannot load, _get_tiktoken_encoding logs one WARNING naming the cache dir (#1421)."""
+    missing_cache = tmp_path / "missing-tiktoken-cache"
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(missing_cache))
+    monkeypatch.delitem(tiktoken.registry.ENCODINGS, "o200k_base", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.ai.context_budget"):
+        first = count_tokens("hello world", model="gpt-4o-missing-cache")
+        second = count_tokens("hello world", model="gpt-4o-missing-cache")
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert (
+        first,
+        second,
+        len(warnings),
+        any(str(missing_cache) in msg for msg in warnings),
+    ) == (3, 3, 1, True)
+
+
+def test_service_and_devcontainer_dockerfiles_populate_tiktoken_cache() -> None:
+    """Service and DevContainer Dockerfiles populate TIKTOKEN_CACHE_DIR at image build (#1421)."""
+    service_dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    devcontainer_dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken" in service_dockerfile,
+        "COPY --from=builder /app/.cache/tiktoken /app/.cache/tiktoken" in service_dockerfile,
+        "cl100k_base" in service_dockerfile and "o200k_base" in service_dockerfile,
+        "TIKTOKEN_CACHE_DIR=" in devcontainer_dockerfile,
+        "cl100k_base" in devcontainer_dockerfile and "o200k_base" in devcontainer_dockerfile,
+    ) == (True, True, True, True, True)

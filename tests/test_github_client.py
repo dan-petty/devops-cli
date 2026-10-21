@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
-from github.GithubException import UnknownObjectException
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.exceptions.git import GitHubUnreadError
@@ -128,6 +127,8 @@ def test_get_org_repos_falls_back_to_authenticated_user_login() -> None:
 
     class _FakeGithub:
         def get_organization(self, org_name: str) -> object:
+            from github.GithubException import UnknownObjectException
+
             raise UnknownObjectException(404, None, None, f"No org {org_name}")
 
         def get_user(self) -> _FakeUser:
@@ -233,6 +234,8 @@ def test_get_merge_base_reads_the_compare_endpoint() -> None:
         ) -> SimpleNamespace:
             compared.append((self.name, base, head, comparison_commits_per_page))
             if head == "unknown":
+                from github.GithubException import UnknownObjectException
+
                 raise UnknownObjectException(404, "Not Found", None)
             return SimpleNamespace(merge_base_commit=SimpleNamespace(sha="merge-base-sha"))
 

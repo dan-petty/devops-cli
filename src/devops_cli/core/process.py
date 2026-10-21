@@ -35,7 +35,6 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
-from devops_cli.output import print_dry_run_command
 from devops_cli.telemetry.tracer import get_tracer, record_metric, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
@@ -94,11 +93,15 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
     }
 )
 
+# uv's own settings reach a child `uv run`, so it keeps the interpreter, cache and Python install
+# directory the environment was built with instead of rebuilding it (#1735); a uv credential such
+# as UV_PUBLISH_TOKEN still matches a denied pattern.
 DEFAULT_ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
     "DEVOPS_CLI_",
     "OTEL_",
     "W3C_",
     "LC_",
+    "UV_",
 )
 
 DEFAULT_DENIED_ENV_PATTERNS: tuple[str, ...] = (
@@ -361,6 +364,8 @@ def run_subprocess(
     W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
     _validate_subprocess_cwd(cwd)
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
+        from devops_cli.output import print_dry_run_command
+
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
@@ -644,6 +649,8 @@ async def run_subprocess_async(
         )
 
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
+        from devops_cli.output import print_dry_run_command
+
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"

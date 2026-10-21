@@ -13,20 +13,27 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-import devops_cli.ai.personas  # noqa: F401
-from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.client import LLMClient
-from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.ai import app as ai_app
-from devops_cli.config.settings import Settings, load_settings
+from devops_cli.config.settings import Settings
 
-_ = load_settings()
-count_tokens("warmup")
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 
+def _default_settings(collector_port: int) -> Settings:
+    """Default settings whose telemetry goes to the floor's collector, which refuses it, rather
+    than to the built-in endpoint on a port no test binds."""
+    settings = Settings()
+    settings.telemetry.endpoint = f"http://127.0.0.1:{collector_port}"
+    return settings
+
+
 def test_ai_subcommands_execution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_fake: ModelFake,
+    unserved_side_channel_port: int,
 ) -> None:
     """Verify execution of devops ai config, test, models, and agents subcommands."""
     monkeypatch.setattr(
@@ -35,7 +42,10 @@ def test_ai_subcommands_execution(
     model_fake.answer("OK")
     model_fake.set_available_models(["gemma4:26b"])
 
-    with patch("devops_cli.config.settings.load_settings", return_value=Settings()):
+    with patch(
+        "devops_cli.config.settings.load_settings",
+        return_value=_default_settings(unserved_side_channel_port),
+    ):
         res_config = runner.invoke(ai_app, ["config"])
         assert res_config.exit_code == 0
 
@@ -68,12 +78,17 @@ def test_ai_subcommands_execution(
         assert res_agents_file.exit_code == 0
 
 
-def test_ai_chat_and_agent(tmp_path: Path, model_fake: ModelFake) -> None:
+def test_ai_chat_and_agent(
+    tmp_path: Path, model_fake: ModelFake, unserved_side_channel_port: int
+) -> None:
     """Test ai chat execution and explain."""
     model_fake.answer("Agent response")
     model_fake.set_preload_results({"qwen2.5-coder": True})
 
-    with patch("devops_cli.config.settings.load_settings", return_value=Settings()):
+    with patch(
+        "devops_cli.config.settings.load_settings",
+        return_value=_default_settings(unserved_side_channel_port),
+    ):
         res_chat_explain = runner.invoke(ai_app, ["chat", "--explain"])
         assert res_chat_explain.exit_code == 0
 
@@ -81,9 +96,9 @@ def test_ai_chat_and_agent(tmp_path: Path, model_fake: ModelFake) -> None:
         assert res_preload.exit_code == 0
 
 
-def test_ai_chat_model_task_and_cli_overrides() -> None:
+def test_ai_chat_model_task_and_cli_overrides(unserved_side_channel_port: int) -> None:
     """Verify ai chat respects tasks.chat.model and CLI --model override."""
-    settings = Settings()
+    settings = _default_settings(unserved_side_channel_port)
     settings.ai.model = "base-model:latest"
     settings.ai.tasks.chat.model = "chat-override-model:20b"
 
@@ -106,6 +121,7 @@ def test_ai_chat_model_task_and_cli_overrides() -> None:
 
 def test_llm_client_model_property() -> None:
     """Verify LLMClient.model exposes the active model identifier."""
+    from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import AIConfig
 
     client = LLMClient(config=AIConfig(model="gpt-oss:20b"))
@@ -126,7 +142,7 @@ def test_ai_token_count_and_route(tmp_path: Path) -> None:
     assert "estimated_tokens" in res_tc_json.output
 
 
-def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
+def test_ai_bundle_models_and_pipeline(tmp_path: Path, unserved_side_channel_port: int) -> None:
     """Test ai bundle-models and pipeline subcommands."""
     with patch(
         "devops_cli.ai.model_bundler.bundle_ollama_models",
@@ -146,7 +162,10 @@ def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
             return_value=mock_result,
         ),
         patch("devops_cli.ai.tools.get_default_tools", return_value=[]),
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch(
+            "devops_cli.config.settings.load_settings",
+            return_value=_default_settings(unserved_side_channel_port),
+        ),
     ):
         res_pipe = runner.invoke(
             ai_app, ["pipeline", "Review system", "--max-turns", "2", "--no-rag"]
@@ -161,9 +180,21 @@ def test_ai_explain() -> None:
         assert res.exit_code == 0
 
 
-def test_ai_collect_project_context_and_agents_llm(tmp_path: Path, model_fake: ModelFake) -> None:
-    """Verify _collect_project_context and agents command with LLM generation."""
+@pytest.mark.live("find")
+def test_ai_collect_project_context_and_agents_llm(
+    tmp_path: Path,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+    refusing_port: int,
+    unserved_side_channel_port: int,
+) -> None:
+    """Verify _collect_project_context and agents command with LLM generation.
+
+    Qdrant is down, refused through `refusing_port`, so the context holds no retrieved knowledge.
+    """
     from devops_cli.commands.ai import _collect_project_context
+
+    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
 
     # Create dummy project files
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
@@ -185,7 +216,10 @@ def test_ai_collect_project_context_and_agents_llm(tmp_path: Path, model_fake: M
     with (
         patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
         patch("devops_cli.commands.ai._try_retrieve_rag_context", return_value=None),
-        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch(
+            "devops_cli.config.settings.load_settings",
+            return_value=_default_settings(unserved_side_channel_port),
+        ),
     ):
         res_agents = runner.invoke(
             ai_app, ["agents", "--repo", str(tmp_path), "--file", "AGENTS.md"]
@@ -236,7 +270,9 @@ def test_ai_error_branches_and_chat_helpers(tmp_path: Path) -> None:
     assert res_cfg_up.exit_code == 0
 
 
-def test_ai_multi_server_test_and_agents_validation(tmp_path: Path, model_fake: ModelFake) -> None:
+def test_ai_multi_server_test_and_agents_validation(
+    tmp_path: Path, model_fake: ModelFake, unserved_side_channel_port: int
+) -> None:
     """Verify parallel ollama server tests, failed chat handling, and agent path traversal guards."""
     from devops_cli.ai.client import AIClientError
     from devops_cli.commands.ai import (
@@ -245,7 +281,7 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path, model_fake: 
     )
 
     # 1. _test_single_ollama_endpoint
-    st = Settings()
+    st = _default_settings(unserved_side_channel_port)
     st.ai.ollama_urls = ["http://localhost:11434"]
     model_fake.answer("OK")
     _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
@@ -276,9 +312,11 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path, model_fake: 
     assert not (tmp_path / "../../outside.md").exists()
 
 
-def test_ai_test_disables_cache_and_targets_url(model_fake: ModelFake) -> None:
+def test_ai_test_disables_cache_and_targets_url(
+    model_fake: ModelFake, unserved_side_channel_port: int
+) -> None:
     """Verify that devops ai test bypasses cache and properly targets a specific --url."""
-    st = Settings()
+    st = _default_settings(unserved_side_channel_port)
     st.ai.provider = "ollama"
     st.ai.ollama_urls = [
         "http://example.com:11434",
@@ -352,7 +390,7 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
 
 
 def test_ai_config_models_preload_and_chat_interactive(
-    tmp_path: Path, model_fake: ModelFake
+    tmp_path: Path, model_fake: ModelFake, unserved_side_channel_port: int
 ) -> None:
     """Verify ai config, models, preload, chat interactive mode, and explain."""
     from devops_cli.ai.agents.models import AgentResponse
@@ -397,7 +435,7 @@ def test_ai_config_models_preload_and_chat_interactive(
     assert "model-v1" in res_mod_ok.output
 
     # 7. preload with non-ollama provider
-    st_openai = Settings()
+    st_openai = _default_settings(unserved_side_channel_port)
     st_openai.ai.provider = "openai"
     with patch("devops_cli.config.settings.load_settings", return_value=st_openai):
         res_pre_non_ollama = runner.invoke(ai_app, ["preload"])
@@ -405,7 +443,7 @@ def test_ai_config_models_preload_and_chat_interactive(
         assert "Model preloading is for Ollama provider" in res_pre_non_ollama.output
 
     # 8. preload with ollama provider
-    st_ollama = Settings()
+    st_ollama = _default_settings(unserved_side_channel_port)
     st_ollama.ai.provider = "ollama"
     st_ollama.ai.ollama_urls = ["http://example.com:11434"]
     model_fake.set_preload_results({"http://example.com:11434": True})
@@ -483,11 +521,18 @@ def test_ai_chat_persona_orange_rendering() -> None:
     assert "You:" in rendered
 
 
-def test_ai_chat_markdown_response_rendering() -> None:
-    """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown."""
+def test_ai_chat_markdown_response_rendering(
+    model_fake: ModelFake, monkeypatch: pytest.MonkeyPatch, refusing_port: int
+) -> None:
+    """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown.
+
+    The chat prewarms the faked model, and Qdrant is down, refused through `refusing_port`.
+    """
     from unittest.mock import MagicMock, patch
 
     from devops_cli.ai.agents.models import AgentResponse
+
+    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
 
     mock_run_res: AgentResponse[Any] = AgentResponse(
         content="Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
@@ -515,8 +560,11 @@ def test_ai_chat_markdown_response_rendering() -> None:
         assert has_md
 
 
-def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
-    """Verify ai token-count, route, pipeline, and bundle-models commands."""
+def test_ai_token_count_route_pipeline_bundle(tmp_path: Path, model_fake: ModelFake) -> None:
+    """Verify ai token-count, route, pipeline, and bundle-models commands.
+
+    The pipeline prewarms the faked model.
+    """
     from unittest.mock import MagicMock, patch
 
     # 1. token-count text snippet
@@ -684,6 +732,8 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
 
     captured_memory: list[AgentMemory] = []
 
+    from devops_cli.ai.agents.agent import PydanticAgent
+
     class WrappedAgent(PydanticAgent[Any]):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
@@ -722,6 +772,8 @@ def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
     client.chat_messages_stream = fake_stream
     client.chat_messages.return_value = "r1"
 
+    from devops_cli.ai.agents.agent import PydanticAgent
+
     agent = PydanticAgent(client=client, system_prompt="sys", tools=[])
 
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
@@ -733,8 +785,13 @@ def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
     ) == ([("user", "p1")], [("user", "p1"), ("assistant", "r1")])
 
 
-def test_chat_seeds_the_invariants(model_fake: ModelFake) -> None:
-    """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths."""
+def test_chat_seeds_the_invariants(
+    model_fake: ModelFake, refusing_port: int, unserved_side_channel_port: int
+) -> None:
+    """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths.
+
+    Qdrant is down, refused through `refusing_port`.
+    """
     from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
 
     role_snippet = (
@@ -744,7 +801,8 @@ def test_chat_seeds_the_invariants(model_fake: ModelFake) -> None:
     # 1. Non-stream path with tools enabled (calls agent.run -> client.chat_messages)
     model_fake.answer("r1")
 
-    settings = Settings()
+    settings = _default_settings(unserved_side_channel_port)
+    settings.qdrant.url = f"http://127.0.0.1:{refusing_port}"
     with (
         patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.config.settings.get_ai_api_key", return_value=""),

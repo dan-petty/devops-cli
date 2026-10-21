@@ -1,4 +1,4 @@
-# devops-cli — Workstation DevOps CLI & Multi-Persona AI Code Reviewer
+# devops-cli — Workstation DevOps CLI & Automated Code Review Platform
 
 [![CI Validation](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/dan-petty/devops-cli/blob/main/LICENSE)
 [![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](https://github.com/dan-petty/devops-cli/blob/main/.devcontainer/devcontainer.json)
 
-`devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with multi-persona **Agentic LLM code reviews**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
+`devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with tool-anchored **Automated Code Review & Group Analysis**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
 
 ---
 
@@ -16,7 +16,7 @@
 
 - **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: HTTP clients built by the `devops_cli.http.client` factory check the address they dial, at the connect and on every redirect, against their egress level (public, loopback or private), so a rebinding DNS answer cannot slip past a check made earlier; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Cloud metadata endpoints are refused at every level.
-- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context. A persona's finding is reported unverified until a person judges it with `devops review verify`.
+- **Automated Code Review & Group Analysis**: Tool-anchored defect detection across branches and PRs combining static scanners, vulnerability analysis, and bounded model analysis for admitted finding groups.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle commands (`devops devcontainer post-create` / `post-start`, both runnable together via `devops devcontainer run-lifecycle`) implement the post-create and post-start hooks.
 - **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
@@ -104,23 +104,21 @@ orchestrator = ReviewPipelineOrchestrator(
 # Run the review stages programmatically
 metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
 payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
-orchestrator.execute_multi_persona_review(
-    payloads, diff_text_by_file={}, personas=["devsecops", "architect"]
-)
-orchestrator.execute_finding_reranking(payloads)
 summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ```
 
 ---
 
-## AI Review Engine & Personas
+## AI Assistant Personas
 
-- **DevSecOps (`--persona devsecops`)**: OWASP Top 10, secret leaks, supply chain vulnerabilities, Docker/IaC security misconfigurations.
+Specialized personas available for interactive conversations via `devops ai chat --persona <name>`:
+
+- **DevSecOps (`--persona devsecops`)**: Security threat modeling, OWASP risk identification, secret leaks, supply chain posture.
 - **Architect (`--persona architect`)**: SOLID principles, clean architecture/DDD, microservice coupling, observability, API contract design.
-- **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
+- **Project Manager (`--persona pm`)**: Scope risk, delivery milestones, release readiness, dependencies, roadmap alignment.
 - **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
 - **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
-- **Challenger (`--persona challenger`)**: Adversarial code reviewer stress-testing architectural assumptions, edge cases, failure modes, and potential regressions.
+- **Challenger (`--persona challenger`)**: Argues against a claim, design, or plan put to it in chat and names the evidence that would settle it.
 
 ---
 
@@ -313,14 +311,14 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
 |  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-|  | `devops ai prompt-eval [OPTIONS]` | Count the review verdicts the feedback dataset records for one persona's findings. |
+|  | `devops ai prompt-eval [OPTIONS]` | Count the review verdicts the feedback dataset records for one producer's findings. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Generate failing pytest unit test scaffolds for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
 |  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
 |  | `devops ai resume [OPTIONS]` | Clear the constellation quiesce or failover flag. |
 |  | `devops ai constellation [OPTIONS]` | Show the constellation flag: state, reason and recorded fallback route. |
-|  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
+|  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered code review and group analysis system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
 |  | `devops ai benchmark [OPTIONS]` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
@@ -334,18 +332,18 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
 |  | `devops ai research COMMAND [ARGS]...` | Epistemic research, information foraging, and relational codebase exploration. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
-|  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
-|  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
+|  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff. |
+|  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Record a person's verdict on a review finding or candidate. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
 |  | `devops review export-feedback [OPTIONS]` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads. |
-|  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
-|  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
-|  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
-|  | `devops review rules COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
+|  | `devops review corpus COMMAND [ARGS]...` | AI-powered code review and security audits. |
+|  | `devops review samples COMMAND [ARGS]...` | AI-powered code review and security audits. |
+|  | `devops review templates COMMAND [ARGS]...` | AI-powered code review and security audits. |
+|  | `devops review rules COMMAND [ARGS]...` | AI-powered code review and security audits. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |

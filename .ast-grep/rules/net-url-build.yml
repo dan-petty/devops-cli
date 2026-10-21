@@ -1,0 +1,7 @@
+id: net-url-build
+language: python
+severity: error
+message: URL authority built with an f-string. Build it with httpx2.URL(scheme=..., host=..., port=...), which brackets IPv6 hosts, or httpx2.URL.copy_with / join.
+rule:
+  kind: string
+  regex: '(?i)^f["''][a-z][a-z0-9+.-]*://\{[a-z_.]*(host|addr|address|ip|netloc|url|target|endpoint)'

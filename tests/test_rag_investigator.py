@@ -20,6 +20,8 @@ from devops_cli.ai.rag.investigator import (
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.config.settings import Settings
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 @pytest.fixture(autouse=True)
 def _reset_investigation_cache() -> None:

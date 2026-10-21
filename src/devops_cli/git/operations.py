@@ -114,6 +114,11 @@ def _ensure_known_host(known_hosts: Path | None = None) -> None:
         logger.warning("Could not update known_hosts '%s': %s", path, exc)
 
 
+def reset_known_host_cache() -> None:
+    """Clear the cached known_hosts check."""
+    _ensure_known_host.cache_clear()
+
+
 def _validate_clone_dest(dest: Path) -> None:
     """Validate that repository destination path does not attempt path traversal."""
     from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal

@@ -394,9 +394,10 @@ class ServiceManager:
             return False
         return True
 
-    async def drain_and_stop(self) -> None:
+    async def drain_and_stop(self) -> bool:
         """Initiate graceful shutdown, drain active jobs and stop each worker within configured
-        timeout; the rounds a pause holds are not run."""
+        timeout; the rounds a pause holds are not run. Returns whether every worker drained and
+        stopped before the timeout."""
         self._draining = True
         self._stop_event.set()
         if self._tick_task is not None and not self._tick_task.done():
@@ -408,11 +409,14 @@ class ServiceManager:
 
         timeout = float(self.config.drain_timeout_seconds)
         deadline = time.perf_counter() + timeout
+        cleanly_stopped = True
         for worker in self.workers.values():
             remaining = max(0.0, deadline - time.perf_counter())
-            worker.wait_active(remaining)
+            drained = worker.wait_active(remaining)
             worker.stop()
-            worker.join(max(0.0, deadline - time.perf_counter()))
+            joined = worker.join(max(0.0, deadline - time.perf_counter()))
+            cleanly_stopped = cleanly_stopped and drained and joined
+        return cleanly_stopped
 
 
 def _resolve_service_secrets(

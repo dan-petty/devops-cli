@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,6 @@ import devops_cli.commands.dashboard as dashboard_command
 import devops_cli.ui.data_providers as data_providers
 from devops_cli.commands.dashboard import app as dashboard_app
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
-from devops_cli.main import app as main_app
 from devops_cli.models.k8s import PodInfo
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
@@ -34,6 +34,20 @@ from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def empty_docker_engine(docker_engine: Any) -> Iterator[Any]:
+    """Serve the dashboard's Docker provider from the shared engine double, holding nothing.
+
+    Unpatched, the provider lists every container, image, network and volume of the
+    workstation's own engine, seconds of real I/O per refresh, and a key sent to the TUI then
+    waits on the refresh threads until the process goes idle.
+    """
+    client = MagicMock()
+    client.info.return_value = {}
+    with docker_engine(client) as engine:
+        yield engine
 
 
 # =============================================================================
@@ -404,6 +418,7 @@ def test_fetch_valkey_status_failure() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
 async def test_textual_dashboard_app_lifecycle() -> None:
     """DashboardApp initializes, mounts header, tabs, and footer, and handles tab switching."""
     app = DashboardApp()
@@ -448,16 +463,17 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
         # Open help screen via '?'
         await pilot.press("question_mark")
-        await pilot.pause(0.05)
+        await pilot.pause()
         assert isinstance(app.screen, HelpScreen)
 
         # Dismiss help screen via 'escape'
         await pilot.press("escape")
-        await pilot.pause(0.05)
+        await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
 async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
     """A panel update before the panel is mounted is deferred or dropped, never failing the worker."""
     from devops_cli.ui.state import DomainSnapshot
@@ -504,6 +520,7 @@ def test_dashboard_app_disable_auto_refresh() -> None:
     assert tui._refresh_interval == 0
 
 
+@pytest.mark.usefixtures("empty_docker_engine")
 def test_cli_dashboard_summary_option() -> None:
     """devops dashboard --summary outputs formatted multi-panel overview without starting TUI."""
     res = runner.invoke(dashboard_app, ["--summary"])
@@ -543,20 +560,27 @@ def test_the_summary_lists_unhealthy_pods_first_and_counts_the_rest(
     ) == (0, True, False, True, True)
 
 
+@pytest.mark.usefixtures("empty_docker_engine")
 def test_cli_main_dashboard_command() -> None:
     """devops dashboard --summary through main entry point."""
+    from devops_cli.main import app as main_app
+
     res = runner.invoke(main_app, ["dashboard", "--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output
 
 
+@pytest.mark.usefixtures("empty_docker_engine")
 def test_cli_tui_alias_command() -> None:
     """devops tui alias command behaves identically to devops dashboard."""
+    from devops_cli.main import app as main_app
+
     res = runner.invoke(main_app, ["tui", "--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output
 
 
+@pytest.mark.usefixtures("empty_docker_engine")
 def test_cli_dashboard_non_tty_auto_summary() -> None:
     """devops dashboard detects non-TTY stdout and falls back to static summary."""
     with patch("sys.stdout.isatty", return_value=False):

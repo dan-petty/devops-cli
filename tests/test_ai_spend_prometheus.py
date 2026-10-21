@@ -5,14 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
 from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.config.constants import CONST_RESPONSE_CACHE_SERVER
-from devops_cli.server.app import create_app
 
 runner = CliRunner()
 
@@ -136,6 +134,10 @@ def test_server_metrics_endpoint_includes_ai_spend(
 ) -> None:
     """Verify FastAPI /metrics endpoint integrates AI spend metrics."""
     monkeypatch.setattr("devops_cli.ai.spend.ledger.get_spend_ledger", lambda: seeded_ledger)
+
+    from fastapi.testclient import TestClient
+
+    from devops_cli.server.app import create_app
 
     app = create_app()
     client = TestClient(app)

@@ -300,8 +300,6 @@ def test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review(
         _execute_review_workflow(
             [_MOD_DIFF],
             "Branch `feature` vs `main`",
-            all_personas=False,
-            persona=None,
             summary_only=False,
             clients=ReviewClients(analysis=client),
             target_type="branch",
@@ -310,10 +308,10 @@ def test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review(
             base_revision=base,
         )
 
-    persona_review = orchestrator.execute_multi_persona_review.call_args.kwargs
+    init_payloads = orchestrator.init_per_file_payloads.call_args.kwargs
     assert (
         orchestrator.run_pre_analysis_refresh.call_args.kwargs["base_revision"] is base,
-        persona_review["diff_text_by_file"],
+        init_payloads["diff_text_by_file"],
     ) == (True, {"mod.py": _MOD_DIFF})
 
 

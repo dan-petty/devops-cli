@@ -418,7 +418,6 @@ def test_generate_error_catalog_includes_all_ai_exceptions() -> None:
         "LLM_INFERENCE_ERROR",
         "CONTEXT_BUDGET_EXCEEDED",
         "MODEL_UNAVAILABLE",
-        "PERSONA_EXECUTION_ERROR",
         "MODEL_RETRY_REQUESTED",
         "UNEXPECTED_MODEL_BEHAVIOR",
         "TOOL_FAILED",

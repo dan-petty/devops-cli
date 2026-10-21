@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://opentelemetry.io/"
+  - "https://prometheus.io/"
+reviewed: "2026-10-15"
+tags:
+  - "observability"
+  - "tracing"
+  - "metrics"
+---
+
 # Knowledge Base Topic: Workstation Observability & Distributed Tracing
 
 ## 1. Overview & Domain Architecture

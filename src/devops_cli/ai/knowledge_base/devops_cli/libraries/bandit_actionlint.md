@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "pkg:pypi/bandit@1.9.*"
+sources:
+  - "https://bandit.readthedocs.io/"
+  - "https://github.com/rhysd/actionlint"
+reviewed: "2026-10-15"
+tags:
+  - "bandit"
+  - "actionlint"
+  - "security"
+---
+
 # Code Library: Bandit & Actionlint (Security & CI Workflow Analysis)
 
 ## 1. Project References

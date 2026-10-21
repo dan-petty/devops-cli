@@ -21,6 +21,8 @@ from devops_cli.k8s.credentials import (
     verify_grafana_token,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+
 runner = CliRunner()
 
 
@@ -124,8 +126,9 @@ def test_mint_argocd_token_failure(mock_post: MagicMock) -> None:
     assert (token_401, token_empty) == (None, None)
 
 
+@patch("httpx2.Client.get", return_value=MagicMock(status_code=200, json=list))
 @patch("httpx2.Client.post")
-def test_mint_tokens_url_validation(mock_post: MagicMock) -> None:
+def test_mint_tokens_url_validation(mock_post: MagicMock, _mock_get: MagicMock) -> None:
     """Ensure scheme-less service URLs fail with ConfigurationError and HTTPS is normalized."""
     from devops_cli.exceptions.config import ConfigurationError
 
@@ -175,9 +178,12 @@ def test_mint_tokens_url_validation(mock_post: MagicMock) -> None:
     ) == (True, True)
 
 
+@patch("httpx2.Client.get", return_value=MagicMock(status_code=200, json=list))
 @patch("devops_cli.k8s.credentials._keyring_set")
 @patch("httpx2.Client.post")
-def test_mint_grafana_token_sa_success(mock_post: MagicMock, mock_keyring: MagicMock) -> None:
+def test_mint_grafana_token_sa_success(
+    mock_post: MagicMock, mock_keyring: MagicMock, _mock_get: MagicMock
+) -> None:
     def fake_post(url: str, **kwargs: object) -> MagicMock:
         if url.endswith("/api/serviceaccounts"):
             return MagicMock(status_code=201, json=lambda: {"id": 10})
@@ -234,9 +240,12 @@ def test_mint_grafana_token_revokes_prior_tokens(
     )
 
 
+@patch("httpx2.Client.get", return_value=MagicMock(status_code=200, json=list))
 @patch("devops_cli.k8s.credentials._keyring_set", side_effect=Exception("Keyring locked"))
 @patch("httpx2.Client.post")
-def test_mint_tokens_keyring_failure(mock_post: MagicMock, _mock_keyring: MagicMock) -> None:
+def test_mint_tokens_keyring_failure(
+    mock_post: MagicMock, _mock_keyring: MagicMock, _mock_get: MagicMock
+) -> None:
     def fake_post(url: str, **kwargs: object) -> MagicMock:
         if url.endswith("/api/v1/session"):
             return MagicMock(status_code=200, json=lambda: {"token": "argo-tok"})
@@ -303,6 +312,7 @@ def test_get_or_mint_grafana_auth() -> None:
         assert (tok, basic) == (None, f"Basic {expected_b64}")
 
 
+@patch("devops_cli.k8s.credentials._resolve_existing_token", return_value=None)
 @patch("devops_cli.k8s.credentials.fetch_argocd_password", return_value="argo-pw")
 @patch("devops_cli.config.settings._keyring_get", return_value="graf-pw")
 @patch("devops_cli.k8s.credentials.mint_argocd_token", return_value="argo-tok")
@@ -312,6 +322,7 @@ def test_sync_k8s_credentials_with_tokens(
     _mock_atok: MagicMock,
     _mock_gpw: MagicMock,
     _mock_apw: MagicMock,
+    _mock_resolve: MagicMock,
 ) -> None:
     res = sync_k8s_credentials(
         stack="infra",

@@ -20,12 +20,14 @@ import pytest
 import yaml
 
 from devops_cli.prometheus.promql import selectors
-from tests.support.paths import REPO_ROOT
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"
+PYROSCOPE_VALUES = K8S / "monitoring" / "pyroscope-values.yaml"
+ALLOY_ALLOW_LIST = FIXTURES / "k8s_monitoring" / "integrations" / "alloy.yaml"
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -64,14 +66,27 @@ SERVED_SERIES = frozenset(
         "prometheus_tsdb_size_retentions_total",
         "prometheus_tsdb_storage_blocks_bytes",
         "prometheus_tsdb_wal_storage_size_bytes",
+        # Alloy collectors, scraped by k8s-monitoring's Alloy integration within its default allow
+        # list (#1131).
+        "loki_write_dropped_entries_total",
+        "loki_write_sent_entries_total",
+        "prometheus_remote_storage_samples_failed_total",
         # Loki, scraped by k8s-monitoring's Loki integration within its default allow list, which
         # finds Loki's pods only where the logging stack runs.
         "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
         "loki_request_duration_seconds_count",
+        # Pyroscope, scraped through its ServiceMonitor (#1131, #1134).
+        "pyroscope_request_duration_seconds_count",
         # Alertmanager, found through its pod annotations by k8s-monitoring's annotation
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
+        # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551).
+        "argocd_app_info",
+        "cloudflared_tunnel_ha_connections",
+        "coredns_dns_responses_total",
+        "redis_rejected_connections_total",
+        "redis_up",
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -131,7 +146,15 @@ def test_the_baseline_rule_set() -> None:
     assert sorted((rule["alert"], rule["labels"]["severity"]) for rule in _rules()) == [
         ("AlertmanagerConfigReloadFailed", "warning"),
         ("AlertmanagerNotificationsFailing", "warning"),
+        ("AlloyLogEntriesDropped", "warning"),
+        ("AlloyRemoteWriteSamplesFailed", "warning"),
+        ("ArgoCdApplicationOutOfSync", "warning"),
+        ("ArgoCdApplicationUnhealthy", "warning"),
+        ("ArgoCdAutoSyncDisabled", "warning"),
+        ("ArgoCdSyncOperationStuck", "warning"),
+        ("CloudflareTunnelDegraded", "warning"),
         ("ClusterMetricsMissing", "critical"),
+        ("CoreDnsServfailResponses", "warning"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
         ("GpuTemperatureHigh", "critical"),
@@ -145,6 +168,7 @@ def test_the_baseline_rule_set() -> None:
         ("NodeNotReady", "critical"),
         ("NodeRebooted", "warning"),
         ("PersistentVolumeSpaceLow", "warning"),
+        ("PodLogsNotShipped", "warning"),
         ("PrometheusCompactionsFailing", "warning"),
         ("PrometheusConfigReloadFailed", "warning"),
         ("PrometheusDroppingAlerts", "warning"),
@@ -153,7 +177,9 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusRuleEvaluationFailures", "warning"),
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
+        ("PyroscopeQueryErrors", "warning"),
         ("TargetDown", "warning"),
+        ("ValkeyCacheErrors", "warning"),
     ]
 
 
@@ -340,3 +366,197 @@ def test_no_scrape_targets_the_components_k3s_runs_in_process() -> None:
         for component in ("controlPlane", "kubeControllerManager", "kubeScheduler", "kubeProxy")
         if cluster_metrics.get(component, {}).get("enabled") is True
     ] == []
+
+
+def _allow_list(path: Path) -> tuple[str, frozenset[str]]:
+    """A chart allow-list fixture's `(chart_version, metric_names)`."""
+    text = path.read_text(encoding="utf-8")
+    (version,) = [
+        line.removeprefix("# chart: grafana/k8s-monitoring ").strip()
+        for line in text.splitlines()
+        if line.startswith("# chart: grafana/k8s-monitoring ")
+    ]
+    return version, frozenset(yaml.safe_load(text))
+
+
+def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> None:
+    """The Alloy collectors, Grafana and Pyroscope are scraped, and dropped samples or log
+    entries alert (#1131)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    drop_alerts = {"AlloyRemoteWriteSamplesFailed", "AlloyLogEntriesDropped"}
+    pipeline_rules = [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in groups["homelab-telemetry-pipeline"]
+        if rule["alert"] in drop_alerts
+    ]
+    integrations = _yaml(K8S_MONITORING_VALUES)["integrations"]
+    (alloy,) = integrations["alloy"]["instances"]
+    (grafana,) = integrations["grafana"]["instances"]
+    pyroscope_monitor = _yaml(PYROSCOPE_VALUES)["serviceMonitor"]["enabled"]
+
+    assert (
+        pipeline_rules,
+        alloy["name"],
+        alloy["labelSelectors"],
+        grafana,
+        pyroscope_monitor,
+    ) == (
+        [
+            (
+                "AlloyRemoteWriteSamplesFailed",
+                'increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[15m]) > 0',
+                "15m",
+                "warning",
+            ),
+            (
+                "AlloyLogEntriesDropped",
+                'increase(loki_write_dropped_entries_total{job="integrations/alloy"}[15m]) > 0',
+                "15m",
+                "warning",
+            ),
+        ],
+        "k8s-monitoring",
+        {"app.kubernetes.io/name": ["alloy-metrics", "alloy-logs", "alloy-singleton"]},
+        {"name": "grafana"},
+        True,
+    )
+
+
+def test_pod_logs_not_shipped_alerts_with_node_from_pod_info() -> None:
+    """`PodLogsNotShipped` alerts when an `alloy-logs` pod sends no entries to Loki for 30m,
+    joining `node` from `kube_pod_info` so a node-maintenance silence covers it (#890)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    (rule,) = [
+        rule
+        for rule in groups["homelab-telemetry-pipeline"]
+        if rule["alert"] == "PodLogsNotShipped"
+    ]
+
+    assert (
+        rule["alert"],
+        rule["expr"],
+        rule["for"],
+        rule["labels"]["severity"],
+    ) == (
+        "PodLogsNotShipped",
+        'sum by (namespace, pod) (rate(loki_write_sent_entries_total{job="integrations/alloy", pod=~".*alloy-logs.*"}[5m]))'
+        " * on (namespace, pod) group_left (node)"
+        " max by (namespace, pod, node) (kube_pod_info)"
+        " == 0",
+        "30m",
+        "warning",
+    )
+
+
+def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_list() -> None:
+    """Every Alloy metric in `homelab-telemetry-pipeline` is kept by the Alloy integration's
+    default allow list, whose fixture matches the `k8s-monitoring` chart pin (#1131)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    (k8s_monitoring,) = [
+        release
+        for release in _HELM_RELEASES_BY_STACK["infra"]
+        if release["name"] == "k8s-monitoring"
+    ]
+    fixture_version, allow_list = _allow_list(ALLOY_ALLOW_LIST)
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    rule_metrics = {
+        selector.metric
+        for rule in groups["homelab-telemetry-pipeline"]
+        for selector in selectors(rule["expr"])
+        if "job" in selector.labels
+    }
+
+    assert (
+        fixture_version,
+        len(rule_metrics) > 0,
+        sorted(metric or "" for metric in rule_metrics - allow_list),
+    ) == (
+        k8s_monitoring["version"],
+        True,
+        [],
+    )
+
+
+def test_pyroscope_query_errors_alerts_on_5xx_rate() -> None:
+    """`PyroscopeQueryErrors` alerts when Pyroscope's 5xx request rate over 15m is above 0 for 15m (#1134)."""
+    (rule,) = [rule for rule in _rules() if rule["alert"] == "PyroscopeQueryErrors"]
+
+    assert (
+        rule["alert"],
+        rule["expr"],
+        rule["for"],
+        rule["labels"]["severity"],
+    ) == (
+        "PyroscopeQueryErrors",
+        'sum by (route) (rate(pyroscope_request_duration_seconds_count{status_code=~"5.."}[15m])) > 0',
+        "15m",
+        "warning",
+    )
+
+
+def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() -> None:
+    """`homelab-services` alerts on Argo CD sync/health, Cloudflare Tunnel HA connections,
+    CoreDNS SERVFAIL rate (#822), and Valkey cache errors (#551)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    rules = [
+        (r["alert"], r["expr"], r["for"], r["labels"]["severity"])
+        for r in groups["homelab-services"]
+    ]
+
+    assert rules == [
+        (
+            "ArgoCdApplicationOutOfSync",
+            'argocd_app_info{sync_status!="Synced"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdApplicationUnhealthy",
+            'argocd_app_info{health_status!~"Healthy|Progressing"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdAutoSyncDisabled",
+            'argocd_app_info{autosync_enabled="false"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdSyncOperationStuck",
+            'argocd_app_info{operation!=""} == 1',
+            "1h",
+            "warning",
+        ),
+        (
+            "CloudflareTunnelDegraded",
+            "sum(cloudflared_tunnel_ha_connections) < 2",
+            "5m",
+            "warning",
+        ),
+        (
+            "CoreDnsServfailResponses",
+            'sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns", rcode="SERVFAIL"}[5m])) / sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns"}[5m])) > 0.05',
+            "5m",
+            "warning",
+        ),
+        (
+            "ValkeyCacheErrors",
+            "redis_up == 0 or increase(redis_rejected_connections_total[5m]) > 0",
+            "5m",
+            "warning",
+        ),
+    ]

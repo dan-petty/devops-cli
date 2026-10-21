@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
@@ -39,6 +40,8 @@ from devops_cli.ai.pydantic_ai_bridge import (
     get_persona_pydantic_agent,
 )
 from devops_cli.ai.review_schema import ReviewResult
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_all_capabilities_inherit_from_abstract_capability() -> None:

@@ -7,7 +7,7 @@ import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -181,7 +181,7 @@ def externalize_media(data: Any, store: MediaStore) -> Any:
 
 def restore_media(data: Any, store: MediaStore) -> Any:
     """Recursively resolve media+sha256:// URIs back to BinaryContent instances."""
-    if isinstance(data, str) and data.startswith("media+sha256://"):
+    if isinstance(data, str) and urlsplit(data).scheme == "media+sha256":
         content = store.get(data)
         return content if content is not None else data
     elif isinstance(data, dict):

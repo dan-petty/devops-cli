@@ -57,7 +57,7 @@ FINDINGS_TOTAL = Instrument(
     "devops_cli_findings_total",
     InstrumentKind.COUNTER,
     "1",
-    "Review findings, by persona, severity and status",
+    "Review findings, by producer, severity and status",
 )
 AI_REQUESTS_TOTAL = Instrument(
     "devops_cli_ai_requests_total",

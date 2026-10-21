@@ -1,12 +1,13 @@
-"""Stack dashboards query only the series their exporters serve (#693).
+"""Stack dashboards query only the series their exporters serve (#693, #1136).
 
-`llm-stack.json`, `otel-collector.json` and `prometheus-server.json` are checked against the
-metric families captured from the exporters behind them (`tests/fixtures/metrics/`): every
-series a query selects, every label it matches or groups by, and the scrape that brings
-each exporter's series into Prometheus. A query naming a series nothing serves renders an
-empty panel, and an `or vector(0)` fallback turns that empty panel into a false zero, so a
-broken export reads as a quiet system. A panel drawn against a limit must also reach it on
-its axis, or the limit line is never seen.
+`llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`,
+`ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and
+`k8s-views-nodes.json` are checked against the metric families captured from the exporters behind
+them (`tests/fixtures/metrics/`): every series a query selects, every label it matches or groups
+by, and the scrape that brings each exporter's series into Prometheus. A query naming a series
+nothing serves renders an empty panel, and an `or vector(0)` fallback turns that empty panel into
+a false zero, so a broken export reads as a quiet system. A panel drawn against a limit must also
+reach it on its axis, or the limit line is never seen.
 
 The checks read files only.
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,12 +25,15 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
 from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
 DASHBOARDS = K8S / "monitoring" / "dashboards"
 CAPTURES = FIXTURES / "metrics"
+CLUSTER_METRICS_ALLOWLISTS = FIXTURES / "k8s_monitoring" / "cluster_metrics"
+TUNED_CLUSTER_EXPORTERS = frozenset({"cadvisor", "kube-state-metrics", "kubelet"})
 
 # Series Prometheus records about every scrape itself, whatever the target serves. Alloy
 # forwards all of them for the gateway and Qdrant ServiceMonitors, the DCGM integration, the
@@ -58,13 +63,18 @@ def _yaml(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _gateway_monitored(values: dict[str, Any]) -> bool:
-    """Alloy reads ServiceMonitors, and one selects the gateway."""
-    monitors = [
-        obj for obj in values.get("extraObjects", []) if obj.get("kind") == "ServiceMonitor"
-    ]
-    return values["prometheusOperatorObjects"]["enabled"] is True and any(
-        monitor["metadata"]["name"] == "llm-gateway" for monitor in monitors
+def _gateway_monitored(monitor: dict[str, Any]) -> bool:
+    """The gateway's ServiceMonitor selects `llm-gateway` on `/metrics/`, and Alloy reads ServiceMonitors."""
+    monitoring = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    endpoints = monitor.get("spec", {}).get("endpoints", [])
+    return (
+        monitor.get("kind") == "ServiceMonitor"
+        and monitor.get("metadata", {}).get("name") == "llm-gateway"
+        and monitor.get("spec", {}).get("selector", {}).get("matchLabels")
+        == {"app.kubernetes.io/name": "llm-gateway"}
+        and any(ep.get("port") == "http" and ep.get("path") == "/metrics/" for ep in endpoints)
+        and monitoring["prometheusOperatorObjects"]["enabled"] is True
+        and "extraObjects" not in monitoring
     )
 
 
@@ -119,6 +129,77 @@ def _server_jobs_enabled(values: dict[str, Any]) -> bool:
     )
 
 
+def _coredns_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring's kubeDNS job is enabled and the server's service-endpoints job stays off (#822)."""
+    cluster_metrics = values.get("clusterMetrics", {})
+    server = _yaml(K8S / "monitoring" / "prometheus-values.yaml")
+    endpoints_job = server.get("scrapeConfigs", {}).get("kubernetes-service-endpoints", {})
+    return (
+        cluster_metrics.get("enabled") is True
+        and cluster_metrics.get("kubeDNS", {}).get("enabled") is True
+        and endpoints_job.get("enabled") is False
+    )
+
+
+def _traefik_monitored(values: dict[str, Any]) -> bool:
+    """Traefik exposes Prometheus metrics with router and service labels on port 9100 (#1136)."""
+    prom = values.get("metrics", {}).get("prometheus", {})
+    monitoring = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    return (
+        prom
+        == {
+            "entryPoint": "metrics",
+            "addRoutersLabels": True,
+            "addServicesLabels": True,
+        }
+        and values.get("ports", {}).get("metrics", {}).get("port") == 9100
+        and monitoring.get("annotationAutodiscovery", {}).get("enabled") is True
+    )
+
+
+def _cloudflared_monitored(values: dict[str, Any]) -> bool:
+    """cloudflared pods carry Prometheus scrape annotations on port 2000 for Alloy autodiscovery (#1136)."""
+    wanted = {"prometheus.io/scrape": "true", "prometheus.io/port": "2000"}
+    annotations = (
+        values.get("spec", {}).get("template", {}).get("metadata", {}).get("annotations") or {}
+    )
+    monitoring = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    return (
+        wanted.items() <= annotations.items()
+        and monitoring.get("annotationAutodiscovery", {}).get("enabled") is True
+    )
+
+
+def _ksm_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring deploys and scrapes kube-state-metrics (#1136)."""
+    cm = values.get("clusterMetrics", {})
+    return (
+        cm.get("enabled") is True
+        and cm.get("kube-state-metrics", {}).get("enabled", True) is True
+        and values.get("telemetryServices", {}).get("kube-state-metrics", {}).get("deploy") is True
+    )
+
+
+def _node_exporter_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring deploys and scrapes node-exporter (#1136)."""
+    return (
+        values.get("hostMetrics", {}).get("enabled") is True
+        and values.get("telemetryServices", {}).get("node-exporter", {}).get("deploy") is True
+    )
+
+
+def _kubelet_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring scrapes kubelet metrics (#1136)."""
+    cm = values.get("clusterMetrics", {})
+    return cm.get("enabled") is True and cm.get("kubelet", {}).get("enabled", True) is True
+
+
+def _cadvisor_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring scrapes cAdvisor metrics (#1136)."""
+    cm = values.get("clusterMetrics", {})
+    return cm.get("enabled") is True and cm.get("cadvisor", {}).get("enabled", True) is True
+
+
 @dataclass(frozen=True)
 class Exporter:
     """Where an exporter's scrape is defined in `k8s/`, and the check that it is."""
@@ -128,18 +209,34 @@ class Exporter:
 
 
 EXPORTERS = {
-    "litellm": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _gateway_monitored),
+    "litellm": Exporter(K8S / "llm" / "gateway" / "servicemonitor.yaml", _gateway_monitored),
     "dcgm-exporter": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _dcgm_monitored),
     "qdrant": Exporter(K8S / "llm" / "values-qdrant.yaml", _qdrant_monitored),
     "otel-collector": Exporter(K8S / "otel" / "values.yaml", _collector_annotated),
     "prometheus-server": Exporter(
         K8S / "monitoring" / "prometheus-values.yaml", _server_jobs_enabled
     ),
+    "coredns": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _coredns_monitored),
+    "traefik": Exporter(K8S / "ingress" / "traefik-values.yaml", _traefik_monitored),
+    "cloudflared": Exporter(K8S / "cloudflared" / "deployment.yaml", _cloudflared_monitored),
+    "kube-state-metrics": Exporter(
+        K8S / "monitoring" / "k8s-monitoring-values.yaml", _ksm_monitored
+    ),
+    "node-exporter": Exporter(
+        K8S / "monitoring" / "k8s-monitoring-values.yaml", _node_exporter_monitored
+    ),
+    "kubelet": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _kubelet_monitored),
+    "cadvisor": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _cadvisor_monitored),
 }
 DASHBOARD_EXPORTERS = {
     "llm-stack.json": ("litellm", "dcgm-exporter", "qdrant"),
     "otel-collector.json": ("otel-collector",),
     "prometheus-server.json": ("prometheus-server",),
+    "coredns.json": ("coredns",),
+    "ingress-tunnel.json": ("traefik", "cloudflared", "cadvisor"),
+    "k8s-views-global.json": ("kube-state-metrics", "node-exporter", "kubelet", "cadvisor"),
+    "k8s-views-namespaces.json": ("kube-state-metrics", "node-exporter", "kubelet", "cadvisor"),
+    "k8s-views-nodes.json": ("kube-state-metrics", "node-exporter", "kubelet", "cadvisor"),
 }
 
 
@@ -154,7 +251,35 @@ def _family_series(
     }
 
 
-def _capture(exporter: str) -> tuple[dict[str, frozenset[str]], frozenset[str]]:
+def _filter_by_cluster_metrics_allowlist(
+    exporter: str,
+    series: dict[str, frozenset[str]],
+    monitoring_values: dict[str, Any] | None = None,
+) -> dict[str, frozenset[str]]:
+    """Filter a clusterMetrics exporter's series by its effective k8s-monitoring allow list (#1136)."""
+    if exporter not in TUNED_CLUSTER_EXPORTERS:
+        return series
+    values = (
+        monitoring_values
+        if monitoring_values is not None
+        else _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+    )
+    tuning = values.get("clusterMetrics", {}).get(exporter, {}).get("metricsTuning", {})
+    default_patterns: list[str] = (
+        _yaml(CLUSTER_METRICS_ALLOWLISTS / f"{exporter}.yaml")["metrics"]
+        if tuning.get("useDefaultAllowList", True)
+        else []
+    )
+    patterns = [*default_patterns, *tuning.get("includeMetrics", [])]
+    if not patterns:
+        return {}
+    allowed = re.compile("|".join(f"(?:{p})" for p in patterns))
+    return {name: labels for name, labels in series.items() if allowed.fullmatch(name)}
+
+
+def _capture(
+    exporter: str, monitoring_values: dict[str, Any] | None = None
+) -> tuple[dict[str, frozenset[str]], frozenset[str]]:
     """An exporter's series with their labels, and the labels its scrape adds."""
     record = _yaml(CAPTURES / f"{exporter}.yaml")
     target_labels = frozenset(record["target_labels"])
@@ -164,7 +289,7 @@ def _capture(exporter: str) -> tuple[dict[str, frozenset[str]], frozenset[str]]:
         for name, family in families.items()
         for series_name, labels in _family_series(name, family, target_labels).items()
     }
-    return series, target_labels
+    return _filter_by_cluster_metrics_allowlist(exporter, series, monitoring_values), target_labels
 
 
 def relabelled_by_source(record: dict[str, Any]) -> list[str]:
@@ -181,9 +306,11 @@ def relabelled_by_source(record: dict[str, Any]) -> list[str]:
     ]
 
 
-def known_series(exporters: tuple[str, ...]) -> dict[str, frozenset[str]]:
+def known_series(
+    exporters: tuple[str, ...], monitoring_values: dict[str, Any] | None = None
+) -> dict[str, frozenset[str]]:
     """The series a dashboard's exporters serve, and the scrape's own, with their labels."""
-    captures = [_capture(exporter) for exporter in exporters]
+    captures = [_capture(exporter, monitoring_values) for exporter in exporters]
     target_labels = frozenset().union(*(labels for _, labels in captures))
     known = dict.fromkeys(SYNTHETIC_SERIES, target_labels)
     for series, _ in captures:
@@ -248,9 +375,13 @@ def threshold_lines_off_axis(dashboard: dict[str, Any]) -> list[str]:
     return [panel["title"] for panel in _panels(dashboard) if _threshold_line_off_axis(panel)]
 
 
-def dashboard_violations(dashboard: dict[str, Any], exporters: tuple[str, ...]) -> list[str]:
+def dashboard_violations(
+    dashboard: dict[str, Any],
+    exporters: tuple[str, ...],
+    monitoring_values: dict[str, Any] | None = None,
+) -> list[str]:
     """Describe every query in a dashboard that its exporters do not back."""
-    known = known_series(exporters)
+    known = known_series(exporters, monitoring_values)
     return [
         violation
         for expr in _expressions(dashboard)
@@ -373,6 +504,11 @@ LIMIT_LINES = {
         "Process Memory against the memory_limiter Limit",
     ],
     "prometheus-server.json": ["TSDB Size", "Resident Memory"],
+    "coredns.json": [],
+    "ingress-tunnel.json": ["Cloudflare Tunnel Request Error Ratio (%)"],
+    "k8s-views-global.json": [],
+    "k8s-views-namespaces.json": [],
+    "k8s-views-nodes.json": [],
 }
 
 
@@ -474,6 +610,36 @@ def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None
     )
 
 
+def test_coredns_dashboard_covers_requests_responses_latency_cache_and_forward() -> None:
+    """Verify `coredns.json` charts requests by type/proto, responses by rcode, request duration
+    p50/p95/p99, cache hits/misses, and forward request duration over captured `coredns_*` series (#822)."""
+    dashboard = _dashboard("coredns.json")
+    panels = [p for p in _panels(dashboard) if p.get("type") != "row"]
+    titles = [p["title"] for p in panels]
+    coredns_exporter = EXPORTERS["coredns"]
+    values = _yaml(coredns_exporter.values)
+    disabled = copy.deepcopy(values)
+    disabled["clusterMetrics"]["kubeDNS"]["enabled"] = False
+
+    assert (
+        dashboard["uid"],
+        titles,
+        coredns_exporter.scraped(values),
+        coredns_exporter.scraped(disabled),
+    ) == (
+        "devops-coredns",
+        [
+            "Requests by Type and Protocol",
+            "Responses by Rcode",
+            "Request Duration (p50 / p95 / p99)",
+            "Forward Request Duration (p50 / p95 / p99)",
+            "Cache Hits and Misses",
+        ],
+        True,
+        False,
+    )
+
+
 @pytest.mark.parametrize("exporter", EXPORTERS)
 def test_captures_hold_names_types_and_label_names_only(exporter: str) -> None:
     """Verify a capture records no label value, cites the source of every family it read there,
@@ -501,3 +667,97 @@ def test_a_source_entry_overriding_a_sampled_family_fails() -> None:
     }
 
     assert relabelled_by_source(record) == ["litellm_deployment_cooled_down_total", sampled]
+
+
+def test_cluster_metrics_allowlist_fixtures_match_pinned_k8s_monitoring_version() -> None:
+    """Verify cluster_metrics allow-list fixtures record the pinned k8s-monitoring chart version (#1136)."""
+    k8s_mon_release = next(
+        r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "k8s-monitoring"
+    )
+    expected_header = f"# chart: {k8s_mon_release['chart']} {k8s_mon_release['version']}"
+    headers = {
+        exporter: next(
+            (
+                line.strip()
+                for line in (CLUSTER_METRICS_ALLOWLISTS / f"{exporter}.yaml")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.startswith("# chart:")
+            ),
+            "",
+        )
+        for exporter in sorted(TUNED_CLUSTER_EXPORTERS)
+    }
+    lists = {
+        exporter: bool(_yaml(CLUSTER_METRICS_ALLOWLISTS / f"{exporter}.yaml").get("metrics"))
+        for exporter in sorted(TUNED_CLUSTER_EXPORTERS)
+    }
+
+    assert (headers, lists) == (
+        dict.fromkeys(sorted(TUNED_CLUSTER_EXPORTERS), expected_header),
+        dict.fromkeys(sorted(TUNED_CLUSTER_EXPORTERS), True),
+    )
+
+
+def test_readding_kube_hpa_labels_or_removing_allowlist_entries_fails() -> None:
+    """Verify re-adding `kube_hpa_labels`, removing a required `includeMetrics` entry, or disabling
+    `useDefaultAllowList` fails dashboard verification (#1136)."""
+    hpa_expr = 'sum(kube_hpa_labels{cluster=~"$cluster"})'
+    global_dash = _dashboard("k8s-views-global.json")
+    exporters = DASHBOARD_EXPORTERS["k8s-views-global.json"]
+    base_values = _yaml(K8S / "monitoring" / "k8s-monitoring-values.yaml")
+
+    missing_include = copy.deepcopy(base_values)
+    tuning = missing_include["clusterMetrics"]["kube-state-metrics"]["metricsTuning"]
+    tuning["includeMetrics"] = [
+        m for m in tuning["includeMetrics"] if m != "kube_horizontalpodautoscaler_labels"
+    ]
+
+    default_off = copy.deepcopy(base_values)
+    default_off["clusterMetrics"]["kube-state-metrics"]["metricsTuning"]["useDefaultAllowList"] = (
+        False
+    )
+
+    assert (
+        _violations_after_adding("k8s-views-global.json", hpa_expr),
+        any(
+            "kube_horizontalpodautoscaler_labels is in no capture" in v
+            for v in dashboard_violations(global_dash, exporters, missing_include)
+        ),
+        bool(dashboard_violations(global_dash, exporters, default_off)),
+    ) == (
+        [f"{hpa_expr}: kube_hpa_labels is in no capture"],
+        True,
+        True,
+    )
+
+
+def test_otel_failed_spans_no_value_and_k8s_views_storage_omission() -> None:
+    """Verify `otel-collector.json` sets `noValue: "none recorded"` on its failed-spans panel and
+    the Kubernetes views omit `kubelet_volume_stats_*` panels with an explanatory note (#1136)."""
+    otel = _dashboard("otel-collector.json")
+    spans_panel = next(
+        p for p in _panels(otel) if p.get("title") == "Spans Sent and Failed per Exporter"
+    )
+    namespaces = _dashboard("k8s-views-namespaces.json")
+    nodes = _dashboard("k8s-views-nodes.json")
+    ingress = _dashboard("ingress-tunnel.json")
+    ingress_titles = [p.get("title") for p in _panels(ingress)]
+
+    assert (
+        spans_panel["fieldConfig"]["defaults"].get("noValue"),
+        any("kubelet_volume_stats_" in expr for expr in _expressions(namespaces)),
+        any("kubelet_volume_stats_" in expr for expr in _expressions(nodes)),
+        "LogOrMetricVolumeDiskLow" in namespaces.get("description", ""),
+        "LogOrMetricVolumeDiskLow" in nodes.get("description", ""),
+        "Cloudflare Service Status" in ingress_titles,
+        "Per-Service Request Rate" in ingress_titles,
+    ) == (
+        "none recorded",
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+    )

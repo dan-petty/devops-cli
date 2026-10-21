@@ -34,8 +34,7 @@ def _bracket_bare_ipv6(s: str) -> str:
 
 def _has_empty_port(netloc: str) -> bool:
     """Check if netloc ends with a colon or has an empty port component."""
-    host_port = netloc.split("@")[-1]
-    return host_port.endswith(":")
+    return netloc.endswith(":")
 
 
 def _resolve_netloc_fallback(s: str, parsed: SplitResult) -> SplitResult:

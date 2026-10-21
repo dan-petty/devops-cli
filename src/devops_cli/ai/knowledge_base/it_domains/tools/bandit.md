@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "tool:bandit@1.9.*"
+sources:
+  - "https://bandit.readthedocs.io/"
+  - "https://github.com/PyCQA/bandit"
+reviewed: "2026-10-15"
+tags:
+  - "bandit"
+  - "security"
+  - "python"
+---
+
 # Knowledge Base: Bandit (Python AST Static Security Analysis)
 
 ## 1. Overview & Purpose

@@ -46,8 +46,15 @@ def test_k8s_monitoring_values_disables_alloy_telemetry() -> None:
     metrics_rep = collectors.get("alloy-metrics", {}).get("alloy", {}).get("enableReporting")
     singleton_rep = collectors.get("alloy-singleton", {}).get("alloy", {}).get("enableReporting")
     logs_rep = collectors.get("alloy-logs", {}).get("alloy", {}).get("enableReporting")
+    profiles_rep = collectors.get("alloy-profiles", {}).get("alloy", {}).get("enableReporting")
 
-    assert (self_reporting, metrics_rep, singleton_rep, logs_rep) == (False, False, False, False)
+    assert (self_reporting, metrics_rep, singleton_rep, logs_rep, profiles_rep) == (
+        False,
+        False,
+        False,
+        False,
+        False,
+    )
 
 
 def test_loki_values_disables_analytics() -> None:

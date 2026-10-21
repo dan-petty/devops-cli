@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://docs.python.org/3.14/"
+  - "https://peps.python.org/pep-0758/"
+reviewed: "2026-10-15"
+tags:
+  - "python"
+  - "runtime"
+---
+
 # Knowledge Base Topic: Modern Python 3.14+ Runtime & Tooling Ecosystem
 
 ## 1. Overview & Domain Architecture

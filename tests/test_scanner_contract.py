@@ -1,0 +1,85 @@
+"""The contract of the scanner fake: it answers each scanner adapter as the real scanner did
+(#1666, ADR 0007).
+
+Each run in `tests/fixtures/scanner_runs/recorded_runs.json` is the real tool's, at the version
+`tools.lock` pins, started on 2026-10-20 through its adapter as a review starts it, over one file
+holding `print("hello")`. Each case starts the adapter that way again, over `ScannerFake`, and
+checks that it made the recorded command and read the recorded run as it read the real one: a
+scan that ran and found nothing. Another checks each recording's version against the lock. Where
+a case fails, the recording no longer stands for the real tool: record the run again with the
+real tool at its locked version, as the fake's docstring says.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Callable
+from pathlib import Path
+
+import pytest
+
+from devops_cli.review.rules_pack import RULE_PACK_DIR
+from devops_cli.security.bandit import run_bandit_scan
+from devops_cli.security.base import ScanOutcome
+from devops_cli.security.gitleaks import run_gitleaks_scan
+from devops_cli.security.osv_scanner import run_osv_scan
+from devops_cli.security.semgrep import run_semgrep_scan
+from devops_cli.tools_lock import load_tools_lock
+from tests.support.fakes.scanners import ScannerFake
+
+ReviewScan = Callable[[Path, Path], ScanOutcome]
+
+# Each adapter as a review's scanner stage starts it (`devops_cli.ai.review.pipeline`).
+REVIEW_SCANS: dict[str, ReviewScan] = {
+    "semgrep": lambda target, tree: run_semgrep_scan([target], reviewed_tree=tree),
+    "gitleaks": lambda target, tree: run_gitleaks_scan([target], ignore_tests=True, isolated=True),
+    "bandit": lambda target, tree: run_bandit_scan([target], isolated=True, tree=tree),
+    "osv-scanner": lambda target, tree: run_osv_scan([target], tree=tree, isolated=True),
+}
+
+
+@pytest.mark.parametrize("tool", sorted(REVIEW_SCANS))
+def test_an_adapter_makes_the_recorded_command_and_reads_the_recorded_run(
+    tool: str, scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The adapter starts the recorded command and reads the recorded run as a clean scan."""
+    tree = (tmp_path / "tree").resolve()
+    tree.mkdir()
+    target = tree / "app.py"
+    target.write_text('print("hello")\n', encoding="utf-8")
+
+    outcome = REVIEW_SCANS[tool](target, tree)
+
+    [run] = scanner_fake.runs
+    recorded = [
+        word.format(tree=tree, workdir=run.cwd, rule_pack=RULE_PACK_DIR)
+        for word in scanner_fake.recorded[tool].argv
+    ]
+    assert (run.argv, outcome.status, outcome.findings) == (recorded, "ran", [])
+
+
+def test_each_recording_is_of_the_version_the_tools_lock_pins(scanner_fake: ScannerFake) -> None:
+    """A tool bumped in the lock is recorded again."""
+    locked = load_tools_lock().tools()
+
+    assert {tool: run.version for tool, run in scanner_fake.recorded.items()} == {
+        tool: locked[tool].version for tool in scanner_fake.recorded
+    }
+
+
+def test_the_fake_finds_and_answers_only_the_recorded_scanners(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """`shutil.which` finds each recorded scanner wherever the host has it, and every other
+    program, such as git, is found and run for real."""
+    import shutil
+
+    found = {tool: shutil.which(tool) for tool in scanner_fake.recorded}
+    git = subprocess.run(["git", "--version"], capture_output=True, text=True, check=False)
+
+    assert (
+        found == {tool: str(scanner_fake.bin_dir / tool) for tool in scanner_fake.recorded},
+        shutil.which("git") is not None,
+        git.stdout.startswith("git version"),
+        scanner_fake.runs,
+    ) == (True, True, True, [])

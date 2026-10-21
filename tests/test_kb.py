@@ -220,3 +220,25 @@ def test_kb_python_examples_import_real_symbols() -> None:
     ]
 
     assert missing == []
+
+
+def test_kb_front_matter_sources_validation() -> None:
+    """KbFrontMatter accepts uppercase HTTPS URLs and rejects non-http(s) sources (#1107)."""
+    import pytest
+    from pydantic import ValidationError
+
+    from devops_cli.ai.kb import KbFrontMatter
+
+    fm = KbFrontMatter(
+        applies_to=("pkg:pypi/typer@0.27.*",),
+        sources=("HTTPS://example.com/guide", "http://example.com/manual"),
+        reviewed="2026-10-21",
+    )
+    assert fm.sources == ("HTTPS://example.com/guide", "http://example.com/manual")
+
+    with pytest.raises(ValidationError, match="source URL must start with http:// or https://"):
+        KbFrontMatter(
+            applies_to=("pkg:pypi/typer@0.27.*",),
+            sources=("ftp://example.com/guide",),
+            reviewed="2026-10-21",
+        )

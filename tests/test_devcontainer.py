@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +28,34 @@ def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
     monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
     monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
+
+
+@pytest.fixture
+def image_programs_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every program as installed, as in the published image, which ships uv, pre-commit
+    and claude.
+
+    post-create really installs each of those that `shutil.which` cannot find. On a host without
+    claude, such as a GitHub runner, that meant Claude Code's installer, a 276 MB download, in
+    every test that runs post-create.
+    """
+    monkeypatch.setattr("shutil.which", lambda cmd, *_args, **_kwargs: f"/usr/local/bin/{cmd}")
+
+
+@pytest.fixture
+def no_configured_k8s_context(isolate_devops_cli_config: Path) -> None:
+    """Name no Kubernetes context in the test's config, so post-start leaves kubectl alone.
+
+    Unset, the context is the built-in default, minikube, and post-start asks a real kubectl for
+    the kubeconfig's contexts before selecting it.
+    """
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.k8s.context import reset_context_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write('k8s:\n  context: ""\n')
+    reset_settings_cache()
+    reset_context_cache()
 
 
 class TestDevcontainerCli:
@@ -130,6 +158,7 @@ class TestDevcontainerCli:
         data = json.loads(dc_file.read_text(encoding="utf-8"))
         assert data["image"] == "mcr.microsoft.com/devcontainers/python:3.14"
 
+    @pytest.mark.usefixtures("image_programs_installed")
     def test_post_create_command_executes_successfully(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -146,6 +175,7 @@ class TestDevcontainerCli:
         assert (fake_home / ".zshrc").exists()
         assert "source_zsh" in (fake_home / ".zshrc").read_text(encoding="utf-8")
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
     def test_post_start_command_executes_successfully(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -211,7 +241,11 @@ class TestDevcontainerCli:
         assert "Spawned background Minikube & Kubernetes bootstrap" in result2.output
 
     def test_bootstrap_k8s_autostarts_minikube_when_stopped(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        docker_engine: Any,
     ) -> None:
         """devops devcontainer bootstrap-k8s must start minikube if stopped."""
         calls: list[list[str]] = []
@@ -234,13 +268,20 @@ class TestDevcontainerCli:
         )
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        with docker_engine(MagicMock()):
+            result = runner.invoke(
+                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
+            )
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
 
     def test_bootstrap_k8s_minikube_falls_back_to_cpu_when_no_gpu(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        docker_engine: Any,
     ) -> None:
         """devops devcontainer bootstrap-k8s must fallback to CPU minikube if no GPU is found."""
         calls: list[list[str]] = []
@@ -266,7 +307,10 @@ class TestDevcontainerCli:
             lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
         )
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        with docker_engine(MagicMock()):
+            result = runner.invoke(
+                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
+            )
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker)" in result.output
         assert any(c == ["minikube", "start", "--driver=docker"] for c in calls)
@@ -323,6 +367,7 @@ class TestDevcontainerCli:
 
         assert result is False
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
     def test_post_start_mcp_scaffolding_and_sync(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -616,6 +661,7 @@ class TestDevcontainerCli:
             "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
         ) == (True, True, True, True)
 
+    @pytest.mark.usefixtures("image_programs_installed", "no_configured_k8s_context")
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -896,6 +942,7 @@ class TestDevcontainerCli:
         assert Path("/scratch").resolve() in paths
         assert (tmp_path / ".venv").resolve() in paths
 
+    @pytest.mark.usefixtures("image_programs_installed", "no_configured_k8s_context")
     def test_setup_volume_mount_permissions_and_lifecycle(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -950,8 +997,9 @@ class TestDevcontainerCli:
         (test_dir / "subfile.txt").write_text("hello", encoding="utf-8")
 
         # 1. Missing getuid / getgid
-        monkeypatch.setattr("os.getuid", lambda: None)
-        _ensure_path_ownership(test_dir)
+        with monkeypatch.context() as no_uid:
+            no_uid.delattr("os.getuid")
+            _ensure_path_ownership(test_dir)
 
         # 2. Non-existent path in stat
         non_existent = tmp_path / "non_existent"
@@ -1269,6 +1317,7 @@ def test_devcontainer_template_contains_no_git_daemon(minikube: bool) -> None:
     ) == (False, False, False, False)
 
 
+@pytest.mark.unreachable("bus")
 def test_post_start_starts_the_session_bus_named_by_the_container_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1291,6 +1340,7 @@ def test_post_start_starts_the_session_bus_named_by_the_container_env(
     assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
 
 
+@pytest.mark.unreachable("bus")
 def test_the_session_bus_runtime_dir_is_private(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1327,6 +1377,7 @@ def test_a_running_session_bus_is_left_alone(
     assert actions == [f"D-Bus session bus is already running at {socket_path}"]
 
 
+@pytest.mark.unreachable("bus")
 def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """dbus-daemon refuses to bind over a leftover socket file from a stopped container."""
     import socket
@@ -1357,6 +1408,36 @@ def test_no_session_bus_is_started_without_a_configured_address(
     assert calls == []
 
 
+def test_session_bus_socket_parses_addresses_with_jeepney(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_session_bus_socket parses DBUS_SESSION_BUS_ADDRESS through jeepney with unescaping and multi-address support."""
+    from devops_cli.commands.devcontainer import _session_bus_socket
+
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    assert _session_bus_socket() is None
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "")
+    assert _session_bus_socket() is None
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    assert _session_bus_socket() == Path("/run/user/1000/bus")
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=%2Frun%2Fescaped%20bus,guid=123")
+    assert _session_bus_socket() == Path("/run/escaped bus")
+
+    monkeypatch.setenv(
+        "DBUS_SESSION_BUS_ADDRESS",
+        "unix:path=/first/bus,guid=1;unix:path=/second/bus,guid=2",
+    )
+    assert _session_bus_socket() == Path("/first/bus")
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "tcp:host=localhost,port=1234")
+    assert _session_bus_socket() is None
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "not-a-valid-address")
+    assert _session_bus_socket() is None
+
+
+@pytest.mark.unreachable("bus")
 def test_a_failed_session_bus_start_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1853,6 +1934,7 @@ def test_post_start_never_prompts_without_a_terminal(
     assert (result.exit_code, calls) == (0, [])
 
 
+@pytest.mark.unreachable("bus")
 def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1893,6 +1975,7 @@ def test_post_create_adds_the_unlock_hook_to_each_shell_once(
         assert content.count("devops-cli keyring unlock") == 1
 
 
+@pytest.mark.live("bash", "zsh", "sh")
 def test_the_unlock_hook_is_valid_in_bash_and_zsh(tmp_path: Path) -> None:
     """A syntax error here would print on every terminal the user ever opens."""
     import shutil
@@ -1908,6 +1991,7 @@ def test_the_unlock_hook_is_valid_in_bash_and_zsh(tmp_path: Path) -> None:
             assert checked.returncode == 0, f"{shell}: {checked.stderr}"
 
 
+@pytest.mark.live("bash", "zsh", "sh")
 def test_the_unlock_hook_stays_quiet_once_the_keyring_is_open(tmp_path: Path) -> None:
     """Without the marker the hook must not even start devops: every new shell pays for it."""
     import subprocess

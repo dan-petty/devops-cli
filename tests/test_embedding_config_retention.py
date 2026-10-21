@@ -8,10 +8,21 @@ from devops_cli.ai.agents.embeddings import Embedder
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
 from devops_cli.config.settings import AIConfig, AITaskOverride, Settings
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
-def test_embeddings_engine_defaults_to_active_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def _settings_without_valkey(refusing_port: int) -> Settings:
+    """Default settings whose Valkey cache is down, refused through `refusing_port`."""
+    settings = Settings()
+    settings.valkey.host = f"127.0.0.1:{refusing_port}"
+    return settings
+
+
+def test_embeddings_engine_defaults_to_active_settings(
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+) -> None:
     """Verify that EmbeddingsEngine defaults to load_settings().ai rather than blank AIConfig."""
-    custom_settings = Settings()
+    custom_settings = _settings_without_valkey(refusing_port)
     custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
     custom_settings.ai.tasks.embedding.ollama_urls = ["http://192.0.2.10:11434"]
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
@@ -31,10 +42,10 @@ def test_embeddings_engine_respects_task_override() -> None:
 
 
 def test_ollama_embedding_model_defaults_to_active_settings(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
     """Verify OllamaEmbeddingModel inherits active embedding model from settings."""
-    custom_settings = Settings()
+    custom_settings = _settings_without_valkey(refusing_port)
     custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
 
@@ -42,9 +53,11 @@ def test_ollama_embedding_model_defaults_to_active_settings(
     assert model.model_name == "embeddinggemma:300m"
 
 
-def test_embedder_preserves_colon_tags_in_model_name(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_embedder_preserves_colon_tags_in_model_name(
+    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+) -> None:
     """Verify Embedder does not truncate model names with colon tags (e.g. embeddinggemma:300m)."""
-    custom_settings = Settings()
+    custom_settings = _settings_without_valkey(refusing_port)
     custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
 

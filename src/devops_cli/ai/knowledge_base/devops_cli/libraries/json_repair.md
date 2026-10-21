@@ -1,3 +1,14 @@
+---
+applies_to:
+  - "pkg:pypi/json-repair@0.63.*"
+sources:
+  - "https://github.com/mangiucugna/json_repair"
+reviewed: "2026-10-15"
+tags:
+  - "json-repair"
+  - "json"
+---
+
 # Code Library: JSON Repair (Resilient LLM Payload Recovery)
 
 ## 1. Project References
@@ -16,7 +27,7 @@
 **JSON Repair** is a lightweight Python module that fixes invalid, unclosed, or truncated JSON emitted by Large Language Models. When LLMs generate JSON payloads, output length limits or abrupt network disconnections frequently result in trailing unclosed quotes (`"`), unclosed brackets (`]`, `}`), missing keys, or trailing commas. `json-repair` analyzes the token stream and synthesizes a well-formed JSON string or dictionary.
 
 In `devops-cli`:
-- **AI Review Parsing**: Parses structured JSON finding outputs from multi-persona code review passes without failing when the LLM response is truncated.
+- **AI Review Parsing**: Parses structured JSON finding outputs from code review passes without failing when the LLM response is truncated.
 - **Agent Output Normalization**: Normalizes tool parameters received from remote MCP agents.
 
 ---

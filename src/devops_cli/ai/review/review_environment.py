@@ -79,7 +79,7 @@ def _disk_reader(root: Path) -> _FileReader:
     """Read regular files on disk that lie within `root`, the resolved tree under review.
 
     A file reached through a link, at the file or at any directory below `root`, is absent,
-    as the chunker refuses links for reviewed files: the tree must not bring a file from
+    as target discovery refuses links for reviewed files: the tree must not bring a file from
     outside it into the prompts. Refusing links inside the tree too keeps a path review and a
     branch review of one tree reading the same files, since git stores a link as a link.
     """

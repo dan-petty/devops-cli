@@ -43,6 +43,7 @@ dependencies = [
     "pydantic-graph==2.54.0",
     "opentelemetry-api==1.44.0",
     "secretstorage==3.5.0; sys_platform == 'linux'",
+    "jeepney==0.9.0",
     "dnspython[idna]==2.8.0",
     "genai-prices==0.1.9",
     "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
@@ -98,6 +99,8 @@ dev = [
     "deptry==0.25.1",
     "mutmut==3.8.0",
     "syrupy==6.1.1",
+    "ast-grep-cli==0.51.0",
+    "time-machine==3.5.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -116,6 +119,7 @@ exclude = ["repos"]
 select = [
     "E", "F", "I", "N", "W", "UP", "B", "RUF", "ASYNC",
     "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017",
+    "TID251",
 ]
 ignore = [
     "E501",      # ruff format owns line length
@@ -129,6 +133,12 @@ allowed-confusables = ["–", "×", "ℹ"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"socket.inet_aton".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_ntoa".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_pton".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_ntop".msg = "Parse and format addresses with ipaddress.ip_address."
 
 [tool.mypy]
 python_version = "3.14"
@@ -154,9 +164,14 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # Pytest workers: logical cores (ext4 benchmark: 8 workers ~4.2s vs 4 workers ~6.8s)
+# `--dist worksteal` (#1725): `load` hands each worker blocks of consecutive tests that it alone
+# then runs, so a block of slow tests handed out late keeps one worker busy after the rest are
+# done; under `worksteal` a worker that runs dry takes half of another's unstarted tests. Over a
+# full run's per-test times, xdist's two schedulers replayed end at 103.7 s (load) and 97.1 s
+# (worksteal) on 16 workers, and at 358 s and 316 s on the CI runner's 4.
 # pytest-randomly is installed for `devops ci test --repeat` and blocked here (-p no:randomly),
 # so every other run keeps file order.
-addopts = "-n logical -p no:logfire -p no:pytest_logfire -p no:randomly"
+addopts = "-n logical --dist worksteal -p no:logfire -p no:pytest_logfire -p no:randomly"
 # pytest-timeout fails a test that hangs, in its own process, so a stuck child process holds no
 # run (#1669). A hang bound, not a speed target: the slowest test in 185 cached gate runs took 139 s
 # at a load average of 30-50, and the slowest full run, 931 s, plus one hang stays under the run's
@@ -165,6 +180,8 @@ timeout = 600
 timeout_method = "signal"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
+    "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",
+    "unreachable: tests that exercise a refused endpoint before its fake lands",
 ]
 # Logfire's token check warns from a background thread, so the warning fails a test only
 # through pytest's unhandled-thread warning; both are errors so no test starts it (#965).

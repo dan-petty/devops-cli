@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
@@ -34,6 +35,8 @@ from devops_cli.output import (
     render_review_raw,
     render_review_result,
 )
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_rendering_helpers() -> None:
@@ -190,8 +193,7 @@ def test_review_cli_commands(tmp_path: Path) -> None:
             severity="HIGH",
             location="src/app.py:10",
             status="UNVERIFIED",
-            persona="devsecops",
-            persona_title="Principal DevSecOps Engineer",
+            producer="devsecops",
             recommendation="REQUEST CHANGES",
             confidence_score=0.90,
         ),
@@ -203,8 +205,7 @@ def test_review_cli_commands(tmp_path: Path) -> None:
             status="VERIFIED",
             verified=True,
             verified_by="criteria",
-            persona="qa",
-            persona_title="Senior QA Engineer",
+            producer="qa",
             recommendation="COMMENT",
             confidence_score=0.80,
         ),

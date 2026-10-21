@@ -30,6 +30,8 @@ from devops_cli.models.vault import (
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultStatus
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 VAULT_ADDR = "https://example.com:8200"

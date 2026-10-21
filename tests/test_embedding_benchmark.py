@@ -28,6 +28,8 @@ from devops_cli.models.benchmark import (
 if TYPE_CHECKING:
     from tests.web_fakes import StubWeb
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

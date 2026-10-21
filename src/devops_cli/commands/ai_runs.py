@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any
 
+import httpx2
 import typer
 
 from devops_cli.ai.run_store import (
@@ -156,7 +157,7 @@ def connect_cmd(
     except ServiceNotReachableError as exc:
         print_error(f"Cannot find the run index: {exc.message}", prefix=False)
         raise typer.Exit(code=1) from exc
-    url = f"valkey://{host}:{port}"
+    url = str(httpx2.URL(scheme="valkey", host=host, port=port))
     records = load_runs()
     try:
         with RunIndex.connect(url, password) as index:

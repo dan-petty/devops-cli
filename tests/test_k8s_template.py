@@ -27,7 +27,8 @@ def test_normalize_domain_valid() -> None:
     """Normalize whitespace, uppercase, and leading dots on valid domains."""
     res_a = normalize_domain("  EXAMPLE.COM  ")
     res_b = normalize_domain(".example.com")
-    assert (res_a, res_b) == ("example.com", "example.com")
+    res_c = normalize_domain("example.com.")
+    assert (res_a, res_b, res_c) == ("example.com", "example.com", "example.com")
 
 
 def test_normalize_domain_invalid_raises() -> None:

@@ -19,6 +19,12 @@ def set_llm_client_override(override: Any | None) -> None:
     _client_override = override
 
 
+def reset_llm_client_override() -> None:
+    """Clear any active model client override."""
+    global _client_override
+    _client_override = None
+
+
 def _handle_override(
     override: Any,
     task: str | None,

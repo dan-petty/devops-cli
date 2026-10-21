@@ -74,6 +74,12 @@ def track_concurrency_slot(
     return get_concurrency_context(limiter, source=source)
 
 
+def reset_shared_limiters() -> None:
+    """Clear all registered shared concurrency limiters."""
+    with _REGISTRY_LOCK:
+        _SHARED_LIMITERS.clear()
+
+
 __all__ = [
     "AbstractConcurrencyLimiter",
     "AnyConcurrencyLimit",
@@ -86,5 +92,6 @@ __all__ = [
     "get_shared_concurrency_limiter",
     "limit_model_concurrency",
     "normalize_to_limiter",
+    "reset_shared_limiters",
     "track_concurrency_slot",
 ]

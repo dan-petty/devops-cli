@@ -14,6 +14,8 @@ from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands.review import app as review_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 
@@ -42,7 +44,7 @@ def test_review_path_workflow(tmp_path: Path) -> None:
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
     ):
-        res = runner.invoke(review_app, ["path", str(py_file), "--persona", "architect"])
+        res = runner.invoke(review_app, ["path", str(py_file)])
         assert res.exit_code == 0
 
 
@@ -62,7 +64,7 @@ def test_review_branch_workflow() -> None:
             "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
         ) as workflow,
     ):
-        res = runner.invoke(review_app, ["branch", "feat/my-feature", "--persona", "devsecops"])
+        res = runner.invoke(review_app, ["branch", "feat/my-feature"])
 
     assert (res.exit_code, workflow.call_args.kwargs["base_revision"]) == (
         0,
@@ -83,7 +85,7 @@ def test_review_pr_workflow() -> None:
             "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
         ) as workflow,
     ):
-        res = runner.invoke(review_app, ["pr", "10", "--persona", "qa"])
+        res = runner.invoke(review_app, ["pr", "10"])
 
     assert (res.exit_code, workflow.call_args.kwargs["base_revision"]) == (
         0,
@@ -274,9 +276,7 @@ def test_review_multiple_targets_and_findings_options(tmp_path: Path) -> None:
         patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
     ):
-        res_multi = runner.invoke(
-            review_app, ["path", str(f1), str(f2), "--pattern", "*.py", "--persona", "architect"]
-        )
+        res_multi = runner.invoke(review_app, ["path", str(f1), str(f2), "--pattern", "*.py"])
         assert res_multi.exit_code == 0
         mock_exec.assert_called_once()
 
@@ -358,7 +358,7 @@ def test_review_stats_command(tmp_path: Path) -> None:
     assert (
         res_stats.exit_code,
         "Finding Status Breakdown" in res_stats.output,
-        "Persona False Positive Rate" in res_stats.output,
+        "Producer False Positive Rate" in res_stats.output,
         "Category False Positive Rate (Invalidated)" in res_stats.output,
     ) == (0, True, True, True)
 

@@ -14,7 +14,6 @@ from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
     SavedFinding,
-    _merge_two_findings,
     _parse_stringified_collection,
     compute_verdict_distributions,
     is_field_discriminating,
@@ -197,8 +196,8 @@ def test_parse_stringified_collection_escapes() -> None:
     assert parsed == ["http://example.com", "path/to/file"]
 
 
-def test_saved_finding_polarity_and_merge() -> None:
-    """Verify SavedFinding persistence and merge consolidation polarity preservation."""
+def test_saved_finding_polarity() -> None:
+    """Verify SavedFinding persistence of polarity fields."""
     sf = SavedFinding(
         id=1,
         title="Title",
@@ -207,25 +206,6 @@ def test_saved_finding_polarity_and_merge() -> None:
         expected_value="expected_bar",
     )
     assert (sf.observed_value, sf.expected_value) == ("observed_foo", "expected_bar")
-
-    f_base = Finding(
-        severity="HIGH",
-        location="src/app.py:1-5",
-        title="Base title",
-        description="Base description",
-        fix="fix_base()",
-    )
-    f_other = Finding(
-        severity="HIGH",
-        location="src/app.py:1-5",
-        title="Other title",
-        description="Other description",
-        fix="fix_other()",
-        observed_value="bad_val",
-        expected_value="good_val",
-    )
-    merged = _merge_two_findings(f_base, f_other)
-    assert (merged.observed_value, merged.expected_value) == ("bad_val", "good_val")
 
 
 def test_compute_verdict_distributions_and_discriminating() -> None:
@@ -236,7 +216,6 @@ def test_compute_verdict_distributions_and_discriminating() -> None:
         "verified": {"true": 0, "false": 0},
         "mitigated": {"true": 0, "false": 0},
         "citation_rates": {},
-        "verification_note": {},
     }
 
     findings = [

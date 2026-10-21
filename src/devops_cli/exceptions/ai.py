@@ -146,32 +146,6 @@ class CapabilityDegradationError(DevOpsCLIError, ValueError):
         )
 
 
-class PersonaExecutionError(LLMInferenceError):
-    """Raised when an AI reviewer persona fails during diff analysis."""
-
-    DEFAULT_ERROR_CODE = "PERSONA_EXECUTION_ERROR"
-    DEFAULT_EXIT_CODE = 13
-
-    def __init__(
-        self,
-        persona: str,
-        filename: str,
-        reason: str,
-        *,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        msg = f"Persona '{persona}' failed to evaluate '{filename}': {reason}"
-        err_details = {"persona": persona, "filename": filename, "reason": reason}
-        if details:
-            err_details.update(details)
-        super().__init__(
-            msg,
-            exit_code=13,
-            error_code="PERSONA_EXECUTION_ERROR",
-            details=err_details,
-        )
-
-
 class ModelBundleError(DevOpsCLIError, ValueError):
     """Raised when an AI model bundle cannot be located, resolved, or loaded."""
 
@@ -461,7 +435,6 @@ __all__ = [
     "ModelHTTPError",
     "ModelRetry",
     "ModelUnavailableError",
-    "PersonaExecutionError",
     "PydanticAIDeprecationWarning",
     "ReviewPoolError",
     "RunCancelled",

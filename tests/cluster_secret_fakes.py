@@ -3,22 +3,17 @@
 `FakeCluster` stands in for `subprocess.run` beneath `run_subprocess`, so the tests see each
 argv, stdin and environment exactly as the child would. It answers the kubectl, gh and helm
 commands the push and deploy-stack run, and applies a server-side apply's `List` to its own
-Secrets. `FakeKeyring` is an encrypted keyring backend that can be locked. `forbid_requests` makes every
-child process, keyring call and socket connection fail the test, for a dry run that must make
-none. Names are generic.
+Secrets. `FakeKeyring` is an encrypted keyring backend that can be locked. Names are generic.
 """
 
 from __future__ import annotations
 
 import base64
 import json
-import socket
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
-import keyring
-import pytest
 from keyring.backend import KeyringBackend
 from keyring.errors import KeyringLocked, PasswordDeleteError
 
@@ -210,31 +205,3 @@ class FakeCluster:
             account = self.gh_accounts.get(login)
             return (0, account[0] + "\n") if account else (1, "")
         return 1, ""
-
-
-def forbid_requests(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Make every child process (kubectl, gh, helm), keyring call and socket connection raise.
-
-    Returns the requests attempted, so a test also sees one a caller caught and swallowed.
-    Telemetry is turned off to keep the tests fast; that a dry run exports nothing either is
-    tested in `tests/test_telemetry_collector_export.py`.
-    """
-    from devops_cli.telemetry import tracer
-
-    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
-    monkeypatch.setattr(tracer, "_resolve_telemetry_settings", lambda: (None, False))
-    attempted: list[str] = []
-
-    def refuse(kind: str) -> Any:
-        def raiser(*args: Any, **kwargs: Any) -> Any:
-            attempted.append(f"{kind}: {args[0] if args else kwargs}")
-            raise AssertionError(f"a dry run made an external request ({kind})")
-
-        return raiser
-
-    monkeypatch.setattr(subprocess, "run", refuse("subprocess.run"))
-    monkeypatch.setattr(subprocess, "Popen", refuse("subprocess.Popen"))
-    monkeypatch.setattr(keyring, "get_keyring", refuse("keyring"))
-    monkeypatch.setattr(socket.socket, "connect", refuse("socket"))
-    monkeypatch.setattr(socket, "create_connection", refuse("socket"))
-    return attempted

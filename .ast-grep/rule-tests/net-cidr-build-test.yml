@@ -1,0 +1,6 @@
+id: net-cidr-build
+valid:
+  - 'cidr = ipaddress.ip_network(value, strict=False).with_prefixlen'
+invalid:
+  - 'cidr = f"{clean}/32"'
+  - 'cidr = f"{clean}/128"'

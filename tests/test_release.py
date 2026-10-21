@@ -2257,6 +2257,7 @@ def test_a_cut_with_no_entries_for_its_version_names_both_causes_before_it_pushe
     )
 
 
+@pytest.mark.live("uv")
 def test_uv_lock_check_offline_passes_after_bump(
     git_release_repo: tuple[Path, Path], tmp_path: Path
 ) -> None:

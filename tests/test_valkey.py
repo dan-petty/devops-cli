@@ -724,6 +724,12 @@ def test_parse_valkey_endpoint_formats() -> None:
     assert parse_valkey_endpoint("redis://127.0.0.1:6379") == ("127.0.0.1", 6379)
     assert parse_valkey_endpoint("[::1]:6379") == ("::1", 6379)
     assert parse_valkey_endpoint("[::1]") == ("::1", 6379)
+    assert parse_valkey_endpoint("[2001:db8::1]:6379") == ("2001:db8::1", 6379)
+    assert parse_valkey_endpoint("valkey://[2001:db8::1]") == ("2001:db8::1", 6379)
+    assert parse_valkey_endpoint("valkey://[2001:db8::1]:6382") == ("2001:db8::1", 6382)
+    assert parse_valkey_endpoint("VALKEY://[2001:db8::1]:6381") == ("2001:db8::1", 6381)
+    assert parse_valkey_endpoint("REDIS://localhost:6379") == ("localhost", 6379)
+    assert parse_valkey_endpoint("TCP://127.0.0.1:6379") == ("127.0.0.1", 6379)
 
 
 def test_valkey_config_hostname_port_normalization() -> None:
@@ -737,6 +743,18 @@ def test_valkey_config_hostname_port_normalization() -> None:
     cfg2 = ValkeyConfig(host="localhost", port=6380)
     assert cfg2.host == "localhost:6380"
     assert cfg2.port == 6380
+
+    cfg3 = ValkeyConfig(host="[2001:db8::1]:6379")
+    assert cfg3.host == "[2001:db8::1]:6379"
+    assert cfg3.port == 6379
+
+    cfg4 = ValkeyConfig(host="valkey://[2001:db8::1]:6382")
+    assert cfg4.host == "[2001:db8::1]:6382"
+    assert cfg4.port == 6382
+
+    cfg5 = ValkeyConfig(host="VALKEY://[2001:db8::1]:6383")
+    assert cfg5.host == "[2001:db8::1]:6383"
+    assert cfg5.port == 6383
 
 
 def test_valkey_cli_error_and_edge_cases() -> None:
@@ -805,3 +823,38 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         res = runner.invoke(app, ["backup"])
         assert res.exit_code != 0
         assert "Failed to initiate Valkey backup" in res.output
+
+
+def test_ai_runs_connect_brackets_ipv6_host(
+    monkeypatch: pytest.MonkeyPatch, mock_keyring: None
+) -> None:
+    """Verify devops ai runs connect brackets IPv6 host in the Valkey index URL."""
+    from devops_cli.commands.ai_runs import app as ai_runs_app
+
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_runs.node_port_address",
+        lambda *args, **kwargs: ("2001:db8::1", 30379),
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_runs.secret_value",
+        lambda *args, **kwargs: "dummy-pass",
+    )
+    connected_urls: list[str] = []
+
+    class MockRunIndex:
+        @classmethod
+        def connect(cls, url: str, password: str) -> MagicMock:
+            connected_urls.append(url)
+            mock = MagicMock()
+            mock.__enter__.return_value = mock
+            mock.__exit__.return_value = None
+            mock.put.return_value = 0
+            return mock
+
+    monkeypatch.setattr("devops_cli.commands.ai_runs.RunIndex", MockRunIndex)
+    monkeypatch.setattr("devops_cli.commands.ai_runs.load_runs", lambda: [])
+    monkeypatch.setattr("devops_cli.config.settings.save_settings", lambda *args, **kwargs: None)
+
+    res = runner.invoke(ai_runs_app, ["connect"])
+    assert res.exit_code == 0
+    assert connected_urls == ["valkey://[2001:db8::1]:30379"]

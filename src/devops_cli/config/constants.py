@@ -1173,6 +1173,16 @@ CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloud
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
+# What the llm stack's Ollama tiers select GPU nodes by (#1367): the extended resource and labels
+# the node-provisioning automation and GPU Feature Discovery set, and the label every tier's
+# DaemonSet carries, read from `ollama-profiles.yaml`, whose required matchExpressions say which
+# values each tier accepts.
+CONST_K8S_GPU_RESOURCE: Final[str] = "nvidia.com/gpu"
+CONST_K8S_GPU_PRESENT_LABEL: Final[str] = "nvidia.com/gpu.present"
+CONST_K8S_GPU_TOTAL_VRAM_LABEL: Final[str] = "nvidia.com/gpu.total-vram-gib"
+CONST_K8S_GPU_ARCHITECTURE_LABEL: Final[str] = "nvidia.com/gpu.architecture"
+CONST_K8S_OLLAMA_PROVIDER_LABEL: Final[tuple[str, str]] = ("llm.devops.io/provider", "ollama")
+CONST_K8S_OLLAMA_PROFILES_PATH: Final[str] = "llm/profiles/ollama-profiles.yaml"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
@@ -2597,6 +2607,11 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
+# Schemes recognized for Valkey and Redis connection endpoints
+CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset(
+    {"valkey", "valkeys", "redis", "rediss", "tcp"}
+)
+
 # Characters of a failed embedding reply's body quoted in its EmbeddingsError
 CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500
 
@@ -2817,8 +2832,91 @@ CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}
 )
-# The /96 prefixes whose last 32 bits carry an IPv4 address, as pydantic-ai's classifier
-# decodes them: NAT64's well-known prefix (RFC 6052) and IPv4-compatible addresses (RFC 4291).
+# Private IP ranges blocked by SSRF checks by default (RFC 1918, RFC 6598 CGNAT, RFC 5737, etc.).
+CONST_PRIVATE_NETWORKS: Final[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]] = (
+    # IPv4 private ranges
+    ipaddress.IPv4Network("0.0.0.0/8"),  # "This" network
+    ipaddress.IPv4Network("10.0.0.0/8"),  # Private (RFC 1918)
+    ipaddress.IPv4Network("100.64.0.0/10"),  # CGNAT (RFC 6598), includes Alibaba Cloud metadata
+    ipaddress.IPv4Network("127.0.0.0/8"),  # Loopback
+    ipaddress.IPv4Network("169.254.0.0/16"),  # Link-local (includes cloud metadata)
+    ipaddress.IPv4Network("172.16.0.0/12"),  # Private (RFC 1918)
+    ipaddress.IPv4Network("192.168.0.0/16"),  # Private (RFC 1918)
+    # IPv4 IANA-reserved / special-purpose ranges (not globally routable)
+    ipaddress.IPv4Network("192.0.0.0/24"),  # IETF Protocol Assignments (RFC 6890)
+    ipaddress.IPv4Network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.IPv4Network("198.18.0.0/15"),  # Network benchmarking (RFC 2544)
+    ipaddress.IPv4Network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.IPv4Network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+    ipaddress.IPv4Network("224.0.0.0/4"),  # Multicast (RFC 5771)
+    ipaddress.IPv4Network("240.0.0.0/4"),  # Reserved + limited broadcast 255.255.255.255 (RFC 1112)
+    # IPv6 private ranges
+    ipaddress.IPv6Network("::/128"),  # Unspecified address
+    ipaddress.IPv6Network("::1/128"),  # Loopback
+    ipaddress.IPv6Network("fe80::/10"),  # Link-local
+    ipaddress.IPv6Network("fc00::/7"),  # Unique local address (RFC 4193)
+    # IPv6 IANA-reserved / special-purpose ranges
+    ipaddress.IPv6Network("100::/64"),  # Discard prefix (RFC 6666)
+    ipaddress.IPv6Network("2001::/32"),  # Teredo tunneling (RFC 4380)
+    ipaddress.IPv6Network("2001:db8::/32"),  # Documentation (RFC 3849)
+    ipaddress.IPv6Network("ff00::/8"),  # Multicast (RFC 4291)
+)
+
+# Cloud metadata and credential endpoints. Always blocked even when private networks are permitted.
+CONST_CLOUD_METADATA_IPV4: Final[frozenset[ipaddress.IPv4Address]] = frozenset(
+    ipaddress.IPv4Address(ip)
+    for ip in (
+        "169.254.169.254",  # AWS IMDS, GCP, Azure, OCI, DigitalOcean, Hetzner, IBM, OpenStack
+        "169.254.170.2",  # AWS ECS task IAM role credentials
+        "169.254.170.23",  # AWS EKS Pod Identity Agent
+        "168.63.129.16",  # Azure WireServer / platform channel (public IP)
+        "100.100.100.200",  # Alibaba Cloud
+        "192.0.0.192",  # Oracle Cloud (Classic)
+        "169.254.42.42",  # Scaleway
+    )
+)
+CONST_CLOUD_METADATA_IPV6: Final[frozenset[ipaddress.IPv6Address]] = frozenset(
+    ipaddress.IPv6Address(ip)
+    for ip in (
+        "fd00:ec2::254",  # AWS IMDS IPv6
+        "fd00:ec2::23",  # AWS EKS Pod Identity Agent IPv6
+        "fd20:ce::254",  # Scaleway IPv6 metadata
+        "fd00:42::42",  # Scaleway IPv6 metadata
+    )
+)
+
+# RFC 6052 §2.2: byte offsets within a 16-byte IPv6 address for standardized NAT64 prefix lengths.
+CONST_NAT64_OFFSETS_BY_PREFIX_LEN: Final[dict[int, tuple[int, int, int, int]]] = {
+    32: (4, 5, 6, 7),
+    40: (5, 6, 7, 9),
+    48: (6, 7, 9, 10),
+    56: (7, 9, 10, 11),
+    64: (9, 10, 11, 12),
+    96: (12, 13, 14, 15),
+}
+CONST_LOW32_OFFSETS: Final[tuple[int, int, int, int]] = (12, 13, 14, 15)
+CONST_SIXTOFOUR_OFFSETS: Final[tuple[int, int, int, int]] = (2, 3, 4, 5)
+CONST_ALL_EMBEDDED_OFFSETS: Final[tuple[tuple[int, int, int, int], ...]] = (
+    *CONST_NAT64_OFFSETS_BY_PREFIX_LEN.values(),
+    CONST_SIXTOFOUR_OFFSETS,
+)
+CONST_NAT64_PREFIXES: Final[
+    tuple[tuple[ipaddress.IPv6Network, tuple[tuple[int, int, int, int], ...]], ...]
+] = (
+    (ipaddress.IPv6Network("64:ff9b::/96"), (CONST_NAT64_OFFSETS_BY_PREFIX_LEN[96],)),
+    (
+        ipaddress.IPv6Network("64:ff9b:1::/48"),
+        tuple(CONST_NAT64_OFFSETS_BY_PREFIX_LEN[pl] for pl in (48, 56, 64, 96)),
+    ),
+)
+CONST_ISATAP_INTERFACE_IDS: Final[tuple[bytes, ...]] = (
+    b"\x00\x00\x5e\xfe",
+    b"\x02\x00\x5e\xfe",
+)
+CONST_TEREDO_PREFIX: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("2001::/32")
+
+# The /96 prefixes whose last 32 bits carry an IPv4 address: NAT64's well-known prefix (RFC 6052)
+# and IPv4-compatible addresses (RFC 4291).
 CONST_IPV4_EMBEDDING_IPV6_PREFIXES: Final[tuple[str, ...]] = ("64:ff9b::/96", "::/96")
 # The punctuation prose leaves after a network target ("check 100.64.0.1."), which is never part
 # of an address, a URL's end or a name, so a target is classified without it.
@@ -3362,7 +3460,6 @@ CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
     ("expected_value", "Expected value"),
     ("fix", "Fix"),
     ("references", "References"),
-    ("verification_note", "Verification note"),
     ("invalidation_reason", "Invalidation reason"),
     ("mitigating_mechanism", "Mitigating mechanism"),
 )
@@ -3603,13 +3700,14 @@ CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_ST
 # short. One commit per page keeps the commits it also returns small.
 CONST_GH_COMPARE_FILES_CAP: Final[int] = 300
 CONST_GH_COMPARE_COMMITS_PER_PAGE: Final[int] = 1
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151).
 # docs/ROADMAP.md is explicitly excluded because it is a generated view.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     "AGENTS.md",
     "src/devops_cli/ai/tasks/*.md",
     "src/devops_cli/ai/knowledge_base/",
-    "common_hallucinations.json",
+    ".devops/review.toml",
+    "src/devops_cli/review/rules/",
 )
 # Taxonomy labels that classify a pull request as addressing a defect (#697).
 CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
@@ -3890,6 +3988,7 @@ CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
         "extend-ignore",
         "allowed-confusables",
         "mccabe",
+        "flake8-tidy-imports",
         *CONST_RUFF_PER_FILE_IGNORE_KEYS,
     }
 )
@@ -3992,6 +4091,32 @@ CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
 CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
     r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
 )
+CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "net-address-list",
+    "net-bracket-affix",
+    "net-cidr-build",
+    "net-domain-list",
+    "net-domain-suffix",
+    "net-hostport",
+    "net-ip-literal",
+    "net-normalise",
+    "net-port-table",
+    "net-scheme-affix",
+    "net-scheme-in",
+    "net-url-build",
+)
+CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
+    "scan",
+    "--error=unused-suppression",
+    "--error=no-suppress-all",
+    "src",
+)
+CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
+)
 
 # Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
 # "human", which routed every finding the verifier never reached into the human
@@ -4006,51 +4131,6 @@ CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # The prefix of a verdict a deterministic check gave (`deterministic:syntax_error`, ...). Such a
 # label is a machine's, not a person's, so `ai prompt-eval` leaves it out unless asked (#950).
 CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
-# The notes the model verifier wrote on the findings it left without a verdict, which sessions
-# saved before #1150 hold and review statistics still count by kind.
-# Marks a finding the verifier never adjudicated because verification itself failed, as
-# opposed to one it considered and declined to confirm.
-CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
-# Marks a finding the verifier was shown and its reply gave no verdict on.
-CONST_VERIFIER_NO_VERDICT: Final[str] = "verifier-no-verdict"
-# Marks a finding the verifier was shown and whose reply held no verdicts that could be read.
-CONST_VERIFIER_REPLY_UNPARSED: Final[str] = "verifier-reply-unparsed"
-# Marks a finding the verifier was shown and whose reply was cut at its token cap (finish
-# reason `length`): what JSON repair salvages from a cut reply is not a verdict.
-CONST_VERIFIER_REPLY_CUT: Final[str] = "verifier-reply-cut"
-# Marks a finding whose invalidation the verifier based only on the finding's own claim or fix,
-# and which was withdrawn.
-CONST_VERIFIER_SELF_REFUTATION: Final[str] = "verifier-self-refutation"
-# Marks a finding the verifier judged without confirming, refuting or finding it mitigated.
-CONST_VERIFIER_INCONCLUSIVE: Final[str] = "verifier-inconclusive"
-# Marks a finding whose verification and invalidation criteria both passed as evidence: the
-# pair cannot tell the defect from its absence, so the finding goes to the verifier.
-CONST_CRITERIA_NON_DISCRIMINATING: Final[str] = "criteria-non-discriminating"
-# Marks a finding the verifier called mitigated without pointing at code that enforces the
-# mitigation (#845): no mechanism, reason or perimeter named, a perimeter file that does not
-# resolve inside the reviewed tree or is documentation, a mechanism that describes the defect,
-# or one naming no identifier a perimeter file or the finding's file holds.
-CONST_MITIGATION_UNPROVEN: Final[str] = "mitigation-unproven"
-# Marks a finding the verifier confirmed by citing a line its file does not have (#845).
-CONST_CITATION_OUT_OF_RANGE: Final[str] = "citation-out-of-range"
-# Marks a finding whose confirmation or mitigation the verifier's own reason contradicts
-# (#845): the reason denies the claim ("No user input reaches this point"), or says a criterion
-# passed whose recorded run failed. The mirror of a self-refutation.
-CONST_VERIFIER_CONTRADICTION: Final[str] = "verifier-contradiction"
-# The notes that say why a finding has no verdict, each counted in a review's profile.json. A
-# note names its kind before any `: ` detail.
-CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
-    CONST_VERIFICATION_UNAVAILABLE,
-    CONST_VERIFIER_NO_VERDICT,
-    CONST_VERIFIER_REPLY_UNPARSED,
-    CONST_VERIFIER_REPLY_CUT,
-    CONST_VERIFIER_SELF_REFUTATION,
-    CONST_VERIFIER_INCONCLUSIVE,
-    CONST_CRITERIA_NON_DISCRIMINATING,
-    CONST_MITIGATION_UNPROVEN,
-    CONST_CITATION_OUT_OF_RANGE,
-    CONST_VERIFIER_CONTRADICTION,
-)
 
 # ── Review Report Integrity (#948) ───────────────────────────────────────────
 # Files a review keeps off persona pages, by repository-relative path: planning documents and
@@ -4684,15 +4764,19 @@ USER root
 RUN echo "canary"
 """
 
-# ── Review Finding Group Model Analysis Constants (#1147) ────────────────────
+# ── Review Finding Group Model Analysis Constants (#1147, #1148) ──────────────
 CONST_REVIEW_ANALYSIS_FILENAME: Final[str] = "analysis.json"
 CONST_ANALYSIS_PROMPT_FILENAME: Final[str] = "review_group_analysis.md"
+CONST_ANALYSIS_PLAN_PROMPT_FILENAME: Final[str] = "review_plan.md"
 CONST_ANALYSIS_GROUP_KINDS: Final[frozenset[str]] = frozenset({"region", "kubernetes", "advisory"})
 CONST_ANALYSIS_RELATIONS: Final[frozenset[str]] = frozenset(
-    {"caller", "callee", "same-symbol", "same-rule"}
+    {"caller", "callee", "same-symbol", "same-rule", "same-root-cause"}
+)
+CONST_ANALYSIS_CORRELATION_KEY_KINDS: Final[frozenset[str]] = frozenset(
+    {"cwe", "rule_family", "symbol_component", "purl", "manifest_source"}
 )
 CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
-CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "trivy"})
+CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "osv-scanner", "trivy"})
 CONST_ANALYSIS_DROP_REASON_BUDGET: Final[str] = "budget"
 CONST_ANALYSIS_DROP_REASON_UNAVAILABLE: Final[str] = "unavailable"
 CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
@@ -4702,10 +4786,53 @@ CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
     "unmatched-doc-quote",
     "unverified-version-or-package",
     "invalid-python-code-block",
+    "unshared-root-cause-key",
+    "plan-incomplete-coverage",
+    "plan-order-violation",
 )
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
 CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
 CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
+CONST_ANALYSIS_REJECTION_UNSHARED_ROOT_CAUSE_KEY: Final[str] = "unshared-root-cause-key"
+CONST_ANALYSIS_REJECTION_PLAN_INCOMPLETE_COVERAGE: Final[str] = "plan-incomplete-coverage"
+CONST_ANALYSIS_REJECTION_PLAN_ORDER_VIOLATION: Final[str] = "plan-order-violation"
+
+# ── OSV-Scanner Constants (#1146) ───────────────────────────────────────────
+CONST_BIN_OSV_SCANNER: Final[str] = "osv-scanner"
+CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
+CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lockb",
+    "Cargo.lock",
+    "go.sum",
+    "composer.lock",
+    "Gemfile.lock",
+)
+CONST_MANIFEST_NAMES: Final[tuple[str, ...]] = (
+    "pyproject.toml",
+    "requirements.in",
+    "setup.py",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "composer.json",
+    "Gemfile",
+)
+CONST_MANIFEST_TO_LOCKFILES: Final[dict[str, tuple[str, ...]]] = {
+    "pyproject.toml": ("uv.lock", "poetry.lock", "Pipfile.lock"),
+    "requirements.in": ("requirements.txt", "uv.lock"),
+    "setup.py": ("uv.lock", "poetry.lock"),
+    "package.json": ("package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"),
+    "Cargo.toml": ("Cargo.lock",),
+    "go.mod": ("go.sum",),
+    "composer.json": ("composer.lock",),
+    "Gemfile": ("Gemfile.lock",),
+}
 
 # ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
 CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
@@ -4716,3 +4843,13 @@ CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
     "qdrant_client",
     "opentelemetry",
 )
+
+# ── Knowledge Base Version Grounding & Reference Tracking (#1149) ────────────
+CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
+    "devops_cli/libraries",
+    "it_domains/tools",
+    "it_domains/topics",
+)
+CONST_KB_REFERENCE_PREFIX: Final[str] = "kb:"
+CONST_KB_DATE_FORMAT: Final[str] = "%Y-%m-%d"
+CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16

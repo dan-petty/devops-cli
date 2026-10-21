@@ -693,3 +693,53 @@ def test_cli_dashboard_command_variable_covers_all_registered_subcommands() -> N
         sorted(registered - option_values),
         sorted(registered - query_values),
     ) == ("custom", True, True, [], [])
+
+
+def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_name() -> None:
+    """Neither profiling dashboard hard-codes a `service_name` list or reads `created_by_name` (#1134)."""
+    pyro_raw = (_REPO_DASHBOARDS / "pyroscope.json").read_text(encoding="utf-8")
+    sre_raw = (_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8")
+    pyro_dash = json.loads(pyro_raw)
+    sre_dash = json.loads(sre_raw)
+
+    pyro_service = next(v for v in pyro_dash["templating"]["list"] if v["name"] == "service")
+    sre_service = next(v for v in sre_dash["templating"]["list"] if v["name"] == "service")
+    sre_flamegraphs = [
+        (t["expr"], t["labelSelector"])
+        for p in sre_dash["panels"]
+        if p.get("type") == "flamegraph"
+        for t in p.get("targets", [])
+    ]
+
+    assert (
+        (
+            pyro_service["type"],
+            pyro_service["datasource"]["uid"],
+            pyro_service["query"],
+            pyro_service.get("options", []),
+        ),
+        (
+            sre_service["type"],
+            sre_service["datasource"]["uid"],
+            sre_service["query"],
+            sre_service.get("options", []),
+        ),
+        sre_flamegraphs,
+        "monitoring/pyroscope" in pyro_raw or "monitoring/alloy" in pyro_raw,
+        "created_by_name" in pyro_raw or "created_by_name" in sre_raw,
+    ) == (
+        ("query", "pyroscope", "label_values(service_name)", []),
+        ("query", "pyroscope", 'label_values({service_namespace="$namespace"}, service_name)', []),
+        [
+            (
+                'process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_namespace="$namespace", service_name=~"$service"}',
+                '{service_namespace="$namespace", service_name=~"$service"}',
+            ),
+            (
+                'memory:inuse_space:bytes:space:bytes{service_namespace="$namespace", service_name=~"$service"}',
+                '{service_namespace="$namespace", service_name=~"$service"}',
+            ),
+        ],
+        False,
+        False,
+    )

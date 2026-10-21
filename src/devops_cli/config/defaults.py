@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 from typing import Final, Literal
 
@@ -106,6 +108,7 @@ DEFAULT_GATEWAY_TUNE_IMAGE: str = "python:3.14-slim"
 DEFAULT_GATEWAY_TUNE_MODEL_GROUP: str = "devops-review"
 DEFAULT_GATEWAY_TUNE_CONCURRENCY: str = "1,4,8"
 DEFAULT_GATEWAY_TUNE_ROUNDS: int = 2
+DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS: int = 512
 # `devops ai gateway load` looks back this far unless told otherwise.
 DEFAULT_POOL_LOAD_WINDOW = "1h"
 # Reply length for the capacity pass, and the cap on natural replies in the cost pass.
@@ -179,10 +182,10 @@ DEFAULT_HOMELAB_DOMAINS: tuple[str, ...] = (
     "tempo.homelab.local",
     "otel.homelab.local",
 )
-DEFAULT_HOMELAB_IPS: tuple[str, ...] = (
-    "127.0.0.1",
-    "::1",
-    "192.168.49.2",  # Minikube standard node IP
+DEFAULT_HOMELAB_IPS: tuple[IPv4Address | IPv6Address, ...] = (
+    ipaddress.ip_address("127.0.0.1"),
+    ipaddress.ip_address("::1"),
+    ipaddress.ip_address("192.168.49.2"),  # Minikube standard node IP
 )
 
 # ── RAG & Vector Store Defaults ───────────────────────────────────────────────
@@ -352,6 +355,12 @@ DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
 
 # ── AI, RAG & Agent Defaults ──────────────────────────────────────────────────
 DEFAULT_TIKTOKEN_MODEL: str = "gpt-4o"
+DEFAULT_TIKTOKEN_ENCODINGS: tuple[str, ...] = ("cl100k_base", "o200k_base")
+DEFAULT_TIKTOKEN_CACHE_ENV_VARS: tuple[str, ...] = ("TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR")
+DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS: tuple[str, ...] = (
+    "/app/.cache/tiktoken",
+    "/usr/local/share/tiktoken",
+)
 DEFAULT_TRUNCATION_SUFFIX: str = "\n...[truncated due to context budget]"
 DEFAULT_DOC_CHUNK_SIZE_WORDS: int = 400
 DEFAULT_DOC_CHUNK_OVERLAP_WORDS: int = 40
@@ -441,6 +450,12 @@ DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
+# The niceness `devops ci security` starts Bandit with (#1725). The test row is the full gate's
+# critical path, and Bandit beside its workers took 61 s against 21 s alone; niced, it takes the
+# CPU they leave idle instead of theirs. 10 rather than 19: the scheduler weighs a niceness of 10
+# at about a tenth of 0, and 19 at about a seventieth, so on a host other work keeps busy Bandit
+# still finishes. On an idle CPU a niced process runs at full speed.
+DEFAULT_CI_BANDIT_NICENESS: Final[int] = 10
 # `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
 DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # The workers of a narrowed `devops ci test <paths>` run given no `-n` (#1669): serial up to this

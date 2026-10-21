@@ -1,0 +1,254 @@
+# Metric families the deployed kube-state-metrics serves on port 8080 (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# k8s-views-global.json, k8s-views-namespaces.json and k8s-views-nodes.json against them.
+exporter: kube-state-metrics
+image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0
+chart: grafana/k8s-monitoring 4.5.2
+captured: "2026-10-21"
+taken_from: >-
+  The k8s-monitoring-kube-state-metrics pod's port 8080 /metrics in monitoring on the
+  homelab k3s cluster, read through the Kubernetes API pod proxy.
+scraped_by: >-
+  k8s-monitoring's clusterMetrics.kube-state-metrics job
+  (job="integrations/kubernetes/kube-state-metrics") in
+  k8s/monitoring/k8s-monitoring-values.yaml, filtered by the chart's default allow list plus
+  clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics.
+target_labels: [cluster, instance, job, source]
+families:
+  kube_configmap_annotations: {type: gauge}
+  kube_configmap_created: {type: gauge, labels: [configmap, namespace]}
+  kube_configmap_info: {type: gauge, labels: [configmap, namespace]}
+  kube_configmap_labels: {type: gauge}
+  kube_configmap_metadata_resource_version: {type: gauge, labels: [configmap, namespace]}
+  kube_cronjob_annotations: {type: gauge}
+  kube_cronjob_created: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_info: {type: gauge, labels: [concurrency_policy, cronjob, namespace, schedule, timezone]}
+  kube_cronjob_labels: {type: gauge}
+  kube_cronjob_metadata_resource_version: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_next_schedule_time: {type: gauge}
+  kube_cronjob_schedule_invalid: {type: gauge}
+  kube_cronjob_spec_failed_job_history_limit: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_spec_starting_deadline_seconds: {type: gauge}
+  kube_cronjob_spec_successful_job_history_limit: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_spec_suspend: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_status_active: {type: gauge, labels: [cronjob, namespace]}
+  kube_cronjob_status_last_schedule_time: {type: gauge}
+  kube_cronjob_status_last_successful_time: {type: gauge}
+  kube_daemonset_annotations: {type: gauge}
+  kube_daemonset_created: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_deletion_timestamp: {type: gauge}
+  kube_daemonset_labels: {type: gauge, labels: [daemonset, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_helm_sdk_operatorframework_io_chart, label_helm_sh_chart, label_llm_devops_io_backend, label_llm_devops_io_provider, label_llm_devops_io_speed_tier, label_llm_devops_io_total_vram_gib, label_llm_devops_io_vram_gib, label_release, namespace]}
+  kube_daemonset_metadata_generation: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_current_number_scheduled: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_desired_number_scheduled: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_number_available: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_number_misscheduled: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_number_ready: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_number_unavailable: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_observed_generation: {type: gauge, labels: [daemonset, namespace]}
+  kube_daemonset_status_updated_number_scheduled: {type: gauge, labels: [daemonset, namespace]}
+  kube_deployment_annotations: {type: gauge}
+  kube_deployment_created: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_deletion_timestamp: {type: gauge}
+  kube_deployment_labels: {type: gauge, labels: [deployment, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_control_plane, label_helm_sdk_operatorframework_io_chart, label_helm_sh_chart, label_k8s_app, label_kubernetes_io_name, label_objectset_rio_cattle_io_hash, label_release, namespace]}
+  kube_deployment_metadata_generation: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_owner: {type: gauge, labels: [deployment, namespace, owner_kind, owner_name]}
+  kube_deployment_spec_paused: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_spec_replicas: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_spec_strategy_rollingupdate_max_surge: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_spec_strategy_rollingupdate_max_unavailable: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_condition: {type: gauge, labels: [condition, deployment, namespace, reason, status]}
+  kube_deployment_status_observed_generation: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_replicas: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_replicas_available: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_replicas_ready: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_replicas_unavailable: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_replicas_updated: {type: gauge, labels: [deployment, namespace]}
+  kube_deployment_status_terminating_replicas: {type: gauge}
+  kube_endpoint_address: {type: gauge, labels: [endpoint, ip, namespace, port_name, port_number, port_protocol, ready]}
+  kube_endpoint_annotations: {type: gauge}
+  kube_endpoint_created: {type: gauge, labels: [endpoint, namespace]}
+  kube_endpoint_info: {type: gauge, labels: [endpoint, namespace]}
+  kube_endpoint_labels: {type: gauge}
+  kube_endpoint_ports: {type: gauge, labels: [endpoint, namespace, port_name, port_number, port_protocol]}
+  kube_endpointslice_annotations: {type: gauge}
+  kube_endpointslice_created: {type: gauge, labels: [endpointslice, namespace]}
+  kube_endpointslice_endpoints: {type: gauge, labels: [address, endpoint_nodename, endpoint_zone, endpointslice, hostname, namespace, ready, serving, targetref_kind, targetref_name, targetref_namespace, terminating]}
+  kube_endpointslice_endpoints_hints: {type: gauge}
+  kube_endpointslice_info: {type: gauge, labels: [addresstype, endpointslice, namespace]}
+  kube_endpointslice_labels: {type: gauge}
+  kube_endpointslice_ports: {type: gauge, labels: [endpointslice, namespace, port_name, port_number, port_protocol]}
+  kube_ingress_annotations: {type: gauge}
+  kube_ingress_created: {type: gauge, labels: [ingress, namespace]}
+  kube_ingress_info: {type: gauge, labels: [ingress, ingressclass, namespace]}
+  kube_ingress_labels: {type: gauge, labels: [ingress, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, namespace]}
+  kube_ingress_metadata_resource_version: {type: gauge, labels: [ingress, namespace]}
+  kube_ingress_path: {type: gauge, labels: [host, ingress, namespace, path, path_type, service_name, service_port]}
+  kube_ingress_tls: {type: gauge}
+  kube_lease_owner: {type: gauge, labels: [lease, lease_holder, namespace, owner_kind, owner_name]}
+  kube_lease_renew_time: {type: gauge, labels: [lease, namespace]}
+  kube_namespace_annotations: {type: gauge}
+  kube_namespace_created: {type: gauge, labels: [namespace]}
+  kube_namespace_labels: {type: gauge, labels: [label_app_kubernetes_io_part_of, label_kubernetes_io_metadata_name, label_pod_security_kubernetes_io_audit, label_pod_security_kubernetes_io_enforce, label_pod_security_kubernetes_io_warn, namespace]}
+  kube_namespace_status_condition: {type: gauge}
+  kube_namespace_status_phase: {type: gauge, labels: [namespace, phase]}
+  kube_networkpolicy_annotations: {type: gauge}
+  kube_networkpolicy_created: {type: gauge, labels: [namespace, networkpolicy]}
+  kube_networkpolicy_labels: {type: gauge, labels: [label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_helm_sh_chart, namespace, networkpolicy]}
+  kube_networkpolicy_spec_egress_rules: {type: gauge, labels: [namespace, networkpolicy]}
+  kube_networkpolicy_spec_ingress_rules: {type: gauge, labels: [namespace, networkpolicy]}
+  kube_node_annotations: {type: gauge}
+  kube_node_created: {type: gauge, labels: [node]}
+  kube_node_deletion_timestamp: {type: gauge}
+  kube_node_info: {type: gauge, labels: [container_runtime_version, internal_ip, kernel_version, kubelet_version, kubeproxy_version, node, os_image, pod_cidr, provider_id, system_uuid]}
+  kube_node_labels: {type: gauge, labels: [label_beta_kubernetes_io_instance_type, label_kubernetes_io_arch, label_kubernetes_io_hostname, label_kubernetes_io_os, label_node_kubernetes_io_instance_type, node]}
+  kube_node_role: {type: gauge, labels: [node, role]}
+  kube_node_spec_pod_cidrs: {type: gauge, labels: [node, pod_cidr]}
+  kube_node_spec_taint: {type: gauge}
+  kube_node_spec_unschedulable: {type: gauge, labels: [node]}
+  kube_node_status_addresses: {type: gauge, labels: [address, node, type]}
+  kube_node_status_allocatable: {type: gauge, labels: [node, resource, unit]}
+  kube_node_status_capacity: {type: gauge, labels: [node, resource, unit]}
+  kube_node_status_condition: {type: gauge, labels: [condition, node, status]}
+  kube_persistentvolume_access_mode: {type: gauge, labels: [access_mode, persistentvolume]}
+  kube_persistentvolume_annotations: {type: gauge}
+  kube_persistentvolume_capacity_bytes: {type: gauge, labels: [persistentvolume]}
+  kube_persistentvolume_claim_ref: {type: gauge, labels: [claim_namespace, name, persistentvolume]}
+  kube_persistentvolume_created: {type: gauge, labels: [persistentvolume]}
+  kube_persistentvolume_deletion_timestamp: {type: gauge}
+  kube_persistentvolume_info: {type: gauge, labels: [azure_disk_name, csi_driver, csi_volume_handle, ebs_volume_id, fc_lun, fc_target_wwns, fc_wwids, gce_persistent_disk_name, host_path, host_path_type, iscsi_initiator_name, iscsi_iqn, iscsi_lun, iscsi_target_portal, local_fs, local_path, nfs_path, nfs_server, persistentvolume, reclaim_policy, storageclass]}
+  kube_persistentvolume_labels: {type: gauge}
+  kube_persistentvolume_status_phase: {type: gauge, labels: [persistentvolume, phase]}
+  kube_persistentvolume_volume_mode: {type: gauge, labels: [persistentvolume, volumemode]}
+  kube_persistentvolumeclaim_access_mode: {type: gauge, labels: [access_mode, namespace, persistentvolumeclaim]}
+  kube_persistentvolumeclaim_annotations: {type: gauge}
+  kube_persistentvolumeclaim_created: {type: gauge, labels: [namespace, persistentvolumeclaim]}
+  kube_persistentvolumeclaim_deletion_timestamp: {type: gauge}
+  kube_persistentvolumeclaim_info: {type: gauge, labels: [namespace, persistentvolumeclaim, storageclass, volumemode, volumename]}
+  kube_persistentvolumeclaim_labels: {type: gauge, labels: [label_app, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_helm_sh_chart, namespace, persistentvolumeclaim]}
+  kube_persistentvolumeclaim_resource_requests_storage_bytes: {type: gauge, labels: [namespace, persistentvolumeclaim]}
+  kube_persistentvolumeclaim_status_condition: {type: gauge}
+  kube_persistentvolumeclaim_status_phase: {type: gauge, labels: [namespace, persistentvolumeclaim, phase]}
+  kube_pod_annotations: {type: gauge}
+  kube_pod_completion_time: {type: gauge}
+  kube_pod_container_info: {type: gauge, labels: [container, container_id, image, image_id, image_spec, namespace, pod, uid]}
+  kube_pod_container_resource_limits: {type: gauge, labels: [container, namespace, node, pod, resource, uid, unit]}
+  kube_pod_container_resource_requests: {type: gauge, labels: [container, namespace, node, pod, resource, uid, unit]}
+  kube_pod_container_state_started: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_last_terminated_exitcode: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_last_terminated_reason: {type: gauge, labels: [container, namespace, pod, reason, uid]}
+  kube_pod_container_status_last_terminated_timestamp: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_ready: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_restarts_total: {type: counter, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_running: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_terminated: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_terminated_reason: {type: gauge}
+  kube_pod_container_status_waiting: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_container_status_waiting_reason: {type: gauge, labels: [container, namespace, pod, reason, uid]}
+  kube_pod_created: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_deletion_timestamp: {type: gauge}
+  kube_pod_info: {type: gauge, labels: [created_by_kind, created_by_name, host_ip, host_network, namespace, node, pod, pod_ip, priority_class, uid]}
+  kube_pod_init_container_info: {type: gauge, labels: [container, container_id, image, image_id, image_spec, namespace, pod, restart_policy, uid]}
+  kube_pod_init_container_resource_limits: {type: gauge, labels: [container, namespace, node, pod, resource, uid, unit]}
+  kube_pod_init_container_resource_requests: {type: gauge, labels: [container, namespace, node, pod, resource, uid, unit]}
+  kube_pod_init_container_state_started: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_last_terminated_exitcode: {type: gauge}
+  kube_pod_init_container_status_last_terminated_reason: {type: gauge}
+  kube_pod_init_container_status_last_terminated_timestamp: {type: gauge}
+  kube_pod_init_container_status_ready: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_restarts_total: {type: counter, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_running: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_terminated: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_terminated_reason: {type: gauge, labels: [container, namespace, pod, reason, uid]}
+  kube_pod_init_container_status_waiting: {type: gauge, labels: [container, namespace, pod, uid]}
+  kube_pod_init_container_status_waiting_reason: {type: gauge}
+  kube_pod_ips: {type: gauge, labels: [ip, ip_family, namespace, pod, uid]}
+  kube_pod_labels: {type: gauge, labels: [label_app, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_apps_kubernetes_io_pod_index, label_component, label_controller_revision_hash, label_helm_sh_chart, label_k8s_app, label_llm_devops_io_backend, label_llm_devops_io_provider, label_llm_devops_io_speed_tier, label_llm_devops_io_total_vram_gib, label_llm_devops_io_vram_gib, label_name, label_pod_template_generation, label_pod_template_hash, label_release, label_statefulset_kubernetes_io_pod_name, namespace, pod, uid]}
+  kube_pod_overhead_cpu_cores: {type: gauge}
+  kube_pod_overhead_memory_bytes: {type: gauge}
+  kube_pod_owner: {type: gauge, labels: [namespace, owner_is_controller, owner_kind, owner_name, pod, uid]}
+  kube_pod_resourceclaim_info: {type: gauge}
+  kube_pod_restart_policy: {type: gauge, labels: [namespace, pod, type, uid]}
+  kube_pod_runtimeclass_name_info: {type: gauge, labels: [namespace, pod, runtimeclass_name, uid]}
+  kube_pod_scheduler: {type: gauge, labels: [name, namespace, pod, uid]}
+  kube_pod_service_account: {type: gauge, labels: [namespace, pod, service_account, uid]}
+  kube_pod_spec_volumes_persistentvolumeclaims_info: {type: gauge, labels: [ephemeral, namespace, persistentvolumeclaim, pod, uid, volume]}
+  kube_pod_spec_volumes_persistentvolumeclaims_readonly: {type: gauge, labels: [ephemeral, namespace, persistentvolumeclaim, pod, uid, volume]}
+  kube_pod_start_time: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_status_container_ready_time: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_status_disruption_reason: {type: gauge}
+  kube_pod_status_initialized_time: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_status_phase: {type: gauge, labels: [namespace, phase, pod, uid]}
+  kube_pod_status_qos_class: {type: gauge, labels: [namespace, pod, qos_class, uid]}
+  kube_pod_status_ready: {type: gauge, labels: [condition, namespace, pod, uid]}
+  kube_pod_status_ready_time: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_status_reason: {type: gauge}
+  kube_pod_status_scheduled: {type: gauge, labels: [condition, namespace, pod, uid]}
+  kube_pod_status_scheduled_time: {type: gauge, labels: [namespace, pod, uid]}
+  kube_pod_status_unschedulable: {type: gauge}
+  kube_pod_status_unscheduled_time: {type: gauge}
+  kube_pod_tolerations: {type: gauge, labels: [effect, key, namespace, operator, pod, toleration_seconds, uid, value]}
+  kube_poddisruptionbudget_annotations: {type: gauge}
+  kube_poddisruptionbudget_created: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_poddisruptionbudget_deletion_timestamp: {type: gauge}
+  kube_poddisruptionbudget_labels: {type: gauge}
+  kube_poddisruptionbudget_status_current_healthy: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_poddisruptionbudget_status_desired_healthy: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_poddisruptionbudget_status_expected_pods: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_poddisruptionbudget_status_observed_generation: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_poddisruptionbudget_status_pod_disruptions_allowed: {type: gauge, labels: [namespace, poddisruptionbudget]}
+  kube_replicaset_annotations: {type: gauge}
+  kube_replicaset_created: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_labels: {type: gauge}
+  kube_replicaset_metadata_generation: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_owner: {type: gauge, labels: [namespace, owner_is_controller, owner_kind, owner_name, replicaset]}
+  kube_replicaset_spec_replicas: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_status_fully_labeled_replicas: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_status_observed_generation: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_status_ready_replicas: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_status_replicas: {type: gauge, labels: [namespace, replicaset]}
+  kube_replicaset_status_terminating_replicas: {type: gauge}
+  kube_secret_annotations: {type: gauge}
+  kube_secret_created: {type: gauge, labels: [namespace, secret]}
+  kube_secret_info: {type: gauge, labels: [namespace, secret]}
+  kube_secret_labels: {type: gauge}
+  kube_secret_metadata_resource_version: {type: gauge, labels: [namespace, secret]}
+  kube_secret_owner: {type: gauge, labels: [namespace, owner_is_controller, owner_kind, owner_name, secret]}
+  kube_secret_type: {type: gauge, labels: [namespace, secret, type]}
+  kube_service_annotations: {type: gauge}
+  kube_service_created: {type: gauge, labels: [namespace, service, uid]}
+  kube_service_deletion_timestamp: {type: gauge}
+  kube_service_info: {type: gauge, labels: [cluster_ip, external_name, external_traffic_policy, load_balancer_ip, namespace, service, uid]}
+  kube_service_labels: {type: gauge, labels: [label_app, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_component, label_helm_sdk_operatorframework_io_chart, label_helm_sh_chart, label_k8s_app, label_kubernetes_io_cluster_service, label_kubernetes_io_name, label_llm_devops_io_provider, label_llm_devops_io_speed_tier, label_llm_devops_io_vram_gib, label_objectset_rio_cattle_io_hash, label_prometheus_io_service_monitor, label_provider, label_release, label_variant, namespace, service, uid]}
+  kube_service_spec_external_ip: {type: gauge}
+  kube_service_spec_type: {type: gauge, labels: [namespace, service, type, uid]}
+  kube_service_status_load_balancer_ingress: {type: gauge}
+  kube_statefulset_annotations: {type: gauge}
+  kube_statefulset_created: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_deletion_timestamp: {type: gauge}
+  kube_statefulset_labels: {type: gauge, labels: [label_app, label_app_kubernetes_io_component, label_app_kubernetes_io_instance, label_app_kubernetes_io_managed_by, label_app_kubernetes_io_name, label_app_kubernetes_io_part_of, label_app_kubernetes_io_version, label_helm_sdk_operatorframework_io_chart, label_helm_sh_chart, namespace, statefulset]}
+  kube_statefulset_metadata_generation: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_ordinals_start: {type: gauge}
+  kube_statefulset_persistentvolumeclaim_retention_policy: {type: gauge, labels: [namespace, statefulset, when_deleted, when_scaled]}
+  kube_statefulset_replicas: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_current_revision: {type: gauge, labels: [namespace, revision, statefulset]}
+  kube_statefulset_status_observed_generation: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_replicas: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_replicas_available: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_replicas_current: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_replicas_ready: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_replicas_updated: {type: gauge, labels: [namespace, statefulset]}
+  kube_statefulset_status_update_revision: {type: gauge, labels: [namespace, revision, statefulset]}
+  kube_storageclass_annotations: {type: gauge}
+  kube_storageclass_created: {type: gauge, labels: [storageclass]}
+  kube_storageclass_info: {type: gauge, labels: [provisioner, reclaim_policy, storageclass, volume_binding_mode]}
+  kube_storageclass_labels: {type: gauge}
+from_source:
+  kube_horizontalpodautoscaler_labels:
+    type: gauge
+    labels: [horizontalpodautoscaler, namespace]
+    source: https://github.com/kubernetes/kube-state-metrics/blob/v2.20.0/internal/store/horizontalpodautoscaler.go#L48-L62
+  kube_pod_status_reason:
+    type: gauge
+    labels: [namespace, pod, reason, uid]
+    source: https://github.com/kubernetes/kube-state-metrics/blob/v2.20.0/internal/store/pod.go#L417-L445

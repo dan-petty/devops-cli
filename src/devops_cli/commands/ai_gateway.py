@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx2
 import typer
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -13,7 +14,6 @@ from devops_cli.ai.gateway_tune import (
     GatewayTuneError,
     GpuInfo,
     TuneReport,
-    review_page_tokens,
     tune_pool,
 )
 from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
@@ -28,6 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_TUNE_IMAGE,
     DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
     DEFAULT_GATEWAY_TUNE_MODEL_GROUP,
+    DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
     DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_GATEWAY_TUNE_ROUNDS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -203,7 +204,7 @@ def connect_cmd(
         print_error(f"Cannot find the LLM gateway: {exc.message}", prefix=False)
         raise typer.Exit(code=1) from exc
 
-    base_url = f"http://{host}:{port}"
+    base_url = str(httpx2.URL(scheme="http", host=host, port=port))
     node_port_url = f"{base_url}/v1"
     validate_url_egress(base_url, purpose="AI gateway", allow_private=True)
 
@@ -392,12 +393,12 @@ def tune_cmd(
         int, typer.Option("--rounds", help="Requests per worker at each concurrency level.")
     ] = DEFAULT_GATEWAY_TUNE_ROUNDS,
     prompt_tokens: Annotated[
-        int | None,
+        int,
         typer.Option(
             "--prompt-tokens",
-            help="Prompt size in tokens (default: one review page for the analysis task).",
+            help="Prompt size in tokens.",
         ),
-    ] = None,
+    ] = DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
     max_tokens: Annotated[
         int, typer.Option("--max-tokens", help="Completion tokens requested per call.")
     ] = DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
@@ -448,8 +449,7 @@ def tune_cmd(
             rounds=max(1, rounds),
             prompt_tokens=max(
                 1,
-                prompt_tokens
-                or review_page_tokens(settings.ai.for_task("analysis").context_window),
+                prompt_tokens if prompt_tokens is not None else DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS,
             ),
             max_tokens=max(1, max_tokens),
             request_timeout=DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS,

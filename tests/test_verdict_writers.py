@@ -18,7 +18,6 @@ from devops_cli.ai.review_schema import (
     Finding,
     ReviewSessionPayload,
     SavedFinding,
-    _merge_two_findings,
     compute_verdict_distributions,
 )
 from devops_cli.commands.review import app
@@ -83,38 +82,6 @@ def test_verdict_invariants_enforcement_raises() -> None:
     bad_mit_rep = Finding(title="f7", location="a.py:1", status="MITIGATED", reportable=False)
     with pytest.raises(AssertionError, match="must stay reportable"):
         assert_verdict_invariants([bad_mit_rep])
-
-
-@pytest.mark.parametrize(
-    ("base", "other", "verified_by"),
-    [
-        (("VERIFIED", "llm"), ("VERIFIED", "human"), "llm"),
-        (("UNVERIFIED", None), ("VERIFIED", "llm"), "llm"),
-        (("INVALIDATED", "deterministic:syntax_error"), ("VERIFIED", "llm"), "llm"),
-        (("VERIFIED", None), ("VERIFIED", None), None),
-    ],
-    ids=["both-verified", "one-verified", "verified-over-invalidated", "no-adjudicator"],
-)
-def test_a_merge_keeps_the_adjudicator_of_the_verified_input(
-    base: tuple[str, str | None], other: tuple[str, str | None], verified_by: str | None
-) -> None:
-    """Merging duplicates into a VERIFIED finding keeps the adjudicator of a verified input. It
-    never names `criteria`, which settles no VERIFIED verdict, nor the adjudicator of an input
-    that was not verified (#1043)."""
-
-    def finding(status: str, by: str | None) -> Finding:
-        return Finding(
-            title="Shell command built from input",
-            location="app.py:2",
-            status=status,
-            verified=status == "VERIFIED",
-            reportable=status != "INVALIDATED",
-            verified_by=by,
-        )
-
-    merged = _merge_two_findings(finding(*base), finding(*other))
-
-    assert (merged.status, merged.verified_by) == ("VERIFIED", verified_by)
 
 
 def test_compute_verdict_distributions_citation_rates() -> None:
@@ -321,30 +288,6 @@ def test_a_mitigated_finding_is_not_a_verified_one(by: str) -> None:
         True,
         True,
     )
-
-
-def test_unverified_note_counts_includes_contradiction() -> None:
-    """Verify _unverified_note_counts tallies verifier-contradiction both standalone and with details."""
-    from devops_cli.ai.review_schema import _unverified_note_counts
-    from devops_cli.config.constants import CONST_VERIFIER_CONTRADICTION
-
-    findings = [
-        Finding(
-            title="f1",
-            location="a.py:1",
-            status="UNVERIFIED",
-            verification_note=CONST_VERIFIER_CONTRADICTION,
-        ),
-        Finding(
-            title="f2",
-            location="b.py:2",
-            status="UNVERIFIED",
-            verification_note=f"{CONST_VERIFIER_CONTRADICTION}: reason denies claim",
-        ),
-        Finding(title="f3", location="c.py:3", status="VERIFIED", verified=True, verified_by="llm"),
-    ]
-    counts = _unverified_note_counts(findings)
-    assert counts == {CONST_VERIFIER_CONTRADICTION: 2}
 
 
 def test_invalidated_cannot_have_mitigated_true() -> None:

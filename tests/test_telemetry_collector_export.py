@@ -128,12 +128,15 @@ def test_connect_keeps_the_configuration_when_the_collector_does_not_answer(
 
 
 def test_failed_exports_are_counted_and_reported_once_a_day(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    refusing_port: int,
 ) -> None:
     """Verify a collector that never answers is reported to an interactive user, once."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     reset_settings_cache()
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    client = OTelTelemetryClient(endpoint=f"http://127.0.0.1:{refusing_port}")
     client._send_payload_sync("/v1/traces", {"resourceSpans": []})
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
@@ -142,7 +145,7 @@ def test_failed_exports_are_counted_and_reported_once_a_day(
 
     warnings = capsys.readouterr().err
     assert (client.export_failures, client.export_successes) == (1, 0)
-    assert warnings.count("Telemetry could not reach http://127.0.0.1:9") == 1
+    assert warnings.count(f"Telemetry could not reach http://127.0.0.1:{refusing_port}") == 1
     assert "devops telemetry connect" in warnings
 
 

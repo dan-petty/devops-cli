@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "pkg:pypi/rich@15.*"
+sources:
+  - "https://rich.readthedocs.io/"
+  - "https://github.com/Textualize/rich"
+reviewed: "2026-10-15"
+tags:
+  - "rich"
+  - "cli"
+---
+
 # Code Library: Rich (Terminal UI, Tables & Formatting Toolkit)
 
 ## 1. Project References

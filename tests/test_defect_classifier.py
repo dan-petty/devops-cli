@@ -82,6 +82,11 @@ def test_defect_classifier_combined_and_reasons() -> None:
 
 def test_match_hardening_surface_declared_surfaces() -> None:
     """Verify that only the declared hardening surfaces match, and docs/ROADMAP.md is excluded."""
+    import re
+
+    from devops_cli.config.constants import CONST_HARDENING_SURFACES
+    from tests.support.paths import REPO_ROOT
+
     test_paths = [
         ("AGENTS.md", "AGENTS.md"),
         ("src/devops_cli/ai/tasks/review.md", "src/devops_cli/ai/tasks/*.md"),
@@ -91,17 +96,37 @@ def test_match_hardening_surface_declared_surfaces() -> None:
             "src/devops_cli/ai/knowledge_base/topics/security.md",
             "src/devops_cli/ai/knowledge_base/",
         ),
-        ("common_hallucinations.json", "common_hallucinations.json"),
-        ("src/devops_cli/ai/review/common_hallucinations.json", "common_hallucinations.json"),
-        (".data/common_hallucinations.json", "common_hallucinations.json"),
+        (".devops/review.toml", ".devops/review.toml"),
+        ("src/devops_cli/review/rules/bandit.yml", "src/devops_cli/review/rules/"),
+        ("common_hallucinations.json", None),
+        ("src/devops_cli/ai/review/common_hallucinations.json", None),
+        (".data/common_hallucinations.json", None),
         ("docs/ROADMAP.md", None),  # strictly excluded generated view
         ("docs/CLI_REFERENCE.md", None),
         ("src/devops_cli/commands/pr.py", None),
         ("tests/test_ci.py", None),
     ]
 
+    workflow = (REPO_ROOT / ".github/workflows/defect-pr-hardening-audit.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow_surfaces = tuple(re.findall(r"^\s*-\s*`([^`]+)`\s*$", workflow, re.MULTILINE))
     actual = [(path, match_hardening_surface(path)) for path, _ in test_paths]
-    assert actual == test_paths
+    assert (
+        actual,
+        CONST_HARDENING_SURFACES,
+        workflow_surfaces,
+    ) == (
+        test_paths,
+        (
+            "AGENTS.md",
+            "src/devops_cli/ai/tasks/*.md",
+            "src/devops_cli/ai/knowledge_base/",
+            ".devops/review.toml",
+            "src/devops_cli/review/rules/",
+        ),
+        CONST_HARDENING_SURFACES,
+    )
 
 
 def test_audit_pr_hardening_with_additions() -> None:

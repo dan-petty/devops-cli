@@ -22,6 +22,7 @@ from pydantic_ai.retries import (
 from tenacity import retry_if_exception, stop_after_attempt, wait_exponential
 
 from devops_cli.config.constants import CONST_RETRYABLE_HTTP_STATUS_CODES
+from devops_cli.core import clock
 
 DEFAULT_RETRYABLE_STATUS_CODES: tuple[int, ...] = CONST_RETRYABLE_HTTP_STATUS_CODES
 
@@ -116,13 +117,14 @@ def create_retry_transport(
     **kwargs: Any,
 ) -> HTTPX2TenacityTransport:
     """Construct a synchronous HTTPX2TenacityTransport with automatic Retry-After inspection."""
-    active_config = config or create_retry_config(
+    base_config = config or create_retry_config(
         max_attempts=max_attempts,
         min_wait=min_wait,
         max_wait=max_wait,
         retry_statuses=retry_statuses,
         **kwargs,
     )
+    active_config: RetryConfig = {"sleep": clock.sleep, **base_config}
 
     def default_validate(resp: httpx2.Response) -> None:
         if resp.status_code >= 400:
@@ -148,13 +150,14 @@ def create_async_retry_transport(
     **kwargs: Any,
 ) -> AsyncHTTPX2TenacityTransport:
     """Construct an asynchronous AsyncHTTPX2TenacityTransport with automatic Retry-After inspection."""
-    active_config = config or create_retry_config(
+    base_config = config or create_retry_config(
         max_attempts=max_attempts,
         min_wait=min_wait,
         max_wait=max_wait,
         retry_statuses=retry_statuses,
         **kwargs,
     )
+    active_config: RetryConfig = {"sleep": clock.async_sleep, **base_config}
 
     def default_validate(resp: httpx2.Response) -> None:
         if resp.status_code >= 400:

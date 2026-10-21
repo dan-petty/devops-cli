@@ -8,14 +8,17 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
+from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_RELEASES_BY_STACK,
     _KUSTOMIZATIONS_BY_STACK,
     _MANIFESTS_BY_STACK,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from tests.k8s_manifests import kustomize, kustomized_objects
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -168,6 +171,12 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
     helm_releases_map: dict[str, dict[str, str]] = {
         r["name"]: r for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
     }
+    post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(
+        stack_lifecycle, "_POST_HELM_BY_STACK", {}
+    )
+    post_helm = [
+        (REPO_ROOT / "k8s" / p).resolve() for paths in post_helm_by_stack.values() for p in paths
+    ]
     deploy_stack_kustomizations = {
         (REPO_ROOT / "k8s").resolve(),
         *(
@@ -175,11 +184,15 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
             for ks in _KUSTOMIZATIONS_BY_STACK.values()
             for k in ks
         ),
+        *(p for p in post_helm if p.is_dir()),
     }
     deploy_stack_manifests = {
-        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
-        for ms in _MANIFESTS_BY_STACK.values()
-        for p in ms
+        *(
+            (REPO_ROOT / p if not p.is_absolute() else p).resolve()
+            for ms in _MANIFESTS_BY_STACK.values()
+            for p in ms
+        ),
+        *(p for p in post_helm if p.is_file()),
     }
 
     for app_path_file in sorted(APPS_DIR.glob("*.yaml")):
@@ -207,6 +220,9 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
             ]
             assert not missing, f"{name} manifests missing from deploy-stack: {missing}"
 
+    llm_app = _load_yaml(APPS_DIR / "llm.yaml")
+    assert llm_app["spec"]["syncPolicy"].get("syncOptions") == ["SkipDryRunOnMissingResource=true"]
+
 
 def _assert_kustomization_resources(p: Path, name: str) -> None:
     kust = p / "kustomization.yaml"
@@ -217,6 +233,29 @@ def _assert_kustomization_resources(p: Path, name: str) -> None:
         if not res.startswith("$"):
             res_p = p / res
             assert res_p.exists(), f"{name} resource {res_p} does not exist"
+
+
+def test_the_collector_starts_after_the_tempo_it_exports_traces_to() -> None:
+    """The collector's `otlp_grpc/tempo` exporter has a Tempo to reach when the collector
+    starts, in both deploy paths, so its first export does not log a burst of `connection
+    refused` that reads later like an outage (#409): `deploy-stack` installs tempo before
+    otel-collector, and the cluster app-of-apps syncs the otel-collector Application in a later
+    sync wave than tempo's."""
+    exporter = _load_yaml(K8S_DIR / "otel" / "values.yaml")["config"]["exporters"][
+        "otlp_grpc/tempo"
+    ]["endpoint"]
+    waves = {
+        name: int(app["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave", "0"))
+        for name, app in _all_applications().items()
+        if name in {"tempo", "otel-collector"}
+    }
+    order = [release["name"] for release in _HELM_RELEASES_BY_STACK["infra"]]
+
+    assert (
+        exporter.startswith("tempo.otel."),
+        order.index("tempo") < order.index("otel-collector"),
+        waves["tempo"] < waves["otel-collector"],
+    ) == (True, True, True)
 
 
 def test_paths_and_kustomizations_exist() -> None:
@@ -306,13 +345,8 @@ def test_rendered_raw_objects_single_ownership() -> None:
 
     for app_name, dir_path in raw_leaf_apps.items():
         assert app_name in apps
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(dir_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        docs = list(yaml.safe_load_all(proc.stdout))
+        proc = kustomize(dir_path)
+        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
         for doc in docs:
             if not doc:
                 continue
@@ -354,13 +388,8 @@ def test_namespace_and_pvc_data_safety() -> None:
     raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
 
     for dir_path in raw_leaf_apps:
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(dir_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        docs = list(yaml.safe_load_all(proc.stdout))
+        proc = kustomize(dir_path)
+        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
         for doc in docs:
             if not doc:
                 continue
@@ -423,8 +452,6 @@ def test_argocd_enables_the_web_terminal() -> None:
 
 def test_exactly_one_application_renders_argocd_default_perimeter() -> None:
     """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
-    from tests.k8s_manifests import kustomized_objects
-
     apps = _all_applications()
     rendering_apps: list[str] = []
     for name, app in apps.items():
@@ -463,15 +490,10 @@ def test_applicationset_controller_disabled_with_zero_replicas() -> None:
 def test_homelab_domain_overlays() -> None:
     for overlay in ("devops", "ingress"):
         overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(overlay_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        proc = kustomize(overlay_dir)
         assert proc.returncode == 0, f"Overlay {overlay} failed to build: {proc.stderr}"
 
-        docs = [d for d in yaml.safe_load_all(proc.stdout) if d]
+        docs = [d for d in yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader) if d]
         assert len(docs) > 0, f"No documents rendered for overlay {overlay}"
         for doc in docs:
             assert "kind" in doc
@@ -517,6 +539,7 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
     )
 
 
+@pytest.mark.live("jq")
 def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None:
     """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
     import json
@@ -658,13 +681,12 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
 
 def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
     """The ConfigMap is rendered from the active config at deploy time, never from git."""
-    rendered = subprocess.run(
-        ["kubectl", "kustomize", str(K8S_DIR / "overlays" / "homelab" / "devops")],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
+    rendered = kustomize(K8S_DIR / "overlays" / "homelab" / "devops").stdout
+    objects = [
+        (d["kind"], d["metadata"]["name"])
+        for d in yaml.load_all(rendered, Loader=yaml.CSafeLoader)
+        if d
+    ]
     ignored = subprocess.run(
         ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
         cwd=REPO_ROOT,

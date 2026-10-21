@@ -16,6 +16,9 @@ spec:
       app.kubernetes.io/name: registry
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5001"
       labels:
         app.kubernetes.io/name: registry
         app.kubernetes.io/part-of: devops-cli-stack
@@ -29,11 +32,18 @@ spec:
               value: /var/lib/registry
             - name: REGISTRY_HTTP_ADDR
               value: 0.0.0.0:5000
+            - name: REGISTRY_HTTP_DEBUG_ADDR
+              value: 0.0.0.0:5001
+            - name: REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED
+              value: "true"
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
           ports:
             - name: registry
               containerPort: 5000
+              protocol: TCP
+            - name: metrics
+              containerPort: 5001
               protocol: TCP
           livenessProbe:
             httpGet:

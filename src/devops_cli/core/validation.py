@@ -10,6 +10,7 @@ import re
 import socket
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import dns.exception
 import dns.name
@@ -17,11 +18,19 @@ import httpx2
 import typer
 
 from devops_cli.config.constants import (
+    CONST_ALL_EMBEDDED_OFFSETS,
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
+    CONST_CLOUD_METADATA_IPV4,
+    CONST_CLOUD_METADATA_IPV6,
     CONST_IPV4_EMBEDDING_IPV6_PREFIXES,
+    CONST_ISATAP_INTERFACE_IDS,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_LOOPBACK_HOSTNAME,
+    CONST_LOW32_OFFSETS,
+    CONST_NAT64_PREFIXES,
+    CONST_PRIVATE_NETWORKS,
+    CONST_TEREDO_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
@@ -30,7 +39,6 @@ from devops_cli.exceptions import (
     ValidationError,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.output import print_error
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +47,7 @@ PathKind = Literal["any", "dir", "file", "key"]
 
 @functools.cache
 def _private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    from pydantic_ai._ssrf import _PRIVATE_NETWORKS
-
-    return _PRIVATE_NETWORKS
+    return CONST_PRIVATE_NETWORKS
 
 
 @functools.cache
@@ -83,22 +89,93 @@ def _non_public_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Networ
     )
 
 
+def reset_network_caches() -> None:
+    """Clear the cached private, link-local, and non-public network tuples."""
+    _private_networks.cache_clear()
+    _link_local_ipv4_networks.cache_clear()
+    _link_local_ipv6_networks.cache_clear()
+    _link_local_networks.cache_clear()
+    _non_public_networks.cache_clear()
+
+
+def _exhaustive_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Address]:
+    """Decode every standardized embedding position unconditionally."""
+    packed = ip.packed
+    candidates = {
+        ipaddress.IPv4Address(bytes(packed[i] for i in offsets))
+        for offsets in CONST_ALL_EMBEDDED_OFFSETS
+    }
+    if ip in CONST_TEREDO_PREFIX:
+        candidates.add(ipaddress.IPv4Address(int.from_bytes(packed[12:16], "big") ^ 0xFFFFFFFF))
+    return candidates
+
+
+def _standard_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Address]:
+    """Decode well-recognized transition contexts (mapped, 6to4, NAT64, ISATAP)."""
+    packed = ip.packed
+
+    def at(offsets: tuple[int, int, int, int]) -> ipaddress.IPv4Address:
+        return ipaddress.IPv4Address(bytes(packed[i] for i in offsets))
+
+    candidates: set[ipaddress.IPv4Address] = set()
+    if ip.ipv4_mapped is not None:
+        candidates.add(ip.ipv4_mapped)
+    if ip.sixtofour is not None:
+        candidates.add(ip.sixtofour)
+    for prefix, offsets_list in CONST_NAT64_PREFIXES:
+        if ip in prefix:
+            candidates.update(at(offsets) for offsets in offsets_list)
+    if int(ip) >> 32 == 0 and not ip.is_loopback and not ip.is_unspecified:
+        candidates.add(at(CONST_LOW32_OFFSETS))
+    if packed[8:12] in CONST_ISATAP_INTERFACE_IDS:
+        candidates.add(at(CONST_LOW32_OFFSETS))
+    return candidates
+
+
+def _embedded_ipv4s(ip: ipaddress.IPv6Address, *, exhaustive: bool) -> set[ipaddress.IPv4Address]:
+    """Return the IPv4 addresses `ip` may route to via an IPv6 transition mechanism."""
+    return _exhaustive_embedded_ipv4s(ip) if exhaustive else _standard_embedded_ipv4s(ip)
+
+
+def _parse_ip(ip_str: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse an IP address for blocklist comparison, dropping IPv6 zone identifiers."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.scope_id is not None:
+        ip = ipaddress.IPv6Address(ip.packed)
+    return ip
+
+
 def is_cloud_metadata_ip(
     ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
     """Classify if an IP address belongs to known cloud provider instance metadata endpoints."""
-    from pydantic_ai._ssrf import is_cloud_metadata_ip as _ssrf_is_cloud_metadata_ip
-
-    return _ssrf_is_cloud_metadata_ip(str(ip))
+    parsed = _parse_ip(str(ip))
+    if parsed is None:
+        return False
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return parsed in CONST_CLOUD_METADATA_IPV4
+    if parsed in CONST_CLOUD_METADATA_IPV6:
+        return True
+    return any(
+        candidate in CONST_CLOUD_METADATA_IPV4
+        for candidate in _embedded_ipv4s(parsed, exhaustive=True)
+    )
 
 
 def is_private_ip(
     ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
     """Classify if an IP address belongs to RFC 1918 / non-globally routable networks."""
-    from pydantic_ai._ssrf import is_private_ip as _ssrf_is_private_ip
-
-    return _ssrf_is_private_ip(str(ip))
+    parsed = _parse_ip(str(ip))
+    if parsed is None:
+        return True
+    targets: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = [parsed]
+    if isinstance(parsed, ipaddress.IPv6Address):
+        targets.extend(_embedded_ipv4s(parsed, exhaustive=False))
+    return any(target in network for target in targets for network in CONST_PRIVATE_NETWORKS)
 
 
 def __getattr__(name: str) -> Any:
@@ -118,6 +195,55 @@ _CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
 )
 
 
+def _parse_part(part: str) -> int | None:
+    """Parse one numeric address component as octal, hex, or decimal."""
+    if not part:
+        return None
+    try:
+        if (
+            part.startswith("0")
+            and len(part) > 1
+            and not part.startswith(("0x", "0X", "0o", "0O", "0b", "0B"))
+        ):
+            n = int(part, 8)
+        else:
+            n = int(part, 0)
+    except ValueError:
+        return None
+    return n if n >= 0 else None
+
+
+def _combine_ipv4_parts(nums: list[int]) -> int | None:
+    """Combine 1 to 4 numeric parts into a 32-bit integer according to inet_aton rules."""
+    count = len(nums)
+    if count == 1:
+        return nums[0] if nums[0] <= 0xFFFFFFFF else None
+    if count == 2:
+        return ((nums[0] << 24) | nums[1]) if nums[0] <= 0xFF and nums[1] <= 0xFFFFFF else None
+    if count == 3:
+        valid = nums[0] <= 0xFF and nums[1] <= 0xFF and nums[2] <= 0xFFFF
+        return ((nums[0] << 24) | (nums[1] << 16) | nums[2]) if valid else None
+    if count == 4:
+        valid = all(n <= 0xFF for n in nums)
+        return ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) if valid else None
+    return None
+
+
+def _parse_legacy_ipv4(host: str) -> ipaddress.IPv4Address | None:
+    """Parse legacy inet_aton forms (integers, octal, hex, multi-part) without socket.inet_aton."""
+    parts = host.split(".")
+    if not (1 <= len(parts) <= 4):
+        return None
+    nums: list[int] = []
+    for p in parts:
+        parsed = _parse_part(p)
+        if parsed is None:
+            return None
+        nums.append(parsed)
+    val = _combine_ipv4_parts(nums)
+    return ipaddress.IPv4Address(val) if val is not None else None
+
+
 def parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse an IPv4 or IPv6 literal, including legacy inet_aton forms, without getaddrinfo."""
     try:
@@ -125,14 +251,28 @@ def parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address
     except ValueError:
         pass
     try:
-        return ipaddress.IPv4Address(socket.inet_aton(host))
+        return _parse_legacy_ipv4(host)
     except OSError, ValueError:
         return None
 
 
+def _normalize_host_or_ip(raw_host: str) -> str:
+    """Canonicalise a host or IP string, stripping brackets and trailing dots."""
+    s = str(raw_host).strip()
+    if not s:
+        return ""
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        pass
+    parsed = urlsplit(f"//{s}")
+    h = parsed.hostname or s
+    return h.rstrip(".").lower()
+
+
 def is_loopback_host(host: str) -> bool:
     """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
-    clean = str(host).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
+    clean = _normalize_host_or_ip(host)
     if clean == CONST_LOOPBACK_HOSTNAME:
         return True
     addr = parse_numeric_ip(clean)
@@ -304,7 +444,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
     from devops_cli.core.dns_names import is_public_dns_name
 
-    clean = str(host_or_ip).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
+    clean = _normalize_host_or_ip(host_or_ip)
     if not clean:
         return True
     if is_loopback_host(clean):
@@ -481,7 +621,7 @@ def _enforce_non_private_ssrf(
             )
         return
 
-    effective_port = port or (443 if scheme == "https" else 80)
+    effective_port = port or httpx2.URL(url).origin.port
     resolved_ips = _resolve_host_ips(host, port=effective_port)
     if not resolved_ips:
         raise SSRFBlockedError(
@@ -583,6 +723,13 @@ def validate_configured_service_url(
     validate_url(url, purpose=purpose, allow_private=allow_private or is_loopback_host(host))
 
 
+def _fail_cli(message: str) -> None:
+    from devops_cli.output import print_error
+
+    print_error(message, prefix=False)
+    raise typer.Exit(1)
+
+
 def validate_path(  # noqa: C901
     path: Path | str,
     *,
@@ -607,16 +754,12 @@ def validate_path(  # noqa: C901
     if not raw_str:
         if kind == "key":
             raise ValidationError(f"Invalid SSH key path: {path}", field="key_path")
-        print_error(f"{label} cannot be empty.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"{label} cannot be empty.")
 
     if not allow_traversal and ".." in raw_str:
         if kind == "key":
             raise ValidationError(f"Invalid SSH key path: {path}", field="key_path")
-        print_error(
-            f"Path traversal ('..') is not permitted in {label.lower()}: '{path}'.", prefix=False
-        )
-        raise typer.Exit(1)
+        _fail_cli(f"Path traversal ('..') is not permitted in {label.lower()}: '{path}'.")
 
     p = Path(path)
     resolved = p.resolve() if ".." in raw_str else p
@@ -627,16 +770,13 @@ def validate_path(  # noqa: C901
         return p
 
     if must_exist and not resolved.exists():
-        print_error(f"{label} '{path}' does not exist.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"{label} '{path}' does not exist.")
 
     if must_exist:
         if kind == "dir" and not resolved.is_dir():
-            print_error(f"{label} '{path}' is not a directory.", prefix=False)
-            raise typer.Exit(1)
+            _fail_cli(f"{label} '{path}' is not a directory.")
         if kind == "file" and not resolved.is_file():
-            print_error(f"{label} '{path}' is not a file.", prefix=False)
-            raise typer.Exit(1)
+            _fail_cli(f"{label} '{path}' is not a file.")
 
     return resolved
 
@@ -694,8 +834,7 @@ def validate_k8s_identifier(value: str, label: str = "resource", *, namespace: b
 def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = False) -> str:
     """Validate that a string conforms to Kubernetes RFC 1123 naming rules."""
     if not is_valid_k8s_name(value, namespace=namespace):
-        print_error(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.", prefix=False)
-        raise typer.Exit(1)
+        _fail_cli(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.")
     return value
 
 
@@ -708,11 +847,9 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
     """
     clean_val = value.strip()
     if not clean_val or not re.match(r"^[\w\.\:\-\/@]+$", clean_val):
-        print_error(
-            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters.",
-            prefix=False,
+        _fail_cli(
+            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters."
         )
-        raise typer.Exit(1)
     return clean_val
 
 

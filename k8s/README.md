@@ -123,7 +123,31 @@ Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url`
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
 
 ### GPU Placement: Ollama tiers
-Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), scheduled by the node label `nvidia.com/gpu.total-vram-gib`. The gateway reaches each tier through its ClusterIP Service `ollama-<n>gib`.
+Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), each behind its ClusterIP Service `ollama-<n>gib`. The gateway reaches the tiers through aliases of those Services, `ollama-16gib-fast`, `ollama-48gib-fast`, `ollama-48gib-slow` and `ollama-64gib-standard` (`llm/gateway/configmap.yaml`).
+
+A tier's pods schedule only on a node whose labels satisfy the tier's required node affinity. Every tier requires `nvidia.com/gpu.total-vram-gib` to be one of its values, and three also require `nvidia.com/gpu.architecture`. `nvidia.com/gpu.present=true` marks a GPU node, and `deploy-stack` treats a node with `nvidia.com/gpu` capacity above zero as one too.
+
+| Tier | `nvidia.com/gpu.total-vram-gib` | `nvidia.com/gpu.architecture` |
+| :--- | :--- | :--- |
+| `ollama-16gib` | `16Gi`, `20Gi` | any |
+| `ollama-24gib` | `24Gi`, `28Gi` | `pascal`, `maxwell`, `kepler` |
+| `ollama-32gib` | `32Gi`, `36Gi`, `40Gi`, `44Gi` | any |
+| `ollama-48gib` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `ada-lovelace`, `ampere`, `blackwell`, `hopper` |
+| `ollama-48gib-slow` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` |
+| `ollama-64gib` | `64Gi`, `68Gi` | any |
+| `ollama-72gib` | `72Gi`, `76Gi`, `80Gi`, `84Gi`, `88Gi`, `92Gi` | any |
+| `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any |
+| `ollama-128gib` | `128Gi` | any |
+
+**What sets the labels.** The cluster's node-provisioning automation, which lives outside this repository, sets `nvidia.com/gpu.present` and `nvidia.com/gpu.architecture` on every GPU node. It sets `nvidia.com/gpu.total-vram-gib` only on a node with more than one GPU, as the sum of its GPUs' memory rounded to the nearest whole GiB. GPU Feature Discovery labels per-GPU memory and the GPU count, not a total. So a single-GPU node gets no total, and a multi-GPU total can come out as a value no tier lists, such as `47Gi`. Set the label by hand, with a value from the table:
+
+```bash
+kubectl label node <node> nvidia.com/gpu.total-vram-gib=<N>Gi --overwrite
+```
+
+`deploy-stack --stack llm` reads the nodes once, right after it checks the cluster is reachable, and warns about each GPU node no tier accepts: the missing or unaccepted `total-vram-gib` with the command above, or an `architecture` outside the accepted ones. If no node satisfies any tier, it says no Ollama pod will schedule, and if it cannot read the nodes it says it could not check the labels. It also warns on an Argo CD-managed cluster. It never stops the deploy, since the stack's other workloads need no GPU label. The accepted values are read from `ollama-profiles.yaml`, so a tier changed there is checked with no other edit.
+
+The gateway's policy `llm-gateway-perimeter` (`llm/gateway/networkpolicy.yaml`) is applied with the llm manifests, by `deploy-stack` or Argo CD's `llm` Application. It admits TCP 4000 from any source, since LiteLLM rejects a request without the master key, and limits the gateway's egress to the pods labelled `llm.devops.io/provider: ollama` on 11434, Valkey on 6379 and kube-system DNS on port 53.
 
 Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`, recorded in the manifest's header rather than suppressed with an ignore annotation.
 
@@ -150,20 +174,20 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 ## Scrape Ownership
 
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` and `qdrant` ServiceMonitors, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
 
 | Component | Owner | Reason |
 | :--- | :--- | :--- |
 | Prometheus server and Alertmanager | Their own `prometheus` release (`monitoring/prometheus-values.yaml`) | k8s-monitoring ships collectors, not a metrics store or an alert router. Alloy writes to this server, which evaluates the alert rules and sends alerts to Alertmanager. The server scrapes itself, and Alloy scrapes Alertmanager through its pod annotations |
-| Grafana | Its own `grafana` release (`monitoring/grafana-values.yaml`) | k8s-monitoring does not deploy Grafana. Nothing scrapes it yet; #1131 adds its scrape |
+| Grafana | Its own `grafana` release (`monitoring/grafana-values.yaml`) | k8s-monitoring does not deploy Grafana; its `grafana` integration scrapes Grafana's pod (#1131) |
 | Loki | Its own `loki` release, in the `logging` stack (`logging/loki-values.yaml`) | Loki belongs to the logging stack, so k8s-monitoring's Loki integration scrapes it only where that stack runs |
-| Pyroscope server | Its own `pyroscope` release | k8s-monitoring collects telemetry; it does not deploy the server that stores profiles |
-| Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel` |
+| Pyroscope server | Separate `pyroscope` release (`monitoring/pyroscope-values.yaml`); collection: k8s-monitoring `profiling` | k8s-monitoring collects profiles (`profiling` in `monitoring/k8s-monitoring-values.yaml`, sent to `destinations.localPyroscope`); it does not deploy the server that stores profiles, and it scrapes Pyroscope through the chart's own ServiceMonitor (#1131, #1134) |
+| Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel`. The collector's trace exporter has a Tempo to reach when the collector starts: `deploy-stack` installs `tempo` before `otel-collector`, and the `cluster` app-of-apps syncs the `otel-collector` Application in sync wave 1, after `tempo` (#409) |
 | dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off |
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
-| prometheus-operator-crds | Its own release, installed first | The `llm-gateway` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
+| prometheus-operator-crds | Its own release, installed first | The `argocd`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
-cloudflared, Traefik, Alertmanager and roadmap-service are found by annotation autodiscovery, through the `prometheus.io/*` annotations they already carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
+cloudflared, Traefik, Alertmanager, roadmap-service, `llm/valkey` (`redis-exporter` sidecar on port 9121) and `registry` (Distribution debug Prometheus endpoint on port 5001) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
 `devops prometheus targets` reads the server's `/api/v1/targets`, so it lists only the server's two jobs; Alloy's targets appear in Prometheus as their `up` series.
 
@@ -176,7 +200,7 @@ Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates 
 | `grafana-k8s-global-dashboards` | `k8s-views-global.json`, `k8s-views-pods.json` |
 | `grafana-k8s-node-dashboards` | `k8s-views-nodes.json`, `k8s-views-namespaces.json` |
 | `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json` |
-| `grafana-stack-dashboards` | `sre-service.json`, `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json` |
+| `grafana-stack-dashboards` | `sre-service.json`, `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
 
 On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
@@ -186,10 +210,11 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 | :--- | :--- | :--- |
 | `sre-service.json`, "SRE Service & Logs" (`devops-sre-service`) | cAdvisor container CPU, memory, network packets/drops, Loki service logs, and Pyroscope flamegraphs | Metrics scraped by Alloy from cAdvisor/Kubelet and Kube State Metrics; logs pushed to Loki via Alloy or OpenTelemetry collector; continuous profiles queried from Pyroscope datasource |
 | `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Alloy's annotation autodiscovery (`annotationAutodiscovery` in `monitoring/k8s-monitoring-values.yaml`), through the pods' `prometheus.io/*` annotations; network policy allows monitoring to scrape both ports |
-| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), the NVIDIA DCGM exporter on every GPU node, and Qdrant's `/metrics` on port 6333 | The `llm-gateway` ServiceMonitor, the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), and the `qdrant` ServiceMonitor (`metrics.serviceMonitor` in `llm/values-qdrant.yaml`, authenticating with the `qdrant-api-key` Secret), run by Alloy, which remote-writes to the server |
+| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), the NVIDIA DCGM exporter on every GPU node, and Qdrant's `/metrics` on port 6333 | The `llm-gateway` ServiceMonitor (`llm/gateway/servicemonitor.yaml`), the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), and the `qdrant` ServiceMonitor (`metrics.serviceMonitor` in `llm/values-qdrant.yaml`, authenticating with the `qdrant-api-key` Secret), run by Alloy, which remote-writes to the server |
 | `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, which keeps only namespace `otel`, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, whose annotation autodiscovery skips `otel`, so the collector's export failures stay visible when Alloy is what fails |
 | `prometheus-server.json`, "Prometheus Server" (`devops-prometheus-server`) | The Prometheus server's own `/metrics`, and `up` for every target | The server's `prometheus` job, which scrapes itself (`scrapeConfigs.prometheus` in `monitoring/prometheus-values.yaml`) |
-| `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by the Alloy profiling agent and scraped by the Pyroscope backend |
+| `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by k8s-monitoring's `profiling` feature (`alloy-profiles` DaemonSet, eBPF `targetingScheme: all` and `pprof`, in `monitoring/k8s-monitoring-values.yaml`) and sent to `destinations.localPyroscope` (#1134) |
+| `coredns.json`, "CoreDNS" (`devops-coredns`) | CoreDNS metrics on port 9153 (`coredns_dns_*`, `coredns_cache_*`, `coredns_proxy_*`) | Alloy's `clusterMetrics.kubeDNS` job (`job="integrations/kubernetes/kube-dns"` in `monitoring/k8s-monitoring-values.yaml`) (#822) |
 
 ```bash
 devops grafana dashboards lint k8s/monitoring/dashboards  # also catches a uid two files share
@@ -197,7 +222,7 @@ devops grafana dashboards sync                            # posts every file in 
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
 
-`tests/test_stack_dashboards.py` checks every query against captures of these exporters in `tests/fixtures/metrics/`: each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures stay empty until the first such event.
+`tests/test_stack_dashboards.py` checks every query in `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and `k8s-views-nodes.json` against captures of these exporters in `tests/fixtures/metrics/` (filtered by `tests/fixtures/k8s_monitoring/cluster_metrics/` and `includeMetrics` for cAdvisor, kube-state-metrics and the kubelet): each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event.
 
 ## Log and Metric Retention
 
@@ -226,7 +251,7 @@ Loki's compactor retention takes effect once #550's Loki migration has been appl
 Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
 
 - **Journal (`nodeLogs`)**: the `alloy-logs` DaemonSet, which already reads pod logs, reads `/var/log/journal`. It keeps kernel lines at every priority, the `k3s`, `k3s-agent`, `nvidia-power-limit`, `containerd` and `systemd-journald` units and systemd's own lines about them at info and above, and every other line at warning and above. Each unit may send 1 line/s after a burst of 10,000; kernel lines have no limit. Lines carry `job="integrations/kubernetes/journal"`, `instance` (the node), `unit`, `transport` and `level`, with the boot ID as structured metadata (`boot_id`).
-- **What the journal reader drops**: counted only on each `alloy-logs` pod's own `/metrics` (port 12345), which Prometheus does not scrape. Every entry the keep rules drop counts as `loki_source_journal_target_parsing_errors_total{error="empty_labels"}`, so that series counts the filter at work, not errors; lines the rate limit cuts count per unit in `loki_process_dropped_lines_by_label_total{label_name="unit"}`.
+- **What the journal reader drops**: counted only on each `alloy-logs` pod's own `/metrics` (port 12345), in series the Alloy integration's default allow list does not forward to Prometheus. Every entry the keep rules drop counts as `loki_source_journal_target_parsing_errors_total{error="empty_labels"}`, so that series counts the filter at work, not errors; lines the rate limit cuts count per unit in `loki_process_dropped_lines_by_label_total{label_name="unit"}`.
 - **Metrics (`hostMetrics`)**: Prometheus keeps every series node-exporter serves, with no allow list (#1129), because node-exporter's collector flags decide what is collected. Among them are `node_boot_time_seconds`, `node_hwmon_temp_celsius` with `node_hwmon_chip_names`, `node_pressure_*`, the EDAC correctable and uncorrectable error counters, `node_nvme_info`, filesystem size and free space, and `node_systemd_unit_state` for the units above, from the systemd collector the values turn on. node-exporter's systemd collector reads unit state over the host's D-Bus socket, reached through the node root the chart mounts at `/host/root`.
 
 ```text
@@ -257,6 +282,17 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `PrometheusStorageNearClaim` | Prometheus's data uses over 80% of the `prometheus-server` claim, which with the cap at 80% of the claim means the cap is not holding it | 1h | warning |
 | `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; retention runs once #550's Loki migration has turned it on | 30m | warning |
 | `LokiRequestErrors` | Over 5% of a Loki route's requests return 5xx | 15m | warning |
+| `PyroscopeQueryErrors` | A Pyroscope route's 5xx request rate over 15m is above 0 | 15m | warning |
+| `AlloyRemoteWriteSamplesFailed` | An Alloy collector failed to remote-write samples to Prometheus | 15m | warning |
+| `AlloyLogEntriesDropped` | An Alloy collector dropped log entries on their way to Loki | 15m | warning |
+| `PodLogsNotShipped` | An `alloy-logs` pod has sent 0 log entries to Loki (`node` joined from `kube_pod_info`) | 30m | warning |
+| `ArgoCdApplicationOutOfSync` | An Argo CD Application's `sync_status` is not `Synced` | 15m | warning |
+| `ArgoCdApplicationUnhealthy` | An Argo CD Application's `health_status` is neither `Healthy` nor `Progressing` | 15m | warning |
+| `ArgoCdAutoSyncDisabled` | An Argo CD Application's `autosync_enabled` is `false` | 15m | warning |
+| `ArgoCdSyncOperationStuck` | An Argo CD Application has a sync operation running | 1h | warning |
+| `CloudflareTunnelDegraded` | Total Cloudflare Tunnel HA connections across `cloudflared` replicas are under 2 | 5m | warning |
+| `CoreDnsServfailResponses` | Over 5% of CoreDNS responses return `SERVFAIL` | 5m | warning |
+| `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
 | `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
 | `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
 | `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the webhook Secret exists | 10m, 15m | warning |
@@ -281,7 +317,7 @@ The monitoring perimeter lets Alertmanager reach ports 80 and 443 outside the cl
 
 ### Planned maintenance
 
-Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`; the discovery rules of Alloy's annotation autodiscovery, kube-dns job and DCGM integration, and the server's `kubernetes-pods` job for the collector, set it on the pods they scrape; the Loki integration puts Loki's node in `instance`, which `TargetDown` falls back to; and `LogOrMetricVolumeDiskLow` takes it from the pod holding the claim. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
+Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`; the discovery rules of Alloy's annotation autodiscovery, kube-dns job and DCGM integration, and the server's `kubernetes-pods` job for the collector, set it on the pods they scrape; the Loki integration puts Loki's node in `instance`, which `TargetDown` falls back to; and `LogOrMetricVolumeDiskLow` and `PodLogsNotShipped` take it from `kube_pod_info`. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
 
 ```bash
 kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
@@ -290,7 +326,7 @@ kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -
 kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 ```
 
-The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, Loki and CoreDNS. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
+The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, the Alloy collectors, Grafana, Loki, Tempo, Pyroscope and CoreDNS. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
 
 After the work, let pods back onto the node, and expire the silence if the work ended early:
 
@@ -651,16 +687,17 @@ k8s/
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
-│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, gateway monitors, annotation autodiscovery, CoreDNS, and the Loki, Tempo and DCGM integrations)
+│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, annotation autodiscovery, CoreDNS, profiling, and the Alloy, Grafana, Loki, Tempo and DCGM integrations)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 │   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)
 │   └── dashboards/
-│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for six dashboards
+│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for four dashboard groups
 │       ├── k8s-views-global.json, k8s-views-pods.json # ConfigMap grafana-k8s-global-dashboards
 │       ├── k8s-views-nodes.json, k8s-views-namespaces.json # ConfigMap grafana-k8s-node-dashboards
 │       ├── devops-cli.json   # devops-cli commands, reviews, RAG and spend (grafana-devops-cli-dashboards)
 │       ├── ai-spend.json     # AI spend and LLM usage (grafana-devops-cli-dashboards)
 │       ├── project-metrics.json # Project & engineering velocity, release cadence and CI pass rates (grafana-devops-cli-dashboards)
+│       ├── coredns.json      # CoreDNS traffic, latency, forwarders and cache; provisioned in grafana-stack-dashboards
 │       ├── llm-stack.json    # LiteLLM gateway, GPUs and Qdrant; provisioned in grafana-stack-dashboards
 │       ├── otel-collector.json # The collector's own telemetry; provisioned in grafana-stack-dashboards
 │       └── prometheus-server.json # The Prometheus server; provisioned in grafana-stack-dashboards
@@ -676,6 +713,6 @@ k8s/
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
 │   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
-│   └── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy
+│   └── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy, ServiceMonitor
 └── README.md                 # This file
 ```

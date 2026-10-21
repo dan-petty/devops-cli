@@ -104,11 +104,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`release_status`](#release-status) | `true` | Display current release status, versions, tags, changelog, and docs state. |
 | [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
 | [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
-| [`review_branch`](#review-branch) | `true` | Review a git branch diff with one or all AI personas. |
+| [`review_branch`](#review-branch) | `true` | Review a git branch diff. |
 | [`review_export_feedback`](#review-export-feedback) | `false` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.  Each session's findings.json and candidates.json are read, and only the findings whose verdict the dataset does not hold yet are appended. An export that finds none leaves the dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset changes no prompt and no later review. |
 | [`review_findings`](#review-findings) | `true` | Inspect structured findings for a review session.  Each finding keeps its number, its place in findings.json, whatever filter the list applies, and `devops review verify --index` takes that number. With `--candidates` the list is candidates.json: every finding the review raised, the ones verification invalidated included, numbered for `devops review verify --candidate`. |
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
-| [`review_pr`](#review-pr) | `false` | Review a GitHub pull request with one or all AI personas. |
+| [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
 | [`roadmap_close`](#roadmap-close) | `true` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm. |
 | [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
@@ -1675,7 +1675,7 @@ Fetch (and optionally pull) all tracking branches across repos.
 
 ### `review_branch`
 
-Review a git branch diff with one or all AI personas.
+Review a git branch diff.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1685,8 +1685,6 @@ Review a git branch diff with one or all AI personas.
 |---|---|---|---|---|
 | `branch_name` | `string` | No | - | Branch to review (default: current branch). |
 | `base` | `string` | No | `main` | Base git branch to diff against (default: main). |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `repo_path` | `string` | No | `.` | Repository root directory (default: current directory). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -1696,10 +1694,7 @@ Review a git branch diff with one or all AI personas.
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
@@ -1766,8 +1761,6 @@ Review source files directly (no git required).
 |---|---|---|---|---|
 | `targets` | `array[string]` | No | - | File(s) or directory(ies) to review. |
 | `pattern` | `string` | No | `*` | Glob pattern for matching files. |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
@@ -1776,10 +1769,7 @@ Review source files directly (no git required).
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
@@ -1793,7 +1783,7 @@ Review source files directly (no git required).
 
 ### `review_pr`
 
-Review a GitHub pull request with one or all AI personas.
+Review a GitHub pull request.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1803,8 +1793,6 @@ Review a GitHub pull request with one or all AI personas.
 |---|---|---|---|---|
 | `number` | `integer` | Yes | - | Pull request number. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `post_comment` | `boolean` | No | `False` | Post the review as a comment on the GitHub PR. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -1814,10 +1802,7 @@ Review a GitHub pull request with one or all AI personas.
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |

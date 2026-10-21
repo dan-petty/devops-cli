@@ -29,6 +29,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.main import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

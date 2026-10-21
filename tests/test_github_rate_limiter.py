@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,10 +37,11 @@ from devops_cli.github.rate_limiter import (
     reset_github_rate_limiter,
     run_gh,
 )
+from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture(autouse=True)
-def isolate_rate_limiter() -> Generator[None]:
+def isolate_rate_limiter(clock: ClockFake) -> Generator[None]:
     """Ensure global rate limiter singleton is reset before and after each test."""
     reset_github_rate_limiter()
     limiter = get_github_rate_limiter()
@@ -161,7 +162,7 @@ def test_rate_limiter_no_initial_quotas() -> None:
             limiter.calculate_delay("core")
 
 
-def test_rate_limiter_mandatory_pause_enforcement() -> None:
+def test_rate_limiter_mandatory_pause_enforcement(clock: ClockFake) -> None:
     """Verify acquire institutes a mandatory pause using the calculated delay."""
     limiter = GitHubRateLimiter()
     now = time.time()
@@ -169,15 +170,13 @@ def test_rate_limiter_mandatory_pause_enforcement() -> None:
     # User scenario: 98 out of 100 tokens used (remaining = 2), 30s until reset
     limiter.update_quota("graphql", remaining=2, limit=100, reset_epoch=now + 30.0)
 
-    with patch("time.sleep") as mock_sleep:
-        delay = limiter.acquire("graphql")
-        assert 14.0 <= delay <= 15.5  # ~15.0s
-        mock_sleep.assert_called_once()
-        actual_slept = mock_sleep.call_args[0][0]
-        assert actual_slept == pytest.approx(15.0, abs=0.5)
+    delay = limiter.acquire("graphql")
+    assert 14.0 <= delay <= 15.5  # ~15.0s
+    assert len(clock.waits) == 1
+    assert clock.waits[0] == pytest.approx(15.0, abs=0.5)
 
 
-def test_rate_limiter_mandatory_pause_when_quota_exhausted() -> None:
+def test_rate_limiter_mandatory_pause_when_quota_exhausted(clock: ClockFake) -> None:
     """Verify acquire pauses for the full duration until reset when remaining <= 0."""
     limiter = GitHubRateLimiter()
     now = time.time()
@@ -185,26 +184,22 @@ def test_rate_limiter_mandatory_pause_when_quota_exhausted() -> None:
     # 0 tokens remaining with 20s until reset
     limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=now + 20.0)
 
-    with patch("time.sleep") as mock_sleep:
-        delay = limiter.acquire("core")
-        assert 19.0 <= delay <= 20.0
-        mock_sleep.assert_called_once()
-        actual_slept = mock_sleep.call_args[0][0]
-        assert actual_slept == pytest.approx(20.0, abs=0.5)
+    delay = limiter.acquire("core")
+    assert 19.0 <= delay <= 20.0
+    assert len(clock.waits) == 1
+    assert clock.waits[0] == pytest.approx(20.0, abs=0.5)
 
 
-def test_rate_limiter_acquire_mandatory_pacing(tmp_path: Path) -> None:
+def test_rate_limiter_acquire_mandatory_pacing(tmp_path: Path, clock: ClockFake) -> None:
     """Verify acquire always applies calculated pacing delay with zero threshold bypass."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file)
     now = time.time()
     limiter.update_quota("core", remaining=3600, limit=5000, reset_epoch=now + 3600.0)
-    with patch("time.sleep") as mock_sleep:
-        delay = limiter.acquire("core")
-        assert delay == pytest.approx(1.0, abs=0.1)
-        mock_sleep.assert_called_once()
-        actual_slept = mock_sleep.call_args[0][0]
-        assert actual_slept == pytest.approx(1.0, abs=0.1)
+    delay = limiter.acquire("core")
+    assert delay == pytest.approx(1.0, abs=0.1)
+    assert len(clock.waits) == 1
+    assert clock.waits[0] == pytest.approx(1.0, abs=0.1)
 
 
 def test_rate_limiter_decrement_quota_estimate(tmp_path: Path) -> None:
@@ -258,7 +253,7 @@ def test_rate_limiter_backoff_calculation() -> None:
     ) == (True, True, False, 0.0)
 
 
-def test_rate_limiter_ephemeral_cache() -> None:
+def test_rate_limiter_ephemeral_cache(clock: ClockFake) -> None:
     """Verify ephemeral read cache stores and returns data within TTL."""
     limiter = GitHubRateLimiter()
     key = "gh:rate_limit"
@@ -267,7 +262,7 @@ def test_rate_limiter_ephemeral_cache() -> None:
     limiter.set_cached(key, '{"resources": {}}', ttl=1.0)
     assert limiter.get_cached(key) == '{"resources": {}}'
 
-    time.sleep(1.05)
+    clock.sleep(1.05)
     assert limiter.get_cached(key) is None
 
 
@@ -394,16 +389,13 @@ def test_run_gh_passively_updates_header_quota() -> None:
         assert quota.reset_epoch == 1773550000.0
 
 
-def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch, clock: ClockFake) -> None:
     """Verify run_gh retries with backoff on secondary rate limits."""
     limiter = get_github_rate_limiter()
     limiter.clear_cache()
     monkeypatch.setattr(limiter, "min_interval", 0.01)
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub,
-        patch("time.sleep") as mock_sleep,
-    ):
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
         mock_sub.side_effect = [
             subprocess.CompletedProcess(
                 args=["gh", "api", "issues"],
@@ -419,13 +411,12 @@ def test_run_gh_rate_limit_retry(monkeypatch: pytest.MonkeyPatch) -> None:
             ),
         ]
         res = run_gh(["api", "issues"], max_retries=2)
-    waits = [recorded.args[0] for recorded in mock_sleep.call_args_list]
     # Pacing also sleeps on every attempt; the backoff is the wait of at least the secondary floor.
     assert (
         res.returncode,
         res.stdout,
         mock_sub.call_count,
-        max(waits) >= limiter.secondary_rate_wait,
+        max(clock.waits) >= limiter.secondary_rate_wait,
     ) == (
         0,
         '[{"id": 1}]',
@@ -491,7 +482,7 @@ def test_a_failed_rate_limit_read_returns_its_exit_status_without_reading_its_bo
     )
 
 
-def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
+def test_run_gh_rate_limit_endpoint_extracts_all_resources(clock: ClockFake) -> None:
     """Verify /rate_limit endpoint response updates all resources directly without acquire sleep."""
     limiter = get_github_rate_limiter()
     output = (
@@ -502,10 +493,7 @@ def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
         "}}"
     )
 
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub,
-        patch("time.sleep") as mock_sleep,
-    ):
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
         mock_sub.return_value = subprocess.CompletedProcess(
             args=["gh", "api", "rate_limit"],
             returncode=0,
@@ -515,7 +503,7 @@ def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
         res = run_gh(["api", "rate_limit"])
         assert res.returncode == 0
         # rate_limit inspection must not trigger pacing sleep
-        mock_sleep.assert_not_called()
+        assert clock.waits == []
 
         assert limiter.get_quota("core").remaining == 4999
         assert limiter.get_quota("graphql").remaining == 4500
@@ -702,9 +690,8 @@ def test_global_request_tracking_across_limiter_instances(tmp_path: Path) -> Non
     now = time.time()
     limiter_a.update_quota("core", remaining=100, limit=100, reset_epoch=now + 100.0)
 
-    with patch("time.sleep"):
-        limiter_a.acquire("core")
-        limiter_b.acquire("core")
+    limiter_a.acquire("core")
+    limiter_b.acquire("core")
 
     assert (
         limiter_a.get_global_request_count(),
@@ -836,22 +823,21 @@ def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> Non
                 raise KeyError("expected_key_error")
 
 
-def test_rate_limiter_acquire_propagates_unresolvable_quota_error(tmp_path: Path) -> None:
+def test_rate_limiter_acquire_propagates_unresolvable_quota_error(
+    tmp_path: Path, clock: ClockFake
+) -> None:
     """Verify acquire propagates GitHubRateLimitError when quota state cannot be resolved."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file, min_interval=0.05)
 
-    with (
-        patch.object(
-            limiter,
-            "_resolve_quota_state",
-            side_effect=GitHubRateLimitError("offline"),
-        ),
-        patch("time.sleep") as mock_sleep,
+    with patch.object(
+        limiter,
+        "_resolve_quota_state",
+        side_effect=GitHubRateLimitError("offline"),
     ):
         with pytest.raises(GitHubRateLimitError, match="offline"):
             limiter.acquire("core")
-        mock_sleep.assert_not_called()
+        assert clock.waits == []
 
 
 def test_extract_rate_limit_endpoint_response_valid() -> None:
@@ -919,13 +905,15 @@ def test_extract_rate_limit_endpoint_response_malformed_metric_raises() -> None:
     assert "Malformed rate limit metric" in str(exc_info.value)
 
 
-def test_rate_limiter_prune_expired_cache_ephemeral_and_disk(tmp_path: Path) -> None:
+def test_rate_limiter_prune_expired_cache_ephemeral_and_disk(
+    tmp_path: Path, clock: ClockFake
+) -> None:
     """Verify prune_expired_cache purges expired entries from both memory and disk."""
     quota_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=quota_file)
     limiter.set_cached("valid_key", "valid_data", ttl=3600.0)
     limiter.set_cached("expired_key", "expired_data", ttl=0.01)
-    time.sleep(0.05)
+    clock.sleep(0.05)
 
     pruned = limiter.prune_expired_cache()
     valid_res = limiter.get_cached("valid_key")
@@ -1059,7 +1047,7 @@ def test_the_rate_limit_check_reads_every_rate_limit_row_of_the_gh_output_table(
 
 
 def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
 ) -> None:
     """gh's first answer names a secondary rate limit in words only the secondary rows hold:
     `run_gh` waits at least the secondary floor and sends the command again (#983)."""
@@ -1069,15 +1057,11 @@ def test_run_gh_backs_off_on_a_rate_limit_only_a_secondary_row_names(
         ["gh", "api", "issues"], 1, "", "gh: Please retry your request again later. (HTTP 403)"
     )
     answered = subprocess.CompletedProcess(["gh", "api", "issues"], 0, "[]", "")
-    with (
-        patch(
-            "devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]
-        ) as run,
-        patch("time.sleep") as sleep,
-    ):
+    with patch(
+        "devops_cli.github.rate_limiter.run_subprocess", side_effect=[refused, answered]
+    ) as run:
         res = run_gh(["api", "issues"], max_retries=2)
-    waits = [recorded.args[0] for recorded in sleep.call_args_list]
-    assert (res.returncode, run.call_count, max(waits) >= limiter.secondary_rate_wait) == (
+    assert (res.returncode, run.call_count, max(clock.waits) >= limiter.secondary_rate_wait) == (
         0,
         2,
         True,
@@ -1098,7 +1082,7 @@ _PARTIAL_GRAPHQL_ANSWER = (
     ],
 )
 def test_run_gh_backs_off_on_gh_s_stderr_never_on_github_s_answer_on_stdout(
-    monkeypatch: pytest.MonkeyPatch, title: str
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, title: str
 ) -> None:
     """A failed `gh api graphql` copies GitHub's partial answer, issue titles included, to
     stdout and writes only `gh: <message>` to stderr. A title that reads like a rate limit is
@@ -1111,16 +1095,12 @@ def test_run_gh_backs_off_on_gh_s_stderr_never_on_github_s_answer_on_stdout(
         _PARTIAL_GRAPHQL_ANSWER.format(title=title),
         "gh: Resource not accessible by integration",
     )
-    with (
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed) as run,
-        patch("time.sleep") as sleep,
-    ):
+    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=failed) as run:
         res = run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"], max_retries=2)
-    waits = [recorded.args[0] for recorded in sleep.call_args_list]
     assert (
         res.returncode,
         run.call_count,
-        max(waits, default=0.0) < limiter.secondary_rate_wait,
+        max(clock.waits, default=0.0) < limiter.secondary_rate_wait,
     ) == (
         1,
         1,
@@ -1554,10 +1534,11 @@ def test_graphql_core_is_imported_only_to_classify_a_graphql_request(
     )
 
 
-def test_the_write_interval_holds_across_resources() -> None:
+def test_the_write_interval_holds_across_resources(clock: ClockFake) -> None:
     """A REST write and a GraphQL write acquired at the same instant are scheduled at least
     `mutation_min_interval` apart; a GraphQL query at that instant is paced by its quota."""
     now = 1_000_000.0
+    clock.move_to(now)
 
     def limiter() -> GitHubRateLimiter:
         fresh = GitHubRateLimiter(mutation_min_interval=1.0)
@@ -1565,14 +1546,16 @@ def test_the_write_interval_holds_across_resources() -> None:
             fresh.update_quota(resource, remaining=5000, limit=5000, reset_epoch=now + 3600.0)
         return fresh
 
-    with patch("time.time", return_value=now), patch("time.sleep") as sleep:
-        writes = limiter()
-        rest_write = writes.acquire("core", is_mutation=True)
-        graphql_write = writes.acquire("graphql", is_mutation=True)
-        reads = limiter()
-        reads.acquire("core", is_mutation=True)
-        graphql_read = reads.acquire("graphql")
-    assert (rest_write, graphql_write, graphql_read, sleep.call_count) == (
+    writes = limiter()
+    rest_write = writes.acquire("core", is_mutation=True)
+    clock.move_to(now)
+    graphql_write = writes.acquire("graphql", is_mutation=True)
+    clock.move_to(now)
+    reads = limiter()
+    reads.acquire("core", is_mutation=True)
+    clock.move_to(now)
+    graphql_read = reads.acquire("graphql")
+    assert (rest_write, graphql_write, graphql_read, len(clock.waits)) == (
         1.0,
         2.0,
         pytest.approx(0.72),
@@ -1588,32 +1571,32 @@ def _write_pacing_limiter(now: float, *, core_remaining: int = 5000) -> GitHubRa
     return limiter
 
 
-def test_a_write_pushed_by_another_resource_does_not_delay_reads_after_it() -> None:
+def test_a_write_pushed_by_another_resource_does_not_delay_reads_after_it(
+    clock: ClockFake,
+) -> None:
     """A core write pushed to 2.0 s by a GraphQL write leaves core's own schedule at its
     quota's pace, so a core read after it waits 1.0 s plus core's pace (about 0.72 s), as it
     would with no GraphQL write."""
     now = 1_000_000.0
-    with patch("time.time", return_value=now), patch("time.sleep"):
-        limiter = _write_pacing_limiter(now)
-        sleeps = [
-            limiter.acquire("graphql", is_mutation=True),
-            limiter.acquire("core", is_mutation=True),
-            limiter.acquire("core"),
-        ]
+    clock.move_to(now)
+    limiter = _write_pacing_limiter(now)
+    sleeps = []
+    for resource, is_mutation in (("graphql", True), ("core", True), ("core", False)):
+        clock.move_to(now)
+        sleeps.append(limiter.acquire(resource, is_mutation=is_mutation))
     assert sleeps == [1.0, 2.0, pytest.approx(1.72, abs=0.01)]
 
 
-def test_a_read_does_not_wait_out_another_resources_quota_reset() -> None:
+def test_a_read_does_not_wait_out_another_resources_quota_reset(clock: ClockFake) -> None:
     """With core's quota spent, a core write waits for core's reset and a GraphQL write after it
     keeps the interval, but a GraphQL read is paced by the GraphQL quota alone."""
     now = 1_000_000.0
-    with patch("time.time", return_value=now), patch("time.sleep"):
-        limiter = _write_pacing_limiter(now, core_remaining=0)
-        sleeps = [
-            limiter.acquire("core", is_mutation=True),
-            limiter.acquire("graphql", is_mutation=True),
-            limiter.acquire("graphql"),
-        ]
+    clock.move_to(now)
+    limiter = _write_pacing_limiter(now, core_remaining=0)
+    sleeps = []
+    for resource, is_mutation in (("core", True), ("graphql", True), ("graphql", False)):
+        clock.move_to(now)
+        sleeps.append(limiter.acquire(resource, is_mutation=is_mutation))
     assert sleeps == [3600.0, 3601.0, pytest.approx(1.72, abs=0.01)]
 
 
@@ -1661,10 +1644,7 @@ def test_run_gh_charges_graphql_by_the_points_the_response_reports() -> None:
 
     query = ["api", "graphql", "-f", "query=query { viewer { login } }"]
     limiter = get_github_rate_limiter()
-    with (
-        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
+    with patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh):
         charged = []
         for _ in range(3):
             run_gh(query)
@@ -1726,33 +1706,29 @@ def _window(remaining: int, reset: float, limit: int = 5000) -> dict[str, int]:
 
 
 @contextmanager
-def _clock_at(now: float, gh: _GhAtTheReset, *, stored_core_reset: float) -> Iterator[MagicMock]:
+def _clock_at(
+    clock: ClockFake, now: float, gh: _GhAtTheReset, *, stored_core_reset: float
+) -> Iterator[ClockFake]:
     """Freeze the clock at `now` with gh faked, store a `core` window that resets at
     `stored_core_reset`, and yield the recorder of every wait."""
-    with (
-        patch("subprocess.run", side_effect=gh),
-        patch("time.time", return_value=now),
-        patch("time.sleep") as sleep,
-    ):
+    clock.move_to(now)
+    clock.waits.clear()
+    with patch("subprocess.run", side_effect=gh):
         get_github_rate_limiter().update_quota(
             "core", remaining=7, limit=5000, used=4993, reset_epoch=stored_core_reset
         )
-        yield sleep
-
-
-def _waits(sleep: MagicMock) -> list[float]:
-    return [recorded.args[0] for recorded in sleep.call_args_list]
+        yield clock
 
 
 def test_a_call_just_past_a_reset_waits_out_the_reset_second(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, clock: ClockFake
 ) -> None:
     """GitHub still reports the window that reset 0.5 s ago: the call refreshes once, waits until a
     second past that reset and runs, logging the boundary once. The request is not counted against
     the old window."""
     caplog.set_level(logging.INFO, logger="devops_cli.github.rate_limiter")
     gh = _GhAtTheReset({"core": _window(7, _RESET)})
-    with _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep:
+    with _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET):
         proc = run_gh(_ISSUES)
         core = get_github_rate_limiter().get_quota("core")
     boundary = [r.getMessage() for r in caplog.records if "quota window reset" in r.getMessage()]
@@ -1760,7 +1736,7 @@ def test_a_call_just_past_a_reset_waits_out_the_reset_second(
         proc.returncode,
         gh.refreshes(),
         gh.commands(),
-        _waits(sleep),
+        clock.waits,
         (core.remaining, core.used),
         boundary,
     ) == (
@@ -1776,36 +1752,38 @@ def test_a_call_just_past_a_reset_waits_out_the_reset_second(
     )
 
 
-def test_a_call_after_an_idle_hour_paces_from_the_new_window() -> None:
+def test_a_call_after_an_idle_hour_paces_from_the_new_window(clock: ClockFake) -> None:
     """A stored window that ended an hour ago refreshes into the new one and paces from it:
     3,600 s over 5,000 requests is 0.72 s, with no clock error."""
     gh = _GhAtTheReset({"core": _window(5000, _RESET + 3600.0)})
-    with _clock_at(_RESET, gh, stored_core_reset=_RESET - 3600.0) as sleep:
+    with _clock_at(clock, _RESET, gh, stored_core_reset=_RESET - 3600.0):
         proc = run_gh(_ISSUES)
-    waits = [round(wait, 2) for wait in _waits(sleep)]
+    waits = [round(wait, 2) for wait in clock.waits]
     assert (proc.returncode, gh.refreshes(), gh.commands(), waits) == (0, 1, [_ISSUES], [0.72])
 
 
-def test_a_clock_within_the_bound_past_the_reset_runs_and_refreshes_again() -> None:
+def test_a_clock_within_the_bound_past_the_reset_runs_and_refreshes_again(
+    clock: ClockFake,
+) -> None:
     """The clock is 2 s past a reset GitHub keeps repeating: each call runs with no wait, and the
     next call refreshes again before it runs."""
     gh = _GhAtTheReset({"core": _window(7, _RESET)})
-    with _clock_at(_RESET + 2.0, gh, stored_core_reset=_RESET) as sleep:
+    with _clock_at(clock, _RESET + 2.0, gh, stored_core_reset=_RESET):
         codes = [run_gh(_ISSUES).returncode, run_gh(_ISSUES).returncode]
-    assert (codes, gh.argvs, _waits(sleep)) == (
+    assert (codes, gh.argvs, clock.waits) == (
         [0, 0],
         [_RATE_LIMIT, _ISSUES, _RATE_LIMIT, _ISSUES],
         [],
     )
 
 
-def test_a_clock_past_the_bound_fails_closed_naming_both_clocks() -> None:
+def test_a_clock_past_the_bound_fails_closed_naming_both_clocks(clock: ClockFake) -> None:
     """GitHub's fresh answer resets 60 s before the local clock: the clocks disagree, the error
     names the reset, the clock and the gap, carries no `reset_epoch` a pause could key on, and the
     command never runs."""
     gh = _GhAtTheReset({"core": _window(7, _RESET)})
     with (
-        _clock_at(_RESET + 60.0, gh, stored_core_reset=_RESET) as sleep,
+        _clock_at(clock, _RESET + 60.0, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubRateLimitError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1815,7 +1793,7 @@ def test_a_clock_past_the_bound_fails_closed_naming_both_clocks() -> None:
         {key: details.get(key) for key in ("reported_reset", "local_clock", "gap_seconds")},
         "reset_epoch" in details,
         gh.commands(),
-        _waits(sleep),
+        clock.waits,
     ) == (
         "The local clock and GitHub's disagree: GitHub's 'core' quota window reset at "
         "2026-10-08T12:00:00Z and the local clock reads 2026-10-08T12:01:00Z, 60.00s past it, "
@@ -1831,12 +1809,12 @@ def test_a_clock_past_the_bound_fails_closed_naming_both_clocks() -> None:
     )
 
 
-def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
+def test_a_failed_refresh_fails_closed_naming_the_gh_failure(clock: ClockFake) -> None:
     """`gh api rate_limit` exits 1 with a 502: the unread error names gh's failure and the
     command never runs."""
     gh = _GhAtTheReset({}, refusal=(1, "HTTP 502: Bad Gateway"))
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep,
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1845,7 +1823,7 @@ def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
         raised.value.message,
         gh.refreshes(),
         gh.commands(),
-        _waits(sleep),
+        clock.waits,
     ) == (
         GitHubUnreadError,
         "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
@@ -1877,7 +1855,10 @@ def test_a_failed_refresh_fails_closed_naming_the_gh_failure() -> None:
     ],
 )
 def test_a_failed_refresh_raises_the_class_the_gh_classifier_names_or_unread(
-    refusal: tuple[int, str], error: type[GitHubOperationError], status: int | None
+    clock: ClockFake,
+    refusal: tuple[int, str],
+    error: type[GitHubOperationError],
+    status: int | None,
 ) -> None:
     """A failed refresh raises the class the gh classifier names: GitHub refusing gh's token
     (HTTP 401) or gh exiting 4 ("requires authentication") the unauthenticated error, a rate
@@ -1885,7 +1866,7 @@ def test_a_failed_refresh_raises_the_class_the_gh_classifier_names_or_unread(
     carries gh's exit status and the status gh wrote, as ints, and the command never runs."""
     gh = _GhAtTheReset({}, refusal=refusal)
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1899,12 +1880,12 @@ def test_a_failed_refresh_raises_the_class_the_gh_classifier_names_or_unread(
     ) == (error, status, refusal[0], "refresh_quota", [])
 
 
-def test_a_refresh_that_times_out_leaves_the_quota_unread() -> None:
+def test_a_refresh_that_times_out_leaves_the_quota_unread(clock: ClockFake) -> None:
     """`gh api rate_limit` running past its timeout raises the unread error naming the
     timeout, not a raw `TimeoutExpired`, and the command never runs."""
     gh = _GhAtTheReset({}, times_out=True)
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1917,13 +1898,13 @@ def test_a_refresh_that_times_out_leaves_the_quota_unread() -> None:
     ) == (GitHubUnreadError, "refresh_quota", True, 1, [])
 
 
-def test_an_empty_refresh_answer_leaves_the_quota_unread() -> None:
+def test_an_empty_refresh_answer_leaves_the_quota_unread(clock: ClockFake) -> None:
     """`gh api rate_limit` exiting 0 with nothing on stdout raises the unread error, so a
     caller that stops on a rate limit, such as intake, does not stop on it, and the command
     never runs."""
     gh = _GhAtTheReset({}, refusal=(0, ""))
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET),
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubOperationError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1936,14 +1917,14 @@ def test_an_empty_refresh_answer_leaves_the_quota_unread() -> None:
     ) == (GitHubUnreadError, "GitHub rate_limit API returned empty output", "refresh_quota", 1, [])
 
 
-def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> None:
+def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry(clock: ClockFake) -> None:
     """The stored `core` window reset 0.5 s ago and GitHub's answer lists only `graphql` and
     `search`: the error names `core` and the listed resources, and the command never runs."""
     gh = _GhAtTheReset(
         {"graphql": _window(4000, _RESET + 1800.0), "search": _window(30, _RESET + 60.0, limit=30)}
     )
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep,
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
         pytest.raises(GitHubRateLimitError) as raised,
     ):
         run_gh(_ISSUES)
@@ -1953,7 +1934,7 @@ def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> Non
         details.get("reported_resources"),
         "reset_epoch" in details,
         gh.commands(),
-        _waits(sleep),
+        clock.waits,
     ) == (
         "GitHub's rate_limit answer has no 'core' quota with remaining and reset; "
         "it reports: graphql, search",
@@ -1964,16 +1945,17 @@ def test_an_answer_without_the_resource_fails_closed_over_a_stale_entry() -> Non
     )
 
 
-def test_two_workers_at_the_reset_both_wait_it_out_and_run() -> None:
+def test_two_workers_at_the_reset_both_wait_it_out_and_run(clock: ClockFake) -> None:
     """Two threads call `run_gh` at the boundary of the first case: each refreshes, waits 0.5 s
     and runs its command, and neither raises."""
     gh = _GhAtTheReset({"core": _window(7, _RESET)})
     with (
-        _clock_at(_RESET + 0.5, gh, stored_core_reset=_RESET) as sleep,
+        _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET),
+        clock.concurrent_sleeps(2),
         ThreadPoolExecutor(max_workers=2) as workers,
     ):
         codes = list(workers.map(lambda _: run_gh(_ISSUES).returncode, range(2)))
-    assert (codes, gh.refreshes(), gh.commands(), _waits(sleep)) == (
+    assert (codes, gh.refreshes(), gh.commands(), clock.waits) == (
         [0, 0],
         2,
         [_ISSUES, _ISSUES],

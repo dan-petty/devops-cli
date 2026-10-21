@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 from devops_cli.config.constants import CONST_FORBIDDEN_SYSTEM_DIRS
 from devops_cli.exceptions import ValidationError
@@ -187,7 +188,7 @@ def validate_path_parameter(
             p.is_absolute()
             or raw_str.startswith(("/", "\\"))
             or unquoted.startswith(("/", "\\", "~"))
-            or "://" in unquoted
+            or bool(urlsplit(unquoted).scheme)
         )
         if is_abs:
             raise error_cls(

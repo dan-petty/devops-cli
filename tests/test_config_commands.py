@@ -13,6 +13,8 @@ from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.settings import SecretStorageError, Settings
 from devops_cli.exceptions.config import ConfigurationError
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

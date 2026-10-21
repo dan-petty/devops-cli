@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "tool:tflint@0.55.*"
+sources:
+  - "https://github.com/terraform-linters/tflint"
+reviewed: "2026-10-15"
+tags:
+  - "tflint"
+  - "iac"
+  - "terraform"
+---
+
 # TFLint Tool Reference Manual
 
 ## 1. Overview & Operational Mandate

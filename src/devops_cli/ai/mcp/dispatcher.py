@@ -369,3 +369,13 @@ def get_mcp_dispatcher() -> InProcessDispatcher:
         if _DISPATCHER_INSTANCE is None:
             _DISPATCHER_INSTANCE = InProcessDispatcher()
         return _DISPATCHER_INSTANCE
+
+
+def reset_mcp_dispatcher() -> None:
+    """Reset the global InProcessDispatcher singleton and dry-run invocation counters."""
+    global _DISPATCHER_INSTANCE, _dry_runs, _invocation_before
+    with _DISPATCHER_LOCK:
+        _DISPATCHER_INSTANCE = None
+    with _DRY_RUN_LOCK:
+        _dry_runs = 0
+        _invocation_before = False
