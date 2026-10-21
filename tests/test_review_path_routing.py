@@ -280,6 +280,7 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
         target_type="branch",
         target_ref=target,
         target_dir=root,
+        stage_flags=ReviewStageFlags(group_analysis=False),
         base_revision=base_revision,
     )
 

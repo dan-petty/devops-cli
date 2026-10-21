@@ -173,6 +173,14 @@ class _FakeAnalysisClient:
         reason = self._resolve_finish_reason(group_id)
         return LLMResponse(content=content, finish_reason=reason)
 
+    def chat_messages(
+        self,
+        system: str = "",
+        messages: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        return self.chat(system, str(messages), **kwargs)
+
 
 def test_group_findings_for_analysis_deterministically_groups_regions_k8s_and_advisories() -> None:
     """Regions group by (path, enclosing_symbol), K8s by (manifest, object), advisories by (lockfile, purl)."""
@@ -1360,3 +1368,161 @@ def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> No
     assert sarif_bytes_on == sarif_bytes_off
     assert (dir_stage_on / CONST_REVIEW_ANALYSIS_FILENAME).is_file()
     assert not (dir_stage_off / CONST_REVIEW_ANALYSIS_FILENAME).exists()
+
+
+@pytest.mark.usefixtures("scanner_fake")
+def test_review_path_without_model_stages_builds_no_llm_client(tmp_path: Path) -> None:
+    """devops review path with --no-persona-review --no-group-analysis exits 0 without building LLMClient."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.client import LLMClient
+
+    test_file = tmp_path / "app.py"
+    test_file.write_text("print('hello world')\n", encoding="utf-8")
+
+    def _fail_on_client_init(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("LLMClient constructed when no model stages enabled")
+
+    with (
+        patch.object(LLMClient, "__init__", side_effect=_fail_on_client_init),
+        patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
+        patch(
+            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
+            return_value=tmp_path / "reviews",
+        ),
+    ):
+        result = cli.invoke(
+            app,
+            [
+                "review",
+                "path",
+                str(test_file),
+                "--no-persona-review",
+                "--no-group-analysis",
+            ],
+        )
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+
+@pytest.mark.usefixtures("scanner_fake")
+def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_json(
+    tmp_path: Path,
+) -> None:
+    """--no-group-analysis makes zero calls to a fake client and writes no analysis.json."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.review.runner import ReviewClients
+
+    test_file = tmp_path / "app.py"
+    test_file.write_text("print('hello')\n", encoding="utf-8")
+    fake_client = _FakeAnalysisClient({})
+
+    reviews_dir = tmp_path / "reviews"
+    reviews_dir.mkdir(parents=True, exist_ok=True)
+
+    with (
+        patch(
+            "devops_cli.commands.review._make_review_clients",
+            return_value=ReviewClients(analysis=fake_client),
+        ),
+        patch(
+            "devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator.execute_multi_persona_review"
+        ),
+        patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
+        patch("devops_cli.ai.review.pipeline._get_reviews_base_dir", return_value=reviews_dir),
+        patch(
+            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
+            return_value=reviews_dir,
+        ),
+    ):
+        result = cli.invoke(
+            app,
+            [
+                "review",
+                "path",
+                str(test_file),
+                "--no-group-analysis",
+            ],
+        )
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert len(fake_client.calls) == 0
+        analysis_files = list(reviews_dir.glob("*/analysis.json"))
+        assert len(analysis_files) == 0
+
+
+def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
+    tmp_path: Path,
+) -> None:
+    """A review whose every file is routed to secret scan alone, with 1 admitted Gitleaks finding, calls fake client once and writes analysis.json."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.personas import Persona
+    from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
+    from devops_cli.security.gitleaks import ScanOutcome
+
+    reviews_dir = tmp_path / "reviews"
+    reviews_dir.mkdir(parents=True, exist_ok=True)
+
+    gl_finding = Finding(
+        anchor=ToolAnchor(run_id="r1", result_index=0, rule_id="generic-api-key"),
+        tool="gitleaks",
+        tool_version="8.18.0",
+        rule_id="generic-api-key",
+        path="uv.lock",
+        line=1,
+        end_line=1,
+        message="Generic API Key found",
+        description="Leaked API Key",
+        severity="CRITICAL",
+        severity_derivation="rule",
+        state=FindingState.OPEN,
+        fingerprint_v2="fp-gitleaks-secret-1",
+    )
+    fake_client = _FakeAnalysisClient(
+        {
+            "generic-api-key": {
+                "group_id": "generic-api-key",
+                "explanation": "Valid secret finding",
+                "findings": ["fp-gitleaks-secret-1"],
+                "cross_group_correlations": [],
+            }
+        }
+    )
+
+    lock_file = tmp_path / "uv.lock"
+    lock_file.write_text("secret_token = 'secret'\n", encoding="utf-8")
+
+    with (
+        patch(
+            "devops_cli.security.gitleaks.run_gitleaks_scan",
+            return_value=ScanOutcome("ran", [gl_finding]),
+        ),
+        patch(
+            "devops_cli.security.semgrep.run_semgrep_scan", return_value=ScanOutcome("skipped", [])
+        ),
+        patch(
+            "devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("skipped", [])
+        ),
+        patch("devops_cli.ai.review.pipeline._get_reviews_base_dir", return_value=reviews_dir),
+        patch(
+            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
+            return_value=reviews_dir,
+        ),
+    ):
+        result = _execute_review_workflow(
+            pages=[],
+            title="Routed files review",
+            all_personas=False,
+            persona=Persona.DEVSECOPS,
+            summary_only=False,
+            clients=ReviewClients(analysis=fake_client),
+            target_type="path",
+            target_ref="uv.lock",
+            target_dir=tmp_path,
+            routed_files=["uv.lock"],
+            session_id="session_routed",
+        )
+        assert len(result) == 1
+        assert len(fake_client.calls) == 1
+        analysis_path = reviews_dir / "session_routed" / CONST_REVIEW_ANALYSIS_FILENAME
+        assert analysis_path.is_file()

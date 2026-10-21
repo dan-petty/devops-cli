@@ -37,8 +37,13 @@ class ReviewStageFlags(BaseModel):
             "static_scan": self.static_scan,
             "persona_review": self.persona_review,
             "reranking": self.reranking,
+            "group_analysis": self.group_analysis,
             "reporting": self.reporting,
         }
+
+    def needs_model(self) -> bool:
+        """Return True if any model-driven stage is enabled."""
+        return self.persona_review or self.group_analysis
 
 
 def resolve_stage_flags(
@@ -52,7 +57,6 @@ def resolve_stage_flags(
     no_reranking: bool = False,
     reranking_only: bool = False,
     no_group_analysis: bool = False,
-    group_analysis_only: bool = False,
     no_reporting: bool = False,
     reporting_only: bool = False,
     **kwargs: Any,
@@ -69,7 +73,6 @@ def resolve_stage_flags(
         "static_scan": static_scan_only,
         "persona_review": persona_review_only,
         "reranking": reranking_only,
-        "group_analysis": group_analysis_only,
         "reporting": reporting_only,
     }
     has_only = any(only_flags.values())
@@ -80,7 +83,7 @@ def resolve_stage_flags(
             static_scan=static_scan_only and not no_static_scan,
             persona_review=persona_review_only and not no_persona_review,
             reranking=reranking_only and not no_reranking,
-            group_analysis=group_analysis_only and not no_group_analysis,
+            group_analysis=False,
             reporting=reporting_only and not no_reporting,
         )
 

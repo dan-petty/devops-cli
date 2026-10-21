@@ -1380,6 +1380,7 @@ class ReviewCommandHelp:
     persona_review_only: str = "Run persona review only and skip subsequent stages."
     no_reranking: str = "Disable finding re-ranking and deduplication."
     reranking_only: str = "Run re-ranking only and skip subsequent stages."
+    no_group_analysis: str = "Disable model-driven group analysis."
     no_reporting: str = "Disable consolidated report generation."
     reporting_only: str = "Run report generation only."
     append_cache: str = "Append cached response to the LLM prompt as context instead of using it directly as the final response."
