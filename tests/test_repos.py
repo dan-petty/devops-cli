@@ -619,16 +619,11 @@ def test_worktrees_of_a_bare_repository_check_themselves(
     assert roots == [feature.resolve(), feature.resolve(), other.resolve()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#582 known limit: a directory holding .git or pyproject.toml above the checkout",
-)
 def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
     tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """Verify a nested worktree of a checkout that lies below another repository, such as a
-    dotfiles repository at `$HOME`, checks itself. Today the top-most rule resolves the
-    checkout to that outer directory, and its worktree with it, as a `repos/` clone's does."""
+    dotfiles repository at `$HOME`, checks itself and resolves to its own repository (#617)."""
     outer = tmp_path / "outer"
     outer.mkdir()
     git(outer, "init", "--quiet")
@@ -639,15 +634,29 @@ def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
     nested = checkout / ".claude" / "worktrees" / "wt"
     git(checkout, "worktree", "add", "--quiet", "-b", "nested", str(nested))
 
-    assert find_worktree_root(nested) == nested.resolve()
+    assert (
+        find_worktree_root(nested),
+        main_worktree_root(nested),
+        find_top_level_repo_root(nested),
+        find_worktree_root(checkout),
+        main_worktree_root(checkout),
+        find_top_level_repo_root(checkout),
+    ) == (
+        nested.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+    )
 
 
 def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
     workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """Verify a live worktree of an external repository, nested in the workspace, and its
-    subdirectory check that worktree, while the data directory stays the workspace's: the data
-    root starts from the top-most root, not from the tree the gate checks."""
+    subdirectory check that worktree and resolve to their own repository, not the workspace
+    around them (#617)."""
     main = workspace_with_worktrees.main
     external = main / ".claude" / "worktrees" / "lib"
     git(tmp_path / "library", "worktree", "add", "--quiet", "-b", "ext", str(external))
@@ -660,7 +669,54 @@ def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
         main_worktree_root(external / "sub"),
     )
 
-    assert roots == (external.resolve(),) * 2 + (main.resolve(),) * 2
+    library = (tmp_path / "library").resolve()
+    assert roots == (external.resolve(),) * 2 + (library,) * 2
+
+
+def test_deeply_nested_unrelated_checkouts_and_worktrees_resolve_to_own_repositories(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify checkouts and worktrees nested at multiple levels resolve to their own repositories,
+    regardless of how many unrelated repositories or projects enclose them (#617)."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    git(outer, "init", "--quiet")
+
+    middle = outer / "sub" / "middle"
+    middle.mkdir(parents=True)
+    git(middle, "init", "--quiet")
+
+    inner = middle / "vendor" / "inner"
+    inner.mkdir(parents=True)
+    git(inner, "init", "--quiet")
+    git(inner, "commit", "--quiet", "--allow-empty", "-m", "init")
+
+    worktree = inner / ".worktrees" / "wt"
+    git(inner, "worktree", "add", "--quiet", "-b", "wt", str(worktree))
+
+    assert (
+        find_top_level_repo_root(worktree),
+        find_worktree_root(worktree),
+        main_worktree_root(worktree),
+    ) == (inner.resolve(), worktree.resolve(), inner.resolve())
+
+    assert (
+        find_top_level_repo_root(inner),
+        find_worktree_root(inner),
+        main_worktree_root(inner),
+    ) == (inner.resolve(), inner.resolve(), inner.resolve())
+
+    assert (
+        find_top_level_repo_root(middle),
+        find_worktree_root(middle),
+        main_worktree_root(middle),
+    ) == (middle.resolve(), middle.resolve(), middle.resolve())
+
+    assert (
+        find_top_level_repo_root(outer),
+        find_worktree_root(outer),
+        main_worktree_root(outer),
+    ) == (outer.resolve(), outer.resolve(), outer.resolve())
 
 
 def test_an_undecodable_git_file_resolves_to_the_workspace(
