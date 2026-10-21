@@ -154,6 +154,7 @@ def test_the_baseline_rule_set() -> None:
         ("NodeNotReady", "critical"),
         ("NodeRebooted", "warning"),
         ("PersistentVolumeSpaceLow", "warning"),
+        ("PodLogsNotShipped", "warning"),
         ("PrometheusCompactionsFailing", "warning"),
         ("PrometheusConfigReloadFailed", "warning"),
         ("PrometheusDroppingAlerts", "warning"),
@@ -369,9 +370,11 @@ def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> N
         group["name"]: group["rules"]
         for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
     }
+    drop_alerts = {"AlloyRemoteWriteSamplesFailed", "AlloyLogEntriesDropped"}
     pipeline_rules = [
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
         for rule in groups["homelab-telemetry-pipeline"]
+        if rule["alert"] in drop_alerts
     ]
     integrations = _yaml(K8S_MONITORING_VALUES)["integrations"]
     (alloy,) = integrations["alloy"]["instances"]
@@ -406,9 +409,38 @@ def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> N
     )
 
 
+def test_pod_logs_not_shipped_alerts_with_node_from_pod_info() -> None:
+    """`PodLogsNotShipped` alerts when an `alloy-logs` pod sends no entries to Loki for 30m,
+    joining `node` from `kube_pod_info` so a node-maintenance silence covers it (#890)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    (rule,) = [
+        rule
+        for rule in groups["homelab-telemetry-pipeline"]
+        if rule["alert"] == "PodLogsNotShipped"
+    ]
+
+    assert (
+        rule["alert"],
+        rule["expr"],
+        rule["for"],
+        rule["labels"]["severity"],
+    ) == (
+        "PodLogsNotShipped",
+        'sum by (namespace, pod) (rate(loki_write_sent_entries_total{job="integrations/alloy", pod=~".*alloy-logs.*"}[5m]))'
+        " * on (namespace, pod) group_left (node)"
+        " max by (namespace, pod, node) (kube_pod_info)"
+        " == 0",
+        "30m",
+        "warning",
+    )
+
+
 def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_list() -> None:
-    """Every metric in `homelab-telemetry-pipeline` is kept by the Alloy integration's default
-    allow list, whose fixture matches the `k8s-monitoring` chart pin (#1131)."""
+    """Every Alloy metric in `homelab-telemetry-pipeline` is kept by the Alloy integration's
+    default allow list, whose fixture matches the `k8s-monitoring` chart pin (#1131)."""
     from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
 
     (k8s_monitoring,) = [
@@ -425,6 +457,7 @@ def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_lis
         selector.metric
         for rule in groups["homelab-telemetry-pipeline"]
         for selector in selectors(rule["expr"])
+        if "job" in selector.labels
     }
 
     assert (
