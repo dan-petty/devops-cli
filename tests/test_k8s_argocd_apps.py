@@ -221,6 +221,29 @@ def _assert_kustomization_resources(p: Path, name: str) -> None:
             assert res_p.exists(), f"{name} resource {res_p} does not exist"
 
 
+def test_the_collector_starts_after_the_tempo_it_exports_traces_to() -> None:
+    """The collector's `otlp_grpc/tempo` exporter has a Tempo to reach when the collector
+    starts, in both deploy paths, so its first export does not log a burst of `connection
+    refused` that reads later like an outage (#409): `deploy-stack` installs tempo before
+    otel-collector, and the cluster app-of-apps syncs the otel-collector Application in a later
+    sync wave than tempo's."""
+    exporter = _load_yaml(K8S_DIR / "otel" / "values.yaml")["config"]["exporters"][
+        "otlp_grpc/tempo"
+    ]["endpoint"]
+    waves = {
+        name: int(app["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave", "0"))
+        for name, app in _all_applications().items()
+        if name in {"tempo", "otel-collector"}
+    }
+    order = [release["name"] for release in _HELM_RELEASES_BY_STACK["infra"]]
+
+    assert (
+        exporter.startswith("tempo.otel."),
+        order.index("tempo") < order.index("otel-collector"),
+        waves["tempo"] < waves["otel-collector"],
+    ) == (True, True, True)
+
+
 def test_paths_and_kustomizations_exist() -> None:
     apps = _all_applications()
     for name, app in apps.items():
