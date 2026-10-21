@@ -47,10 +47,7 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
     assert (
         tempo_release,
         tempo_values.get("persistence", {}).get("storageClassName"),
-        tempo_values.get("tempo", {})
-        .get("compactor", {})
-        .get("compaction", {})
-        .get("block_retention"),
+        tempo_values.get("tempo", {}).get("retention"),
         collector_values.get("config", {})
         .get("exporters", {})
         .get("otlp_grpc/tempo", {})
@@ -77,6 +74,19 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
         "loki",
         [],
     )
+
+
+def test_tempo_runs_the_charts_own_config_so_a_chart_bump_cannot_leave_a_stale_copy() -> None:
+    """The values leave the chart's `config` template to the chart. Tempo 3 removed the `compactor`
+    and `ingester` blocks, and a copy of the Tempo 2 template kept in the values made the pod exit
+    at start (#1813). Retention is `tempo.retention`, which the chart turns into the block retention."""
+    values = yaml.safe_load(Path("k8s/otel/tempo-values.yaml").read_text(encoding="utf-8"))
+
+    assert (
+        "config" in values,
+        "compactor" in values.get("tempo", {}),
+        values.get("tempo", {}).get("retention"),
+    ) == (False, False, "168h")
 
 
 def test_tempo_pod_meets_the_otel_namespaces_restricted_pod_security() -> None:
