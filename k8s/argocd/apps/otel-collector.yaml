@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: otel-collector
   namespace: argocd
+  annotations:
+    # Syncs after tempo, which the collector's trace exporter reaches when it starts, so a first
+    # sync does not log a burst of `connection refused` that reads like an outage (#409).
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

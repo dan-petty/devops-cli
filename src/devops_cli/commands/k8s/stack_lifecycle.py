@@ -124,19 +124,20 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml"),
             "version": "4.8.4",
         },
-        {
-            "name": "otel-collector",
-            "chart": "open-telemetry/opentelemetry-collector",
-            "namespace": "otel",
-            "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
-            "version": "0.175.0",
-        },
+        # tempo first: the collector's trace exporter has a Tempo to reach when it starts (#409)
         {
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
             "values": str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml"),
             "version": "3.1.0",
+        },
+        {
+            "name": "otel-collector",
+            "chart": "open-telemetry/opentelemetry-collector",
+            "namespace": "otel",
+            "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
+            "version": "0.175.0",
         },
         {
             "name": "pyroscope",
