@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import sys
 
 import pytest
 from typer.testing import CliRunner
@@ -14,6 +15,16 @@ from devops_cli.commands.ai import app as ai_app
 pytest_plugins = ["pytester"]
 
 runner = CliRunner()
+
+# A pytester run puts `sys.modules` back as it was when the run ends, so a C extension that run
+# imported, such as numpy through `pytest-randomly`, would be loaded but no longer registered, and
+# the next import of it in the worker would raise "cannot load module more than once per process"
+# (#1807). The nested run records whether numpy was imported by its end.
+_RECORD_NUMPY_CONFTEST = (
+    "import sys\n\n\n"
+    "def pytest_sessionfinish(session):\n"
+    "    session.config.rootpath.joinpath('numpy_loaded').write_text(str('numpy' in sys.modules))\n"
+)
 
 
 def _test_function_bodies(code: str) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
@@ -49,10 +60,13 @@ def test_test_gen_emits_failing_scaffolds_without_presence_assertions(
     )
 
     pytester.makepyfile(test_math_ops=suite.test_code)
+    pytester.makeconftest(_RECORD_NUMPY_CONFTEST)
+    numpy_loaded_before = "numpy" in sys.modules
     run_result = pytester.runpytest_inprocess(
-        "-o", "addopts=", "-p", "no:cacheprovider", "-p", "no:asyncio"
+        "-o", "addopts=", "-p", "no:cacheprovider", "-p", "no:asyncio", "-p", "no:randomly"
     )
     outcomes = run_result.parseoutcomes()
+    leaves_numpy_as_found = (pytester.path / "numpy_loaded").read_text() == str(numpy_loaded_before)
 
     suite_filt = synthesize_unit_tests(sample, function_filter="multiply")
     empty_sample = pytester.path / "empty.py"
@@ -91,6 +105,7 @@ def test_test_gen_emits_failing_scaffolds_without_presence_assertions(
         "Synthesized" in res_dry.output,
         "scaffold" in mcp_doc.lower(),
         "Synthesize" in mcp_doc,
+        leaves_numpy_as_found,
     ) == (
         2,
         2,
@@ -114,4 +129,5 @@ def test_test_gen_emits_failing_scaffolds_without_presence_assertions(
         False,
         True,
         False,
+        True,
     )
