@@ -1055,6 +1055,7 @@ class CIMessages:
     uv_audit: str = "uv audit"
     deptry: str = "deptry"
     deps: str = "deptry"
+    constructs: str = "ast-grep scan (hand-rolled network constructs)"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     zizmor: str = "zizmor (github workflow security)"

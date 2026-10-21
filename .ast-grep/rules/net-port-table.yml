@@ -1,0 +1,8 @@
+id: net-port-table
+language: python
+severity: error
+message: Default-port table. httpx2.URL(value).origin fills in the scheme's default port.
+rule:
+  any:
+    - pattern: 443 if $C else 80
+    - pattern: 80 if $C else 443

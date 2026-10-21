@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
 
 from devops_cli.config.constants import (
+    CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SLOWEST_TESTS_SHOWN,
@@ -628,6 +629,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "deptry", "src"],
             span_name="ci.step.deps",
             metric_step="deps",
+        ),
+        CheckSpec(
+            name="constructs",
+            display_title=MESSAGES.ci.constructs,
+            cmd=["uv", "run", "ast-grep", *CONST_AST_GREP_SCAN_ARGS],
+            span_name="ci.step.constructs",
+            metric_step="constructs",
         ),
         CheckSpec(
             name="devcontainer",

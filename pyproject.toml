@@ -98,6 +98,7 @@ dev = [
     "deptry==0.25.1",
     "mutmut==3.8.0",
     "syrupy==6.1.1",
+    "ast-grep-cli==0.51.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -116,6 +117,7 @@ exclude = ["repos"]
 select = [
     "E", "F", "I", "N", "W", "UP", "B", "RUF", "ASYNC",
     "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017",
+    "TID251",
 ]
 ignore = [
     "E501",      # ruff format owns line length
@@ -129,6 +131,12 @@ allowed-confusables = ["–", "×", "ℹ"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"socket.inet_aton".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_ntoa".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_pton".msg = "Parse and format addresses with ipaddress.ip_address."
+"socket.inet_ntop".msg = "Parse and format addresses with ipaddress.ip_address."
 
 [tool.mypy]
 python_version = "3.14"

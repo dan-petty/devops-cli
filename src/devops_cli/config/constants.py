@@ -3973,6 +3973,7 @@ CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
         "extend-ignore",
         "allowed-confusables",
         "mccabe",
+        "flake8-tidy-imports",
         *CONST_RUFF_PER_FILE_IGNORE_KEYS,
     }
 )
@@ -4074,6 +4075,23 @@ CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
 )
 CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
     r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
+)
+CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "net-cidr-build",
+    "net-ip-literal",
+    "net-port-table",
+)
+CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
+    "scan",
+    "--error=unused-suppression",
+    "--error=no-suppress-all",
+    "src",
+)
+CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
 )
 
 # Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
