@@ -379,9 +379,17 @@ def test_backend_labels_drop_the_cluster_dns_suffix() -> None:
     """Verify in-cluster backends are labelled by pod or service, other backends by host."""
     assert [
         _backend_host("http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434"),
-        _backend_host("http://ollama-16gib.llm.svc.cluster.local:11434"),
+        _backend_host("http://OLLAMA-16GIB.llm.svc.cluster.local.:11434"),
+        _backend_host("http://evil-svc.cluster.local.evil.com:11434"),
+        _backend_host("http://[::1]:11434"),
         _backend_host(REMOTE),
-    ] == ["ollama-0", "ollama-16gib", "remote.example.com"]
+    ] == [
+        "ollama-0",
+        "ollama-16gib",
+        "evil-svc.cluster.local.evil.com",
+        "::1",
+        "remote.example.com",
+    ]
 
 
 def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:

@@ -463,7 +463,6 @@ def _has_non_default_valkey_port(valkey_cfg: Any, existing_url: str | None) -> b
 
 def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
     """Determine whether detected valkey_url should update valkey host/port configuration."""
-    from urllib.parse import urlparse
 
     if not valkey_url:
         return False
@@ -478,8 +477,9 @@ def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
         return False
 
     existing_host_raw = getattr(valkey_cfg, "host", "") or ""
-    existing_host = existing_host_raw.split(":")[0].strip().lower()
-    new_host = (urlparse(valkey_url).hostname or "").strip().lower()
+    parsed_existing = urlsplit(f"//{existing_host_raw.strip()}")
+    existing_host = (parsed_existing.hostname or existing_host_raw).strip().lower()
+    new_host = (urlsplit(valkey_url).hostname or "").strip().lower()
     if existing_host and not is_loopback_host(existing_host) and is_loopback_host(new_host):
         return False
     return True

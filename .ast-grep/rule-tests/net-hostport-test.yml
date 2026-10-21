@@ -1,0 +1,7 @@
+id: net-hostport
+valid:
+  - 'host = urlsplit(url).hostname'
+  - 'key, value = line.split(":", 1)'
+invalid:
+  - 'host = urlparse(url).netloc.split(":")[0]'
+  - 'host, _, port = endpoint.rpartition(":")'

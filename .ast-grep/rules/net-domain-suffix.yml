@@ -1,0 +1,23 @@
+id: net-domain-suffix
+language: python
+severity: error
+message: Domain matched by string suffix. Use dns.name.from_text(host).is_subdomain(dns.name.from_text(domain)); public-suffix questions go to tldextract.
+rule:
+  kind: call
+  all:
+    - has:
+        field: function
+        kind: attribute
+        all:
+          - has:
+              field: attribute
+              regex: ^(endswith|removesuffix)$
+          - has:
+              field: object
+              regex: (?i)(host|domain|netloc|server|endpoint|url|addr|fqdn)
+    - has:
+        field: arguments
+        has:
+          stopBy: end
+          kind: string
+          regex: '^f?["'']\.'

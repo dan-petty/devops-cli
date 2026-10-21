@@ -10,6 +10,7 @@ import re
 import socket
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import dns.exception
 import dns.name
@@ -255,9 +256,23 @@ def parse_numeric_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address
         return None
 
 
+def _normalize_host_or_ip(raw_host: str) -> str:
+    """Canonicalise a host or IP string, stripping brackets and trailing dots."""
+    s = str(raw_host).strip()
+    if not s:
+        return ""
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        pass
+    parsed = urlsplit(f"//{s}")
+    h = parsed.hostname or s
+    return h.rstrip(".").lower()
+
+
 def is_loopback_host(host: str) -> bool:
     """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
-    clean = str(host).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
+    clean = _normalize_host_or_ip(host)
     if clean == CONST_LOOPBACK_HOSTNAME:
         return True
     addr = parse_numeric_ip(clean)
@@ -429,7 +444,7 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
     from devops_cli.core.dns_names import is_public_dns_name
 
-    clean = str(host_or_ip).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
+    clean = _normalize_host_or_ip(host_or_ip)
     if not clean:
         return True
     if is_loopback_host(clean):

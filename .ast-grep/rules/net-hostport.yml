@@ -1,0 +1,16 @@
+id: net-hostport
+language: python
+severity: error
+message: Host, port or userinfo split by hand. Use urllib.parse.urlsplit(value) (.hostname, .port, .username), urlsplit("//" + authority) for a bare authority, or httpx2.URL(value).
+rule:
+  any:
+    - pattern: $R.$M($SEP)
+    - pattern: $R.$M($SEP, $$$REST)
+constraints:
+  M:
+    regex: ^(split|rsplit|partition|rpartition)$
+  SEP:
+    kind: string
+    regex: '^["''][:@]["'']$'
+  R:
+    regex: (?i)(host|netloc|addr|endpoint|server|authority)

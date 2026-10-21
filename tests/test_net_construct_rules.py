@@ -117,6 +117,96 @@ def test_ast_grep_scan_detects_net_url_build(tmp_path: Path) -> None:
     assert "net-url-build" in res.stdout or "net-url-build" in res.stderr
 
 
+def test_ast_grep_scan_detects_net_domain_suffix(tmp_path: Path) -> None:
+    """ast-grep scan detects domain string suffix matching in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('inside = host.endswith(".example.com")\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-domain-suffix" in res.stdout or "net-domain-suffix" in res.stderr
+
+
+def test_ast_grep_scan_detects_net_domain_list(tmp_path: Path) -> None:
+    """ast-grep scan detects literal lists of domain suffixes in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('LOCAL_DOMAINS = (".internal", ".home.arpa")\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-domain-list" in res.stdout or "net-domain-list" in res.stderr
+
+
+def test_ast_grep_scan_detects_net_normalise(tmp_path: Path) -> None:
+    """ast-grep scan detects hand-rolled host canonicalisation in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('host = value.strip("[]")\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-normalise" in res.stdout or "net-normalise" in res.stderr
+
+
+def test_ast_grep_scan_detects_net_hostport(tmp_path: Path) -> None:
+    """ast-grep scan detects host/port split operations in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('host, _, port = endpoint.rpartition(":")\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-hostport" in res.stdout or "net-hostport" in res.stderr
+
+
+def test_ast_grep_scan_detects_net_ip_literal(tmp_path: Path) -> None:
+    """ast-grep scan detects IP address literal comparison in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('local = host == "127.0.0.1"\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-ip-literal" in res.stdout or "net-ip-literal" in res.stderr
+
+
+def test_ast_grep_scan_detects_net_cidr_build(tmp_path: Path) -> None:
+    """ast-grep scan detects manual CIDR string construction in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('network = f"{ip}/32"\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-cidr-build" in res.stdout or "net-cidr-build" in res.stderr
+
+
 def test_ruff_tid251_detects_banned_socket_apis(tmp_path: Path) -> None:
     """Ruff TID251 flags banned socket.inet_* APIs in source code."""
     scratch = tmp_path / "scratch.py"
