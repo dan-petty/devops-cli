@@ -119,6 +119,18 @@ def _server_jobs_enabled(values: dict[str, Any]) -> bool:
     )
 
 
+def _coredns_monitored(values: dict[str, Any]) -> bool:
+    """k8s-monitoring's kubeDNS job is enabled and the server's service-endpoints job stays off (#822)."""
+    cluster_metrics = values.get("clusterMetrics", {})
+    server = _yaml(K8S / "monitoring" / "prometheus-values.yaml")
+    endpoints_job = server.get("scrapeConfigs", {}).get("kubernetes-service-endpoints", {})
+    return (
+        cluster_metrics.get("enabled") is True
+        and cluster_metrics.get("kubeDNS", {}).get("enabled") is True
+        and endpoints_job.get("enabled") is False
+    )
+
+
 @dataclass(frozen=True)
 class Exporter:
     """Where an exporter's scrape is defined in `k8s/`, and the check that it is."""
@@ -135,11 +147,13 @@ EXPORTERS = {
     "prometheus-server": Exporter(
         K8S / "monitoring" / "prometheus-values.yaml", _server_jobs_enabled
     ),
+    "coredns": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _coredns_monitored),
 }
 DASHBOARD_EXPORTERS = {
     "llm-stack.json": ("litellm", "dcgm-exporter", "qdrant"),
     "otel-collector.json": ("otel-collector",),
     "prometheus-server.json": ("prometheus-server",),
+    "coredns.json": ("coredns",),
 }
 
 
@@ -373,6 +387,7 @@ LIMIT_LINES = {
         "Process Memory against the memory_limiter Limit",
     ],
     "prometheus-server.json": ["TSDB Size", "Resident Memory"],
+    "coredns.json": [],
 }
 
 
@@ -471,6 +486,36 @@ def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None
             "Qdrant Request Latency p95",
             "Qdrant Collections and Vectors",
         ],
+    )
+
+
+def test_coredns_dashboard_covers_requests_responses_latency_cache_and_forward() -> None:
+    """Verify `coredns.json` charts requests by type/proto, responses by rcode, request duration
+    p50/p95/p99, cache hits/misses, and forward request duration over captured `coredns_*` series (#822)."""
+    dashboard = _dashboard("coredns.json")
+    panels = [p for p in _panels(dashboard) if p.get("type") != "row"]
+    titles = [p["title"] for p in panels]
+    coredns_exporter = EXPORTERS["coredns"]
+    values = _yaml(coredns_exporter.values)
+    disabled = copy.deepcopy(values)
+    disabled["clusterMetrics"]["kubeDNS"]["enabled"] = False
+
+    assert (
+        dashboard["uid"],
+        titles,
+        coredns_exporter.scraped(values),
+        coredns_exporter.scraped(disabled),
+    ) == (
+        "devops-coredns",
+        [
+            "Requests by Type and Protocol",
+            "Responses by Rcode",
+            "Request Duration (p50 / p95 / p99)",
+            "Forward Request Duration (p50 / p95 / p99)",
+            "Cache Hits and Misses",
+        ],
+        True,
+        False,
     )
 
 
