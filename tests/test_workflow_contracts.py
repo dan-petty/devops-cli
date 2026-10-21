@@ -8,7 +8,9 @@ risks from inline expressions inside run blocks are eliminated.
 from __future__ import annotations
 
 import copy
+import os
 import re
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -64,6 +66,86 @@ def _assert_attest_build_provenance_contract(workflow: dict[str, Any]) -> None:
         assert not has_digest or has_name, (
             f"attest-build-provenance in job '{job_id}' has subject-digest without subject-name"
         )
+
+
+def _git(repo: Path, *args: str) -> str:
+    """Run git in `repo` and return its output; a failure raises."""
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _commit_in_a_clone(tmp_path: Path) -> tuple[Path, str, str]:
+    """A clone of a bare origin with two commits, both pushed: the repository, its first commit
+    and its second."""
+    origin = tmp_path / "origin.git"
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "config", "user.email", "test@example.com")
+    shas = []
+    for number in (1, 2):
+        (repo / "version.txt").write_text(f"{number}\n", encoding="utf-8")
+        _git(repo, "add", "version.txt")
+        _git(repo, "commit", "-q", "-m", f"commit {number}")
+        shas.append(_git(repo, "rev-parse", "HEAD"))
+    _git(repo, "push", "-q", "origin", "HEAD")
+    return repo, shas[0], shas[1]
+
+
+def _run_tag_step(repo: Path, tag: str, published_sha: str) -> subprocess.CompletedProcess[str]:
+    """Run the release job's tag step script for `tag`, publishing `published_sha`."""
+    steps = _load_workflow(RELEASE_PATH)["jobs"]["release"]["steps"]
+    script = next(s for s in steps if s.get("name", "").startswith("Create Git Tag"))["run"]
+    env = {**os.environ, "TAG": tag, "TITLE": tag, "GITHUB_SHA": published_sha}
+    return subprocess.run(
+        ["bash", "-e", "-c", script], cwd=repo, env=env, capture_output=True, text=True, check=False
+    )
+
+
+@pytest.mark.live("bash")
+def test_the_release_tags_the_commit_it_publishes(tmp_path: Path) -> None:
+    """With no tag for the version, the tag step creates it on the published commit and pushes
+    it."""
+    repo, _first, second = _commit_in_a_clone(tmp_path)
+
+    done = _run_tag_step(repo, "v0.2.38", second)
+
+    assert (done.returncode, _git(repo, "ls-remote", "origin", "refs/tags/v0.2.38").split()[0]) == (
+        0,
+        _git(repo, "rev-parse", "v0.2.38"),
+    )
+
+
+@pytest.mark.live("bash")
+def test_a_tag_already_on_the_published_commit_is_kept(tmp_path: Path) -> None:
+    """A rerun of the same release finds the tag on its commit, and the step goes on."""
+    repo, _first, second = _commit_in_a_clone(tmp_path)
+    _git(repo, "tag", "-a", "v0.2.38", "-m", "v0.2.38", second)
+
+    done = _run_tag_step(repo, "v0.2.38", second)
+
+    assert (done.returncode, "already exists" in done.stdout) == (0, True)
+
+
+@pytest.mark.live("bash")
+def test_a_tag_on_another_commit_stops_the_release_naming_both(tmp_path: Path) -> None:
+    """A version already tagged on another commit is not published again. This is a push to main
+    whose pyproject still holds the last release's version: the step fails, naming both commits,
+    before the release, its assets or the images are touched (#1805)."""
+    repo, first, second = _commit_in_a_clone(tmp_path)
+    _git(repo, "tag", "-a", "v0.2.37", "-m", "v0.2.37", first)
+    _git(repo, "push", "-q", "origin", "v0.2.37")
+
+    done = _run_tag_step(repo, "v0.2.37", second)
+
+    assert (
+        done.returncode != 0,
+        first in done.stdout + done.stderr,
+        second in done.stdout + done.stderr,
+        _git(repo, "rev-parse", "v0.2.37^{commit}"),
+    ) == (True, True, True, first)
 
 
 def test_release_workflow_attest_build_provenance_contract() -> None:

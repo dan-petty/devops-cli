@@ -114,8 +114,14 @@ jobs:
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             git tag -a "$TAG" -m "$TITLE"
             git push origin "$TAG"
+          elif [ "$(git rev-parse "$TAG^{commit}")" = "$GITHUB_SHA" ]; then
+            echo "Tag $TAG already exists on this commit."
           else
-            echo "Tag $TAG already exists."
+            # A version already released from another commit is never published again: the
+            # push to main is not that release, so stop before the release, its assets or the
+            # images are touched (#1805).
+            echo "::error::Tag $TAG is on $(git rev-parse "$TAG^{commit}"), not on $GITHUB_SHA, the commit being published. pyproject.toml must name a new version before this commit is merged to main."
+            exit 1
           fi
 
       - name: Publish GitHub Release
