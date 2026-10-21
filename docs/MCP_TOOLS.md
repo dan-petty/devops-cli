@@ -1700,6 +1700,7 @@ Review a git branch diff with one or all AI personas.
 | `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
 | `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
 | `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
@@ -1780,6 +1781,7 @@ Review source files directly (no git required).
 | `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
 | `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
 | `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
@@ -1818,6 +1820,7 @@ Review a GitHub pull request with one or all AI personas.
 | `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
 | `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
 | `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
+| `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |

@@ -38,7 +38,6 @@ from devops_cli.ai.analyze.symbols import (
     change_symbol_delta,
     with_symbol_delta,
 )
-from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.client.network import limit_completion_tokens, uses_gateway_slots
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
@@ -2419,7 +2418,7 @@ class ReviewPipelineOrchestrator:
         if not is_dry_run():
             self.session_dir.mkdir(parents=True, exist_ok=True)
             self.files_dir.mkdir(parents=True, exist_ok=True)
-        self.llm_client: ReviewLLMClient = llm_client or get_llm_client(task="review")
+        self.llm_client: ReviewLLMClient | None = llm_client
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
@@ -2582,17 +2581,24 @@ class ReviewPipelineOrchestrator:
 
             file_metas: list[FileAnalysisMeta] = []
 
-            config = getattr(self.llm_client, "_config", None)
-            ollama_urls = _resolve_ollama_urls(config)
-            raw_par = getattr(config, "ollama_max_parallel", None)
-            max_par = int(raw_par) if isinstance(raw_par, int) else 2
             from devops_cli.config.defaults import DEFAULT_PRE_ANALYSIS_WORKERS
 
-            batch_capacity = (
-                max(1, self.concurrency)
-                if self.concurrency is not None
-                else max(DEFAULT_PRE_ANALYSIS_WORKERS, len(ollama_urls) * max_par)
-            )
+            if self.llm_client is None:
+                batch_capacity = (
+                    max(1, self.concurrency)
+                    if self.concurrency is not None
+                    else DEFAULT_PRE_ANALYSIS_WORKERS
+                )
+            else:
+                config = getattr(self.llm_client, "_config", None)
+                ollama_urls = _resolve_ollama_urls(config)
+                raw_par = getattr(config, "ollama_max_parallel", None)
+                max_par = int(raw_par) if isinstance(raw_par, int) else 2
+                batch_capacity = (
+                    max(1, self.concurrency)
+                    if self.concurrency is not None
+                    else max(DEFAULT_PRE_ANALYSIS_WORKERS, len(ollama_urls) * max_par)
+                )
 
             paths_to_analyze = _collect_paths_to_analyze(
                 collected_paths,
@@ -3371,7 +3377,7 @@ class ReviewPipelineOrchestrator:
 
             ctx_win = (
                 self.llm_client.get_context_window("analysis")
-                if hasattr(self.llm_client, "get_context_window")
+                if self.llm_client is not None and hasattr(self.llm_client, "get_context_window")
                 else DEFAULT_AI_CONTEXT_WINDOW
             )
             max_diff_chars = review_page_chars(ctx_win)
@@ -4066,14 +4072,12 @@ class ReviewPipelineOrchestrator:
 
         return "\n".join(lines)
 
-    def _run_group_analysis_stage(
-        self, stage_flags: ReviewStageFlags | None, *, has_personas: bool = True
-    ) -> Any:
+    def _run_group_analysis_stage(self, stage_flags: ReviewStageFlags | None) -> Any:
         """Execute bounded per-group model analysis on admitted scanner findings (#1147)."""
         from devops_cli.dry_run.state import is_dry_run
         from devops_cli.review.analysis import default_environment_facts, run_group_analysis
 
-        if not has_personas or (stage_flags is not None and not stage_flags.group_analysis):
+        if stage_flags is not None and not stage_flags.group_analysis:
             return None
         admitted = getattr(self, "admitted_scanner_findings", None)
         if not admitted or is_dry_run():
@@ -4734,7 +4738,7 @@ class ReviewPipelineOrchestrator:
         reportable_findings = [
             f for f in all_findings if f.reportable and not f.is_empty and f.location.strip()
         ]
-        self._run_group_analysis_stage(stage_flags, has_personas=bool(resolved_personas))
+        self._run_group_analysis_stage(stage_flags)
 
         report_md = self._build_consolidated_markdown_report(
             session_id=self.session_id,

@@ -3703,6 +3703,7 @@ devops ai review path [OPTIONS] <targets>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
@@ -3748,6 +3749,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
@@ -3791,6 +3793,7 @@ devops ai review pr [OPTIONS] <number>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
@@ -5449,6 +5452,7 @@ devops review path [OPTIONS] <targets>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
@@ -5494,6 +5498,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
@@ -5537,6 +5542,7 @@ devops review pr [OPTIONS] <number>
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |

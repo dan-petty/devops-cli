@@ -88,7 +88,7 @@ class ReviewClients(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    analysis: ReviewLLMClient
+    analysis: ReviewLLMClient | None = None
 
 
 def _orchestrator_personas(all_personas: bool, persona: Persona | None) -> list[str]:

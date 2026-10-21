@@ -19,6 +19,7 @@ def test_review_stage_flags_defaults() -> None:
     assert flags.static_scan is True
     assert flags.persona_review is True
     assert flags.reranking is True
+    assert flags.group_analysis is True
     assert flags.reporting is True
     assert flags.any_enabled() is True
     assert flags.to_dict() == {
@@ -26,8 +27,33 @@ def test_review_stage_flags_defaults() -> None:
         "static_scan": True,
         "persona_review": True,
         "reranking": True,
+        "group_analysis": True,
         "reporting": True,
     }
+
+
+def test_review_stage_flags_needs_model() -> None:
+    """Verify needs_model() returns False only when both persona_review and group_analysis are False."""
+    assert ReviewStageFlags(persona_review=True, group_analysis=True).needs_model() is True
+    assert ReviewStageFlags(persona_review=True, group_analysis=False).needs_model() is True
+    assert ReviewStageFlags(persona_review=False, group_analysis=True).needs_model() is True
+    assert ReviewStageFlags(persona_review=False, group_analysis=False).needs_model() is False
+
+
+def test_resolve_stage_flags_no_group_analysis() -> None:
+    """Verify resolve_stage_flags with no_group_analysis=True."""
+    flags = resolve_stage_flags(no_group_analysis=True)
+    assert flags.group_analysis is False
+    assert flags.persona_review is True
+    assert flags.needs_model() is True
+
+
+def test_resolve_stage_flags_no_persona_and_no_group_analysis() -> None:
+    """Verify resolve_stage_flags with no_persona_review=True and no_group_analysis=True."""
+    flags = resolve_stage_flags(no_persona_review=True, no_group_analysis=True)
+    assert flags.persona_review is False
+    assert flags.group_analysis is False
+    assert flags.needs_model() is False
 
 
 def test_resolve_stage_flags_no_options() -> None:
@@ -103,6 +129,27 @@ def test_review_cli_stage_flags_propagation() -> None:
         assert passed_flags.static_scan is True
         assert passed_flags.reranking is False
         assert passed_flags.persona_review is False
+
+
+def test_review_cli_no_group_analysis_propagation() -> None:
+    """Verify CLI review commands pass --no-group-analysis flag to workflow."""
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch(
+            "devops_cli.commands.review._prepare_path_content",
+            return_value=(["diff"], "title", []),
+        ),
+        patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
+    ):
+        result = runner.invoke(
+            review_app,
+            ["path", "--no-group-analysis"],
+        )
+        assert result.exit_code == 0
+        mock_exec.assert_called_once()
+        call_kwargs = mock_exec.call_args[1]
+        passed_flags: ReviewStageFlags = call_kwargs["stage_flags"]
+        assert passed_flags.group_analysis is False
 
 
 def test_orchestrator_stage_bypasses(tmp_path) -> None:

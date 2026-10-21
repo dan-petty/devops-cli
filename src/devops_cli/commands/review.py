@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 if TYPE_CHECKING:
     from devops_cli.ai.analyze.symbols import BaseRevision
     from devops_cli.ai.personas import PersonaDefinition
-    from devops_cli.ai.review.runner import ReviewClients
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
     from devops_cli.review.score import Agreement, ScoreReport
@@ -81,6 +80,7 @@ from devops_cli.ai.review.profile import (
 )
 from devops_cli.ai.review.review_environment import nearest_review_conventions
 from devops_cli.ai.review.runner import (
+    ReviewClients,
     _corpus_digest,
     _execute_review_workflow,
     _find_session_dir,
@@ -252,6 +252,10 @@ def path(
         bool,
         typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
+    no_group_analysis: Annotated[
+        bool,
+        typer.Option("--no-group-analysis", help=HELP.review.no_group_analysis),
+    ] = False,
     no_reporting: Annotated[
         bool,
         typer.Option("--no-reporting", help=HELP.review.no_reporting),
@@ -311,13 +315,18 @@ def path(
         persona_review_only=persona_review_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
+        no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    clients = _make_review_clients(
-        settings,
-        cache_enabled=False if (no_cache or force) else None,
-        append_cache=append_cache,
+    clients = (
+        _make_review_clients(
+            settings,
+            cache_enabled=False if (no_cache or force) else None,
+            append_cache=append_cache,
+        )
+        if stage_flags.needs_model()
+        else ReviewClients()
     )
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
@@ -472,6 +481,10 @@ def branch(
         bool,
         typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
+    no_group_analysis: Annotated[
+        bool,
+        typer.Option("--no-group-analysis", help=HELP.review.no_group_analysis),
+    ] = False,
     no_reporting: Annotated[
         bool,
         typer.Option("--no-reporting", help=HELP.review.no_reporting),
@@ -523,13 +536,18 @@ def branch(
         persona_review_only=persona_review_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
+        no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    clients = _make_review_clients(
-        settings,
-        cache_enabled=False if (no_cache or force) else None,
-        append_cache=append_cache,
+    clients = (
+        _make_review_clients(
+            settings,
+            cache_enabled=False if (no_cache or force) else None,
+            append_cache=append_cache,
+        )
+        if stage_flags.needs_model()
+        else ReviewClients()
     )
     pages, title, target_ref, base_revision = _prepare_branch_content(branch_name, base, repo_path)
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -775,6 +793,10 @@ def pr(
         bool,
         typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
+    no_group_analysis: Annotated[
+        bool,
+        typer.Option("--no-group-analysis", help=HELP.review.no_group_analysis),
+    ] = False,
     no_reporting: Annotated[
         bool,
         typer.Option("--no-reporting", help=HELP.review.no_reporting),
@@ -826,6 +848,7 @@ def pr(
         persona_review_only=persona_review_only,
         no_reranking=no_reranking,
         reranking_only=reranking_only,
+        no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
@@ -834,10 +857,14 @@ def pr(
     with exit_on_error(GitHubOperationError):
         get_github_session()
 
-    clients = _make_review_clients(
-        settings,
-        cache_enabled=False if (no_cache or force) else None,
-        append_cache=append_cache,
+    clients = (
+        _make_review_clients(
+            settings,
+            cache_enabled=False if (no_cache or force) else None,
+            append_cache=append_cache,
+        )
+        if stage_flags.needs_model()
+        else ReviewClients()
     )
     # The review reads the PR head's files, not the local checkout's version of them.
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
