@@ -75,6 +75,8 @@ SERVED_SERIES = frozenset(
         # finds Loki's pods only where the logging stack runs.
         "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
         "loki_request_duration_seconds_count",
+        # Pyroscope, scraped through its ServiceMonitor (#1131, #1134).
+        "pyroscope_request_duration_seconds_count",
         # Alertmanager, found through its pod annotations by k8s-monitoring's annotation
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
@@ -163,6 +165,7 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusRuleEvaluationFailures", "warning"),
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
+        ("PyroscopeQueryErrors", "warning"),
         ("TargetDown", "warning"),
     ]
 
@@ -468,4 +471,21 @@ def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_lis
         k8s_monitoring["version"],
         True,
         [],
+    )
+
+
+def test_pyroscope_query_errors_alerts_on_5xx_rate() -> None:
+    """`PyroscopeQueryErrors` alerts when Pyroscope's 5xx request rate over 15m is above 0 for 15m (#1134)."""
+    (rule,) = [rule for rule in _rules() if rule["alert"] == "PyroscopeQueryErrors"]
+
+    assert (
+        rule["alert"],
+        rule["expr"],
+        rule["for"],
+        rule["labels"]["severity"],
+    ) == (
+        "PyroscopeQueryErrors",
+        'sum by (route) (rate(pyroscope_request_duration_seconds_count{status_code=~"5.."}[15m])) > 0',
+        "15m",
+        "warning",
     )

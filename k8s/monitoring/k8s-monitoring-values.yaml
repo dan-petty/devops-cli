@@ -16,6 +16,9 @@ destinations:
   localLoki:
     type: loki
     url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
+  localPyroscope:
+    type: pyroscope
+    url: http://pyroscope.monitoring.svc.cluster.local:4040
 
 # ── Self-Reporting ───────────────────────────────────────────────────────────
 selfReporting:
@@ -150,6 +153,17 @@ prometheusOperatorObjects:
 prometheusMetricsReceiver:
   enabled: false
   collector: alloy-metrics
+
+# Continuous profiling for all pods via eBPF (`targetingScheme: all`) and pprof annotations (#1134),
+# replacing Pyroscope's bundled Alloy subchart.
+profiling:
+  enabled: true
+  collector: alloy-profiles
+  ebpf:
+    enabled: true
+    targetingScheme: all
+  pprof:
+    enabled: true
 
 # Pods annotated for scraping (#1130): cloudflared, Traefik, Alertmanager and roadmap-service,
 # found through the `prometheus.io/*` keys they already carry. The job is the pod's
@@ -307,6 +321,19 @@ collectors:
     presets:
       - daemonset
       - filesystem-log-reader
+    alloy:
+      enableReporting: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+  alloy-profiles:
+    presets:
+      - daemonset
+      - privileged
     alloy:
       enableReporting: false
       resources:
