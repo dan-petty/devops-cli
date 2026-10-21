@@ -57,12 +57,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["16Gi", "20Gi"]
@@ -346,12 +340,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["32Gi", "36Gi", "40Gi", "44Gi"]
@@ -789,12 +777,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["64Gi", "68Gi"]
@@ -936,12 +918,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["72Gi", "76Gi", "80Gi", "84Gi", "88Gi", "92Gi"]
@@ -1083,12 +1059,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values:
@@ -1240,12 +1210,6 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["128Gi"]

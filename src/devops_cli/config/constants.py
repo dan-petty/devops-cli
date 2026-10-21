@@ -1173,6 +1173,16 @@ CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloud
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
+# What the llm stack's Ollama tiers select GPU nodes by (#1367): the extended resource and labels
+# the node-provisioning automation and GPU Feature Discovery set, and the label every tier's
+# DaemonSet carries, read from `ollama-profiles.yaml`, whose required matchExpressions say which
+# values each tier accepts.
+CONST_K8S_GPU_RESOURCE: Final[str] = "nvidia.com/gpu"
+CONST_K8S_GPU_PRESENT_LABEL: Final[str] = "nvidia.com/gpu.present"
+CONST_K8S_GPU_TOTAL_VRAM_LABEL: Final[str] = "nvidia.com/gpu.total-vram-gib"
+CONST_K8S_GPU_ARCHITECTURE_LABEL: Final[str] = "nvidia.com/gpu.architecture"
+CONST_K8S_OLLAMA_PROVIDER_LABEL: Final[tuple[str, str]] = ("llm.devops.io/provider", "ollama")
+CONST_K8S_OLLAMA_PROFILES_PATH: Final[str] = "llm/profiles/ollama-profiles.yaml"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
