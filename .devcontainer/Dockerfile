@@ -6,7 +6,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Optimize Python runtime and uv execution in containerized environments
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    TIKTOKEN_CACHE_DIR=/usr/local/share/tiktoken
 
 # Install Python 3.14 runtime, symlinks, root certificates, and the gnome-keyring Secret Service
 # (dbus-x11 satisfies its session-bus dependency without pulling in systemd) with BuildKit apt
@@ -34,6 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     cd /tmp/devops-cli && \
     uv export --no-dev --no-emit-project -o /tmp/requirements.txt && \
     uv pip install --system --break-system-packages -r /tmp/requirements.txt pre-commit && \
+    python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" && \
     rm -rf /tmp/requirements.txt
 
 # Copy devops-cli source files and install the package without re-downloading dependencies

@@ -13,7 +13,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
-RUN uv sync --locked --no-dev --no-editable
+ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
+RUN uv sync --locked --no-dev --no-editable && \
+    /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
 ADD --checksum=sha256:bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386 \
     https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz /tmp/gh_amd64.tar.gz
@@ -33,6 +35,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 COPY --from=builder /usr/local/bin/gh /usr/local/bin/gh
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/.cache/tiktoken /app/.cache/tiktoken
 
 RUN groupadd -g 1000 devops && \
     useradd -u 1000 -g 1000 -m -d /home/devops -s /bin/bash devops
@@ -42,6 +45,7 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
 
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
+    TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
     PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     GH_PROMPT_DISABLED=1 \

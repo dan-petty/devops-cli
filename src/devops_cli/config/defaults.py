@@ -352,6 +352,12 @@ DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
 
 # ── AI, RAG & Agent Defaults ──────────────────────────────────────────────────
 DEFAULT_TIKTOKEN_MODEL: str = "gpt-4o"
+DEFAULT_TIKTOKEN_ENCODINGS: tuple[str, ...] = ("cl100k_base", "o200k_base")
+DEFAULT_TIKTOKEN_CACHE_ENV_VARS: tuple[str, ...] = ("TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR")
+DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS: tuple[str, ...] = (
+    "/app/.cache/tiktoken",
+    "/usr/local/share/tiktoken",
+)
 DEFAULT_TRUNCATION_SUFFIX: str = "\n...[truncated due to context budget]"
 DEFAULT_DOC_CHUNK_SIZE_WORDS: int = 400
 DEFAULT_DOC_CHUNK_OVERLAP_WORDS: int = 40
