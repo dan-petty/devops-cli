@@ -498,6 +498,7 @@ class ArgumentContractMiddleware(Middleware):
 def reset_hydrated_domains() -> None:
     """Forget every hydrated domain, restoring the eager-only listing."""
     _HYDRATED_DOMAINS.clear()
+    _BACKGROUND_TASKS.clear()
 
 
 _BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()

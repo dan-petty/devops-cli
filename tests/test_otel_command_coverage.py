@@ -23,7 +23,8 @@ from devops_cli.telemetry.tracer import (
 
 
 @pytest.fixture(autouse=True)
-def clean_tracer(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
+def clean_tracer(monkeypatch: pytest.MonkeyPatch, config: Any) -> list[tuple[str, dict[str, Any]]]:
+    config(telemetry={"enabled": True})
     reset_tracer()
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
     tracer = get_tracer()

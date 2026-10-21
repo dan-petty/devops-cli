@@ -193,13 +193,8 @@ def _dry_run_details(output: str) -> dict[str, Any]:
     return details
 
 
-def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing() -> None:
     """The dry run lists what the push would write, from the table alone, and runs no command."""
-    from tests.cluster_secret_fakes import forbid_requests
-
-    attempted = forbid_requests(monkeypatch)
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
@@ -210,7 +205,6 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
         result.exit_code,
         _dry_run_details(result.output)["secrets"],
         _dry_run_details(skipped.output)["secrets"],
-        attempted,
     ) == (
         0,
         [
@@ -219,21 +213,15 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
             "monitoring/grafana-admin: admin-user, admin-password",
         ],
         [],
-        [],
     )
 
 
-def test_deploy_stack_dry_run_makes_no_request(
-    monkeypatch: pytest.MonkeyPatch, isolate_devops_cli_config: Path
-) -> None:
+def test_deploy_stack_dry_run_makes_no_request(isolate_devops_cli_config: Path) -> None:
     """No kubectl, helm or gh child, no keyring call and no connection, with the Secret push on
     and the context left to the settings."""
-    from tests.cluster_secret_fakes import forbid_requests
-
     _configure_service(isolate_devops_cli_config)
-    attempted = forbid_requests(monkeypatch)
     result = runner.invoke(app, ["deploy-stack", "--stack", "all", "--dry-run"])
-    assert (result.exit_code, result.exception, attempted) == (0, None, [])
+    assert (result.exit_code, result.exception) == (0, None)
 
 
 def test_k8s_deploy_stack_all_dry_run(isolate_devops_cli_config: Path) -> None:
@@ -267,15 +255,10 @@ def test_k8s_teardown_stack_llm_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it() -> None:
     """deploy-stack --stack llm applies llm-gateway-perimeter before the gateway's Deployment,
     and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
     egress was unrestricted. Neither dry run makes a request."""
-    from tests.cluster_secret_fakes import forbid_requests
-
-    attempted = forbid_requests(monkeypatch)
     policy, gateway = (
         str(Path("k8s", "llm", "gateway", name))
         for name in ("networkpolicy.yaml", "deployment.yaml")
@@ -289,8 +272,7 @@ def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it(
         teardown.exit_code,
         policy in manifests and manifests.index(policy) < manifests.index(gateway),
         policy in _dry_run_details(teardown.output)["manifest_deletes"],
-        attempted,
-    ) == (0, 0, True, True, [])
+    ) == (0, 0, True, True)
 
 
 def test_k8s_deploy_stack_invalid_stack() -> None:
@@ -1031,6 +1013,7 @@ def test_k8s_service_url_helpers() -> None:
         )
 
 
+@pytest.mark.usefixtures("mock_keyring")
 def test_k8s_bootstrap_openwebui() -> None:
     """Verify bootstrap-openwebui dry-run, success, and failure paths."""
     # Dry-run

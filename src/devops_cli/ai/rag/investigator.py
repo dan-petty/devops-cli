@@ -150,11 +150,7 @@ def _is_probe_required(now: float) -> bool:
 
 def clear_investigation_cache() -> None:
     """Clear in-memory RAG investigation and retriever caches, and lift a run-wide RAG stop."""
-    global \
-        _RETRIEVER_CACHE, \
-        _INVESTIGATION_CACHE, \
-        _circuit_breaker_opened_at, \
-        _consecutive_transient_failures
+    global _RETRIEVER_CACHE, _circuit_breaker_opened_at, _consecutive_transient_failures
     _RETRIEVER_CACHE = None
     _INVESTIGATION_CACHE.clear()
     _RAG_STOPPED.clear()

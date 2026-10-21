@@ -16,6 +16,7 @@ from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytest_plugins = ("pytester",)
+pytestmark = pytest.mark.live("python")
 
 # The inner runs' bound, and a sleep that outlives it and every handoff wait, so the sleeping test
 # can only end at the timeout (tests/support/waits.py).

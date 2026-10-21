@@ -965,12 +965,12 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path) -> None:
     ws_file.write_text("{}", encoding="utf-8")
 
     # Success
-    with patch("devops_cli.core.process.run_subprocess") as mock_proc:
+    with patch("devops_cli.commands.repos.run_subprocess") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0)
         _reload_workspace(ws_file)
 
     # Subprocess failure handles exception safely
-    with patch("devops_cli.core.process.run_subprocess", side_effect=OSError("not found")):
+    with patch("devops_cli.commands.repos.run_subprocess", side_effect=OSError("not found")):
         _reload_workspace(ws_file)
 
     # _resolve_workspace_file variations

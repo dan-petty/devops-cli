@@ -33,6 +33,8 @@ from devops_cli.security.vault_broker import (
 from devops_cli.security.vault_lease import login_approle
 from tests.web_fakes import StubWeb
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 VAULT_ADDR = "https://example.com:8200"

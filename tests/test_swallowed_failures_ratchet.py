@@ -34,6 +34,8 @@ from devops_cli.config.constants import (
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.trees import parse_python_file
 
+pytestmark = pytest.mark.live("ruff", "python")
+
 CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
 # The module's dotted name is the same under pytest and under `python -m`, so the command follows
 # the module wherever it moves; run as a script, the module names this command and exits (#1312).

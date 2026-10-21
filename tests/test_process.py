@@ -22,11 +22,18 @@ from tests.support.hung_children import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
-pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions")
+pytestmark = [
+    pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions"),
+    pytest.mark.live("true", "sh", "false", "sleep", "echo", "python", "pwd"),
+]
 
 # A hung run's timeout: its child writes its pids within milliseconds, and this leaves a loaded
 # host sufficient headroom before the run's process group is stopped (#1748).
 HUNG_RUN_TIMEOUT_SECONDS = 1.0
+
+
+def _raise_file_not_found(*_args: Any, **_kwargs: Any) -> None:
+    raise FileNotFoundError(2, "No such file or directory")
 
 
 def test_run_subprocess_success() -> None:
@@ -35,7 +42,8 @@ def test_run_subprocess_success() -> None:
     assert proc.stdout.strip() == "hello"
 
 
-def test_run_subprocess_not_found() -> None:
+def test_run_subprocess_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
     proc = run_subprocess(["non_existent_binary_12345"])
     assert proc.returncode == 127
     assert "not found" in proc.stderr.lower()
@@ -49,7 +57,8 @@ async def test_run_subprocess_async_success() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_subprocess_async_not_found() -> None:
+async def test_run_subprocess_async_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
     proc = await run_subprocess_async(["non_existent_binary_12345"])
     assert proc.returncode == 127
     assert "not found" in proc.stderr.lower()
@@ -61,7 +70,7 @@ async def test_run_subprocess_async_non_zero() -> None:
     assert proc.returncode != 0
 
 
-def test_run_subprocess_check_and_timeout(monkeypatch) -> None:
+def test_run_subprocess_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess error handling with check=True and timeouts."""
     import subprocess
 
@@ -72,7 +81,8 @@ def test_run_subprocess_check_and_timeout(monkeypatch) -> None:
         run_subprocess(["false"], check=True)
 
     # 2. Not found with check=True
-    with pytest.raises(FileNotFoundError):
+    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError):
+        mp.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
         run_subprocess(["non_existent_binary_99999"], check=True)
 
     # 3. Dry run execution
@@ -85,7 +95,7 @@ def test_run_subprocess_check_and_timeout(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_run_subprocess_async_check_and_timeout() -> None:
+async def test_run_subprocess_async_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess_async error handling with check=True and timeouts."""
     import subprocess
 
@@ -94,7 +104,8 @@ async def test_run_subprocess_async_check_and_timeout() -> None:
         await run_subprocess_async(["false"], check=True)
 
     # 2. Not found with check=True
-    with pytest.raises(FileNotFoundError):
+    with monkeypatch.context() as mp, pytest.raises(FileNotFoundError):
+        mp.setattr(subprocess.Popen, "__init__", _raise_file_not_found)
         await run_subprocess_async(["non_existent_binary_99999"], check=True)
 
     # 3. Timeout expiration

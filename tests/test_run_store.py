@@ -45,6 +45,8 @@ from devops_cli.config.settings import (
 from devops_cli.k8s import node_port
 from devops_cli.main import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
 

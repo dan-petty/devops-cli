@@ -210,6 +210,7 @@ def test_an_ip_literal_is_classified_without_a_dns_query() -> None:
     )
 
 
+@pytest.mark.unreachable("fe80::1%eth0", "fe80::1%25eth0")
 def test_a_scoped_ipv6_address_fails_closed_at_every_level(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -232,6 +233,7 @@ def test_a_scoped_ipv6_address_fails_closed_at_every_level(
     assert (_admitted_levels("example.com"), recorder.dialled) == (set(), [])
 
 
+@pytest.mark.unreachable("example.com")
 def test_a_failed_lookup_surfaces_as_httpx2_connect_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """The backend re-raises the resolver's OSError as httpcore2.ConnectError, which httpx2 maps."""
     recorder = record_connects(monkeypatch, [])
@@ -492,6 +494,7 @@ async def test_the_async_client_dials_only_vetted_addresses(
     )
 
 
+@pytest.mark.unreachable("example.org")
 async def test_the_async_backend_fails_closed_and_tries_each_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

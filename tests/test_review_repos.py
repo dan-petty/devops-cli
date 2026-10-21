@@ -13,6 +13,8 @@ from devops_cli.ai.review.runner import _detect_base_branch, _is_allowed_review_
 from devops_cli.commands.review import app
 from devops_cli.config.settings import Settings
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 @pytest.fixture
 def runner() -> CliRunner:

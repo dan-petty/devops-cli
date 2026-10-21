@@ -15,8 +15,9 @@ GATEWAY_URL = "http://gateway.example.com:4000/v1"
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(public_dns: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
+    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
 
 
 def _client(api_key: str) -> LLMClient:

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
@@ -34,6 +35,8 @@ from devops_cli.output import (
     render_review_raw,
     render_review_result,
 )
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def test_rendering_helpers() -> None:

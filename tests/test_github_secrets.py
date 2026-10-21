@@ -23,6 +23,8 @@ from devops_cli.github.secrets import (
     sync_repository_secrets,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

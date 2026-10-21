@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.agents.agent import PydanticAgent
@@ -15,6 +16,8 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
 from devops_cli.config.defaults import DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS
 from devops_cli.config.settings import Settings
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 
 def _create_fake_agent(client: LLMClient, idx: int, name: str | None = None) -> PydanticAgent[Any]:

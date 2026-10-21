@@ -24,6 +24,8 @@ from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
+pytestmark = pytest.mark.live("python")
+
 
 def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Return environment cleansed of telemetry and plugin overrides with PYTHONPATH set."""

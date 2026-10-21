@@ -8,6 +8,8 @@ from devops_cli.ai.agents.embeddings import Embedder
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
 from devops_cli.config.settings import AIConfig, AITaskOverride, Settings
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def _settings_without_valkey(refusing_port: int) -> Settings:
     """Default settings whose Valkey cache is down, refused through `refusing_port`."""

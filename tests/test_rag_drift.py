@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 from devops_cli.ai.rag.drift import RAGDriftDetector, RAGDriftReport
 from devops_cli.main import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

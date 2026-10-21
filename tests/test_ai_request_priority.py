@@ -175,8 +175,11 @@ def test_as_available_yields_when_higher_priority_waiting() -> None:
     assert held_until_released is True
 
 
-def test_llm_client_chat_defaults_to_high_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_chat_defaults_to_high_priority(
+    monkeypatch: pytest.MonkeyPatch, config: Any
+) -> None:
     """Verify LLMClient.chat records HIGH priority on the dispatch telemetry span."""
+    config(telemetry={"enabled": True})
     sent_spans: list[dict[str, Any]] = []
     tracer = get_tracer()
     monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_spans.append(p))

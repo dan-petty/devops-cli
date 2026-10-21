@@ -16,6 +16,8 @@ from typer.testing import CliRunner
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.settings import Settings
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 
@@ -178,6 +180,7 @@ def test_ai_explain() -> None:
         assert res.exit_code == 0
 
 
+@pytest.mark.live("find")
 def test_ai_collect_project_context_and_agents_llm(
     tmp_path: Path,
     model_fake: ModelFake,

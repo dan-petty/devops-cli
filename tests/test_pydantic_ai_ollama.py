@@ -11,6 +11,8 @@ import pytest
 from devops_cli.ai.agents.testing import TestModel
 from devops_cli.config.settings import Settings
 
+pytestmark = pytest.mark.usefixtures("public_dns")
+
 
 def test_native_ollama_reexports() -> None:
     """Verify devops_cli.ai.models.ollama exports all native classes, helpers, and profiles."""

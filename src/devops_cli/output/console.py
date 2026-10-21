@@ -70,6 +70,13 @@ _CONSOLE: _RichConsole | None = None
 _STDERR_CONSOLE: _RichConsole | None = None
 
 
+def reset_console() -> None:
+    """Clear cached Rich Console singletons so the next output rebuilds them."""
+    global _CONSOLE, _STDERR_CONSOLE
+    _CONSOLE = None
+    _STDERR_CONSOLE = None
+
+
 def get_console(
     *,
     file: Any = None,
@@ -856,6 +863,7 @@ __all__ = [
     "print_warning",
     "progress_context",
     "render_dry_run_result",
+    "reset_console",
     "track_progress",
     "write_stderr",
     "write_stdout",

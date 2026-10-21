@@ -14,6 +14,8 @@ from devops_cli.ai.review.runner import ReviewClients, format_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.commands.review import app as review_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

@@ -182,6 +182,12 @@ def _gh_api_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def reset_request_classifier_cache() -> None:
+    """Clear the cached gh command and api argument parsers."""
+    _gh_command_parser.cache_clear()
+    _gh_api_parser.cache_clear()
+
+
 def _graphql_params(args: GhApiArgs, *, input: str | None, cwd: Path | None) -> dict[str, str]:
     """The `query` and `operationName` gh sends: from the `--input` body when there is one,
     otherwise from the fields, where a typed field reads `@path` and a raw one sends it as is."""

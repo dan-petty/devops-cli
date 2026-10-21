@@ -38,6 +38,8 @@ from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
 from devops_cli.telemetry.tracer import reset_tracer
 from tests.llm_stream_fakes import route_client
 
+pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+
 runner = CliRunner()
 
 
@@ -198,6 +200,10 @@ class TestConnectionPoolPurgeOnCut:
 
 class TestSingleRetryLayerAndStatusRules:
     """Verify exactly one retry layer retries 503, 400 fails immediately, and persona retries alone."""
+
+    @pytest.fixture(autouse=True)
+    def _no_gateway_reasoning_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
 
     def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(self) -> None:
         """Verify a call that always encounters 503 sees max_retries + 1 sends (single retry layer)."""

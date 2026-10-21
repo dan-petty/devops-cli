@@ -23,6 +23,8 @@ from devops_cli.models.library import (
     ParameterSignature,
 )
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

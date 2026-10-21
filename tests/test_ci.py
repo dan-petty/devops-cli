@@ -50,7 +50,10 @@ from tests.support.paths import REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
-pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
+pytestmark = [
+    pytest.mark.usefixtures("refuse_nested_test_runs"),
+    pytest.mark.live("devops", "bash", "python", "ruff"),
+]
 
 runner = CliRunner()
 

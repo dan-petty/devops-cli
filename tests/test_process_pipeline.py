@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from devops_cli.core.process_pipeline import ProcessExecutionPipeline
+
+pytestmark = pytest.mark.live("python")
 
 
 def test_process_pipeline_successful_execution() -> None:

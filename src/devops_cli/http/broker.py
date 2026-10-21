@@ -178,3 +178,11 @@ DEFAULT_HTTP_BROKER = HttpClientBroker()
 def get_broker() -> HttpClientBroker:
     """Return the global shared HttpClientBroker instance."""
     return DEFAULT_HTTP_BROKER
+
+
+def reset_broker() -> None:
+    """Close and reset the global shared HttpClientBroker instance."""
+    global DEFAULT_HTTP_BROKER
+    DEFAULT_HTTP_BROKER.close()
+    with DEFAULT_HTTP_BROKER._lock:
+        DEFAULT_HTTP_BROKER._async_clients.clear()

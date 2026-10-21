@@ -9,6 +9,8 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

@@ -199,6 +199,11 @@ def _version_of(title: str) -> Version | None:
         return None
 
 
+def reset_roadmap_store_cache() -> None:
+    """Clear the cached milestone version parses."""
+    _version_of.cache_clear()
+
+
 def parse_release_version(version: str) -> Version:
     """Parse a Release version, with or without its leading `v`."""
     parsed = _version_of(version)

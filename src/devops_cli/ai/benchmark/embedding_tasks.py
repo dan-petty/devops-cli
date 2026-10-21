@@ -93,3 +93,9 @@ def get_embedding_eval_dataset() -> tuple[list[EmbeddingEvalPair], list[str]]:
     distractors = _load_distractors()
     corpus: list[str] = [p.target_passage for p in pairs] + list(distractors)
     return list(pairs), corpus
+
+
+def reset_embedding_tasks_cache() -> None:
+    """Clear the cached embedding benchmark evaluation pairs and distractors."""
+    _load_eval_pairs.cache_clear()
+    _load_distractors.cache_clear()

@@ -88,6 +88,11 @@ def _calculate_backoff_delay(
 _MODEL_DIMENSION_CACHE: dict[tuple[str, str], int] = {}
 
 
+def reset_model_dimension_cache() -> None:
+    """Clear the cached (provider, model) embedding dimensions."""
+    _MODEL_DIMENSION_CACHE.clear()
+
+
 # =============================================================================
 # In-Memory SHA-256 Keyed Embedding LRU Cache
 # =============================================================================

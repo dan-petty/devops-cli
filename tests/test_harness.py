@@ -29,6 +29,11 @@ from devops_cli.ai.harness import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
+pytestmark = [
+    pytest.mark.usefixtures("mock_keyring", "public_dns"),
+    pytest.mark.live("echo", "sleep", "sh", "python"),
+]
+
 
 def test_file_system_safe_operations(tmp_path: Path) -> None:
     test_file = tmp_path / "sample.txt"

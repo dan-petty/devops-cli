@@ -23,6 +23,8 @@ from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
 from tests.support.github_identity import fail_the_github_lookup
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

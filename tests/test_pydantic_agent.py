@@ -20,6 +20,8 @@ from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ModelRetry
 
+pytestmark = pytest.mark.usefixtures("public_dns")
+
 
 def test_is_pydantic_ai_available() -> None:
     assert is_pydantic_ai_available() is True

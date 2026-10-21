@@ -35,6 +35,12 @@ _KB_DIR = Path(__file__).resolve().parent / "knowledge_base"
 _UV_LOCK_CACHE: dict[str, str] | None = None
 
 
+def reset_uv_lock_cache() -> None:
+    """Clear the cached uv.lock dependency version map."""
+    global _UV_LOCK_CACHE
+    _UV_LOCK_CACHE = None
+
+
 def get_knowledge_base_dir() -> Path:
     """Return the absolute path to the bundled knowledge base directory."""
     return _KB_DIR
@@ -761,4 +767,5 @@ __all__ = [
     "load_kb_article",
     "load_matched_kb_manuals",
     "parse_manual_front_matter",
+    "reset_uv_lock_cache",
 ]

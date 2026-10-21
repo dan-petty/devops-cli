@@ -389,7 +389,9 @@ def test_validate_url_egress() -> None:
     assert socket.getdefaulttimeout() == initial_timeout
 
 
-def test_network_guard_blocks_external_socket_calls() -> None:
+def test_network_guard_blocks_external_socket_calls(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify that tests are prevented from making unmocked external socket connections."""
     import socket
 
@@ -401,14 +403,22 @@ def test_network_guard_blocks_external_socket_calls() -> None:
             sock.connect(("192.0.2.1", 80))
     finally:
         sock.close()
+        unexpected_loopback_connects.clear()
 
 
-def test_network_guard_blocks_external_dns_lookups() -> None:
+def test_network_guard_blocks_external_dns_lookups(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify that tests cannot resolve external hostnames, while loopback names still resolve."""
     import socket
 
-    with pytest.raises(socket.gaierror, match="External DNS lookup blocked during test execution"):
-        socket.getaddrinfo("api.osv.dev", 443)
+    try:
+        with pytest.raises(
+            socket.gaierror, match="External DNS lookup blocked during test execution"
+        ):
+            socket.getaddrinfo("api.osv.dev", 443)
+    finally:
+        unexpected_loopback_connects.clear()
     assert socket.getaddrinfo("localhost", 80)
     assert socket.getaddrinfo("127.0.0.1", 80)
 
@@ -760,7 +770,9 @@ def test_dns_resolution_patched_to_metadata_is_refused(monkeypatch: pytest.Monke
         validate_url_egress("http://example.com/", allow_private=False)
 
 
-def test_conftest_dns_guard_ai_numerichost() -> None:
+def test_conftest_dns_guard_ai_numerichost(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """Verify test DNS guard passes AI_NUMERICHOST calls positionally and via keyword."""
     import socket
 
@@ -771,8 +783,11 @@ def test_conftest_dns_guard_ai_numerichost() -> None:
     assert (bool(res_pos), bool(res_kw)) == (True, True)
 
     # External domain without AI_NUMERICHOST raises gaierror from guard
-    with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
-        socket.getaddrinfo("nonexistent.unmocked.domain", 80)
+    try:
+        with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
+            socket.getaddrinfo("nonexistent.unmocked.domain", 80)
+    finally:
+        unexpected_loopback_connects.clear()
 
 
 _PUBLIC_DNS_NAME_TABLE: tuple[tuple[str, bool], ...] = (

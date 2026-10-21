@@ -5,11 +5,15 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANNED_HAND_ROLLED_APIS,
 )
+
+pytestmark = pytest.mark.live("ast-grep", "ruff")
 
 
 def test_ast_grep_network_construct_rule_tests_pass() -> None:

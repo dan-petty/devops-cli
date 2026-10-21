@@ -11,7 +11,7 @@ from devops_cli.ai.providers.ollama import OllamaProvider
 from devops_cli.ai.providers.openai import OpenAIProvider
 from devops_cli.config.settings import AIConfig
 
-_PROVIDERS: dict[str, type[BaseLLMProvider]] = {
+_DEFAULT_PROVIDERS: dict[str, type[BaseLLMProvider]] = {
     "ollama": OllamaProvider,
     "openai": OpenAIProvider,
     "claude": AnthropicProvider,
@@ -19,10 +19,19 @@ _PROVIDERS: dict[str, type[BaseLLMProvider]] = {
     "copilot": CopilotProvider,
 }
 
+_PROVIDERS: dict[str, type[BaseLLMProvider]] = dict(_DEFAULT_PROVIDERS)
+
 
 def register_provider(name: str, provider_cls: type[BaseLLMProvider]) -> None:
     """Register a custom or mock LLM provider class under the given canonical name."""
     _PROVIDERS[name.lower().strip()] = provider_cls
+
+
+def reset_providers() -> None:
+    """Restore the provider registry to its built-in providers."""
+    _PROVIDERS.clear()
+    _PROVIDERS.update(_DEFAULT_PROVIDERS)
+    _PYDANTIC_PROVIDERS.clear()
 
 
 def get_provider(name: str, config: AIConfig) -> BaseLLMProvider:
@@ -188,4 +197,5 @@ __all__ = [
     "infer_provider_class",
     "is_pydantic_ai_provider",
     "register_provider",
+    "reset_providers",
 ]

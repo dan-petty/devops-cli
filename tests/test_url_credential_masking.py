@@ -21,6 +21,8 @@ from devops_cli.security.sanitizer import (
 from devops_cli.security.vault_broker import VaultSecretBroker
 from tests.support.paths import REPO_ROOT
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def _eval_ssrf_target(input_str: str) -> Any:
     return SSRFBlockedError(input_str).details["target_url"]

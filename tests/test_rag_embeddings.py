@@ -11,6 +11,8 @@ import pytest
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.config.settings import AIConfig
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def _fixed_vectors(width: int, value: float = 0.5) -> Any:
     """A `_dispatch_embed` stand-in that answers every text with the same vector."""

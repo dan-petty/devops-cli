@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 
 def test_qdrant_client_resolves_keyring_secret() -> None:
     """Verify QdrantClient automatically resolves API key from OS Keyring when omitted."""

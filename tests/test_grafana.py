@@ -14,6 +14,8 @@ from devops_cli.commands.grafana import app as grafana_app
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 runner = CliRunner()
 
 

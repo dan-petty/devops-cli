@@ -20,19 +20,31 @@ from tests.support.refused_programs import refused_programs
 
 
 @pytest.mark.parametrize("program", sorted(refused_programs()))
-def test_starting_a_refused_program_fails_the_test(program: str) -> None:
+def test_starting_a_refused_program_fails_the_test(
+    program: str, unexpected_loopback_connects: list[str]
+) -> None:
     """The program is refused by its name, at any path, before any process starts."""
-    with pytest.raises(pytest.fail.Exception, match=f"real {program}"):
-        subprocess.run([f"/usr/local/bin/{program}", "--version"], check=False)
+    try:
+        with pytest.raises(pytest.fail.Exception, match=f"real {program}"):
+            subprocess.run([f"/usr/local/bin/{program}", "--version"], check=False)
+    finally:
+        unexpected_loopback_connects.clear()
 
 
-def test_a_refused_shell_command_fails_the_test() -> None:
+def test_a_refused_shell_command_fails_the_test(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """A command line given as one string is refused by its first word."""
-    with pytest.raises(pytest.fail.Exception, match="real checkov"):
-        subprocess.run("checkov --version", shell=True, check=False)
+    try:
+        with pytest.raises(pytest.fail.Exception, match="real checkov"):
+            subprocess.run("checkov --version", shell=True, check=False)
+    finally:
+        unexpected_loopback_connects.clear()
 
 
-def test_a_refusal_fails_the_test_through_a_handler_of_every_exception() -> None:
+def test_a_refusal_fails_the_test_through_a_handler_of_every_exception(
+    unexpected_loopback_connects: list[str],
+) -> None:
     """A scanner adapter that reports any exception as a failed scan cannot hide the refusal."""
 
     def scan() -> str:
@@ -42,8 +54,11 @@ def test_a_refusal_fails_the_test_through_a_handler_of_every_exception() -> None
             return "failed scan"
         return "ran"
 
-    with pytest.raises(pytest.fail.Exception, match="real gitleaks"):
-        scan()
+    try:
+        with pytest.raises(pytest.fail.Exception, match="real gitleaks"):
+            scan()
+    finally:
+        unexpected_loopback_connects.clear()
 
 
 def test_every_other_program_still_starts() -> None:

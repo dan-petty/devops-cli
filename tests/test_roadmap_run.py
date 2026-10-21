@@ -103,6 +103,8 @@ from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
 RELEASE_BRANCH = f"release/{RELEASE}"

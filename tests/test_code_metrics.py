@@ -124,6 +124,7 @@ def test_a_parser_overflow_is_reported_rather_than_raised(
     assert breaches(module, 5) == [f"{module}: could not parse ({overflow})"]
 
 
+@pytest.mark.live("python")
 def test_the_hook_loads_no_scanner_and_no_pydantic_ai(tmp_path: Path) -> None:
     """A commit-time gate must cost less than the commit: no scanner, no pydantic_ai."""
     module = _write(tmp_path, "shallow.py", _nested_ifs(1))
@@ -302,6 +303,7 @@ def test_the_commit_hook_runs_this_module_at_the_default_cap() -> None:
     )
 
 
+@pytest.mark.live("python")
 def test_the_hook_entry_matches_module_execution_on_valid_and_breaching_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -349,6 +351,7 @@ def test_the_hook_entry_matches_module_execution_on_valid_and_breaching_files(
     assert res_deep.stderr == mod_err_deep
 
 
+@pytest.mark.live("pre-commit")
 def test_pre_commit_runs_hook_in_single_process_across_multiple_files(tmp_path: Path) -> None:
     """Pre-commit executes the hook once across staged files when require_serial is true."""
     if shutil.which("pre-commit") is None:

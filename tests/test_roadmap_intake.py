@@ -1678,9 +1678,9 @@ def test_the_mcp_mirror_dry_run_makes_no_request(no_requests: None) -> None:
 
 
 @pytest.fixture
-def exports(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The telemetry exports a command makes, recorded instead of sent; the session's config
-    turns telemetry on."""
+def exports(monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]) -> list[str]:
+    """The telemetry exports a command makes, recorded instead of sent, with telemetry on."""
+    config(telemetry={"enabled": True})
     sent: list[str] = []
 
     def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:

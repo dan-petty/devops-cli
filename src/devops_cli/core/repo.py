@@ -524,6 +524,16 @@ def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
 get_repo_origin_name.cache_clear = _cached_repo_origin.cache_clear  # type: ignore[attr-defined]
 
 
+def reset_repo_caches() -> None:
+    """Clear all cached repository root, origin, and pathspec lookups."""
+    _get_pathspec_for_repo.cache_clear()
+    if hasattr(_own_source_dir, "cache_clear"):
+        _own_source_dir.cache_clear()
+    _source_repository.cache_clear()
+    _repository_at.cache_clear()
+    _cached_repo_origin.cache_clear()
+
+
 def is_safe_subpath(root: Path | str, target: Path | str) -> bool:
     """Return True if *target* strictly resides within *root* directory hierarchy."""
     try:

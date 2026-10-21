@@ -39,7 +39,6 @@ from tests.cluster_secret_fakes import (
     MACHINE_TOKEN,
     FakeCluster,
     FakeKeyring,
-    forbid_requests,
 )
 from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
@@ -345,6 +344,7 @@ def test_tunnel_token_is_a_managed_credential() -> None:
     ) == (True, "cloudflare_tunnel_token", True, ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",))
 
 
+@pytest.mark.usefixtures("mock_keyring")
 def test_no_table_secret_is_copied_back_by_sync() -> None:
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
@@ -882,10 +882,7 @@ def _context_free(argv: tuple[str, ...] | list[str]) -> list[str]:
     return args
 
 
-def test_dry_run_makes_no_request_and_prints_the_requests_in_order(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    attempted = forbid_requests(monkeypatch)
+def test_dry_run_makes_no_request_and_prints_the_requests_in_order() -> None:
     result = _push("--stack", "llm", "--dry-run")
     output = result.output
     order = [
@@ -904,11 +901,10 @@ def test_dry_run_makes_no_request_and_prints_the_requests_in_order(
     assert (
         result.exit_code,
         result.exception,
-        attempted,
         -1 in positions,
         positions == sorted(positions),
         "no request was made" in output,
-    ) == (0, None, [], False, True, True), output
+    ) == (0, None, False, True, True), output
 
 
 def test_plan_says_it_read_ghs_record_of_the_machine_account(
@@ -928,27 +924,22 @@ def test_plan_says_it_read_ghs_record_of_the_machine_account(
     )
 
 
-def test_dry_run_wins_over_plan(monkeypatch: pytest.MonkeyPatch) -> None:
-    attempted = forbid_requests(monkeypatch)
+def test_dry_run_wins_over_plan() -> None:
     result = _push("--only", "llm/qdrant-api-key", "--plan", "--dry-run")
-    assert (result.exit_code, attempted, "no request was made" in result.output) == (0, [], True)
+    assert (result.exit_code, "no request was made" in result.output) == (0, True)
 
 
-def test_dry_run_returns_the_push_result_type_marked_as_a_dry_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_dry_run_returns_the_push_result_type_marked_as_a_dry_run() -> None:
     from devops_cli.commands.k8s.cluster_secret_push import run_push
     from devops_cli.k8s.secret_push import PushMode, PushOptions, PushResult
 
-    attempted = forbid_requests(monkeypatch)
     result = run_push(CLUSTER_SECRETS, PushOptions(context="test-ctx"), mode=PushMode.DRY_RUN)
     assert (
         type(result),
         result.dry_run,
         result.plan,
         bool(result.requests),
-        attempted,
-    ) == (PushResult, True, None, True, [])
+    ) == (PushResult, True, None, True)
 
 
 def test_a_real_push_returns_the_same_type_with_its_plan(
@@ -1005,15 +996,12 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     )
 
 
-def test_under_only_every_request_after_the_namespace_reads_needs_them_all(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_under_only_every_request_after_the_namespace_reads_needs_them_all() -> None:
     """`--only` stops on a missing namespace, so nothing after the namespace reads runs
     unless every selected namespace exists."""
     from devops_cli.k8s.cluster_secrets import secrets_by_ref
     from devops_cli.k8s.secret_push import PushOptions, dry_run_push
 
-    forbid_requests(monkeypatch)
     selected, _ = secrets_by_ref(["llm/qdrant-api-key", "devops/devops-cli"])
     requests = dry_run_push(selected, PushOptions(strict_namespaces=True)).requests
     assert [r.method for r in requests if not r.condition] == [
@@ -1023,13 +1011,10 @@ def test_under_only_every_request_after_the_namespace_reads_needs_them_all(
     ]
 
 
-def test_the_dry_run_names_the_conditional_requests_and_holds_no_value(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_dry_run_names_the_conditional_requests_and_holds_no_value() -> None:
     from devops_cli.k8s.cluster_secrets import secrets_by_ref
     from devops_cli.k8s.secret_push import PushOptions, dry_run_push
 
-    forbid_requests(monkeypatch)
     selected, _ = secrets_by_ref(["devops/devops-cli"])
     requests = dry_run_push(selected, PushOptions(rotate=True)).requests
     text = "\n".join(f"{r.line()}\n{r.stdin or ''}" for r in requests)

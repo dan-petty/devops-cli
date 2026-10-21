@@ -330,6 +330,7 @@ def test_fail_to_pass_materialises_base_and_overlays_head_tests(
     )
 
 
+@pytest.mark.live("python")
 def test_a_new_module_s_test_that_cannot_import_on_base_leaves_the_other_tests_counted(
     tmp_path: Path, git: Callable[..., None]
 ) -> None:

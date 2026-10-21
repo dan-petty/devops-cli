@@ -30,6 +30,8 @@ from devops_cli.telemetry import (
 
 runner = CliRunner()
 
+pytestmark = pytest.mark.usefixtures("public_dns")
+
 _TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
 
 
