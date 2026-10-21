@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 from typing import Final, Literal
 
@@ -180,10 +182,10 @@ DEFAULT_HOMELAB_DOMAINS: tuple[str, ...] = (
     "tempo.homelab.local",
     "otel.homelab.local",
 )
-DEFAULT_HOMELAB_IPS: tuple[str, ...] = (
-    "127.0.0.1",
-    "::1",
-    "192.168.49.2",  # Minikube standard node IP
+DEFAULT_HOMELAB_IPS: tuple[IPv4Address | IPv6Address, ...] = (
+    ipaddress.ip_address("127.0.0.1"),
+    ipaddress.ip_address("::1"),
+    ipaddress.ip_address("192.168.49.2"),  # Minikube standard node IP
 )
 
 # ── RAG & Vector Store Defaults ───────────────────────────────────────────────

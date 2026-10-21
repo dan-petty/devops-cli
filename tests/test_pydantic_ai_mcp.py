@@ -258,3 +258,18 @@ async def test_mcp_derived_default_tools_match_published_fastmcp_schemas() -> No
         [],
         {"domain": "k8s", "hydrated": True, "advertised_domains": ["k8s"]},
     )
+
+
+def test_agent_mcp_toolset_url_and_script_target() -> None:
+    """AgentMCPToolset parses URLs case-insensitively and sets script_path for paths (#1107)."""
+    ts1 = AgentMCPToolset("HTTPS://example.com/sse")
+    assert ts1.url == "HTTPS://example.com/sse"
+    assert ts1.script_path is None
+
+    ts2 = AgentMCPToolset("http://example.com/sse")
+    assert ts2.url == "http://example.com/sse"
+    assert ts2.script_path is None
+
+    ts3 = AgentMCPToolset("scripts/mcp_server.py")
+    assert ts3.url is None
+    assert ts3.script_path == "scripts/mcp_server.py"

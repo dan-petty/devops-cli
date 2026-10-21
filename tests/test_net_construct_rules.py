@@ -42,6 +42,21 @@ def test_ast_grep_scan_detects_hand_rolled_port_table(tmp_path: Path) -> None:
     assert "net-port-table" in res.stdout or "net-port-table" in res.stderr
 
 
+def test_ast_grep_scan_detects_net_address_list(tmp_path: Path) -> None:
+    """ast-grep scan detects literal address/scheme lists in source code."""
+    scratch = tmp_path / "scratch.py"
+    scratch.write_text('bad_sans = ["localhost", "127.0.0.1"]\n', encoding="utf-8")
+
+    res = subprocess.run(
+        ["ast-grep", "scan", str(scratch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "net-address-list" in res.stdout or "net-address-list" in res.stderr
+
+
 def test_ruff_tid251_detects_banned_socket_apis(tmp_path: Path) -> None:
     """Ruff TID251 flags banned socket.inet_* APIs in source code."""
     scratch = tmp_path / "scratch.py"

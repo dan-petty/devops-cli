@@ -295,7 +295,7 @@ def generate_homelab_cmd(
                 "custom_domains": domain or [],
                 "custom_ips": ip or [],
                 "default_domains": list(DEFAULT_HOMELAB_DOMAINS),
-                "default_ips": list(DEFAULT_HOMELAB_IPS),
+                "default_ips": [str(ip) for ip in DEFAULT_HOMELAB_IPS],
             },
         )
         return

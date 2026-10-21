@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import datetime
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,7 +50,9 @@ class CertGenerationRequest(BaseModel):
     model_config = ConfigDict(frozen=False)
 
     common_name: str = "localhost"
-    sans: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
+    sans: list[str | IPv4Address | IPv6Address] = Field(
+        default_factory=lambda: ["localhost", ipaddress.ip_address("127.0.0.1")]
+    )
     ca_cert_path: Path | None = None
     ca_key_path: Path | None = None
     validity_days: int = 365  # 1 year default for leaf certs

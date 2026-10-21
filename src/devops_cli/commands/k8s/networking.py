@@ -6,6 +6,7 @@ import logging
 import subprocess
 from collections.abc import Iterable, Sequence
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import typer
 
@@ -81,7 +82,7 @@ def _parse_minikube_service_url(stdout: str) -> str | None:
     """Extract HTTP/HTTPS URL from minikube service command output."""
     for line in stdout.splitlines():
         line_str = line.strip()
-        if line_str.startswith(("http://", "https://")):
+        if urlsplit(line_str).scheme in {"http", "https"}:
             return line_str
     return None
 

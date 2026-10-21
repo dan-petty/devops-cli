@@ -1,0 +1,33 @@
+id: net-address-list
+language: python
+severity: error
+message: Literal list of addresses, loopback names or schemes. Classify with ipaddress (is_loopback, is_link_local, is_private, is_global) and read schemes with urllib.parse.urlsplit; data no library knows is a constant of ipaddress objects with its source cited.
+utils:
+  ipv4:
+    kind: string
+    regex: '^["\'']\d{1,3}(\.\d{1,3}){3}(/\d+)?["\'']$'
+  ipv6:
+    kind: string
+    regex: '^["\''][0-9a-fA-F]*:[0-9a-fA-F:]*:[0-9a-fA-F]*(/\d+)?["\'']$'
+  localhost:
+    kind: string
+    regex: '^["\'']localhost["\'']$'
+  scheme:
+    kind: string
+    regex: '^["\''][a-z][a-z0-9+.-]*://["\'']$|^["\'']://["\'']$'
+rule:
+  all:
+    - any:
+        - kind: set
+        - kind: tuple
+        - kind: list
+    - any:
+        - all:
+            - has: {matches: ipv4}
+            - any:
+                - has: {matches: ipv6}
+                - has: {matches: localhost}
+        - all:
+            - has: {matches: ipv6}
+            - has: {matches: localhost}
+        - has: {matches: scheme}
