@@ -4,17 +4,12 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.client.network import completion_cap, limit_completion_tokens
-from devops_cli.ai.review.pipeline import _execute_page_review_steps
-from devops_cli.config.defaults import (
-    DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
-)
+from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.config.settings import AIConfig
 from tests.llm_stream_fakes import route_llm_clients
 
@@ -63,19 +58,3 @@ def test_call_cap_limits_the_reply_and_config_still_applies(
     _client().chat("s", "u", use_cache=False)
 
     assert [p.get("max_tokens") for p in payloads] == [500, 300, None]
-
-
-def test_persona_review_replies_are_capped() -> None:
-    """Verify persona review runs under the persona reply cap."""
-    seen: list[int | None] = []
-    pipeline = MagicMock()
-
-    def run(*args: Any, **kwargs: Any) -> Any:
-        seen.append(completion_cap.get())
-        return MagicMock(steps=[])
-
-    pipeline.run.side_effect = run
-
-    _execute_page_review_steps(pipeline, "prompt", "src/app.py", 1, 1, {}, [], [], [])
-
-    assert seen == [DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS]

@@ -287,15 +287,15 @@ def test_a_review_benchmark_is_kept_with_its_setup_and_corpus(
     monkeypatch.setattr(review_commands, "path", fake_review)
     monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
-    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "1", "--all"])
+    result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "1"])
     (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
 
     assert (
         result.exit_code,
-        (record.setup["all_personas"], record.setup["page_chars"] > 0),
+        record.setup["page_chars"] > 0,
         record.subject == {"corpus_digest": record.results["corpus_digest"], "target": "corpus"},
         "Kept on this workstation only" in result.output,
-    ) == (0, (True, True), True, True)
+    ) == (0, True, True, True)
 
 
 @pytest.mark.parametrize(

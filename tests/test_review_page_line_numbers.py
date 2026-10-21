@@ -7,7 +7,6 @@ split file started mid-file with no offset: an injected defect at line 248 was r
 
 from __future__ import annotations
 
-import re
 from itertools import pairwise
 from pathlib import Path
 
@@ -21,8 +20,6 @@ from devops_cli.ai.review.chunker import (
     split_review_pages,
     strip_line_numbers,
 )
-from devops_cli.ai.review.classification import FileContextType, build_context_review_prompt
-from devops_cli.ai.review.pipeline import _page_imports
 
 _DEFECT = "    path.parent.mkdir(mode=0o777, parents=True, exist_ok=True)"
 
@@ -157,31 +154,6 @@ def test_diff_pages_number_lines_and_keep_them_when_split() -> None:
     resplit = split_review_pages("\n".join(pages), max_chars=400)
     assert all(p.startswith("diff --git a/big.py b/big.py\n") for p in resplit)
     assert "248\t+line 248" in "".join(resplit)
-
-
-def test_imports_are_read_through_the_number_column() -> None:
-    """Verify contract grounding still finds imports on numbered source and diff pages."""
-    source_page = _split_source_file_blocks(Path("m.py"), "py", "import os\nfrom a import b\n")[0]
-    diff_page = diff_pages("diff --git a/m.py b/m.py\n@@ -1 +1,2 @@\n x\n+import json\n")[0]
-
-    assert (_page_imports(source_page), _page_imports(diff_page)) == (
-        [("os", None), ("a", "b")],
-        [("json", None)],
-    )
-
-
-def test_persona_prompts_ask_for_the_shown_line_numbers() -> None:
-    """Verify every page prompt, of any file kind, tells the persona to cite the numbers."""
-    prompts = [
-        build_context_review_prompt(kind, "a.py", 2, 3, "1\tx = 1\n")
-        for kind in (
-            FileContextType.CODE,
-            FileContextType.CONFIGURATION,
-            FileContextType.DOCUMENTATION,
-        )
-    ]
-
-    assert all(re.search(r"line number.*never copy them", p, re.S) for p in prompts)
 
 
 def test_extract_added_diff_lines_raw_and_numbered() -> None:

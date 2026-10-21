@@ -188,17 +188,16 @@ class TestMcpCli:
 
 
 def test_mcp_prompts_execution() -> None:
-    """Verify code review and security audit prompt templates return populated markdown."""
-    from devops_cli.ai.mcp.server import code_review_prompt, security_audit_prompt
+    """Verify architecture analysis and security audit prompt templates return populated markdown."""
+    from devops_cli.ai.mcp.server import architecture_analysis_prompt, security_audit_prompt
 
-    review_p = code_review_prompt(persona="architect", target="src/devops_cli")
+    arch_p = architecture_analysis_prompt(target="src/devops_cli")
     sec_p = security_audit_prompt(target="src")
     assert (
-        "architect" in review_p,
-        "src/devops_cli" in review_p,
+        "src/devops_cli" in arch_p,
         "security audit" in sec_p.lower(),
         "src" in sec_p,
-    ) == (True, True, True, True)
+    ) == (True, True, True)
 
 
 def test_ai_architecture_tool_is_removed() -> None:
@@ -258,9 +257,9 @@ def test_mcp_helpers_and_error_branches() -> None:
     # 5. Review tools
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Review Output"):
         assert (
-            review_path("src", "*.py", "architect"),
-            review_branch("feat/new", "main", "devsecops"),
-            review_pr(42, post_comment=True, persona="qa"),
+            review_path(["src"], "*.py"),
+            review_branch("feat/new", "main"),
+            review_pr(42, post_comment=True),
             review_findings("20260826-session", status_filter="verified"),
             review_stats(),
         ) == ("Review Output", "Review Output", "Review Output", "Review Output", "Review Output")

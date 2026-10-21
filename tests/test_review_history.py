@@ -120,8 +120,6 @@ def test_a_review_hands_its_subject_to_the_orchestrator(tmp_path: Path) -> None:
             _PAGES,
             "Branch `feature` vs `main`",
             False,
-            None,
-            False,
             ReviewClients(analysis=client),
             target_type="branch",
             target_ref="feature",

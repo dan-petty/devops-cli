@@ -70,15 +70,15 @@ graph TD
 ## 3. Operational Patterns & Workflows in DevOps CLI
 
 ### Prompt Task Isolation
-All system prompts, task instructions and evaluation rubrics are stored in dedicated Markdown files: task prompts under `src/devops_cli/ai/tasks/` (e.g. `review.md`, `code_review_prompt.md`) and each persona's `role.md` and `prompt.md` under `src/devops_cli/ai/personas/<persona>/`. Prompt text is never declared inline in Python code.
+All system prompts, task instructions and evaluation rubrics are stored in dedicated Markdown files under `src/devops_cli/ai/tasks/` and `src/devops_cli/ai/personas/`. Prompt text is never declared inline in Python code.
 
 ### Canonical Instruction Model (`AGENTS.md`)
 AI assistants operate best when provided with a single authoritative source of truth. `devops-cli` establishes `AGENTS.md` at the repository root as the canonical instruction file, while `CLAUDE.md` and `.github/copilot-instructions.md` serve as thin redirection pointers.
 
 ### Common Commands
 ```bash
-# Review active working directory git diff with DevSecOps persona
-devops ai review branch --persona devsecops
+# Review active working directory git diff
+devops ai review branch
 
 # Review an entire target project path
 devops ai review path repos/my-org/my-project

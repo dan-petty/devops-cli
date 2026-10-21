@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.constants import (
@@ -41,7 +41,12 @@ class FeedbackRecord(BaseModel):
     session_id: str
     # What the session reviewed: its target and a digest of the pages its personas read.
     subject: dict[str, str] = Field(default_factory=dict)
-    persona: str
+    producer: str = Field(default="", validation_alias=AliasChoices("producer", "persona"))
+
+    @property
+    def persona(self) -> str:
+        return self.producer
+
     title: str
     severity: str
     location: str
@@ -68,14 +73,16 @@ class FeedbackRecord(BaseModel):
 def feedback_fingerprint(record: dict[str, Any]) -> str:
     """What makes two dataset records one: the same session's finding with the same verdict.
 
-    A finding is its session, first persona, location and title, and a finding judged again is
+    A finding is its session, producer, location and title, and a finding judged again is
     a new record, so a person's later verdict is appended rather than dropped. Every record the
     dataset holds has these fields, so the records of earlier exports are fingerprinted too.
     """
-    persona = str(record.get("persona") or "").split(",")[0].strip().lower()
+    producer = (
+        str(record.get("producer") or record.get("persona") or "").split(",")[0].strip().lower()
+    )
     identity = [
         str(record.get("session_id") or ""),
-        persona,
+        producer,
         str(record.get("location") or "").strip().lower(),
         str(record.get("title") or "").strip().lower(),
         str(record.get("status") or "").upper(),
@@ -91,7 +98,7 @@ def _build_feedback_record(
     return FeedbackRecord(
         session_id=session_id,
         subject=subject,
-        persona=str(f.get("persona") or "unknown"),
+        producer=str(f.get("producer") or f.get("persona") or "unknown"),
         title=str(f.get("title") or ""),
         severity=str(f.get("severity") or "medium"),
         location=str(f.get("location") or ""),

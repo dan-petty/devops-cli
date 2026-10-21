@@ -3526,9 +3526,9 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 ### `devops ai prompt-eval`
 
-**Count the review verdicts the feedback dataset records for one persona's findings.**
+**Count the review verdicts the feedback dataset records for one producer's findings.**
 
-Count the review verdicts the feedback dataset records for one persona's findings.
+Count the review verdicts the feedback dataset records for one producer's findings.
 
 The counts are reported for each labeller, and a label a deterministic check wrote is left
 out unless --include-deterministic: it is a machine's label, not a person's.
@@ -3541,7 +3541,7 @@ devops ai prompt-eval [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded verdicts to count. |
+| `--producer`, `-p` | `string` | `devsecops` | Producer whose recorded verdicts to count. |
 | `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
 | `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; they are a machine's labels, not a person's, so they are excluded by default. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
@@ -3689,8 +3689,6 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
@@ -3699,10 +3697,6 @@ devops ai review path [OPTIONS] <targets>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -3734,8 +3728,6 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -3745,10 +3737,6 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -3778,8 +3766,6 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -3789,10 +3775,6 @@ devops ai review pr [OPTIONS] <number>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -3914,8 +3896,6 @@ devops ai review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
@@ -4079,7 +4059,6 @@ devops ai review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 #### `devops ai review templates`
@@ -5438,8 +5417,6 @@ devops review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
@@ -5448,10 +5425,6 @@ devops review path [OPTIONS] <targets>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -5483,8 +5456,6 @@ devops review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -5494,10 +5465,6 @@ devops review branch [OPTIONS] <branch_name>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -5527,8 +5494,6 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -5538,10 +5503,6 @@ devops review pr [OPTIONS] <number>
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
-| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
-| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
-| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
@@ -5663,8 +5624,6 @@ devops review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
@@ -5828,7 +5787,6 @@ devops review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ### `devops review templates`

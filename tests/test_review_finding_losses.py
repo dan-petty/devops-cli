@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -13,75 +12,11 @@ from devops_cli.ai.review.pipeline import _build_malicious_network_finding, _is_
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.vulnerability import NetworkReference, NetworkReputationRecord
 
-_PERSONA_REPLY = (
-    '```json\n{"findings": [{"severity": "HIGH", "location": "src/app.py:3", '
-    '"title": "SQL injection in search", "description": "Input reaches the query.", '
-    '"fix": "Bind parameters."}]}\n```'
-)
-
 
 @pytest.fixture(autouse=True)
 def _no_rag() -> object:
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
         yield
-
-
-def _orchestrator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reply: object) -> Any:
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    llm = MagicMock()
-    for method in ("chat_messages", "chat_complete", "chat", "complete"):
-        getattr(llm, method).side_effect = reply
-    return ReviewPipelineOrchestrator(session_id="losses", llm_client=llm, target_dir=tmp_path)
-
-
-def _scanner_finding() -> SavedFinding:
-    return SavedFinding(
-        severity="CRITICAL",
-        location="src/app.py:1",
-        title="[gitleaks] AWS access key committed",
-        description="An AWS access key is committed in plaintext.",
-        fix="Revoke and rotate the key.",
-        persona="devsecops",
-    )
-
-
-def _review(orchestrator: Any) -> FileReviewPayload:
-    payload = FileReviewPayload(file_path="src/app.py", findings=[_scanner_finding()])
-    orchestrator.execute_multi_persona_review(
-        [payload],
-        diff_text_by_file={"src/app.py": "key = 'AKIA...'\nquery = f'... {term}'\n"},
-        personas=["devsecops"],
-    )
-    return payload
-
-
-def test_scanner_findings_survive_the_persona_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify scanner findings seeded into a payload are kept beside the persona findings."""
-    payload = _review(_orchestrator(tmp_path, monkeypatch, lambda *a, **k: _PERSONA_REPLY))
-
-    assert sorted(f.title for f in payload.findings) == [
-        "SQL injection in search",
-        "[gitleaks] AWS access key committed",
-    ]
-
-
-def test_scanner_findings_survive_a_failed_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify a failing persona review does not erase the file's scanner findings."""
-
-    def fail(*args: object, **kwargs: object) -> str:
-        raise RuntimeError("backend unavailable")
-
-    orchestrator = _orchestrator(tmp_path, monkeypatch, fail)
-    payload = _review(orchestrator)
-
-    assert ([f.title for f in payload.findings], "src/app.py" in orchestrator.errored_files) == (
-        ["[gitleaks] AWS access key committed"],
-        True,
-    )
 
 
 @pytest.mark.parametrize(
@@ -164,21 +99,32 @@ def test_a_finding_quoting_think_does_not_truncate_the_reply() -> None:
     assert titles == ["Unescaped <think> tag in output", "SQL injection in search"]
 
 
-def test_a_persona_cannot_set_its_own_verification_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify a finding the persona marked INVALIDATED or VERIFIED starts unverified and reported."""
-    reply = (
-        '```json\n{"findings": ['
-        '{"severity": "HIGH", "location": "src/app.py:3", "title": "SQL injection in search", '
-        '"description": "d", "fix": "f", "status": "INVALIDATED", "reportable": false}, '
-        '{"severity": "LOW", "location": "src/app.py:9", "title": "Verbose logging", '
-        '"description": "d", "fix": "f", "status": "VERIFIED", "verified": true}]}\n```'
-    )
-    payload = _review(_orchestrator(tmp_path, monkeypatch, lambda *a, **k: reply))
-    persona = [f for f in payload.findings if not f.title.startswith("[gitleaks]")]
+def test_a_candidate_cannot_set_its_own_verification_state() -> None:
+    """Verify a finding marked INVALIDATED or VERIFIED starts unverified and reported."""
+    from devops_cli.ai.review_schema import Finding, reset_verification_state
 
-    assert sorted((f.title, f.status, f.reportable, f.verified) for f in persona) == [
+    f1 = Finding(
+        severity="HIGH",
+        location="src/app.py:3",
+        title="SQL injection in search",
+        description="d",
+        fix="f",
+        status="INVALIDATED",
+        reportable=False,
+    )
+    f2 = Finding(
+        severity="LOW",
+        location="src/app.py:9",
+        title="Verbose logging",
+        description="d",
+        fix="f",
+        status="VERIFIED",
+        verified=True,
+    )
+    assert [
+        (f.title, f.status, f.reportable, f.verified)
+        for f in [reset_verification_state(f1), reset_verification_state(f2)]
+    ] == [
         ("SQL injection in search", "UNVERIFIED", True, False),
         ("Verbose logging", "UNVERIFIED", True, False),
     ]
@@ -188,7 +134,12 @@ def _at(
     title: str, location: str, description: str = "d", status: str = "UNVERIFIED"
 ) -> SavedFinding:
     return SavedFinding(
-        severity="HIGH", location=location, title=title, description=description, status=status
+        severity="HIGH",
+        location=location,
+        title=title,
+        description=description,
+        status=status,
+        fingerprint=title,
     )
 
 
@@ -220,29 +171,36 @@ def _at(
             ],
             id="one-function-two-defects",
         ),
-        pytest.param(
-            [
-                _at("Eval of user input", "x.py:8", status="INVALIDATED"),
-                _at("Eval of user input", "x.py:8", status="VERIFIED"),
-            ],
-            id="dismissed-and-live",
-        ),
     ],
 )
 def test_distinct_defects_are_not_merged(pair: list[SavedFinding]) -> None:
-    """Verify consolidation keeps different defects apart."""
-    from devops_cli.ai.review_schema import consolidate_duplicate_findings
-
-    assert len(consolidate_duplicate_findings(pair)) == 2
+    """Verify exact deduplication keeps different defects apart."""
+    orchestrator = ReviewPipelineOrchestrator(session_id="test", target_dir=Path("."))
+    payloads = [FileReviewPayload(file_path=p.location.split(":")[0], findings=[p]) for p in pair]
+    assert len(orchestrator._collect_and_deduplicate_findings(payloads)) == 2
 
 
 def test_the_same_defect_reported_twice_still_merges() -> None:
-    """Verify a real duplicate, one defect cited at adjacent lines, is still consolidated."""
-    from devops_cli.ai.review_schema import consolidate_duplicate_findings
-
-    pair = [_at("SQL injection in search", "a.py:10"), _at("SQL injection in search()", "a.py:11")]
-
-    assert len(consolidate_duplicate_findings(pair)) == 1
+    """Verify exact matches on fingerprint and location merge."""
+    orchestrator = ReviewPipelineOrchestrator(session_id="test", target_dir=Path("."))
+    pair = [
+        SavedFinding(
+            severity="HIGH",
+            location="a.py:10",
+            title="SQL injection",
+            description="d",
+            fingerprint="sql-inj-1",
+        ),
+        SavedFinding(
+            severity="HIGH",
+            location="a.py:10",
+            title="SQL injection",
+            description="d",
+            fingerprint="sql-inj-1",
+        ),
+    ]
+    payloads = [FileReviewPayload(file_path="a.py", findings=pair)]
+    assert len(orchestrator._collect_and_deduplicate_findings(payloads)) == 1
 
 
 @pytest.mark.parametrize(

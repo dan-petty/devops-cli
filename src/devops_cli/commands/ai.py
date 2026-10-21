@@ -1924,9 +1924,9 @@ def diagram_cmd(
 
 @app.command("prompt-eval")
 def prompt_eval_cmd(
-    persona: Annotated[
+    producer: Annotated[
         str,
-        typer.Option("--persona", "-p", help=HELP.ai.eval_review),
+        typer.Option("--producer", "-p", help=HELP.ai.eval_review),
     ] = "devsecops",
     dataset: Annotated[
         Path | None,
@@ -1949,7 +1949,7 @@ def prompt_eval_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Count the review verdicts the feedback dataset records for one persona's findings.
+    """Count the review verdicts the feedback dataset records for one producer's findings.
 
     The counts are reported for each labeller, and a label a deterministic check wrote is left
     out unless --include-deterministic: it is a machine's label, not a person's.
@@ -1961,16 +1961,16 @@ def prompt_eval_cmd(
         render_dry_run_result(
             command="devops ai prompt-eval",
             action="benchmark_prompts",
-            details={"persona": persona, "status": "BENCHMARK_DRY_RUN"},
+            details={"producer": producer, "status": "BENCHMARK_DRY_RUN"},
         )
         return
 
     res = evaluate_persona_prompts(
-        persona=persona, dataset_path=dataset, include_deterministic=include_deterministic
+        producer=producer, dataset_path=dataset, include_deterministic=include_deterministic
     )
     saved = record_run(
         Mechanism.PROMPT_EVAL,
-        setup={"persona": res.persona, "include_deterministic": include_deterministic},
+        setup={"producer": res.producer, "include_deterministic": include_deterministic},
         subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
         results=res.to_dict(),
     )
@@ -1981,7 +1981,7 @@ def prompt_eval_cmd(
         return
 
     print_info(
-        f"[bold]Recorded Verdicts — {res.persona}[/bold] ({res.total_cases} records)",
+        f"[bold]Recorded Verdicts — {res.producer}[/bold] ({res.total_cases} records)",
         prefix=False,
     )
     print_table(

@@ -31,9 +31,43 @@ Delivered across 5 incremental pull requests.
 - [x] Regenerate CLI documentation (`docs/CLI_REFERENCE.md`, `docs/commands/*.md`, `docs/MCP_TOOLS.md`).
 - [x] Add comprehensive unit and integration tests in `tests/test_review_stage_flags.py` and `tests/test_review_group_analysis.py`.
 
+### PR 2: Deletions of Persona Review Stage, Legacy Segment Engine, and Review-Time RAG (Part of #1151)
+
+- [x] Delete obsolete review modules and prompt templates:
+  - `src/devops_cli/ai/review/classification.py`
+  - `src/devops_cli/ai/review/contract_grounding.py`
+  - `src/devops_cli/ai/tasks/code_review_prompt.md`
+  - `src/devops_cli/ai/tasks/config_review_prompt.md`
+  - `src/devops_cli/ai/tasks/docs_review_prompt.md`
+  - `src/devops_cli/ai/tasks/mcp_code_review_output.md`
+  - `tests/test_review_classification.py`
+  - `tests/test_review_prompt_consistency.py`
+  - `tests/test_review_loop_calibration.py`
+- [x] Refactor `src/devops_cli/ai/review/pipeline.py` (deleting >1,000 lines):
+  - Remove multi-persona review execution methods (`execute_multi_persona_review`, `_execute_single_page_review`, `_safe_review_file_payload`, `_build_page_review_prompt`, `_execute_page_review_steps`, `_execute_page_review_with_backoff`, `_read_target_conventions`, `_build_multi_persona_pipeline`, `_resolve_file_pipeline`).
+  - Remove finding re-ranking stage (`execute_finding_reranking`, `_rerank_single_file_payload`).
+  - Remove review-time RAG and contract grounding integration (`_resolve_rag_and_contract_context`, `ground_contracts`, `conventions_revision`).
+  - Replace heuristic fuzzy deduplication (`consolidate_duplicate_findings`, `_are_findings_duplicate`, `_share_distinctive_symbol`, `_extract_code_symbols`) with exact deduplication by `(fingerprint, location)` via `_collect_and_deduplicate_findings`.
+  - Update `SavedFinding` models, console tables, and markdown report generation to replace `persona` with `producer` and `fingerprint`.
+  - Remove `ai_scratchpad` from `FileReviewPayload`.
+- [x] Remove obsolete review flags and CLI options:
+  - Remove `--persona`, `--all` (`--all-personas`), `--no-persona-review`, `--persona-review-only`, `--no-reranking`, `--reranking-only` from `src/devops_cli/commands/review.py` and `src/devops_cli/ai/review/flags.py`.
+  - Enforce exiting with code 2 and deprecation guidance when removed options are passed.
+- [x] Update telemetry:
+  - Update `FINDINGS_TOTAL` metric to emit `producer` label rather than `persona`.
+  - Update `docs/TELEMETRY.md` and Kubernetes dashboard `k8s/monitoring/dashboards/devops-cli.json`.
+- [x] Ratchet down swallowed failure ceilings:
+  - Update `tests/fixtures/swallowed_failures_ceilings.json` via `--lower`.
+- [x] Synchronize documentation and regenerate command docs:
+  - Update `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md` and `docs/DEVCONTAINER_USAGE.md`.
+  - Run `uv run devops docs generate --sync-readme` and verify with `uv run devops docs check`.
+- [x] Verify offline test suites:
+  - Add `tests/test_review_deduplication.py` asserting exact deduplication on `(fingerprint, location)`.
+  - Add `tests/commands/test_review_removed_options.py` asserting removed options exit 2.
+  - Adapt existing test suites to the simplified review pipeline architecture.
+
 ### Follow-up Pull Requests
 
-- PR 2: Deletions of persona review stage, review-time RAG, contract grounding, and consolidation (Part of #1151).
 - PR 3: Diff parsing and target extraction relocations to `diff.py` and `targets.py`, deletion of `chunker.py` (Part of #1151).
 - PR 4: Hand-written doc updates, `.devops/review.md` deletion, and changelog fragment (Closes #1151).
 - PR 5: #1150 leftovers (hardening surface to `.devops/review.toml`, verifier note kind constants, `relocated_from`) (Part of #1151).

@@ -1685,8 +1685,6 @@ Review a git branch diff with one or all AI personas.
 |---|---|---|---|---|
 | `branch_name` | `string` | No | - | Branch to review (default: current branch). |
 | `base` | `string` | No | `main` | Base git branch to diff against (default: main). |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `repo_path` | `string` | No | `.` | Repository root directory (default: current directory). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -1696,10 +1694,6 @@ Review a git branch diff with one or all AI personas.
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
@@ -1767,8 +1761,6 @@ Review source files directly (no git required).
 |---|---|---|---|---|
 | `targets` | `array[string]` | No | - | File(s) or directory(ies) to review. |
 | `pattern` | `string` | No | `*` | Glob pattern for matching files. |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
@@ -1777,10 +1769,6 @@ Review source files directly (no git required).
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
@@ -1805,8 +1793,6 @@ Review a GitHub pull request with one or all AI personas.
 |---|---|---|---|---|
 | `number` | `integer` | Yes | - | Pull request number. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
-| `persona` | `string (devsecops, architect, pm, auditor, qa, challenger)` | No | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
-| `all_personas` | `boolean` | No | `False` | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `post_comment` | `boolean` | No | `False` | Post the review as a comment on the GitHub PR. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
@@ -1816,10 +1802,6 @@ Review a GitHub pull request with one or all AI personas.
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
-| `no_persona_review` | `boolean` | No | `False` | Disable multi-persona LLM inspection. |
-| `persona_review_only` | `boolean` | No | `False` | Run persona review only and skip subsequent stages. |
-| `no_reranking` | `boolean` | No | `False` | Disable finding re-ranking and deduplication. |
-| `reranking_only` | `boolean` | No | `False` | Run re-ranking only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |

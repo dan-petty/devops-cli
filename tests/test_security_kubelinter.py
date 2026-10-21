@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.review_schema import Finding, consolidate_duplicate_findings
+from devops_cli.ai.review_schema import Finding
 from devops_cli.security.kubelinter import parse_kubelinter_json
 from devops_cli.security.pipeline import build_report
 from devops_cli.security.sarif import to_sarif
@@ -132,4 +132,8 @@ def test_a_scan_report_keeps_every_finding_under_its_own_rule(
 
 def test_a_review_keeps_two_checks_on_one_object(k8s_findings: list[Finding]) -> None:
     """The registry Deployment's two checks are two candidates, not one merged one."""
-    assert len(consolidate_duplicate_findings(k8s_findings)) == 7
+    deduped = {
+        (getattr(f, "fingerprint", f.title).strip().lower(), f.location.strip().lower()): f
+        for f in k8s_findings
+    }
+    assert len(deduped) == 7

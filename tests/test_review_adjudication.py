@@ -45,7 +45,7 @@ def _finding(title: str, line: int, status: str = "UNVERIFIED") -> SavedFinding:
         location=f"mod.py:{line}",
         description=f"{title} described.",
         severity="HIGH",
-        persona="devsecops",
+        producer="devsecops",
         status=status,
         **verdict,
     )
@@ -282,83 +282,6 @@ def test_each_review_command_loads_settings_once(
     assert (res.exit_code, load.call_count) == (0, 1)
 
 
-_REPORTED_TRAVERSAL = SavedFinding(
-    title="Path traversal in `save_upload`",
-    location="mod.py:20-22",
-    description="`save_upload` joins the upload name onto the storage root.",
-    severity="HIGH",
-    persona="devsecops",
-    status="VERIFIED",
-    verified=True,
-    verified_by="llm",
-)
-_SECOND_TRAVERSAL = SavedFinding(
-    title="Path traversal via upload name in `save_upload`",
-    location="mod.py:21",
-    description="The upload name reaches the path join in `save_upload` unchecked.",
-    severity="HIGH",
-    persona="qa",
-)
-
-
-@pytest.mark.parametrize(
-    ("second", "status"),
-    [
-        pytest.param(
-            _SECOND_TRAVERSAL.model_copy(
-                update={"status": "INVALIDATED", "reportable": False, "verified_by": "llm"}
-            ),
-            "VERIFIED",
-            id="invalidated-duplicate-verified",
-        ),
-        pytest.param(
-            _SECOND_TRAVERSAL.model_copy(
-                update={"status": "INVALIDATED", "reportable": False, "verified_by": "llm"}
-            ),
-            "MITIGATED",
-            id="invalidated-duplicate-mitigated",
-        ),
-        pytest.param(
-            _SECOND_TRAVERSAL.model_copy(
-                update={"status": "VERIFIED", "verified": True, "verified_by": "llm"}
-            ),
-            "VERIFIED",
-            id="candidate-consolidation-merged",
-        ),
-    ],
-)
-def test_a_candidate_whose_defect_is_reported_is_never_added_twice(
-    second: SavedFinding,
-    status: str,
-    isolate_data_dir: Path,
-    write_review_session: Callable[..., Path],
-) -> None:
-    """Verify a VERIFIED or MITIGATED verdict on a candidate whose defect findings.json already
-    reports under another persona's title is refused and names that finding, so the report
-    never holds the defect twice, and that neither file changes."""
-    session = write_review_session(
-        isolate_data_dir / "reviews" / "20261001-090000",
-        generated_at=_OLDER,
-        subject=_SUBJECT,
-        findings=[_REPORTED_TRAVERSAL],
-        candidates=[_REPORTED_TRAVERSAL, second],
-    )
-
-    res = runner.invoke(app, ["verify", session.name, "--candidate", "2", "--status", status])
-
-    assert (
-        res.exit_code,
-        "--index 1" in res.output,
-        [(f.title, f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        [(f.status, f.verified_by) for f in _saved(session / "candidates.json")],
-    ) == (
-        1,
-        True,
-        [("Path traversal in `save_upload`", "VERIFIED", "llm")],
-        [("VERIFIED", "llm"), (second.status, "llm")],
-    )
-
-
 def _dropped(n: int) -> SavedFinding:
     """A candidate the machine invalidated, in a file of its own."""
     return SavedFinding(
@@ -512,9 +435,15 @@ def test_candidates_of_one_title_and_location_are_told_apart(
 ) -> None:
     """Verify a verdict on one persona's candidate leaves alone the finding another persona
     reported with the same title at the same location."""
-    reported = _finding("Missing input validation", 9, "VERIFIED")
+    reported = _finding("Missing input validation", 9, "VERIFIED").model_copy(
+        update={"fingerprint": "fp_devsecops"}
+    )
     other = _finding("Missing input validation", 9, "INVALIDATED").model_copy(
-        update={"persona": "qa", "description": "The handler trusts the form fields."}
+        update={
+            "producer": "qa",
+            "fingerprint": "fp_qa",
+            "description": "The handler trusts the form fields.",
+        }
     )
     session = write_review_session(
         isolate_data_dir / "reviews" / "20261001-090000",
@@ -528,8 +457,8 @@ def test_candidates_of_one_title_and_location_are_told_apart(
 
     assert (
         res.exit_code,
-        [(f.persona, f.status, f.verified_by) for f in _saved(session / "findings.json")],
-        [(f.persona, f.status, f.verified_by) for f in _saved(session / "candidates.json")],
+        [(f.producer, f.status, f.verified_by) for f in _saved(session / "findings.json")],
+        [(f.producer, f.status, f.verified_by) for f in _saved(session / "candidates.json")],
     ) == (
         0,
         [("devsecops", "VERIFIED", "llm")],

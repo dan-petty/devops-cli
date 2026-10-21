@@ -202,7 +202,7 @@ def test_devops_review_pr_post_publishes_comment(
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),
     ):
-        result = runner.invoke(review_app, ["pr", "42", "--persona", "qa", "--post"])
+        result = runner.invoke(review_app, ["pr", "42", "--post"])
 
     posted_body = mock_pull.create_issue_comment.call_args[0][0]
     assert (
@@ -241,7 +241,7 @@ def test_devops_review_pr_post_dry_run_skips_comment(
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),
     ):
-        result = runner.invoke(review_app, ["pr", "42", "--persona", "qa", "--post", "--dry-run"])
+        result = runner.invoke(review_app, ["pr", "42", "--post", "--dry-run"])
 
     assert (
         result.exit_code,

@@ -210,9 +210,9 @@ def test_each_file_is_reviewed_with_its_own_pages_only() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
     pages = ["### File: data.py\n```python\nx = 1\n```", "### File: a.py\n```python\ny = 2\n```"]
 
-    _run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, None, pages, ["qa"], None)
+    _run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, None, pages)
 
-    diff_map = orchestrator.execute_multi_persona_review.call_args.kwargs["diff_text_by_file"]
+    diff_map = orchestrator.init_per_file_payloads.call_args.kwargs["diff_text_by_file"]
     assert (diff_map["a.py"], diff_map["data.py"]) == (pages[1], pages[0])
 
 

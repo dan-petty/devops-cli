@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 import typer
 
-from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
@@ -196,14 +195,6 @@ def path(
         str,
         typer.Option("--pattern", "-g", help=HELP.options.pattern),
     ] = DEFAULT_MATCH_ALL_PATTERN,
-    persona: Annotated[
-        Persona | None,
-        typer.Option("--persona", "-p", help=HELP.options.persona),
-    ] = None,
-    all_personas: Annotated[
-        bool,
-        typer.Option("--all", help=HELP.options.all_personas),
-    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -235,22 +226,6 @@ def path(
     static_scan_only: Annotated[
         bool,
         typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
-    ] = False,
-    no_persona_review: Annotated[
-        bool,
-        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
-    ] = False,
-    persona_review_only: Annotated[
-        bool,
-        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
-    ] = False,
-    no_reranking: Annotated[
-        bool,
-        typer.Option("--no-reranking", help=HELP.review.no_reranking),
-    ] = False,
-    reranking_only: Annotated[
-        bool,
-        typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
     no_group_analysis: Annotated[
         bool,
@@ -311,10 +286,6 @@ def path(
         pre_analysis_only=pre_analysis_only,
         no_static_scan=no_static_scan,
         static_scan_only=static_scan_only,
-        no_persona_review=no_persona_review,
-        persona_review_only=persona_review_only,
-        no_reranking=no_reranking,
-        reranking_only=reranking_only,
         no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
@@ -373,8 +344,6 @@ def path(
         _execute_review_workflow(
             pages,
             title,
-            all_personas,
-            persona,
             summary,
             clients,
             target_type="path",
@@ -421,14 +390,6 @@ def branch(
         str,
         typer.Option("--base", "-b", help=HELP.options.base_branch),
     ] = CONST_GIT_MAIN_BRANCH,
-    persona: Annotated[
-        Persona | None,
-        typer.Option("--persona", "-p", help=HELP.options.persona),
-    ] = None,
-    all_personas: Annotated[
-        bool,
-        typer.Option("--all", help=HELP.options.all_personas),
-    ] = False,
     repo_path: Annotated[
         Path,
         typer.Option("--repo", help=HELP.options.repo),
@@ -464,22 +425,6 @@ def branch(
     static_scan_only: Annotated[
         bool,
         typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
-    ] = False,
-    no_persona_review: Annotated[
-        bool,
-        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
-    ] = False,
-    persona_review_only: Annotated[
-        bool,
-        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
-    ] = False,
-    no_reranking: Annotated[
-        bool,
-        typer.Option("--no-reranking", help=HELP.review.no_reranking),
-    ] = False,
-    reranking_only: Annotated[
-        bool,
-        typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
     no_group_analysis: Annotated[
         bool,
@@ -532,10 +477,6 @@ def branch(
         pre_analysis_only=pre_analysis_only,
         no_static_scan=no_static_scan,
         static_scan_only=static_scan_only,
-        no_persona_review=no_persona_review,
-        persona_review_only=persona_review_only,
-        no_reranking=no_reranking,
-        reranking_only=reranking_only,
         no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
@@ -556,8 +497,6 @@ def branch(
         _execute_review_workflow(
             pages,
             title,
-            all_personas,
-            persona,
             summary,
             clients,
             target_type="branch",
@@ -583,8 +522,6 @@ def branch(
         _execute_review_workflow(
             pages,
             title,
-            all_personas,
-            persona,
             summary,
             clients,
             target_type="branch",
@@ -655,8 +592,6 @@ def _run_pr_review_workflow(
     number: int,
     head_dir: Path,
     base_revision: BaseRevision | None,
-    all_personas: bool,
-    persona: Persona | None,
     summary: bool,
     clients: ReviewClients,
     stage_flags: Any,
@@ -684,8 +619,6 @@ def _run_pr_review_workflow(
         return _execute_review_workflow(
             pages,
             title,
-            all_personas,
-            persona,
             summary,
             clients,
             target_type="pr",
@@ -709,8 +642,6 @@ def _run_pr_review_workflow(
         return _execute_review_workflow(
             pages,
             title,
-            all_personas,
-            persona,
             summary,
             clients,
             target_type="pr",
@@ -733,14 +664,6 @@ def pr(
         str | None,
         typer.Option("--repo", "-r", help=HELP.pr.target_repo),
     ] = None,
-    persona: Annotated[
-        Persona | None,
-        typer.Option("--persona", "-p", help=HELP.options.persona),
-    ] = None,
-    all_personas: Annotated[
-        bool,
-        typer.Option("--all", help=HELP.options.all_personas),
-    ] = False,
     post_comment: Annotated[
         bool,
         typer.Option("--post", help=HELP.review.post_pr),
@@ -776,22 +699,6 @@ def pr(
     static_scan_only: Annotated[
         bool,
         typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
-    ] = False,
-    no_persona_review: Annotated[
-        bool,
-        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
-    ] = False,
-    persona_review_only: Annotated[
-        bool,
-        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
-    ] = False,
-    no_reranking: Annotated[
-        bool,
-        typer.Option("--no-reranking", help=HELP.review.no_reranking),
-    ] = False,
-    reranking_only: Annotated[
-        bool,
-        typer.Option("--reranking-only", help=HELP.review.reranking_only),
     ] = False,
     no_group_analysis: Annotated[
         bool,
@@ -844,10 +751,6 @@ def pr(
         pre_analysis_only=pre_analysis_only,
         no_static_scan=no_static_scan,
         static_scan_only=static_scan_only,
-        no_persona_review=no_persona_review,
-        persona_review_only=persona_review_only,
-        no_reranking=no_reranking,
-        reranking_only=reranking_only,
         no_group_analysis=no_group_analysis,
         no_reporting=no_reporting,
         reporting_only=reporting_only,
@@ -880,8 +783,6 @@ def pr(
             number,
             head_dir,
             base_revision,
-            all_personas,
-            persona,
             summary,
             clients,
             stage_flags,
@@ -991,9 +892,10 @@ def _finding_row(number: int, f: SavedFinding) -> list[str]:
     reason = f.invalidation_reason or ""
     info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
     conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
+    producer = getattr(f, "producer", "") or getattr(f, "persona", "")
     return [
         str(number),
-        escape_text(f.persona),
+        escape_text(producer),
         escape_text(f.severity),
         conf_str,
         escape_text(f.location),
@@ -1247,22 +1149,19 @@ def verify_finding(
 def _tally_findings(
     findings: Sequence[HistoryFinding],
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    """Count findings by status, and by persona in total and invalidated.
-
-    A finding several personas raised is joined into one with their names comma-separated, and
-    counts once for each of them.
-    """
+    """Count findings by status, and by producer in total and invalidated."""
     by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
-    by_persona_total: dict[str, int] = {}
-    by_persona_invalidated: dict[str, int] = {}
+    by_producer_total: dict[str, int] = {}
+    by_producer_invalidated: dict[str, int] = {}
     for f in findings:
         by_status[f.status] = by_status.get(f.status, 0) + 1
-        raw_personas = [p.strip() for p in f.persona.split(",") if p.strip()]
-        for persona in raw_personas or ["unknown"]:
-            by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+        raw = (getattr(f, "producer", "") or getattr(f, "persona", "") or "").strip()
+        producers = [p.strip() for p in raw.split(",") if p.strip()] or ["unknown"]
+        for producer in producers:
+            by_producer_total[producer] = by_producer_total.get(producer, 0) + 1
             if f.status == "INVALIDATED":
-                by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
-    return by_status, by_persona_total, by_persona_invalidated
+                by_producer_invalidated[producer] = by_producer_invalidated.get(producer, 0) + 1
+    return by_status, by_producer_total, by_producer_invalidated
 
 
 def _render_status_breakdown_table(by_status: dict[str, int], total_findings: int) -> None:
@@ -1279,27 +1178,27 @@ def _render_status_breakdown_table(by_status: dict[str, int], total_findings: in
     )
 
 
-def _render_persona_stats_table(
-    by_persona_total: dict[str, int], by_persona_invalidated: dict[str, int]
+def _render_producer_stats_table(
+    by_producer_total: dict[str, int], by_producer_invalidated: dict[str, int]
 ) -> None:
-    """Render per-persona false-positive rate table."""
-    if not by_persona_total:
+    """Render per-producer false-positive rate table."""
+    if not by_producer_total:
         return
-    persona_rows = []
-    for persona, count in by_persona_total.items():
-        inval = by_persona_invalidated.get(persona, 0)
+    producer_rows = []
+    for producer, count in by_producer_total.items():
+        inval = by_producer_invalidated.get(producer, 0)
         rate = (inval / count * 100) if count else 0.0
-        persona_rows.append([persona, str(count), str(inval), f"{rate:.1f}%"])
+        producer_rows.append([producer, str(count), str(inval), f"{rate:.1f}%"])
 
     print_table(
-        title="Persona False Positive Rate (Invalidated)",
+        title="Producer False Positive Rate (Invalidated)",
         columns=[
-            ("Persona", "magenta"),
+            ("Producer", "magenta"),
             ("Total Findings", "right"),
             ("Invalidated", "right"),
             ("False-Positive Rate", "right"),
         ],
-        rows=persona_rows,
+        rows=producer_rows,
     )
 
 
@@ -1355,7 +1254,7 @@ def review_stats(
         raise typer.Exit(0)
 
     findings = [f for session in history.counted for f in session.findings]
-    by_status, by_persona_total, by_persona_invalidated = _tally_findings(findings)
+    by_status, by_producer_total, by_producer_invalidated = _tally_findings(findings)
 
     print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
     print_info(
@@ -1371,7 +1270,7 @@ def review_stats(
     print_info(MESSAGES.review.total_findings_count.format(count=len(findings)), prefix=False)
 
     _render_status_breakdown_table(by_status, len(findings))
-    _render_persona_stats_table(by_persona_total, by_persona_invalidated)
+    _render_producer_stats_table(by_producer_total, by_producer_invalidated)
 
     from devops_cli.ai.review.category_metrics import compute_category_metrics
 
@@ -1462,14 +1361,6 @@ def benchmark(
         str,
         typer.Option("--pattern", "-g", help=HELP.options.pattern),
     ] = DEFAULT_MATCH_ALL_PATTERN,
-    persona: Annotated[
-        Persona | None,
-        typer.Option("--persona", "-p", help=HELP.options.persona),
-    ] = None,
-    all_personas: Annotated[
-        bool,
-        typer.Option("--all", help=HELP.options.all_personas),
-    ] = False,
     no_pre_analysis: Annotated[
         bool,
         typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
@@ -1493,8 +1384,6 @@ def benchmark(
             path(
                 targets=targets,
                 pattern=pattern,
-                persona=persona,
-                all_personas=all_personas,
                 no_pre_analysis=no_pre_analysis,
                 no_static_scan=no_static_scan,
                 no_cache=True,
@@ -1507,8 +1396,6 @@ def benchmark(
     summary.corpus_digest = _corpus_digest(targets, pattern)
     _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
     setup = review_setup(
-        persona=persona.value if persona else None,
-        all_personas=all_personas,
         pre_analysis=not no_pre_analysis,
         static_scan=not no_static_scan,
         # The file workers the reviews ran with: through the gateway, at most its slot sum.
@@ -1888,19 +1775,6 @@ def _session_findings(path: Path) -> list[SavedFinding]:
     return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8")).findings
 
 
-def _replied_personas(profiles: list[ReviewProfile | None]) -> list[str]:
-    """Every persona that replied in any of the sessions."""
-    return sorted(
-        {
-            reply["persona"]
-            for p in profiles
-            if p
-            for reply in p.persona_replies
-            if "persona" in reply
-        }
-    )
-
-
 def _out_of(count: int, whole: int, share: float) -> str:
     return f"{count}/{whole} ({share:.0%})"
 
@@ -1962,7 +1836,6 @@ def _render_arm_sessions(arm: CorpusRunsScore) -> None:
             ("Reported", "right"),
             ("Prompt tokens", "right"),
             ("Completion tokens", "right"),
-            ("Unparsed persona replies", "right"),
         ],
         rows=[
             [
@@ -1974,7 +1847,6 @@ def _render_arm_sessions(arm: CorpusRunsScore) -> None:
                 str(row.reported_findings),
                 str(row.prompt_tokens),
                 str(row.completion_tokens),
-                str(row.unparsed_replies),
             ]
             for row in arm.sessions
         ],
@@ -2085,9 +1957,7 @@ def corpus_score(
         print_error(exc.message)
         raise typer.Exit(1) from exc
     # The setup is read when scoring, so score a review before changing its models or pool.
-    setup = review_setup(
-        prompt_digest=arm.prompt_digest, runs=arm.runs, personas=_replied_personas(profiles)
-    )
+    setup = review_setup(prompt_digest=arm.prompt_digest, runs=arm.runs)
     saved = record_run(
         Mechanism.CORPUS_SCORE,
         setup=setup,
@@ -2210,7 +2080,7 @@ def _scored_session(corpus: DefectCorpus, session_id: str) -> CorpusScore:
 
 
 def _review_sample_corpus(
-    samples: list[SampleRepository], root: Path, corpus_dir: Path, seed: int, all_personas: bool
+    samples: list[SampleRepository], root: Path, corpus_dir: Path, seed: int
 ) -> CorpusReview:
     """Inject the category's defects into copies of its samples, review them and score it."""
     files = [
@@ -2226,7 +2096,7 @@ def _review_sample_corpus(
         return review
     try:
         with collect_profiles() as profiles:
-            path(targets=[corpus_dir / CORPUS_FILES_DIR], all_personas=all_personas, no_cache=True)
+            path(targets=[corpus_dir / CORPUS_FILES_DIR], no_cache=True)
     except typer.Exit as exc:
         return review.model_copy(update={"error": f"the review exited with {exc.exit_code}"})
     if not profiles:
@@ -2292,10 +2162,6 @@ def samples_validate(
         bool,
         typer.Option("--review", help=HELP.review.samples_review),
     ] = False,
-    all_personas: Annotated[
-        bool,
-        typer.Option("--all", help=HELP.options.all_personas),
-    ] = False,
     seed: Annotated[
         int,
         typer.Option("--seed", help=HELP.review.corpus_seed),
@@ -2321,12 +2187,12 @@ def samples_validate(
         report = validate_category(category_name, group, root)
         if review:
             corpus_dir = run_dir / f"{category_name}-corpus"
-            report.review = _review_sample_corpus(group, root, corpus_dir, seed, all_personas)
+            report.review = _review_sample_corpus(group, root, corpus_dir, seed)
             report.problems += review_problems(report.review)
         report.write(run_dir)
         reports.append(report)
     _render_validation(reports, run_dir)
-    setup = {"review": review, "seed": seed, "all_personas": all_personas}
+    setup = {"review": review, "seed": seed}
     if review:
         setup |= review_setup()
     records = [

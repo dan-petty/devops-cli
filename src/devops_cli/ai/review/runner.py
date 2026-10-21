@@ -91,13 +91,6 @@ class ReviewClients(BaseModel):
     analysis: ReviewLLMClient | None = None
 
 
-def _orchestrator_personas(all_personas: bool, persona: Persona | None) -> list[str]:
-    """The personas the orchestrated review runs: the one named, all of them, or devsecops."""
-    if persona:
-        return [persona.value]
-    return ["devsecops", "architect", "qa", "auditor", "pm"] if all_personas else ["devsecops"]
-
-
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
     from devops_cli.output import print_dry_run_result
 
@@ -920,16 +913,6 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
         reported=sum(1 for f in findings if f.reportable),
         verdict_distributions=compute_verdict_distributions(findings),
     )
-    if not profiler._persona_replies:
-        for p in payloads:
-            for r in getattr(p, "ai_scratchpad", {}).get("persona_replies", []):
-                profiler.record_persona_reply(
-                    file=getattr(p, "file_path", ""),
-                    persona=r.get("persona", "unknown"),
-                    outcome=r.get("outcome", "unparsed"),
-                    persona_title=r.get("persona_title", ""),
-                    page=r.get("page", 1),
-                )
 
 
 def _write_review_profile(
@@ -960,16 +943,12 @@ def _write_review_profile(
     return profile
 
 
-def _finding_persona(persona: PersonaDefinition, finding: Finding) -> str:
-    """Return the finding's persona name if set, else the result's persona name."""
-    p = getattr(finding, "persona", None)
+def _finding_producer(finding: Finding) -> str:
+    """Return the finding's producer name if set, else 'unknown'."""
+    p = getattr(finding, "producer", None)
     if isinstance(p, str) and p.strip():
-        val = p.strip()
-        try:
-            return Persona(val.lower()).value
-        except ValueError:
-            return val
-    return persona.name
+        return p.strip()
+    return "unknown"
 
 
 def _record_review_metrics(
@@ -977,19 +956,21 @@ def _record_review_metrics(
     seconds: float,
     target_type: str,
 ) -> None:
-    """Send the review's wall time, and its findings by persona, severity and status."""
+    """Send the review's wall time, and its findings by producer, severity and status."""
     from devops_cli.telemetry.instruments import FINDINGS_TOTAL, REVIEW_DURATION, emit
 
     emit(REVIEW_DURATION, seconds, {"target_type": target_type})
     counts = Counter(
-        (_finding_persona(persona, finding), finding.severity.upper(), finding.status.upper())
-        for persona, result in results
+        (_finding_producer(finding), finding.severity.upper(), finding.status.upper())
+        for _, result in results
         if isinstance(result, ReviewResult)
         for finding in result.findings
     )
-    for (persona_name, severity, status), count in counts.items():
+    for (producer_name, severity, status), count in counts.items():
         emit(
-            FINDINGS_TOTAL, count, {"persona": persona_name, "severity": severity, "status": status}
+            FINDINGS_TOTAL,
+            count,
+            {"producer": producer_name, "severity": severity, "status": status},
         )
 
 
@@ -998,8 +979,6 @@ def _run_profiled_session(
     all_files: list[str],
     target_dir: Path,
     pages: list[str],
-    active_p: list[str],
-    persona: Persona | None,
     target_type: Literal["branch", "pr", "path"],
     target_ref: str,
     stage_flags: ReviewStageFlags | None,
@@ -1023,8 +1002,6 @@ def _run_profiled_session(
             metadata_by_path,
             target_dir,
             pages,
-            active_p,
-            persona,
             stage_flags=stage_flags,
         )
         if not is_dry_run():
@@ -1039,8 +1016,6 @@ def _run_orchestrator_review(
     metadata_by_path: dict[str, FileAnalysisMeta],
     target_dir: Path | None,
     pages: list[str],
-    active_p: list[str],
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
@@ -1057,17 +1032,11 @@ def _run_orchestrator_review(
             pages=pages,
         )
     if not is_dry_run():
-        with review_stage("persona_review"):
-            orchestrator.execute_multi_persona_review(
-                payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
-            )
         candidates = sum(len(p.findings) for p in payloads)
-        with review_stage("reranking"):
-            orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
         _record_profile_findings(payloads, candidates)
 
     with review_stage("report"):
-        return _report_review(orchestrator, payloads, active_p, persona, stage_flags)
+        return _report_review(orchestrator, payloads, stage_flags)
 
 
 def _finding_from_admitted_scanner(af: Any) -> SavedFinding:
@@ -1087,8 +1056,8 @@ def _finding_from_admitted_scanner(af: Any) -> SavedFinding:
         description=getattr(af, "description", "") or getattr(af, "message", ""),
         fix=getattr(af, "fix", ""),
         status="VERIFIED",
-        persona="devsecops",
-        persona_title="Principal DevSecOps Engineer",
+        fingerprint=getattr(af, "fingerprint_v2", "") or getattr(af, "fingerprint", ""),
+        producer=getattr(af, "tool", ""),
     )
     if hasattr(af, "tool"):
         object.__setattr__(sf, "_tool", af.tool)
@@ -1129,15 +1098,13 @@ def _collect_review_findings(
 def _report_review(
     orchestrator: ReviewPipelineOrchestrator,
     payloads: list[Any],
-    active_p: list[str],
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Write the session's report and findings, and return them as the review's result."""
     payload_data, report_md = orchestrator.generate_consolidated_report(
-        payloads, stage_flags=stage_flags, personas=active_p
+        payloads, stage_flags=stage_flags
     )
-    p_def = PERSONAS[persona or Persona.DEVSECOPS]
+    p_def = PERSONAS[Persona.DEVSECOPS]
     findings_list = _collect_review_findings(orchestrator, payloads, payload_data, stage_flags)
     raw_analyzers = getattr(orchestrator, "static_analyzers", None)
     analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
@@ -1152,7 +1119,6 @@ def _report_review(
 
 def _review_routed_files_only(
     orchestrator: ReviewPipelineOrchestrator,
-    persona: Persona | None,
     stage_flags: ReviewStageFlags | None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """A review whose every file is routed past the personas: the secret scan reads them, the
@@ -1167,7 +1133,7 @@ def _review_routed_files_only(
     )
     print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
     payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
-    return _report_review(orchestrator, payloads, [], persona, stage_flags)
+    return _report_review(orchestrator, payloads, stage_flags)
 
 
 def _check_and_warn_perimeter_changes(
@@ -1192,8 +1158,6 @@ def _check_and_warn_perimeter_changes(
 def _execute_review_workflow(
     pages: list[str],
     title: str,
-    all_personas: bool,
-    persona: Persona | None,
     summary_only: bool,
     clients: ReviewClients,
     *,
@@ -1203,7 +1167,6 @@ def _execute_review_workflow(
     stage_flags: ReviewStageFlags | None = None,
     concurrency: int | None = None,
     parallel: bool = True,
-    ground_contracts: bool = True,
     base_revision: BaseRevision | None = None,
     full_output: bool = False,
     routed_files: Sequence[str] = (),
@@ -1254,9 +1217,7 @@ def _execute_review_workflow(
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,
-        ground_contracts=ground_contracts,
         subject=subject,
-        conventions_revision=base_revision.revision if base_revision else None,
         full_output=full_output,
         secret_scan_files=sorted(
             {
@@ -1268,11 +1229,10 @@ def _execute_review_workflow(
         partial_context=partial_context,
     )
     if not all_files:
-        return _review_routed_files_only(orchestrator, persona, stage_flags)
+        return _review_routed_files_only(orchestrator, stage_flags)
 
     server_info = orchestrator.get_server_info()
     n_af = len(all_files)
-    active_p = _orchestrator_personas(all_personas, persona)
     with trace_span(
         "review.session",
         attributes={
@@ -1280,7 +1240,6 @@ def _execute_review_workflow(
             "target_type": target_type,
             "target_ref": target_ref,
             "file_count": n_af,
-            "personas": ", ".join(active_p),
         },
     ):
         print_info(
@@ -1293,8 +1252,6 @@ def _execute_review_workflow(
             all_files,
             target_dir,
             pages,
-            active_p,
-            persona,
             target_type,
             target_ref,
             stage_flags,

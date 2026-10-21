@@ -660,7 +660,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Review findings per hour, by persona. Until #791 lands, every finding counts under the requested persona, or devsecops by default. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "description": "Review findings per hour, by producer. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -694,8 +694,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (persona) (increase(devops_cli_findings_total[1h]))",
-          "legendFormat": "{{persona}}",
+          "expr": "sum by (producer) (increase(devops_cli_findings_total[1h]))",
+          "legendFormat": "{{producer}}",
           "refId": "A"
         }
       ]

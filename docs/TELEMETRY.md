@@ -23,7 +23,7 @@ eviction window in `k8s/otel/values.yaml` are tracked separately under #1132.
 | `devops_cli_command_total` | Counter | `1` | Commands run, by command and status. |
 | `devops_cli_command_duration_seconds` | Histogram | `s` | Command wall time, by command. |
 | `devops_cli_review_duration_seconds` | Histogram | `s` | Review wall time, by target type. |
-| `devops_cli_findings_total` | Counter | `1` | Review findings, by persona, severity and status. |
+| `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls, by provider, model, server, serving backend and whether the cache answered. |
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM tokens, by type (prompt or completion), provider, model, server and backend. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM spend, by provider, model, server and backend. |

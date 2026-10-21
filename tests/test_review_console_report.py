@@ -378,8 +378,6 @@ def test_review_workflow_hands_full_output_to_the_orchestrator(tmp_path: Path) -
                 [],
                 "Path Review",
                 False,
-                None,
-                False,
                 clients,
                 target_dir=tmp_path,
                 full_output=full_output,

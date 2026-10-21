@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import (
@@ -87,7 +87,11 @@ class HistoryFinding(BaseModel):
     references: list[str] = Field(default_factory=list)
     status: str = DEFAULT_FINDING_STATUS
     verified_by: str | None = None
-    persona: str = ""
+    producer: str = Field(default="", validation_alias=AliasChoices("producer", "persona"))
+
+    @property
+    def persona(self) -> str:
+        return self.producer
 
     @field_validator("status", mode="before")
     @classmethod

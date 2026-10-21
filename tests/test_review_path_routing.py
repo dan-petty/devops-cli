@@ -225,21 +225,12 @@ def test_a_routed_file_still_reaches_the_secret_scan(
         secret_scan_files=["changelog.d/1.md"],
     )
 
-    reviewed: list[str] = []
-    monkeypatch.setattr(
-        orchestrator,
-        "_safe_review_file_payload",
-        lambda _idx, _total, payload, *_, **__: reviewed.append(payload.file_path),
-    )
-
     payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
-    orchestrator.execute_multi_persona_review(payloads, {"src/app.py": _TEXT["src/app.py"]})
 
     assert (
         secret_scan["Gitleaks"],
         secret_scan["Semgrep"],
         {p.file_path: [f.title for f in p.findings] for p in payloads},
-        reviewed,
     ) == (
         [[tmp_path / "src/app.py", tmp_path / "changelog.d/1.md"]],
         [[tmp_path / "src/app.py"]],
@@ -247,7 +238,6 @@ def test_a_routed_file_still_reaches_the_secret_scan(
             "src/app.py": [],
             "changelog.d/1.md": ["[GITLEAKS:generic-api-key] Secret in a changelog fragment"],
         },
-        ["src/app.py"],
     )
 
 
@@ -273,8 +263,6 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     _execute_review_workflow(
         pages,
         title,
-        False,
-        None,
         False,
         ReviewClients(analysis=model),
         target_type="branch",
@@ -309,8 +297,6 @@ def _review_routed_branch(
     _execute_review_workflow(
         pages,
         title,
-        False,
-        None,
         False,
         ReviewClients(analysis=model),
         target_type="branch",
@@ -360,7 +346,7 @@ def test_a_review_of_routed_files_records_no_persona(
     qa."""
     _, written = _review_routed_branch(tmp_path, git, monkeypatch)
 
-    assert written["personas"] == []
+    assert "personas" not in written
 
 
 def test_a_review_of_routed_files_without_the_static_scan_says_nothing_was_scanned(

@@ -1,8 +1,8 @@
-# Knowledge Base Task: Multi-Persona AI Code Review
+# Knowledge Base Task: AI Code Review
 
 ## 1. Overview & Purpose
 
-The AI code review in `devops-cli` reviews file paths, branch diffs and pull requests with static scanners and domain personas, and a person gives the verdicts. The DevSecOps persona reviews alone unless `--persona` names another (`architect`, `auditor`, `qa`, `pm` or `challenger`) or `--all` adds architect, qa, auditor and pm. Each persona judges the code against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) and the target's own conventions: the opening of the first of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules` and `.cursor/rules` found from the target up, and the project's `.devops/review.md` in full. `docs/SELF_IMPROVEMENT.md` section 1 describes the loop as it runs, with the file and line of each step.
+The AI code review in `devops-cli` reviews file paths, branch diffs and pull requests with static scanners and explanation stages, and a person gives the verdicts. Scanners judge the code against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) and the target's own conventions. The review builds a model client only for explanation stages (`group_analysis`). `docs/SELF_IMPROVEMENT.md` section 1 describes the loop as it runs, with the file and line of each step.
 
 ---
 
@@ -12,10 +12,9 @@ The AI code review in `devops-cli` reviews file paths, branch diffs and pull req
 graph TD
     A[Target Path / Branch / PR] --> S1[Pre-Analysis Metadata Refresh]
     S1 --> S2[Static Security Scan, Admission & Dependency Analysis]
-    S2 --> S3[Persona Review: devsecops, or the personas named]
-    S3 --> S5[Re-Ranking: reportable findings]
-    S5 --> S6[Report: findings.json, candidates.json, review.md, profile.json]
-    S6 --> F1[Verdicts: devops review verify, by a person]
+    S2 --> S3[Group Analysis: explanation and cross-group correlation]
+    S3 --> S4[Report: findings.json, candidates.json, review.md, profile.json]
+    S4 --> F1[Verdicts: devops review verify, by a person]
     F1 --> F2[Session labels and review history]
     F1 --> F3[Feedback dataset: devops review export-feedback]
     F3 --> F4[devops ai prompt-eval]
@@ -24,9 +23,8 @@ graph TD
 - **Pipeline Stages**:
   1. `pre_analysis`: Fast workspace scan, AST context refresh, and cache synchronization (`--no-pre-analysis`, `--pre-analysis-only`).
   2. `static_scan`: Scanners run isolated (Bandit, KubeLinter, Pluto, Trivy, Gitleaks, Semgrep), and each candidate is admitted against the reviewed tree, its `.devops/review.toml` suppressions and its path class's `[severity_caps]`; dependency extraction with OSV advisories, and Shodan InternetDB and Cloudflare Radar reputations for network references (`--no-static-scan`, `--static-scan-only`).
-  3. `persona_review`: Each selected persona reviews every page of every file (`--no-persona-review`, `--persona-review-only`).
-  4. `reranking`: Marks each file that has a reportable finding not INVALIDATED and counts those findings; it changes no finding (`--no-reranking`, `--reranking-only`).
-  5. `reporting`: Writes `findings.json` (the reported findings, never an INVALIDATED one), `candidates.json` (every finding with its verdict), `review.md` and `profile.json` (`--no-reporting`, `--reporting-only`).
+  3. `group_analysis`: Synthesis and explanation of findings across groups (`--no-group-analysis`).
+  4. `reporting`: Writes `findings.json` (the reported findings, never an INVALIDATED one), `candidates.json` (every finding with its verdict), `review.md` and `profile.json` (`--no-reporting`, `--reporting-only`).
 
 - **Specialized Personas** (`src/devops_cli/ai/personas/`):
   - `devsecops`: Evaluates CWE vulnerabilities, secret exposures, network egress, and permissions. It reviews alone by default.
@@ -73,17 +71,11 @@ devops ai review path repos/my-org/my-project
 # Review a specific GitHub pull request by number
 devops ai review pr 22
 
-# Review with one persona, on a model chosen for the analysis task
-DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=qwen3.8:27b devops ai review branch --persona architect
-
-# Review with devsecops, architect, qa, auditor and pm
-devops ai review branch --all
-
 # Fast testing: Run static analysis stage only (skip LLM inspection)
 devops ai review path . --static-scan-only
 
-# A tools-only review: scanners, no persona
-devops ai review branch --no-persona-review
+# Review without group analysis
+devops ai review branch --no-group-analysis
 
 # Pipeline debugging: Run pre-analysis metadata refresh only
 devops ai review path src/ --pre-analysis-only
@@ -159,7 +151,7 @@ devops review export-feedback --status INVALIDATED
 ## 6. General Standards & Output Schemas
 
 - **Finding Severity**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
-- **Finding Model**: `Finding` (`src/devops_cli/ai/review_schema.py`) holds what a reviewer writes: `severity`, `location` (`path:line` or `path:start-end`), `title`, `description`, `fix`, `references`, `observed_value`, `expected_value`, `verification_criteria` and `invalidation_criteria`. The verdict fields (`status`, `verified_by`, `confidence_score` and the rest) are the pipeline's, and `SavedFinding` adds the `persona`.
+- **Finding Model**: `Finding` (`src/devops_cli/ai/review_schema.py`) holds what a reviewer writes: `severity`, `location` (`path:line` or `path:start-end`), `title`, `description`, `fix`, `references`, `observed_value`, `expected_value`, `verification_criteria` and `invalidation_criteria`. The verdict fields (`status`, `verified_by`, `confidence_score` and the rest) are the pipeline's, and `SavedFinding` adds `producer` and `fingerprint`.
 
 ---
 
@@ -167,4 +159,3 @@ devops review export-feedback --status INVALIDATED
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
 - **Review Pipeline Engine**: [src/devops_cli/ai/review/pipeline.py](../../../../ai/review/pipeline.py)
-- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](../../../../ai/tasks/)
