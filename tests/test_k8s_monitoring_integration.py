@@ -1022,3 +1022,15 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
         ),
         ["daemonset", "privileged"],
     )
+
+
+def test_the_profiler_limit_leaves_room_above_the_spikes_that_killed_it() -> None:
+    """The eBPF profiler on the node that runs the most pods was OOMKilled 31 times in 148
+    minutes at 512Mi, while the same pods on two quieter nodes held 200 to 300Mi without a restart
+    (#1815). Its limit is 1024Mi and its request is unchanged."""
+    resources = _k8s_monitoring_values()["collectors"]["alloy-profiles"]["alloy"]["resources"]
+
+    assert (resources["requests"]["memory"], resources["limits"]["memory"]) == (
+        "128Mi",
+        "1024Mi",
+    )
