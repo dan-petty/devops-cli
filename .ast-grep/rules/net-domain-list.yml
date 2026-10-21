@@ -1,0 +1,16 @@
+id: net-domain-list
+language: python
+severity: error
+message: Literal list of domain suffixes. Use tldextract (Public Suffix List) or dns.name is_subdomain.
+rule:
+  kind: assignment
+  all:
+    - has:
+        field: left
+        regex: (?i)(domain|tld)
+    - has:
+        field: right
+        has:
+          stopBy: end
+          kind: string
+          regex: '^["'']\.[a-z]'

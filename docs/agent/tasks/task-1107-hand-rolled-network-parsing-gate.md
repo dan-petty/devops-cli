@@ -73,7 +73,26 @@ Delivered across 5 incremental pull requests.
   - `src/devops_cli/ai/agents/media.py`: check media URI scheme with `urlsplit(data).scheme == "media+sha256"`.
 - [x] Add unit tests for IPv6 host parsing and upper-case schemes in Valkey endpoint and config parsers, IPv6 bracketing in gateway and run store URL builders, `DBUS_SESSION_BUS_ADDRESS` parsing with escaped paths and multiple addresses through `jeepney`, and ast-grep scanner detection for each new rule.
 
-### Follow-up Pull Requests
+### PR 5: Domain and Hostport Rules and Gate Completion (Closes #1107)
 
-- PR 2: AGENTS.md, template, `generate_agents.md`, `architecture.md` instruction updates and `.devops/review.md` house rule under #1107.
-- PR 5: `net-domain-suffix`, `net-domain-list`, `net-normalise`, `net-hostport` under #1107 (closes #1107).
+- [x] Add 4 `net-*` rules to `.ast-grep/rules/` and unit tests to `.ast-grep/rule-tests/`:
+  - `net-domain-suffix`: flags domain matching by string suffix with `endswith` or `removesuffix`.
+  - `net-domain-list`: flags literal assignment lists of domain suffixes.
+  - `net-normalise`: flags hand-rolled host canonicalisation via `.strip("[]")` or `.lower().rstrip(".")`.
+  - `net-hostport`: flags host, port, or userinfo splitting by hand with `:|@` and `split|rsplit|partition|rpartition`.
+- [x] Register `"net-domain-list"`, `"net-domain-suffix"`, `"net-hostport"`, and `"net-normalise"` in `CONST_NET_CONSTRUCT_RULES` in `src/devops_cli/config/constants.py` (completing all 12 rules).
+- [x] Remediate hand-rolled domain suffix and normalization sites across `src/`:
+  - `src/devops_cli/ai/models/ollama.py`: replace `.endswith(".ollama.com")` with `dns.name.is_subdomain`.
+  - `src/devops_cli/commands/review.py`: replace `.endswith(".svc.cluster.local")` with `dns.name.is_subdomain`.
+  - `src/devops_cli/k8s/template.py`: normalize domain using `dns.name.from_text` and `to_unicode(omit_final_dot=True)`.
+  - `src/devops_cli/http/urls.py`: replace `netloc.split("@")` with `netloc.endswith(":")`.
+  - `src/devops_cli/commands/k8s/networking.py`: parse `existing_host_raw` using `urlsplit`.
+  - `src/devops_cli/ai/spend/pricing.py`: canonicalize `host` using `urlsplit(f"//{host}").hostname` without `strip("[]")`.
+  - `src/devops_cli/core/validation.py`: canonicalize hosts in `is_loopback_host` and `is_loopback_or_private_host` using `urlsplit` and `dns.name.from_text(h).to_text(omit_final_dot=True)`.
+- [x] Add unit tests for mixed-case, trailing dots, look-alikes (`evilollama.com`), bracketed IPv6, and scanner detection for each of the 4 new rules in `tests/test_net_construct_rules.py`.
+- [x] Zero ast-grep scan errors and zero suppressions across all 12 rules in `src/`.
+- [x] Add `changelog.d/1107.md`.
+
+### Follow-up Tracking
+
+- PR 2: AGENTS.md character budget ceiling (#1107 Comment 4) paused; tracked for budget refactor.

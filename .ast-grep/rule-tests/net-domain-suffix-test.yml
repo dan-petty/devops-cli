@@ -1,0 +1,8 @@
+id: net-domain-suffix
+valid:
+  - 'inside = dns.name.from_text(host).is_subdomain(dns.name.from_text("example.com"))'
+  - 'is_yaml = filename.endswith(".yaml")'
+invalid:
+  - 'inside = host.endswith(".example.com")'
+  - 'inside = hostname.endswith(f".{domain}")'
+  - 'inside = netloc.endswith("." + domain)'

@@ -1,0 +1,7 @@
+id: net-normalise
+valid:
+  - 'host = httpx2.URL(url).host'
+  - 'name = value.strip().lower()'
+invalid:
+  - 'host = value.strip("[]")'
+  - 'host = value.lower().rstrip(".")'

@@ -194,8 +194,9 @@ def _is_configured_ai_server_host(host: str) -> bool:
 def _is_local_host(host: str) -> bool:
     from devops_cli.core.dns_names import is_public_dns_name
 
+    clean = urlsplit(f"//{host}").hostname or host
     try:
-        ip = ipaddress.ip_address(host.strip("[]"))
+        ip = ipaddress.ip_address(clean)
         if ip.is_loopback or ip.is_private:
             return True
     except ValueError:

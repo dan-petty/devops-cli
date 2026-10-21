@@ -22,7 +22,18 @@ from devops_cli.exceptions.k8s import KubernetesContextError
 
 def normalize_domain(domain: str) -> str:
     """Normalize and validate a target domain string for template substitution."""
-    norm = domain.strip().lower().lstrip(".")
+    import dns.exception
+    import dns.name
+
+    clean = domain.strip().removeprefix(".")
+    try:
+        parsed = dns.name.from_text(clean)
+        norm = parsed.to_unicode(omit_final_dot=True).lower()
+    except (dns.exception.DNSException, ValueError, AttributeError) as exc:
+        raise KubernetesContextError(
+            f"Invalid domain name for template substitution: {domain!r}. "
+            "Must be a valid RFC 1123 domain name."
+        ) from exc
     if not norm or not CONST_K8S_SUBDOMAIN_RE.match(norm):
         raise KubernetesContextError(
             f"Invalid domain name for template substitution: {domain!r}. "

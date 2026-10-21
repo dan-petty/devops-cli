@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from devops_cli.ai.analyze.symbols import BaseRevision
@@ -1285,8 +1285,20 @@ def review_stats(
 
 def _backend_host(served_by: str) -> str:
     """Shorten a serving backend's API base to its host, and an in-cluster host to its pod or service."""
-    host = urlparse(served_by).hostname or served_by
-    return host.split(".", 1)[0] if host.endswith(".svc.cluster.local") else host
+    import dns.exception
+    import dns.name
+
+    parsed = urlsplit(served_by)
+    if not parsed.scheme and not parsed.netloc:
+        parsed = urlsplit(f"//{served_by}")
+    host = parsed.hostname or served_by
+    try:
+        h_name = dns.name.from_text(host)
+        if h_name.is_subdomain(dns.name.from_text("svc.cluster.local")):
+            return h_name.labels[0].decode("ascii", errors="replace")
+    except dns.exception.DNSException, ValueError, AttributeError:
+        pass
+    return host
 
 
 def _busy_shares(stage: StageSummary) -> str:
