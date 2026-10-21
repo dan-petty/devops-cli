@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 def __getattr__(name: str) -> Any:
     if name in (
         "fetch_docker_status",
+        "fetch_github_status",
         "fetch_k8s_status",
         "fetch_review_status",
         "fetch_telemetry_status",
