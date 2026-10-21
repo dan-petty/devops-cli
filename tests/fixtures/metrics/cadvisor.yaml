@@ -1,0 +1,86 @@
+# Metric families the k3s embedded cAdvisor serves at /metrics/cadvisor (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# ingress-tunnel.json, k8s-views-global.json, k8s-views-namespaces.json and
+# k8s-views-nodes.json against them.
+exporter: cAdvisor (kubelet /metrics/cadvisor)
+version: v1.31.4+k3s1
+captured: "2026-10-21"
+taken_from: >-
+  Each cluster node's /api/v1/nodes/<node>/proxy/metrics/cadvisor on the homelab k3s cluster.
+scraped_by: >-
+  k8s-monitoring's clusterMetrics.cadvisor job (job="integrations/kubernetes/cadvisor") in
+  k8s/monitoring/k8s-monitoring-values.yaml, filtered by the chart's default allow list plus
+  clusterMetrics.cadvisor.metricsTuning.includeMetrics.
+target_labels: [cluster, instance, job, node, source]
+families:
+  cadvisor_version_info: {type: gauge, labels: [cadvisorRevision, cadvisorVersion, dockerVersion, kernelVersion, osVersion]}
+  container_blkio_device_usage_total: {type: counter, labels: [container, device, id, image, major, minor, name, namespace, operation, pod]}
+  container_cpu_cfs_periods_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_cpu_cfs_throttled_periods_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_cpu_cfs_throttled_seconds_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_cpu_load_average_10s: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_cpu_system_seconds_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_cpu_usage_seconds_total: {type: counter, labels: [container, cpu, id, image, name, namespace, pod]}
+  container_cpu_user_seconds_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_file_descriptors: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_fs_inodes_free: {type: gauge, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_inodes_total: {type: gauge, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_io_current: {type: gauge, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_io_time_seconds_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_io_time_weighted_seconds_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_limit_bytes: {type: gauge, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_read_seconds_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_reads_bytes_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_reads_merged_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_reads_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_sector_reads_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_sector_writes_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_usage_bytes: {type: gauge, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_write_seconds_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_writes_bytes_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_writes_merged_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_fs_writes_total: {type: counter, labels: [container, device, id, image, name, namespace, pod]}
+  container_last_seen: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_cache: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_failcnt: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_memory_failures_total: {type: counter, labels: [container, failure_type, id, image, name, namespace, pod, scope]}
+  container_memory_kernel_usage: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_mapped_file: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_max_usage_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_rss: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_swap: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_usage_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_memory_working_set_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_network_receive_bytes_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_receive_errors_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_receive_packets_dropped_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_receive_packets_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_transmit_bytes_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_transmit_errors_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_transmit_packets_dropped_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_network_transmit_packets_total: {type: counter, labels: [container, id, image, interface, name, namespace, pod]}
+  container_oom_events_total: {type: counter, labels: [container, id, image, name, namespace, pod]}
+  container_processes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_scrape_error: {type: gauge, labels: []}
+  container_sockets: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_cpu_period: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_cpu_quota: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_cpu_shares: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_memory_limit_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_memory_reservation_limit_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_spec_memory_swap_limit_bytes: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_start_time_seconds: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_tasks_state: {type: gauge, labels: [container, id, image, name, namespace, pod, state]}
+  container_threads: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_threads_max: {type: gauge, labels: [container, id, image, name, namespace, pod]}
+  container_ulimits_soft: {type: gauge, labels: [container, id, image, name, namespace, pod, ulimit]}
+  machine_cpu_cores: {type: gauge, labels: [boot_id, machine_id, system_uuid]}
+  machine_cpu_physical_cores: {type: gauge, labels: [boot_id, machine_id, system_uuid]}
+  machine_cpu_sockets: {type: gauge, labels: [boot_id, machine_id, system_uuid]}
+  machine_dimm_capacity_bytes: {type: gauge, labels: [boot_id, machine_id, system_uuid, type]}
+  machine_dimm_count: {type: gauge, labels: [boot_id, machine_id, system_uuid, type]}
+  machine_memory_bytes: {type: gauge, labels: [boot_id, machine_id, system_uuid]}
+  machine_nvm_avg_power_budget_watts: {type: gauge, labels: [boot_id, machine_id, system_uuid]}
+  machine_nvm_capacity: {type: gauge, labels: [boot_id, machine_id, mode, system_uuid]}
+  machine_scrape_error: {type: gauge, labels: []}
+  machine_swap_bytes: {type: gauge, labels: [boot_id, machine_id, system_uuid]}

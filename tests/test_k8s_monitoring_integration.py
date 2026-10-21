@@ -154,6 +154,7 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "kube_pod_container_status_terminated",
         "kube_pod_container_status_waiting",
         "kube_deployment_status_replicas_unavailable",
+        "kube_horizontalpodautoscaler_labels",
     }
 
     assert (required_cadvisor.issubset(cadvisor_inc), required_ksm.issubset(ksm_inc)) == (

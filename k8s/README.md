@@ -198,7 +198,7 @@ devops grafana dashboards sync                            # posts every file in 
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
 
-`tests/test_stack_dashboards.py` checks every query against captures of these exporters in `tests/fixtures/metrics/`: each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures stay empty until the first such event.
+`tests/test_stack_dashboards.py` checks every query in `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and `k8s-views-nodes.json` against captures of these exporters in `tests/fixtures/metrics/` (filtered by `tests/fixtures/k8s_monitoring/cluster_metrics/` and `includeMetrics` for cAdvisor, kube-state-metrics and the kubelet): each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event.
 
 ## Log and Metric Retention
 

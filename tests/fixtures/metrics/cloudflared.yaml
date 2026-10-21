@@ -1,0 +1,94 @@
+# Metric families the deployed Cloudflare Tunnel daemon serves on port 2000 (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# ingress-tunnel.json against them.
+exporter: cloudflared tunnel metrics
+image: cloudflare/cloudflared:2026.9.3
+captured: "2026-10-21"
+taken_from: >-
+  One cloudflared pod's port 2000 /metrics in namespace cloudflared on the homelab k3s
+  cluster, read through the Kubernetes API pod proxy.
+scraped_by: >-
+  k8s-monitoring's annotationAutodiscovery (job="cloudflared") in
+  k8s/monitoring/k8s-monitoring-values.yaml, through the prometheus.io/* pod annotations in
+  k8s/cloudflared/deployment.yaml (#1130).
+target_labels: [cluster, container, instance, job, namespace, node, pod]
+families:
+  build_info: {type: gauge, labels: [goversion, revision, type, version]}
+  cloudflared_config_local_config_pushes: {type: counter, labels: []}
+  cloudflared_config_local_config_pushes_errors: {type: counter, labels: []}
+  cloudflared_icmp_total_replies: {type: counter, labels: []}
+  cloudflared_icmp_total_requests: {type: counter, labels: []}
+  cloudflared_orchestration_config_version: {type: gauge, labels: []}
+  cloudflared_proxy_connect_latency: {type: histogram, labels: []}
+  cloudflared_proxy_connect_streams_errors: {type: counter, labels: []}
+  cloudflared_rpc_client_failures: {type: counter, labels: [handler, method]}
+  cloudflared_rpc_client_latency_secs: {type: histogram, labels: [handler, method]}
+  cloudflared_rpc_client_operations: {type: counter, labels: [handler, method]}
+  cloudflared_rpc_server_latency_secs: {type: histogram, labels: [handler, method]}
+  cloudflared_rpc_server_operations: {type: counter, labels: [handler, method]}
+  cloudflared_tcp_active_sessions: {type: gauge, labels: []}
+  cloudflared_tcp_total_sessions: {type: counter, labels: []}
+  cloudflared_tunnel_concurrent_requests_per_tunnel: {type: gauge, labels: []}
+  cloudflared_tunnel_ha_connections: {type: gauge, labels: []}
+  cloudflared_tunnel_request_errors: {type: counter, labels: []}
+  cloudflared_tunnel_response_by_code: {type: counter, labels: [status_code]}
+  cloudflared_tunnel_server_locations: {type: gauge, labels: [connection_id, edge_location]}
+  cloudflared_tunnel_total_requests: {type: counter, labels: []}
+  cloudflared_tunnel_tunnel_register_success: {type: counter, labels: [rpcName]}
+  cloudflared_udp_active_sessions: {type: gauge, labels: []}
+  cloudflared_udp_total_sessions: {type: counter, labels: []}
+  go_gc_duration_seconds: {type: summary, labels: []}
+  go_gc_gogc_percent: {type: gauge, labels: []}
+  go_gc_gomemlimit_bytes: {type: gauge, labels: []}
+  go_goroutines: {type: gauge, labels: []}
+  go_info: {type: gauge, labels: [version]}
+  go_memstats_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes_total: {type: counter, labels: []}
+  go_memstats_buck_hash_sys_bytes: {type: gauge, labels: []}
+  go_memstats_frees_total: {type: counter, labels: []}
+  go_memstats_gc_sys_bytes: {type: gauge, labels: []}
+  go_memstats_heap_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_heap_idle_bytes: {type: gauge, labels: []}
+  go_memstats_heap_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_heap_objects: {type: gauge, labels: []}
+  go_memstats_heap_released_bytes: {type: gauge, labels: []}
+  go_memstats_heap_sys_bytes: {type: gauge, labels: []}
+  go_memstats_last_gc_time_seconds: {type: gauge, labels: []}
+  go_memstats_mallocs_total: {type: counter, labels: []}
+  go_memstats_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mcache_sys_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_sys_bytes: {type: gauge, labels: []}
+  go_memstats_next_gc_bytes: {type: gauge, labels: []}
+  go_memstats_other_sys_bytes: {type: gauge, labels: []}
+  go_memstats_stack_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_stack_sys_bytes: {type: gauge, labels: []}
+  go_memstats_sys_bytes: {type: gauge, labels: []}
+  go_sched_gomaxprocs_threads: {type: gauge, labels: []}
+  go_threads: {type: gauge, labels: []}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_network_receive_bytes_total: {type: counter, labels: []}
+  process_network_transmit_bytes_total: {type: counter, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  process_virtual_memory_max_bytes: {type: gauge, labels: []}
+  promhttp_metric_handler_requests_in_flight: {type: gauge, labels: []}
+  promhttp_metric_handler_requests_total: {type: counter, labels: [code]}
+  quic_client_closed_connections: {type: counter, labels: []}
+  quic_client_congestion_state: {type: gauge, labels: [conn_index]}
+  quic_client_congestion_window: {type: gauge, labels: [conn_index]}
+  quic_client_latest_rtt: {type: gauge, labels: [conn_index]}
+  quic_client_lost_packets: {type: counter, labels: [conn_index, reason]}
+  quic_client_max_udp_payload: {type: gauge, labels: [conn_index]}
+  quic_client_min_rtt: {type: gauge, labels: [conn_index]}
+  quic_client_mtu: {type: gauge, labels: [conn_index]}
+  quic_client_packet_too_big_dropped: {type: counter, labels: []}
+  quic_client_receive_bytes: {type: counter, labels: [conn_index]}
+  quic_client_received_frames: {type: counter, labels: [conn_index, frame_type]}
+  quic_client_sent_bytes: {type: counter, labels: [conn_index]}
+  quic_client_sent_frames: {type: counter, labels: [conn_index, frame_type]}
+  quic_client_smoothed_rtt: {type: gauge, labels: [conn_index]}
+  quic_client_total_connections: {type: counter, labels: []}

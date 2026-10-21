@@ -1,0 +1,463 @@
+# Metric families the k3s kubelet serves at /metrics (#1136):
+# names, types and label names, never label values. tests/test_stack_dashboards.py checks
+# k8s-views-global.json, k8s-views-namespaces.json and k8s-views-nodes.json against them.
+exporter: Kubernetes kubelet
+version: v1.31.4+k3s1
+captured: "2026-10-21"
+taken_from: >-
+  Each cluster node's /api/v1/nodes/<node>/proxy/metrics on the homelab k3s cluster.
+scraped_by: >-
+  k8s-monitoring's clusterMetrics.kubelet job (job="integrations/kubernetes/kubelet") in
+  k8s/monitoring/k8s-monitoring-values.yaml, filtered by the chart's default allow list.
+target_labels: [cluster, instance, job, node, source]
+families:
+  aggregator_discovery_aggregation_count_total: {type: counter, labels: []}
+  aggregator_unavailable_apiservice: {type: gauge, labels: [name]}
+  aggregator_unavailable_apiservice_total: {type: counter, labels: [name, reason]}
+  apiextensions_apiserver_validation_ratcheting_seconds: {type: histogram, labels: []}
+  apiextensions_openapi_v2_regeneration_count: {type: counter, labels: [crd, reason]}
+  apiextensions_openapi_v3_regeneration_count: {type: counter, labels: [crd, group, reason, version]}
+  apiserver_admission_controller_admission_duration_seconds: {type: histogram, labels: [name, operation, rejected, type]}
+  apiserver_admission_step_admission_duration_seconds: {type: histogram, labels: [operation, rejected, type]}
+  apiserver_admission_step_admission_duration_seconds_summary: {type: summary, labels: [operation, rejected, type]}
+  apiserver_audit_event_total: {type: counter, labels: []}
+  apiserver_audit_requests_rejected_total: {type: counter, labels: []}
+  apiserver_authorization_decisions_total: {type: counter, labels: [decision, name, type]}
+  apiserver_cache_list_fetched_objects_total: {type: counter, labels: [index, resource_prefix]}
+  apiserver_cache_list_returned_objects_total: {type: counter, labels: [resource_prefix]}
+  apiserver_cache_list_total: {type: counter, labels: [index, resource_prefix]}
+  apiserver_cel_compilation_duration_seconds: {type: histogram, labels: []}
+  apiserver_cel_evaluation_duration_seconds: {type: histogram, labels: []}
+  apiserver_client_certificate_expiration_seconds: {type: histogram, labels: []}
+  apiserver_clusterip_repair_reconcile_errors_total: {type: counter, labels: []}
+  apiserver_current_inflight_requests: {type: gauge, labels: [request_kind]}
+  apiserver_current_inqueue_requests: {type: gauge, labels: [request_kind]}
+  apiserver_delegated_authn_request_duration_seconds: {type: histogram, labels: [code]}
+  apiserver_delegated_authn_request_total: {type: counter, labels: [code]}
+  apiserver_delegated_authz_request_duration_seconds: {type: histogram, labels: [code]}
+  apiserver_delegated_authz_request_total: {type: counter, labels: [code]}
+  apiserver_egress_dialer_dial_duration_seconds: {type: histogram, labels: [protocol, transport]}
+  apiserver_egress_dialer_dial_failure_count: {type: counter, labels: [protocol, stage, transport]}
+  apiserver_egress_dialer_dial_start_total: {type: counter, labels: [protocol, transport]}
+  apiserver_envelope_encryption_dek_cache_fill_percent: {type: gauge, labels: []}
+  apiserver_flowcontrol_current_executing_requests: {type: gauge, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_current_executing_seats: {type: gauge, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_current_inqueue_requests: {type: gauge, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_current_inqueue_seats: {type: gauge, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_current_limit_seats: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_current_r: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_demand_seats: {type: histogram, labels: [priority_level]}
+  apiserver_flowcontrol_demand_seats_average: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_demand_seats_high_watermark: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_demand_seats_smoothed: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_demand_seats_stdev: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_dispatch_r: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_dispatched_requests_total: {type: counter, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_latest_s: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_lower_limit_seats: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_next_discounted_s_bounds: {type: gauge, labels: [bound, priority_level]}
+  apiserver_flowcontrol_next_s_bounds: {type: gauge, labels: [bound, priority_level]}
+  apiserver_flowcontrol_nominal_limit_seats: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_priority_level_request_utilization: {type: histogram, labels: [phase, priority_level]}
+  apiserver_flowcontrol_priority_level_seat_utilization: {type: histogram, labels: [phase, priority_level]}
+  apiserver_flowcontrol_read_vs_write_current_requests: {type: histogram, labels: [phase, request_kind]}
+  apiserver_flowcontrol_request_concurrency_in_use: {type: gauge, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_request_execution_seconds: {type: histogram, labels: [flow_schema, priority_level, type]}
+  apiserver_flowcontrol_request_queue_length_after_enqueue: {type: histogram, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_request_wait_duration_seconds: {type: histogram, labels: [execute, flow_schema, priority_level]}
+  apiserver_flowcontrol_seat_fair_frac: {type: gauge, labels: []}
+  apiserver_flowcontrol_target_seats: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_upper_limit_seats: {type: gauge, labels: [priority_level]}
+  apiserver_flowcontrol_watch_count_samples: {type: histogram, labels: [flow_schema, priority_level]}
+  apiserver_flowcontrol_work_estimated_seats: {type: histogram, labels: [flow_schema, priority_level]}
+  apiserver_init_events_total: {type: counter, labels: [resource]}
+  apiserver_kube_aggregator_x509_insecure_sha1_total: {type: counter, labels: []}
+  apiserver_kube_aggregator_x509_missing_san_total: {type: counter, labels: []}
+  apiserver_longrunning_requests: {type: gauge, labels: [component, group, resource, scope, subresource, verb, version]}
+  apiserver_nodeport_repair_reconcile_errors_total: {type: counter, labels: []}
+  apiserver_request_aborts_total: {type: counter, labels: [group, resource, scope, subresource, verb, version]}
+  apiserver_request_body_size_bytes: {type: histogram, labels: [resource, verb]}
+  apiserver_request_duration_seconds: {type: histogram, labels: [component, dry_run, group, resource, scope, subresource, verb, version]}
+  apiserver_request_filter_duration_seconds: {type: histogram, labels: [filter]}
+  apiserver_request_post_timeout_total: {type: counter, labels: [source, status]}
+  apiserver_request_sli_duration_seconds: {type: histogram, labels: [component, group, resource, scope, subresource, verb, version]}
+  apiserver_request_terminations_total: {type: counter, labels: [code, component, group, resource, scope, subresource, verb, version]}
+  apiserver_request_timestamp_comparison_time: {type: histogram, labels: [code_path]}
+  apiserver_request_total: {type: counter, labels: [code, component, dry_run, group, resource, scope, subresource, verb, version]}
+  apiserver_requested_deprecated_apis: {type: gauge, labels: [group, removed_release, resource, subresource, version]}
+  apiserver_response_sizes: {type: histogram, labels: [component, group, resource, scope, subresource, verb, version]}
+  apiserver_selfrequest_total: {type: counter, labels: [resource, subresource, verb]}
+  apiserver_storage_data_key_generation_duration_seconds: {type: histogram, labels: []}
+  apiserver_storage_data_key_generation_failures_total: {type: counter, labels: []}
+  apiserver_storage_envelope_transformation_cache_misses_total: {type: counter, labels: []}
+  apiserver_storage_events_received_total: {type: counter, labels: [resource]}
+  apiserver_storage_list_evaluated_objects_total: {type: counter, labels: [resource]}
+  apiserver_storage_list_fetched_objects_total: {type: counter, labels: [resource]}
+  apiserver_storage_list_returned_objects_total: {type: counter, labels: [resource]}
+  apiserver_storage_list_total: {type: counter, labels: [resource]}
+  apiserver_storage_objects: {type: gauge, labels: [resource]}
+  apiserver_storage_size_bytes: {type: gauge, labels: [storage_cluster_id]}
+  apiserver_storage_transformation_duration_seconds: {type: histogram, labels: [transformation_type, transformer_prefix]}
+  apiserver_storage_transformation_operations_total: {type: counter, labels: [status, transformation_type, transformer_prefix]}
+  apiserver_tls_handshake_errors_total: {type: counter, labels: []}
+  apiserver_watch_cache_consistent_read_total: {type: counter, labels: [fallback, resource, success]}
+  apiserver_watch_cache_events_dispatched_total: {type: counter, labels: [resource]}
+  apiserver_watch_cache_events_received_total: {type: counter, labels: [resource]}
+  apiserver_watch_cache_initializations_total: {type: counter, labels: [resource]}
+  apiserver_watch_cache_read_wait_seconds: {type: histogram, labels: [resource]}
+  apiserver_watch_cache_resource_version: {type: gauge, labels: [resource]}
+  apiserver_watch_events_sizes: {type: histogram, labels: [group, kind, version]}
+  apiserver_watch_events_total: {type: counter, labels: [group, kind, version]}
+  apiserver_webhooks_x509_insecure_sha1_total: {type: counter, labels: []}
+  apiserver_webhooks_x509_missing_san_total: {type: counter, labels: []}
+  authenticated_user_requests: {type: counter, labels: [username]}
+  authentication_attempts: {type: counter, labels: [result]}
+  authentication_duration_seconds: {type: histogram, labels: [result]}
+  authentication_token_cache_active_fetch_count: {type: gauge, labels: [status]}
+  authentication_token_cache_fetch_total: {type: counter, labels: [status]}
+  authentication_token_cache_request_duration_seconds: {type: histogram, labels: [status]}
+  authentication_token_cache_request_total: {type: counter, labels: [status]}
+  authorization_attempts_total: {type: counter, labels: [result]}
+  authorization_duration_seconds: {type: histogram, labels: [result]}
+  cardinality_enforcement_unexpected_categorizations_total: {type: counter, labels: []}
+  cronjob_controller_job_creation_skew_duration_seconds: {type: histogram, labels: []}
+  disabled_metrics_total: {type: counter, labels: []}
+  endpoint_slice_controller_changes: {type: counter, labels: [operation]}
+  endpoint_slice_controller_desired_endpoint_slices: {type: gauge, labels: []}
+  endpoint_slice_controller_endpoints_added_per_sync: {type: histogram, labels: []}
+  endpoint_slice_controller_endpoints_desired: {type: gauge, labels: []}
+  endpoint_slice_controller_endpoints_removed_per_sync: {type: histogram, labels: []}
+  endpoint_slice_controller_endpointslices_changed_per_sync: {type: histogram, labels: [topology, traffic_distribution]}
+  endpoint_slice_controller_num_endpoint_slices: {type: gauge, labels: []}
+  endpoint_slice_controller_syncs: {type: counter, labels: [result]}
+  endpoint_slice_mirroring_controller_addresses_skipped_per_sync: {type: histogram, labels: []}
+  endpoint_slice_mirroring_controller_desired_endpoint_slices: {type: gauge, labels: []}
+  endpoint_slice_mirroring_controller_endpoints_added_per_sync: {type: histogram, labels: []}
+  endpoint_slice_mirroring_controller_endpoints_desired: {type: gauge, labels: []}
+  endpoint_slice_mirroring_controller_endpoints_removed_per_sync: {type: histogram, labels: []}
+  endpoint_slice_mirroring_controller_endpoints_sync_duration: {type: histogram, labels: []}
+  endpoint_slice_mirroring_controller_endpoints_updated_per_sync: {type: histogram, labels: []}
+  endpoint_slice_mirroring_controller_num_endpoint_slices: {type: gauge, labels: []}
+  ephemeral_volume_controller_create_failures_total: {type: counter, labels: []}
+  ephemeral_volume_controller_create_total: {type: counter, labels: []}
+  etcd_bookmark_counts: {type: gauge, labels: [resource]}
+  etcd_lease_object_counts: {type: histogram, labels: []}
+  etcd_request_duration_seconds: {type: histogram, labels: [operation, type]}
+  etcd_request_errors_total: {type: counter, labels: [operation, type]}
+  etcd_requests_total: {type: counter, labels: [operation, type]}
+  field_validation_request_duration_seconds: {type: histogram, labels: [field_validation]}
+  force_cleaned_failed_volume_operation_errors_total: {type: counter, labels: []}
+  force_cleaned_failed_volume_operations_total: {type: counter, labels: []}
+  garbagecollector_controller_resources_sync_error_total: {type: counter, labels: []}
+  go_cgo_go_to_c_calls_calls_total: {type: counter, labels: []}
+  go_cpu_classes_gc_mark_assist_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_gc_mark_dedicated_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_gc_mark_idle_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_gc_pause_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_gc_total_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_idle_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_scavenge_assist_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_scavenge_background_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_scavenge_total_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_total_cpu_seconds_total: {type: counter, labels: []}
+  go_cpu_classes_user_cpu_seconds_total: {type: counter, labels: []}
+  go_gc_cycles_automatic_gc_cycles_total: {type: counter, labels: []}
+  go_gc_cycles_forced_gc_cycles_total: {type: counter, labels: []}
+  go_gc_cycles_total_gc_cycles_total: {type: counter, labels: []}
+  go_gc_duration_seconds: {type: summary, labels: []}
+  go_gc_gogc_percent: {type: gauge, labels: []}
+  go_gc_gomemlimit_bytes: {type: gauge, labels: []}
+  go_gc_heap_allocs_by_size_bytes: {type: histogram, labels: []}
+  go_gc_heap_allocs_bytes_total: {type: counter, labels: []}
+  go_gc_heap_allocs_objects_total: {type: counter, labels: []}
+  go_gc_heap_frees_by_size_bytes: {type: histogram, labels: []}
+  go_gc_heap_frees_bytes_total: {type: counter, labels: []}
+  go_gc_heap_frees_objects_total: {type: counter, labels: []}
+  go_gc_heap_goal_bytes: {type: gauge, labels: []}
+  go_gc_heap_live_bytes: {type: gauge, labels: []}
+  go_gc_heap_objects_objects: {type: gauge, labels: []}
+  go_gc_heap_tiny_allocs_objects_total: {type: counter, labels: []}
+  go_gc_limiter_last_enabled_gc_cycle: {type: gauge, labels: []}
+  go_gc_pauses_seconds: {type: histogram, labels: []}
+  go_gc_scan_globals_bytes: {type: gauge, labels: []}
+  go_gc_scan_heap_bytes: {type: gauge, labels: []}
+  go_gc_scan_stack_bytes: {type: gauge, labels: []}
+  go_gc_scan_total_bytes: {type: gauge, labels: []}
+  go_gc_stack_starting_size_bytes: {type: gauge, labels: []}
+  go_godebug_non_default_behavior_execerrdot_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_gocachehash_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_gocachetest_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_gocacheverify_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_gotypesalias_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_http2client_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_http2server_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_httplaxcontentlength_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_httpmuxgo121_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_installgoroot_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_jstmpllitinterp_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_multipartmaxheaders_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_multipartmaxparts_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_multipathtcp_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_netedns0_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_panicnil_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_randautoseed_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_tarinsecurepath_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_tls10server_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_tlsmaxrsasize_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_tlsrsakex_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_tlsunsafeekm_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_x509sha1_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_x509usefallbackroots_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_x509usepolicies_events_total: {type: counter, labels: []}
+  go_godebug_non_default_behavior_zipinsecurepath_events_total: {type: counter, labels: []}
+  go_goroutines: {type: gauge, labels: []}
+  go_info: {type: gauge, labels: [version]}
+  go_memory_classes_heap_free_bytes: {type: gauge, labels: []}
+  go_memory_classes_heap_objects_bytes: {type: gauge, labels: []}
+  go_memory_classes_heap_released_bytes: {type: gauge, labels: []}
+  go_memory_classes_heap_stacks_bytes: {type: gauge, labels: []}
+  go_memory_classes_heap_unused_bytes: {type: gauge, labels: []}
+  go_memory_classes_metadata_mcache_free_bytes: {type: gauge, labels: []}
+  go_memory_classes_metadata_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memory_classes_metadata_mspan_free_bytes: {type: gauge, labels: []}
+  go_memory_classes_metadata_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memory_classes_metadata_other_bytes: {type: gauge, labels: []}
+  go_memory_classes_os_stacks_bytes: {type: gauge, labels: []}
+  go_memory_classes_other_bytes: {type: gauge, labels: []}
+  go_memory_classes_profiling_buckets_bytes: {type: gauge, labels: []}
+  go_memory_classes_total_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_alloc_bytes_total: {type: counter, labels: []}
+  go_memstats_buck_hash_sys_bytes: {type: gauge, labels: []}
+  go_memstats_frees_total: {type: counter, labels: []}
+  go_memstats_gc_sys_bytes: {type: gauge, labels: []}
+  go_memstats_heap_alloc_bytes: {type: gauge, labels: []}
+  go_memstats_heap_idle_bytes: {type: gauge, labels: []}
+  go_memstats_heap_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_heap_objects: {type: gauge, labels: []}
+  go_memstats_heap_released_bytes: {type: gauge, labels: []}
+  go_memstats_heap_sys_bytes: {type: gauge, labels: []}
+  go_memstats_last_gc_time_seconds: {type: gauge, labels: []}
+  go_memstats_lookups_total: {type: counter, labels: []}
+  go_memstats_mallocs_total: {type: counter, labels: []}
+  go_memstats_mcache_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mcache_sys_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_mspan_sys_bytes: {type: gauge, labels: []}
+  go_memstats_next_gc_bytes: {type: gauge, labels: []}
+  go_memstats_other_sys_bytes: {type: gauge, labels: []}
+  go_memstats_stack_inuse_bytes: {type: gauge, labels: []}
+  go_memstats_stack_sys_bytes: {type: gauge, labels: []}
+  go_memstats_sys_bytes: {type: gauge, labels: []}
+  go_sched_gomaxprocs_threads: {type: gauge, labels: []}
+  go_sched_goroutines_goroutines: {type: gauge, labels: []}
+  go_sched_latencies_seconds: {type: histogram, labels: []}
+  go_sched_pauses_stopping_gc_seconds: {type: histogram, labels: []}
+  go_sched_pauses_stopping_other_seconds: {type: histogram, labels: []}
+  go_sched_pauses_total_gc_seconds: {type: histogram, labels: []}
+  go_sched_pauses_total_other_seconds: {type: histogram, labels: []}
+  go_sync_mutex_wait_total_seconds_total: {type: counter, labels: []}
+  go_threads: {type: gauge, labels: []}
+  grpc_client_handled_total: {type: counter, labels: [grpc_code, grpc_method, grpc_service, grpc_type]}
+  grpc_client_msg_received_total: {type: counter, labels: [grpc_method, grpc_service, grpc_type]}
+  grpc_client_msg_sent_total: {type: counter, labels: [grpc_method, grpc_service, grpc_type]}
+  grpc_client_started_total: {type: counter, labels: [grpc_method, grpc_service, grpc_type]}
+  hidden_metrics_total: {type: counter, labels: []}
+  job_controller_job_pods_creation_total: {type: counter, labels: [reason, status]}
+  job_controller_job_pods_finished_total: {type: counter, labels: [completion_mode, result]}
+  job_controller_job_sync_duration_seconds: {type: histogram, labels: [action, completion_mode, result]}
+  job_controller_job_syncs_total: {type: counter, labels: [action, completion_mode, result]}
+  job_controller_jobs_finished_total: {type: counter, labels: [completion_mode, reason, result]}
+  job_controller_terminated_pods_tracking_finalizer_total: {type: counter, labels: [event]}
+  k3s_certificate_expiration_seconds: {type: gauge, labels: [subject, usages]}
+  k3s_loadbalancer_dial_duration_seconds: {type: histogram, labels: [name, status]}
+  k3s_loadbalancer_server_connections: {type: gauge, labels: [name, server]}
+  k3s_loadbalancer_server_health: {type: gauge, labels: [name, server]}
+  kube_apiserver_clusterip_allocator_allocated_ips: {type: gauge, labels: [cidr]}
+  kube_apiserver_clusterip_allocator_allocation_total: {type: counter, labels: [cidr, scope]}
+  kube_apiserver_clusterip_allocator_available_ips: {type: gauge, labels: [cidr]}
+  kube_apiserver_nodeport_allocator_allocated_ports: {type: gauge, labels: []}
+  kube_apiserver_nodeport_allocator_allocation_total: {type: counter, labels: [scope]}
+  kube_apiserver_nodeport_allocator_available_ports: {type: gauge, labels: []}
+  kube_apiserver_pod_logs_backend_tls_failure_total: {type: counter, labels: []}
+  kube_apiserver_pod_logs_insecure_backend_total: {type: counter, labels: [usage]}
+  kube_router_build_info: {type: gauge, labels: [goversion, version]}
+  kube_router_controller_iptables_sync_time: {type: histogram, labels: []}
+  kube_router_controller_iptables_v4_restore_time: {type: histogram, labels: []}
+  kube_router_controller_iptables_v4_save_time: {type: histogram, labels: []}
+  kube_router_controller_iptables_v6_restore_time: {type: histogram, labels: []}
+  kube_router_controller_iptables_v6_save_time: {type: histogram, labels: []}
+  kube_router_controller_policy_chains: {type: gauge, labels: []}
+  kube_router_controller_policy_chains_sync_time: {type: histogram, labels: []}
+  kube_router_controller_policy_ipset_v4_restore_time: {type: histogram, labels: []}
+  kube_router_controller_policy_ipset_v6_restore_time: {type: histogram, labels: []}
+  kube_router_controller_policy_ipsets: {type: gauge, labels: []}
+  kubelet_active_pods: {type: gauge, labels: [static]}
+  kubelet_cgroup_manager_duration_seconds: {type: histogram, labels: [operation_type]}
+  kubelet_cgroup_version: {type: gauge, labels: []}
+  kubelet_container_log_filesystem_used_bytes: {type: gauge, labels: [container, namespace, pod, uid]}
+  kubelet_containers_per_pod_count: {type: histogram, labels: []}
+  kubelet_cpu_manager_pinning_errors_total: {type: counter, labels: []}
+  kubelet_cpu_manager_pinning_requests_total: {type: counter, labels: []}
+  kubelet_desired_pods: {type: gauge, labels: [static]}
+  kubelet_device_plugin_registration_total: {type: counter, labels: [resource_name]}
+  kubelet_evented_pleg_connection_error_count: {type: counter, labels: []}
+  kubelet_evented_pleg_connection_latency_seconds: {type: histogram, labels: []}
+  kubelet_evented_pleg_connection_success_count: {type: counter, labels: []}
+  kubelet_first_network_pod_start_sli_duration_seconds: {type: gauge, labels: []}
+  kubelet_graceful_shutdown_end_time_seconds: {type: gauge, labels: []}
+  kubelet_graceful_shutdown_start_time_seconds: {type: gauge, labels: []}
+  kubelet_http_inflight_requests: {type: gauge, labels: [long_running, method, path, server_type]}
+  kubelet_http_requests_duration_seconds: {type: histogram, labels: [long_running, method, path, server_type]}
+  kubelet_http_requests_total: {type: counter, labels: [long_running, method, path, server_type]}
+  kubelet_image_pull_duration_seconds: {type: histogram, labels: [image_size_in_bytes]}
+  kubelet_lifecycle_handler_http_fallbacks_total: {type: counter, labels: []}
+  kubelet_managed_ephemeral_containers: {type: gauge, labels: []}
+  kubelet_memory_manager_pinning_errors_total: {type: counter, labels: []}
+  kubelet_memory_manager_pinning_requests_total: {type: counter, labels: []}
+  kubelet_mirror_pods: {type: gauge, labels: []}
+  kubelet_node_name: {type: gauge, labels: [node]}
+  kubelet_node_startup_duration_seconds: {type: gauge, labels: []}
+  kubelet_node_startup_post_registration_duration_seconds: {type: gauge, labels: []}
+  kubelet_node_startup_pre_kubelet_duration_seconds: {type: gauge, labels: []}
+  kubelet_node_startup_pre_registration_duration_seconds: {type: gauge, labels: []}
+  kubelet_node_startup_registration_duration_seconds: {type: gauge, labels: []}
+  kubelet_orphan_pod_cleaned_volumes: {type: gauge, labels: []}
+  kubelet_orphan_pod_cleaned_volumes_errors: {type: gauge, labels: []}
+  kubelet_orphaned_runtime_pods_total: {type: counter, labels: []}
+  kubelet_pleg_discard_events: {type: counter, labels: []}
+  kubelet_pleg_last_seen_seconds: {type: gauge, labels: []}
+  kubelet_pleg_relist_duration_seconds: {type: histogram, labels: []}
+  kubelet_pleg_relist_interval_seconds: {type: histogram, labels: []}
+  kubelet_pod_resources_endpoint_requests_list: {type: counter, labels: [server_api_version]}
+  kubelet_pod_resources_endpoint_requests_total: {type: counter, labels: [server_api_version]}
+  kubelet_pod_start_duration_seconds: {type: histogram, labels: []}
+  kubelet_pod_start_sli_duration_seconds: {type: histogram, labels: []}
+  kubelet_pod_start_total_duration_seconds: {type: histogram, labels: []}
+  kubelet_pod_status_sync_duration_seconds: {type: histogram, labels: []}
+  kubelet_pod_worker_duration_seconds: {type: histogram, labels: [operation_type]}
+  kubelet_pod_worker_start_duration_seconds: {type: histogram, labels: []}
+  kubelet_restarted_pods_total: {type: counter, labels: [static]}
+  kubelet_run_podsandbox_duration_seconds: {type: histogram, labels: [runtime_handler]}
+  kubelet_running_containers: {type: gauge, labels: [container_state]}
+  kubelet_running_pods: {type: gauge, labels: []}
+  kubelet_runtime_operations_duration_seconds: {type: histogram, labels: [operation_type]}
+  kubelet_runtime_operations_errors_total: {type: counter, labels: [operation_type]}
+  kubelet_runtime_operations_total: {type: counter, labels: [operation_type]}
+  kubelet_sleep_action_terminated_early_total: {type: counter, labels: []}
+  kubelet_started_containers_errors_total: {type: counter, labels: [code, container_type]}
+  kubelet_started_containers_total: {type: counter, labels: [container_type]}
+  kubelet_started_pods_errors_total: {type: counter, labels: []}
+  kubelet_started_pods_total: {type: counter, labels: []}
+  kubelet_topology_manager_admission_duration_ms: {type: histogram, labels: []}
+  kubelet_topology_manager_admission_errors_total: {type: counter, labels: []}
+  kubelet_topology_manager_admission_requests_total: {type: counter, labels: []}
+  kubelet_volume_metric_collection_duration_seconds: {type: histogram, labels: [metric_source]}
+  kubelet_working_pods: {type: gauge, labels: [config, lifecycle, static]}
+  kubeproxy_iptables_ct_state_invalid_dropped_packets_total: {type: counter, labels: []}
+  kubeproxy_iptables_localhost_nodeports_accepted_packets_total: {type: counter, labels: []}
+  kubeproxy_network_programming_duration_seconds: {type: histogram, labels: []}
+  kubeproxy_sync_full_proxy_rules_duration_seconds: {type: histogram, labels: []}
+  kubeproxy_sync_partial_proxy_rules_duration_seconds: {type: histogram, labels: []}
+  kubeproxy_sync_proxy_rules_duration_seconds: {type: histogram, labels: []}
+  kubeproxy_sync_proxy_rules_endpoint_changes_pending: {type: gauge, labels: []}
+  kubeproxy_sync_proxy_rules_endpoint_changes_total: {type: counter, labels: []}
+  kubeproxy_sync_proxy_rules_iptables_last: {type: gauge, labels: [table]}
+  kubeproxy_sync_proxy_rules_iptables_partial_restore_failures_total: {type: counter, labels: []}
+  kubeproxy_sync_proxy_rules_iptables_restore_failures_total: {type: counter, labels: []}
+  kubeproxy_sync_proxy_rules_iptables_total: {type: gauge, labels: [table]}
+  kubeproxy_sync_proxy_rules_last_queued_timestamp_seconds: {type: gauge, labels: []}
+  kubeproxy_sync_proxy_rules_last_timestamp_seconds: {type: gauge, labels: []}
+  kubeproxy_sync_proxy_rules_no_local_endpoints_total: {type: gauge, labels: [traffic_policy]}
+  kubeproxy_sync_proxy_rules_service_changes_pending: {type: gauge, labels: []}
+  kubeproxy_sync_proxy_rules_service_changes_total: {type: counter, labels: []}
+  kubernetes_build_info: {type: gauge, labels: [build_date, compiler, git_commit, git_tree_state, git_version, go_version, major, minor, platform]}
+  kubernetes_feature_enabled: {type: gauge, labels: [name, stage]}
+  lasso_controller_reconcile_time_seconds: {type: histogram, labels: [controller_name, handler_name, has_error]}
+  lasso_controller_total_cached_object: {type: gauge, labels: [group, kind, version]}
+  lasso_controller_total_handler_execution: {type: counter, labels: [controller_name, handler_name, has_error]}
+  node_authorizer_graph_actions_duration_seconds: {type: histogram, labels: [operation]}
+  node_collector_evictions_total: {type: counter, labels: [zone]}
+  node_collector_unhealthy_nodes_in_zone: {type: gauge, labels: [zone]}
+  node_collector_update_all_nodes_health_duration_seconds: {type: histogram, labels: []}
+  node_collector_update_node_health_duration_seconds: {type: histogram, labels: []}
+  node_collector_zone_health: {type: gauge, labels: [zone]}
+  node_collector_zone_size: {type: gauge, labels: [zone]}
+  node_controller_cloud_provider_taint_removal_delay_seconds: {type: histogram, labels: []}
+  node_controller_initial_node_sync_delay_seconds: {type: histogram, labels: []}
+  node_ipam_controller_cidrset_allocation_tries_per_request: {type: histogram, labels: [clusterCIDR]}
+  node_ipam_controller_cidrset_cidrs_allocations_total: {type: counter, labels: [clusterCIDR]}
+  node_ipam_controller_cidrset_cidrs_releases_total: {type: counter, labels: [clusterCIDR]}
+  node_ipam_controller_cidrset_usage_cidrs: {type: gauge, labels: [clusterCIDR]}
+  node_ipam_controller_cirdset_max_cidrs: {type: gauge, labels: [clusterCIDR]}
+  pod_gc_collector_force_delete_pods_total: {type: counter, labels: [namespace, reason]}
+  pod_security_evaluations_total: {type: counter, labels: [decision, mode, policy_level, policy_version, request_operation, resource, subresource]}
+  pod_security_exemptions_total: {type: counter, labels: [request_operation, resource, subresource]}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  process_virtual_memory_max_bytes: {type: gauge, labels: []}
+  pv_collector_bound_pv_count: {type: gauge, labels: [storage_class]}
+  pv_collector_bound_pvc_count: {type: gauge, labels: [namespace, storage_class, volume_attributes_class]}
+  pv_collector_total_pv_count: {type: gauge, labels: [plugin_name, volume_mode]}
+  reconstruct_volume_operations_errors_total: {type: counter, labels: []}
+  reconstruct_volume_operations_total: {type: counter, labels: []}
+  registered_metrics_total: {type: counter, labels: [deprecated_version, stability_level]}
+  replicaset_controller_sorting_deletion_age_ratio: {type: histogram, labels: []}
+  rest_client_exec_plugin_certificate_rotation_age: {type: histogram, labels: []}
+  rest_client_exec_plugin_ttl_seconds: {type: gauge, labels: []}
+  rest_client_rate_limiter_duration_seconds: {type: histogram, labels: [host, verb]}
+  rest_client_request_duration_seconds: {type: histogram, labels: [host, verb]}
+  rest_client_request_retries_total: {type: counter, labels: [code, host, verb]}
+  rest_client_request_size_bytes: {type: histogram, labels: [host, verb]}
+  rest_client_requests_total: {type: counter, labels: [code, host, method]}
+  rest_client_response_size_bytes: {type: histogram, labels: [host, verb]}
+  rest_client_transport_cache_entries: {type: gauge, labels: []}
+  rest_client_transport_create_calls_total: {type: counter, labels: [result]}
+  retroactive_storageclass_errors_total: {type: counter, labels: []}
+  retroactive_storageclass_total: {type: counter, labels: []}
+  root_ca_cert_publisher_sync_duration_seconds: {type: histogram, labels: [code]}
+  root_ca_cert_publisher_sync_total: {type: counter, labels: [code]}
+  running_managed_controllers: {type: gauge, labels: [manager, name]}
+  scheduler_event_handling_duration_seconds: {type: histogram, labels: [event]}
+  scheduler_framework_extension_point_duration_seconds: {type: histogram, labels: [extension_point, profile, status]}
+  scheduler_goroutines: {type: gauge, labels: [operation]}
+  scheduler_pending_pods: {type: gauge, labels: [queue]}
+  scheduler_plugin_evaluation_total: {type: counter, labels: [extension_point, plugin, profile]}
+  scheduler_plugin_execution_duration_seconds: {type: histogram, labels: [extension_point, plugin, status]}
+  scheduler_pod_scheduling_attempts: {type: histogram, labels: []}
+  scheduler_pod_scheduling_sli_duration_seconds: {type: histogram, labels: [attempts]}
+  scheduler_preemption_attempts_total: {type: counter, labels: []}
+  scheduler_preemption_victims: {type: histogram, labels: []}
+  scheduler_queue_incoming_pods_total: {type: counter, labels: [event, queue]}
+  scheduler_schedule_attempts_total: {type: counter, labels: [profile, result]}
+  scheduler_scheduler_cache_size: {type: gauge, labels: [type]}
+  scheduler_scheduling_algorithm_duration_seconds: {type: histogram, labels: []}
+  scheduler_scheduling_attempt_duration_seconds: {type: histogram, labels: [profile, result]}
+  scheduler_unschedulable_pods: {type: gauge, labels: [plugin, profile]}
+  scheduler_volume_scheduling_stage_error_total: {type: counter, labels: [operation]}
+  serviceaccount_invalid_legacy_auto_token_uses_total: {type: counter, labels: []}
+  serviceaccount_legacy_auto_token_uses_total: {type: counter, labels: []}
+  serviceaccount_legacy_manual_token_uses_total: {type: counter, labels: []}
+  serviceaccount_legacy_tokens_total: {type: counter, labels: []}
+  serviceaccount_stale_tokens_total: {type: counter, labels: []}
+  serviceaccount_valid_tokens_total: {type: counter, labels: []}
+  storage_operation_duration_seconds: {type: histogram, labels: [migrated, operation_name, status, volume_plugin]}
+  taint_eviction_controller_pod_deletion_duration_seconds: {type: histogram, labels: []}
+  taint_eviction_controller_pod_deletions_total: {type: counter, labels: []}
+  ttl_after_finished_controller_job_deletion_duration_seconds: {type: histogram, labels: []}
+  volume_manager_total_volumes: {type: gauge, labels: [plugin_name, state]}
+  volume_operation_total_seconds: {type: histogram, labels: [operation_name, plugin_name]}
+  watch_cache_capacity: {type: gauge, labels: [resource]}
+  watch_cache_capacity_decrease_total: {type: counter, labels: [resource]}
+  watch_cache_capacity_increase_total: {type: counter, labels: [resource]}
+  workqueue_adds_total: {type: counter, labels: [name]}
+  workqueue_depth: {type: gauge, labels: [name]}
+  workqueue_longest_running_processor_seconds: {type: gauge, labels: [name]}
+  workqueue_queue_duration_seconds: {type: histogram, labels: [name]}
+  workqueue_retries_total: {type: counter, labels: [name]}
+  workqueue_unfinished_work_seconds: {type: gauge, labels: [name]}
+  workqueue_work_duration_seconds: {type: histogram, labels: [name]}

@@ -166,6 +166,7 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10
           },
+          "noValue": "none recorded",
           "unit": "short"
         }
       },
