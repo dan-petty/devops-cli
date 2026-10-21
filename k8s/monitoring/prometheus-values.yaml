@@ -499,3 +499,38 @@ serverFiles:
             annotations:
               summary: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} is shipping no logs"
               description: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} has sent 0 log entries to Loki for 30 minutes."
+      # Argo CD sync and health, Cloudflare Tunnel HA connectivity, and Valkey cache health (#551).
+      - name: homelab-services
+        rules:
+          - alert: ArgoCdApplicationOutOfSync
+            expr: argocd_app_info{sync_status!="Synced"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} is {{ $labels.sync_status }}"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has been {{ $labels.sync_status }} for 15 minutes."
+          - alert: ArgoCdApplicationUnhealthy
+            expr: argocd_app_info{health_status!~"Healthy|Progressing"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application {{ $labels.name }} is {{ $labels.health_status }}"
+              description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has reported health {{ $labels.health_status }} for 15 minutes."
+          - alert: CloudflareTunnelDegraded
+            expr: sum(cloudflared_tunnel_ha_connections) < 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Cloudflare Tunnel has {{ $value }} active HA connections"
+              description: "Fewer than 2 Cloudflare Tunnel HA connections have been active across cloudflared replicas for 5 minutes."
+          - alert: ValkeyCacheErrors
+            expr: redis_up == 0 or increase(redis_rejected_connections_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Valkey cache {{ $labels.namespace }}/{{ $labels.instance }} is down or rejecting connections"
+              description: "Valkey exporter {{ $labels.namespace }}/{{ $labels.instance }} reports redis_up == 0 or rejected client connections over the last 5 minutes."
