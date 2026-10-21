@@ -216,6 +216,20 @@ integrations:
             source_labels = ["__meta_kubernetes_pod_node_name"]
             target_label  = "instance"
           }
+  # The chart's own Alloy collectors (alloy-metrics, alloy-logs, alloy-singleton), within the
+  # integration's default allow list (#1131).
+  alloy:
+    instances:
+      - name: k8s-monitoring
+        labelSelectors:
+          app.kubernetes.io/name:
+            - alloy-metrics
+            - alloy-logs
+            - alloy-singleton
+  # Grafana's own metrics (#1131); the integration's defaults match the chart's pod and port.
+  grafana:
+    instances:
+      - name: grafana
 
 # ── Telemetry Services ───────────────────────────────────────────────────────
 telemetryServices:

@@ -44,4 +44,4 @@ alloy:
     enableReporting: false
 
 serviceMonitor:
-  enabled: false
+  enabled: true
