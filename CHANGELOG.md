@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Updated `certifi` to 2026.10.19 to address GHSA-6q48-6c7w-9gw2 ([#1748](https://github.com/dan-petty/devops-cli/issues/1748)).
 - The lockfile moves `virtualenv`, a dependency of `pre-commit`, from 21.14.1 to 21.14.12, which fixes four advisories (among them GHSA-vxj4-q4g9-crj7) that failed the audit check of every pull request ([#1790](https://github.com/dan-petty/devops-cli/issues/1790)).
+- The service image installs `gh` 2.102.1, built with Go 1.27.3, which fixes CVE-2026-111943 (HIGH, `crypto/x509`) in the Go standard library of the `gh` binary that Trivy flagged in the image ([#1800](https://github.com/dan-petty/devops-cli/issues/1800)).
 
 ## [0.2.37] - 2026-10-20
 
