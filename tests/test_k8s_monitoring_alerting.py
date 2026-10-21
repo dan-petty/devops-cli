@@ -81,9 +81,10 @@ SERVED_SERIES = frozenset(
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
-        # Argo CD, cloudflared, and Valkey redis_exporter (#551).
+        # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551).
         "argocd_app_info",
         "cloudflared_tunnel_ha_connections",
+        "coredns_dns_responses_total",
         "redis_rejected_connections_total",
         "redis_up",
     }
@@ -151,6 +152,7 @@ def test_the_baseline_rule_set() -> None:
         ("ArgoCdApplicationUnhealthy", "warning"),
         ("CloudflareTunnelDegraded", "warning"),
         ("ClusterMetricsMissing", "critical"),
+        ("CoreDnsServfailResponses", "warning"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
         ("GpuTemperatureHigh", "critical"),
@@ -500,9 +502,9 @@ def test_pyroscope_query_errors_alerts_on_5xx_rate() -> None:
     )
 
 
-def test_homelab_services_rules_cover_argocd_tunnel_and_valkey_health() -> None:
-    """`homelab-services` alerts on Argo CD sync/health, Cloudflare Tunnel HA connections, and
-    Valkey cache errors (#551)."""
+def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() -> None:
+    """`homelab-services` alerts on Argo CD sync/health, Cloudflare Tunnel HA connections,
+    CoreDNS SERVFAIL rate (#822), and Valkey cache errors (#551)."""
     groups = {
         group["name"]: group["rules"]
         for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
@@ -528,6 +530,12 @@ def test_homelab_services_rules_cover_argocd_tunnel_and_valkey_health() -> None:
         (
             "CloudflareTunnelDegraded",
             "sum(cloudflared_tunnel_ha_connections) < 2",
+            "5m",
+            "warning",
+        ),
+        (
+            "CoreDnsServfailResponses",
+            'sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns", rcode="SERVFAIL"}[5m])) / sum(rate(coredns_dns_responses_total{job="integrations/kubernetes/kube-dns"}[5m])) > 0.05',
             "5m",
             "warning",
         ),
