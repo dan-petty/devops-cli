@@ -80,7 +80,7 @@ class AICommandHelp:
     config: str = "Show or update AI provider configuration (provider, model, endpoints, keys)."
     test: str = "Send a test prompt to verify AI provider connectivity."
     agents: str = "Generate or regenerate AGENTS.md, CLAUDE.md, and copilot-instructions.md."
-    review: str = "AI-powered multi-persona code review system."
+    review: str = "AI-powered code review and group analysis system."
     analyze: str = "Analyze codebase metadata and generate structural outlines."
     rag: str = "Manage RAG vector embeddings, indexing, and semantic search (Qdrant)."
     benchmark: str = (
@@ -1266,7 +1266,7 @@ class RoadmapCommandHelp:
 
 @dataclass(frozen=True)
 class ReviewCommandHelp:
-    app: str = "AI-powered multi-persona code review and security audits."
+    app: str = "AI-powered code review and security audits."
     path_cmd: str = "Review local files or directory changes."
     branch_cmd: str = "Review diff between branches."
     pr_cmd: str = "Review a GitHub Pull Request."

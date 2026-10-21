@@ -1,6 +1,6 @@
 # `devops review`
 
-AI-powered multi-persona code review and security audits.
+AI-powered code review and security audits.
 
 ```bash
 devops review [OPTIONS] COMMAND [ARGS]...
@@ -57,7 +57,7 @@ devops review path [OPTIONS] <targets>
 
 ## `devops review branch`
 
-**Review a git branch diff with one or all AI personas.**
+**Review a git branch diff.**
 
 ```bash
 devops review branch [OPTIONS] <branch_name>
@@ -97,7 +97,7 @@ devops review branch [OPTIONS] <branch_name>
 
 ## `devops review pr`
 
-**Review a GitHub pull request with one or all AI personas.**
+**Review a GitHub pull request.**
 
 ```bash
 devops review pr [OPTIONS] <number>

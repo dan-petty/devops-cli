@@ -40,8 +40,26 @@ Delivered across 5 incremental pull requests.
 - [x] Rewrite `src/devops_cli/ai/personas/challenger/role.md` and `src/devops_cli/ai/personas/challenger/prompt.md` so the challenger argues against a claim, design, or plan in chat and names the evidence that would settle it.
 - [x] Update unit and contract tests in `tests/test_defect_classifier.py`, `tests/test_pr_hardening_report.py`, `tests/test_review_verification.py`, `tests/test_verdict_writers.py`, `tests/test_verdict_polarity.py`, and `tests/test_ui_reactive.py`.
 
-### Follow-up Pull Requests
+### PR 2: Deletions of Persona Review Stage, Legacy Segment Engine, and Review-Time RAG (Part of #1151)
 
-- PR 2: Deletions of persona review stage, legacy segment engine, and review-time RAG (Part of #1151).
-- PR 3: Diff parsing and target extraction relocations to `diff.py` and `targets.py`, deletion of `chunker.py` (Part of #1151).
-- PR 4: Hand-written doc updates, `.devops/review.md` deletion, and changelog fragment (Closes #1151).
+- [x] Delete `_run_persona_stage` and legacy segment engine from `src/devops_cli/ai/review/pipeline.py`.
+- [x] Delete review-time RAG context injection from `src/devops_cli/ai/review/pipeline.py`.
+- [x] Remove `--persona` option from `path`, `branch`, and `pr` review subcommands in `src/devops_cli/commands/review.py`.
+- [x] Update review stage flags, runner, and profile accounting.
+- [x] Update test suites for persona deletions in `tests/test_review_pipeline.py`.
+
+### PR 3: Diff Parsing and Target Extraction Relocations (Part of #1151)
+
+- [x] Relocate review diff parsing to `src/devops_cli/ai/review/diff.py`.
+- [x] Relocate review target path extraction and resolution to `src/devops_cli/ai/review/targets.py`.
+- [x] Delete obsolete `src/devops_cli/ai/review/chunker.py`.
+- [x] Update imports and callers across review engine, runner, and test suites.
+
+### PR 4: Documentation Updates, Convention Cleanup, and Changelog (Closes #1151)
+
+- [x] Delete repository-level `.devops/review.md` and clean up convention-dependent tests in `tests/test_personas.py`, `tests/test_agents_md_claims.py`, and `tests/test_review_project_conventions.py`.
+- [x] Update documentation across `README.md`, `AGENTS.md`, `CONTEXT.md`, `docs/KNOWN_ISSUES.md`, `docs/RELEASE_NOTES.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `docs/SELF_IMPROVEMENT.md`, and docs layouts.
+- [x] Update AI knowledge base manuals in `src/devops_cli/ai/knowledge_base/` (`devops_cli/` and `it_domains/`) to remove obsolete multi-persona review references.
+- [x] Update command docstrings and help strings in `src/devops_cli/lang/en/help.py`, `src/devops_cli/commands/review.py`, and `src/devops_cli/ai/explain.py`.
+- [x] Regenerate CLI documentation and sync README command matrix via `uv run devops docs generate --sync-readme`.
+- [x] Add changelog fragment `changelog.d/1151.md` documenting deletions, changes, and additions.

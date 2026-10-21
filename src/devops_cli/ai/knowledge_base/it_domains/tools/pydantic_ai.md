@@ -15,7 +15,7 @@ tags:
 
 ## 1. Overview & Purpose
 
-`PydanticAI` is a Python agent framework built by the Pydantic team that uses Pydantic models for structured outputs, dependency injection, and tool validation. In `devops-cli`, `PydanticAI` provides a standardized agent architecture (`devops_cli.ai.pydantic_ai_bridge`), integrating multi-persona reviewers, FastMCP tools, and typed reasoning schemas.
+`PydanticAI` is a Python agent framework built by the Pydantic team that uses Pydantic models for structured outputs, dependency injection, and tool validation. In `devops-cli`, `PydanticAI` provides a standardized agent architecture (`devops_cli.ai.pydantic_ai_bridge`), integrating chat personas, FastMCP tools, and typed reasoning schemas.
 
 ---
 

@@ -29,7 +29,7 @@ tags:
 
 In `devops-cli`:
 - **PR Management**: Powers the GitHub REST client (`github/client.py`) used by `devops gh`, `devops repos clone-org`, and `devops review pr --post`; `pr` subcommands use the `gh` CLI.
-- **Review Comment Posting**: Formats multi-persona review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
+- **Review Comment Posting**: Formats review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
 - **Release Automation**: Automates version tag pushes, changelog publication, and GitHub Release asset creation (`devops release prepare`).
 
 ---

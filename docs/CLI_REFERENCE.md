@@ -21,7 +21,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops uv`](#devops-uv) — uv dependency management proxies.
 - [`devops scan`](#devops-scan) — Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 - [`devops ai`](#devops-ai) — Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
-- [`devops review`](#devops-review) — AI-powered multi-persona code review and security audits.
+- [`devops review`](#devops-review) — AI-powered code review and security audits.
 - [`devops mcp`](#devops-mcp) — FastMCP server and Model Context Protocol integrations.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
 - [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
@@ -3658,7 +3658,7 @@ devops ai constellation [OPTIONS]
 
 ### `devops ai review`
 
-**AI-powered multi-persona code review system.**
+**AI-powered code review and group analysis system.**
 
 ```bash
 devops ai review [OPTIONS] COMMAND [ARGS]...
@@ -3711,7 +3711,7 @@ devops ai review path [OPTIONS] <targets>
 
 #### `devops ai review branch`
 
-**Review a git branch diff with one or all AI personas.**
+**Review a git branch diff.**
 
 ```bash
 devops ai review branch [OPTIONS] <branch_name>
@@ -3749,7 +3749,7 @@ devops ai review branch [OPTIONS] <branch_name>
 
 #### `devops ai review pr`
 
-**Review a GitHub pull request with one or all AI personas.**
+**Review a GitHub pull request.**
 
 ```bash
 devops ai review pr [OPTIONS] <number>
@@ -5386,7 +5386,7 @@ devops ai research analogies [OPTIONS]
 
 ## devops review
 
-AI-powered multi-persona code review and security audits.
+AI-powered code review and security audits.
 
 ```bash
 devops review [OPTIONS] COMMAND [ARGS]...
@@ -5439,7 +5439,7 @@ devops review path [OPTIONS] <targets>
 
 ### `devops review branch`
 
-**Review a git branch diff with one or all AI personas.**
+**Review a git branch diff.**
 
 ```bash
 devops review branch [OPTIONS] <branch_name>
@@ -5477,7 +5477,7 @@ devops review branch [OPTIONS] <branch_name>
 
 ### `devops review pr`
 
-**Review a GitHub pull request with one or all AI personas.**
+**Review a GitHub pull request.**
 
 ```bash
 devops review pr [OPTIONS] <number>

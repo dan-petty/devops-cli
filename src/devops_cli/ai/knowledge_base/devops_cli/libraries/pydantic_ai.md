@@ -26,10 +26,10 @@ tags:
 
 ## 2. General Information & Architecture
 
-**PydanticAI** is a typed agent framework built by the Pydantic team designed for production-grade software engineering, deterministic tool execution, and multi-persona workflows. It combines Pydantic's data validation with LLM orchestration, model-agnostic provider abstractions, dependency injection, and native Model Context Protocol (MCP) tool integration.
+**PydanticAI** is a typed agent framework built by the Pydantic team designed for production-grade software engineering, deterministic tool execution, and typed agent workflows. It combines Pydantic's data validation with LLM orchestration, model-agnostic provider abstractions, dependency injection, and native Model Context Protocol (MCP) tool integration.
 
 In `devops-cli`:
-- **Persona Architecture**: Review personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`) operate as specialized `PydanticAgent` instances.
+- **Chat Personas**: Interactive assistant personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`) operate as specialized `PydanticAgent` instances.
 - **Dynamic Toolsets**: `FunctionToolset` and `MCPToolset` dynamically expose local filesystem scanners, AST analyzers, and remote Kubernetes controllers to agent stages.
 - **Usage & Budget Tracking**: `AgentUsage` tracks token consumption across agent pipelines with strict maximum turn budgets.
 

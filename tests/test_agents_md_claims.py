@@ -111,7 +111,6 @@ _DOCUMENTS_POINTING_AT_TESTING_MD = (
     "docs/SDLC.md",
     "docs/ROUTINE_TASKS.md",
     "docs/SELF_IMPROVEMENT.md",
-    ".devops/review.md",
     "src/devops_cli/ai/knowledge_base/it_domains/tools/ruff_mypy_pytest.md",
     "src/devops_cli/ai/knowledge_base/it_domains/topics/continuous_integration_and_progressive_verification.md",
     "src/devops_cli/ai/knowledge_base/devops_cli/libraries/ruff_mypy_pytest.md",

@@ -144,51 +144,6 @@ _BENCHMARK_SECTIONS: list[dict[str, Any]] = [
 
 _REVIEW_SECTIONS: list[dict[str, Any]] = [
     {
-        "name": "👥 Reviewer Personas & Specializations",
-        "items": [
-            (
-                "DevSecOps Persona",
-                (
-                    "Focuses on zero-trust security, secret leakage, SSRF boundaries, "
-                    "OWASP Top 10 vulnerabilities, and CVEs."
-                ),
-                "Focus: OWASP Top 10, CWE-918 (SSRF), secret leaks, egress isolation",
-            ),
-            (
-                "Architect Persona",
-                (
-                    "Analyzes system modularity, SOLID design principles, cyclic "
-                    "dependencies, and API contracts."
-                ),
-                "Focus: SOLID, DRY, separation of concerns, high cohesion, low coupling",
-            ),
-            (
-                "QA Persona",
-                (
-                    "Evaluates deterministic test isolation, branch coverage, edge case "
-                    "handling, and regressions."
-                ),
-                ("Focus: Test isolation, mocking external I/O, error paths, flake prevention"),
-            ),
-            (
-                "PM Persona",
-                (
-                    "Assesses release impact, user experience, documentation accuracy, and "
-                    "backward compatibility."
-                ),
-                ("Focus: SemVer compliance, changelog clarity, CLI UX, backward compatibility"),
-            ),
-            (
-                "Auditor Persona",
-                (
-                    "Checks regulatory compliance, license hygiene, audit logging, and "
-                    "supply-chain SBOM integrity."
-                ),
-                "Focus: Governance, provenance, regulatory standards",
-            ),
-        ],
-    },
-    {
         "name": "🎯 Finding Schema & Severity Levels",
         "items": [
             (
@@ -330,10 +285,10 @@ EXPLANATIONS: dict[str, dict[str, Any]] = {
         "sections": _BENCHMARK_SECTIONS,
     },
     "review": {
-        "title": "🔍 AI Multi-Persona Code Review System",
+        "title": "🔍 AI Code Review System",
         "description": (
-            "Operational roles, evaluation criteria, severity tiers, and confidence scoring "
-            "used by AI review personas."
+            "Operational stages, evaluation criteria, severity tiers, and scoring "
+            "used by the review system."
         ),
         "sections": _REVIEW_SECTIONS,
     },

@@ -18,7 +18,7 @@ Valkey is a high-performance, open-source (BSD-3-Clause) key-value data store de
 
 In the `devops-cli` ecosystem, Valkey serves as:
 - **Workstation & Cluster In-Memory Cache**: Powers GitOps state caching for ArgoCD in the `argocd` namespace and in-memory cache for local LLM inference services in the `llm` namespace.
-- **Distributed Embedding & Review Cache Tier**: Provides high-throughput SHA-256 keyed cache storage for dense text embeddings and multi-persona AI code review findings, eliminating redundant LLM calls across workstations and CI runners.
+- **Distributed Embedding & Review Cache Tier**: Provides high-throughput SHA-256 keyed cache storage for dense text embeddings and AI code review findings, eliminating redundant LLM calls across workstations and CI runners.
 - **Distributed Rate Limiting & Token Bucket**: Enforces cross-process concurrency limits to protect local GPUs (Ollama) from VRAM exhaustion and prevent HTTP 429 throttling against cloud AI provider APIs.
 - **Agent Pub/Sub & Event Streaming**: Backing store for event distribution across continuous file watchers (`devops ai review path --watch`) and agent coordination loops.
 

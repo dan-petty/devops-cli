@@ -150,7 +150,7 @@ def review_main(
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
 ) -> None:
-    """Multi-persona AI code review with confidence calibration and finding verification."""
+    """Automated code review and security audits with finding verification."""
     # Every review command reads a tree devops-cli does not own, or what a review of one wrote,
     # so none takes the project config or the data directory from the repository it starts in,
     # unless that is devops-cli's own repository (#972); the commands that read a session resolve
@@ -463,7 +463,7 @@ def branch(
         typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
     ] = None,
 ) -> None:
-    """Review a git branch diff with one or all AI personas."""
+    """Review a git branch diff."""
     if explain:
         from devops_cli.ai.explain import render_explanation
 
@@ -737,7 +737,7 @@ def pr(
         typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
     ] = None,
 ) -> None:
-    """Review a GitHub pull request with one or all AI personas."""
+    """Review a GitHub pull request."""
     if explain:
         from devops_cli.ai.explain import render_explanation
 

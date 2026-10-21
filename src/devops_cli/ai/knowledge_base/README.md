@@ -27,7 +27,7 @@ The Knowledge Base is divided into two primary structural divisions:
 
 | Article | Summary | Guide |
 | :--- | :--- | :--- |
-| **DevOps CLI Architecture** | Subsystem breakdown, multi-persona AI review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
+| **DevOps CLI Architecture** | Subsystem breakdown, code review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
 | **Configuration & Settings** | Pydantic settings schema hierarchy, resolution priority, OS Keyring secrets storage, and dotted config commands. | [configuration_and_settings.md](devops_cli/configuration_and_settings.md) |
 | **CLI Command Reference** | Command surface reference across command groups, subcommands, arguments, and flags (the complete generated reference is docs/CLI_REFERENCE.md (`devops docs generate`)). | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
 | **Python Packages & Code Libraries** | Technical manual and dedicated guides for the core production runtime dependencies and development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
@@ -39,7 +39,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Typer & Click** | CLI Framework | Type-annotated CLI routing, parameter parsing, and centralized help. | [typer.md](devops_cli/libraries/typer.md) |
 | **Rich** | Terminal UI | Beautiful ANSI tables, animated status spinners, and code diff highlighting. | [rich.md](devops_cli/libraries/rich.md) |
 | **Pydantic v2 & Settings** | Data Validation | Rust-core data validation, schemas, and layered configuration resolution. | [pydantic.md](devops_cli/libraries/pydantic.md) |
-| **PydanticAI** | Multi-Agent AI | Type-safe multi-agent framework, persona reviews, and MCP client toolsets. | [pydantic_ai.md](devops_cli/libraries/pydantic_ai.md) |
+| **PydanticAI** | Multi-Agent AI | Type-safe agent framework, structured models, and MCP client toolsets. | [pydantic_ai.md](devops_cli/libraries/pydantic_ai.md) |
 | **HTTPX2** | HTTP/2 Client | Modern async/sync HTTP/2 client for streaming LLM provider requests. | [httpx2.md](devops_cli/libraries/httpx2.md) |
 | **FastMCP** | MCP Server | Model Context Protocol server exposing CLI tools to AI IDEs and assistants. | [fastmcp.md](devops_cli/libraries/fastmcp.md) |
 | **Keyring** | Secret Storage | Zero-trust OS Keyring storage for tokens and credentials. | [keyring.md](devops_cli/libraries/keyring.md) |
@@ -64,7 +64,7 @@ The Knowledge Base is divided into two primary structural divisions:
 
 | Operational Task | Domain | Summary | Article |
 | :--- | :--- | :--- | :--- |
-| **AI Code Review** | AI & Quality | Multi-persona code review (Architect, DevSecOps, Auditor, QA, PM, Challenger) with calibrated feedback. | [ai_code_review.md](devops_cli/tasks/ai_code_review.md) |
+| **AI Code Review** | AI & Quality | Tool-anchored automated code review and group model analysis with calibrated feedback. | [ai_code_review.md](devops_cli/tasks/ai_code_review.md) |
 | **Security Audit & Scanning** | Security & Compliance | Comprehensive workstation audits, SSH key permission hardening, secret scanning, and CVE lookups. | [security_audit_and_scanning.md](devops_cli/tasks/security_audit_and_scanning.md) |
 | **K8s Stack Deployment** | Kubernetes & Cloud | Automated bootstrap and teardown of local Kubernetes observability and GitOps stacks. | [k8s_stack_deployment.md](devops_cli/tasks/k8s_stack_deployment.md) |
 | **Repo & Workspace Management** | Workstation & Git | Multi-org repository cloning, automated `.code-workspace` synchronization, and branch hygiene. | [repo_and_workspace_management.md](devops_cli/tasks/repo_and_workspace_management.md) |
@@ -86,7 +86,7 @@ The Knowledge Base is divided into two primary structural divisions:
 
 | Core Topic | Domain | Summary | Topic Guide |
 | :--- | :--- | :--- | :--- |
-| **Agentic AI & Code Reviews** | AI & Multi-Persona Reviews | Architecture for multi-persona code reviews, prompt isolation, and calibrated findings. | [agentic_ai_and_code_reviews.md](it_domains/topics/agentic_ai_and_code_reviews.md) |
+| **Agentic AI & Code Reviews** | AI & Code Reviews | Architecture for automated code reviews, prompt isolation, and calibrated findings. | [agentic_ai_and_code_reviews.md](it_domains/topics/agentic_ai_and_code_reviews.md) |
 | **Cloud-Native K8s & GitOps** | Kubernetes & Cloud Delivery | Declarative GitOps delivery with ArgoCD, Helm charts, and local Minikube orchestration. | [cloud_native_kubernetes_and_gitops.md](it_domains/topics/cloud_native_kubernetes_and_gitops.md) |
 | **Zero-Trust Security & Compliance** | Security Engineering | Credential isolation with OS Keyring, vulnerability scanning, and SSH key hardening. | [zero_trust_security_and_compliance.md](it_domains/topics/zero_trust_security_and_compliance.md) |
 | **Observability & Distributed Tracing** | APM & Monitoring | OpenTelemetry distributed trace spans, Prometheus metrics series, and Grafana Tempo. | [observability_and_distributed_tracing.md](it_domains/topics/observability_and_distributed_tracing.md) |
