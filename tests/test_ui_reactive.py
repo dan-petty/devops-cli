@@ -869,7 +869,6 @@ def test_finding_detail_lists_the_header_then_each_section_in_order() -> None:
         "expected_value": "a list",
         "fix": "Line one.\nLine two.",
         "references": ["https://example.com", "CWE-20"],
-        "verification_note": "Note.",
         "invalidation_reason": "Reason.",
         "mitigating_mechanism": "Mechanism.",
     }
@@ -888,7 +887,6 @@ def test_finding_detail_lists_the_header_then_each_section_in_order() -> None:
         "Expected value:\na list\n\n"
         "Fix:\nLine one.\nLine two.\n\n"
         "References:\nhttps://example.com\nCWE-20\n\n"
-        "Verification note:\nNote.\n\n"
         "Invalidation reason:\nReason.\n\n"
         "Mitigating mechanism:\nMechanism."
     )

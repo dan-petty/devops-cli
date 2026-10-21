@@ -32,7 +32,6 @@ from devops_cli.config.constants import (
     CONST_REVIEW_DEFECT_KEYWORDS,
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
     CONST_REVIEW_TITLE_FILLER_WORDS,
-    CONST_VERIFICATION_NOTE_KINDS,
 )
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
@@ -685,12 +684,6 @@ class Finding(BaseModel):
     verified_by: SkipJsonSchema[str | None] = None  # "llm" | "human"
     verified_at: SkipJsonSchema[str | None] = None
     confidence_score: SkipJsonSchema[float | None] = None
-    # Why this finding carries no verdict, when the reason is that verification could not
-    # run at all. Set only by the verification pipeline; `parse_review_response` clears
-    # whatever a model supplies, because a model that could write here could announce its
-    # own verification outage and tell a reader to discard the findings below.
-    verification_note: SkipJsonSchema[str | None] = None
-    relocated_from: SkipJsonSchema[str | None] = None
     citation_line: SkipJsonSchema[int | None] = Field(
         default=None,
         validation_alias=AliasChoices("citation_line", "cited_line", "line", "refutation_line"),
@@ -1161,7 +1154,6 @@ def reset_verification_state[F: Finding](finding: F) -> F:
             "criteria_execution_results": [],
             "verified_by": None,
             "verified_at": None,
-            "verification_note": None,
             "confidence_score": None,
             "citation_line": None,
             "mitigating_mechanism": None,
@@ -1175,15 +1167,12 @@ def strip_model_set_state(result: ReviewResult) -> ReviewResult:
     """Clear every field only the pipeline may write that a model supplied in its own output.
 
     `ReviewResult` is parsed from untrusted model text, by `parse_review_response` or by the
-    agent framework, so every field on it is model-writable. `verification_note` is the
-    pipeline's note on a finding; a model able to set it could pass its own words off as the
-    pipeline's. The dependencies and network references are the scans' own: a reply that
-    declared a dependency scanned clean, or listed an endpoint, would be trusted by the checks
-    that read them (#948). The raw severity and the reference note record what the pipeline
-    changed.
+    agent framework, so every field on it is model-writable. The dependencies and network
+    references are the scans' own: a reply that declared a dependency scanned clean, or listed
+    an endpoint, would be trusted by the checks that read them (#948). The raw severity and the
+    reference note record what the pipeline changed.
     """
     for finding in result.findings:
-        finding.verification_note = None
         finding.severity_raw = None
         finding.reference_note = None
     result.external_dependencies = []
@@ -1307,24 +1296,7 @@ def compute_verdict_distributions(
         "verified": verified_counts,
         "mitigated": mitigated_counts,
         "citation_rates": citation_rates,
-        "verification_note": _unverified_note_counts(findings),
     }
-
-
-def _unverified_note_counts(findings: Sequence[Finding | SavedFinding]) -> dict[str, int]:
-    """Why each UNVERIFIED finding has no verdict, by the kind its note names.
-
-    `none` counts findings with no note, which verification never reached: the verifier notes
-    every finding it was shown and left unverified. `other` counts free-text notes, such as a
-    refutation downgraded for citing no line.
-    """
-    counts: dict[str, int] = defaultdict(int)
-    for f in findings:
-        if f.status != "UNVERIFIED":
-            continue
-        kind = (f.verification_note or "none").split(":", 1)[0].strip()
-        counts[kind if kind in CONST_VERIFICATION_NOTE_KINDS or kind == "none" else "other"] += 1
-    return dict(counts)
 
 
 def is_field_discriminating(counts: dict[str, int]) -> bool:

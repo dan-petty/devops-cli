@@ -290,30 +290,6 @@ def test_a_mitigated_finding_is_not_a_verified_one(by: str) -> None:
     )
 
 
-def test_unverified_note_counts_includes_contradiction() -> None:
-    """Verify _unverified_note_counts tallies verifier-contradiction both standalone and with details."""
-    from devops_cli.ai.review_schema import _unverified_note_counts
-    from devops_cli.config.constants import CONST_VERIFIER_CONTRADICTION
-
-    findings = [
-        Finding(
-            title="f1",
-            location="a.py:1",
-            status="UNVERIFIED",
-            verification_note=CONST_VERIFIER_CONTRADICTION,
-        ),
-        Finding(
-            title="f2",
-            location="b.py:2",
-            status="UNVERIFIED",
-            verification_note=f"{CONST_VERIFIER_CONTRADICTION}: reason denies claim",
-        ),
-        Finding(title="f3", location="c.py:3", status="VERIFIED", verified=True, verified_by="llm"),
-    ]
-    counts = _unverified_note_counts(findings)
-    assert counts == {CONST_VERIFIER_CONTRADICTION: 2}
-
-
 def test_invalidated_cannot_have_mitigated_true() -> None:
     f = Finding(
         title="Hallucinated issue",

@@ -59,7 +59,6 @@ _VERDICT_FIELDS = frozenset(
         "invalidation_reason",
         "citation_line",
         "mitigating_mechanism",
-        "verification_note",
     }
 )
 

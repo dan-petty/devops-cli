@@ -216,7 +216,6 @@ def test_compute_verdict_distributions_and_discriminating() -> None:
         "verified": {"true": 0, "false": 0},
         "mitigated": {"true": 0, "false": 0},
         "citation_rates": {},
-        "verification_note": {},
     }
 
     findings = [

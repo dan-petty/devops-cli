@@ -93,7 +93,6 @@ def _build_verdict_updates(
     now_iso: str,
     citation_line: int | None,
     mitigating_mechanism: str | None,
-    verification_note: str | None,
 ) -> dict[str, Any]:
     """Compute structural update dictionary for the given status."""
     if status == "INVALIDATED":
@@ -107,7 +106,6 @@ def _build_verdict_updates(
             "invalidation_reason": reason,
             "citation_line": citation_line,
             "mitigating_mechanism": mitigating_mechanism,
-            "verification_note": verification_note,
         }
     if status == "VERIFIED":
         if not by or not str(by).strip():
@@ -121,7 +119,6 @@ def _build_verdict_updates(
             "verified_at": now_iso,
             "invalidation_reason": None,
             "citation_line": citation_line,
-            "verification_note": verification_note,
         }
     if status == "UNVERIFIED":
         return {
@@ -133,7 +130,6 @@ def _build_verdict_updates(
             "verified_at": None,
             "invalidation_reason": reason,
             "citation_line": citation_line,
-            "verification_note": verification_note,
         }
     # MITIGATED: reported beside the defect it limits, which is not a verified one (#845).
     return {
@@ -146,7 +142,6 @@ def _build_verdict_updates(
         "invalidation_reason": reason,
         "citation_line": citation_line,
         "mitigating_mechanism": mitigating_mechanism,
-        "verification_note": verification_note,
     }
 
 
@@ -158,7 +153,6 @@ def apply_verdict[T: (Finding, SavedFinding)](
     *,
     citation_line: int | None = None,
     mitigating_mechanism: str | None = None,
-    verification_note: str | None = None,
     confidence_score: float | None = None,
     verified_at: str | None = None,
     **extra_updates: Any,
@@ -176,7 +170,6 @@ def apply_verdict[T: (Finding, SavedFinding)](
         now_iso=now_iso,
         citation_line=citation_line,
         mitigating_mechanism=mitigating_mechanism,
-        verification_note=verification_note,
     )
 
     if confidence_score is not None:

@@ -3445,7 +3445,6 @@ CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
     ("expected_value", "Expected value"),
     ("fix", "Fix"),
     ("references", "References"),
-    ("verification_note", "Verification note"),
     ("invalidation_reason", "Invalidation reason"),
     ("mitigating_mechanism", "Mitigating mechanism"),
 )
@@ -3686,13 +3685,14 @@ CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_ST
 # short. One commit per page keeps the commits it also returns small.
 CONST_GH_COMPARE_FILES_CAP: Final[int] = 300
 CONST_GH_COMPARE_COMMITS_PER_PAGE: Final[int] = 1
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697).
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151).
 # docs/ROADMAP.md is explicitly excluded because it is a generated view.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     "AGENTS.md",
     "src/devops_cli/ai/tasks/*.md",
     "src/devops_cli/ai/knowledge_base/",
-    "common_hallucinations.json",
+    ".devops/review.toml",
+    "src/devops_cli/review/rules/",
 )
 # Taxonomy labels that classify a pull request as addressing a defect (#697).
 CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
@@ -4107,51 +4107,6 @@ CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # The prefix of a verdict a deterministic check gave (`deterministic:syntax_error`, ...). Such a
 # label is a machine's, not a person's, so `ai prompt-eval` leaves it out unless asked (#950).
 CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
-# The notes the model verifier wrote on the findings it left without a verdict, which sessions
-# saved before #1150 hold and review statistics still count by kind.
-# Marks a finding the verifier never adjudicated because verification itself failed, as
-# opposed to one it considered and declined to confirm.
-CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
-# Marks a finding the verifier was shown and its reply gave no verdict on.
-CONST_VERIFIER_NO_VERDICT: Final[str] = "verifier-no-verdict"
-# Marks a finding the verifier was shown and whose reply held no verdicts that could be read.
-CONST_VERIFIER_REPLY_UNPARSED: Final[str] = "verifier-reply-unparsed"
-# Marks a finding the verifier was shown and whose reply was cut at its token cap (finish
-# reason `length`): what JSON repair salvages from a cut reply is not a verdict.
-CONST_VERIFIER_REPLY_CUT: Final[str] = "verifier-reply-cut"
-# Marks a finding whose invalidation the verifier based only on the finding's own claim or fix,
-# and which was withdrawn.
-CONST_VERIFIER_SELF_REFUTATION: Final[str] = "verifier-self-refutation"
-# Marks a finding the verifier judged without confirming, refuting or finding it mitigated.
-CONST_VERIFIER_INCONCLUSIVE: Final[str] = "verifier-inconclusive"
-# Marks a finding whose verification and invalidation criteria both passed as evidence: the
-# pair cannot tell the defect from its absence, so the finding goes to the verifier.
-CONST_CRITERIA_NON_DISCRIMINATING: Final[str] = "criteria-non-discriminating"
-# Marks a finding the verifier called mitigated without pointing at code that enforces the
-# mitigation (#845): no mechanism, reason or perimeter named, a perimeter file that does not
-# resolve inside the reviewed tree or is documentation, a mechanism that describes the defect,
-# or one naming no identifier a perimeter file or the finding's file holds.
-CONST_MITIGATION_UNPROVEN: Final[str] = "mitigation-unproven"
-# Marks a finding the verifier confirmed by citing a line its file does not have (#845).
-CONST_CITATION_OUT_OF_RANGE: Final[str] = "citation-out-of-range"
-# Marks a finding whose confirmation or mitigation the verifier's own reason contradicts
-# (#845): the reason denies the claim ("No user input reaches this point"), or says a criterion
-# passed whose recorded run failed. The mirror of a self-refutation.
-CONST_VERIFIER_CONTRADICTION: Final[str] = "verifier-contradiction"
-# The notes that say why a finding has no verdict, each counted in a review's profile.json. A
-# note names its kind before any `: ` detail.
-CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
-    CONST_VERIFICATION_UNAVAILABLE,
-    CONST_VERIFIER_NO_VERDICT,
-    CONST_VERIFIER_REPLY_UNPARSED,
-    CONST_VERIFIER_REPLY_CUT,
-    CONST_VERIFIER_SELF_REFUTATION,
-    CONST_VERIFIER_INCONCLUSIVE,
-    CONST_CRITERIA_NON_DISCRIMINATING,
-    CONST_MITIGATION_UNPROVEN,
-    CONST_CITATION_OUT_OF_RANGE,
-    CONST_VERIFIER_CONTRADICTION,
-)
 
 # ── Review Report Integrity (#948) ───────────────────────────────────────────
 # Files a review keeps off persona pages, by repository-relative path: planning documents and
