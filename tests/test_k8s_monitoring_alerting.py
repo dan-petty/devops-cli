@@ -150,6 +150,8 @@ def test_the_baseline_rule_set() -> None:
         ("AlloyRemoteWriteSamplesFailed", "warning"),
         ("ArgoCdApplicationOutOfSync", "warning"),
         ("ArgoCdApplicationUnhealthy", "warning"),
+        ("ArgoCdAutoSyncDisabled", "warning"),
+        ("ArgoCdSyncOperationStuck", "warning"),
         ("CloudflareTunnelDegraded", "warning"),
         ("ClusterMetricsMissing", "critical"),
         ("CoreDnsServfailResponses", "warning"),
@@ -525,6 +527,18 @@ def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() 
             "ArgoCdApplicationUnhealthy",
             'argocd_app_info{health_status!~"Healthy|Progressing"} == 1',
             "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdAutoSyncDisabled",
+            'argocd_app_info{autosync_enabled="false"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdSyncOperationStuck",
+            'argocd_app_info{operation!=""} == 1',
+            "1h",
             "warning",
         ),
         (
