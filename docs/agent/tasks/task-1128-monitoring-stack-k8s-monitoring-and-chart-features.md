@@ -46,6 +46,13 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - `k8s/monitoring/dashboards/otel-collector.json` sets `fieldConfig.defaults.noValue: "none recorded"` on `"Spans Sent and Failed per Exporter"`.
 - `tests/fixtures/k8s_monitoring/cluster_metrics/` checks in the `grafana/k8s-monitoring 4.5.2` default allow lists for `cadvisor`, `kube-state-metrics`, and `kubelet`, and `tests/fixtures/metrics/` adds live metric captures for `traefik`, `cloudflared`, `kube-state-metrics`, `node-exporter`, `kubelet`, and `cadvisor`. `tests/test_stack_dashboards.py` filters `cadvisor`, `kube-state-metrics`, and `kubelet` captures by the effective allow list and registers `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json`, and `k8s-views-nodes.json` in `DASHBOARD_EXPORTERS`.
 
+### Part 7: Argo CD, Valkey, and Registry Scrapes and Service Health Alerts (#551)
+- `k8s/argocd/values.yaml` enables `metrics.enabled: true` and `metrics.serviceMonitor.enabled: true` on `controller` (port 8082), `server` (port 8083), `repoServer` (port 8084), and `redis` (port 9121, with `redis.exporter.enabled: true` running `ghcr.io/oliver006/redis_exporter:v1.93.0`), and `k8s/argocd/networkpolicy.yaml` admits TCP 8083 from `monitoring` alongside 8082, 8084, and 9121.
+- `k8s/llm/valkey.yaml` adds a hardened `redis-exporter` sidecar (`ghcr.io/oliver006/redis_exporter:v1.93.0`, port 9121) and `prometheus.io/*` + `k8s.grafana.com/metrics.container: redis-exporter` pod annotations for `annotationAutodiscovery`.
+- `k8s/registry/deployment.yaml` enables Distribution's Prometheus debug endpoint (`REGISTRY_HTTP_DEBUG_ADDR=0.0.0.0:5001`, `REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED=true`) with `prometheus.io/*` pod annotations for `annotationAutodiscovery`.
+- `k8s/monitoring/networkpolicy.yaml` adds egress rules from `monitoring` to `argocd` (TCP 8082, 8083, 8084, 9121), `llm` (TCP 9121), and `registry` (TCP 5001), verified by `test_each_annotated_component_has_one_scrape_owner` and `test_every_scrape_port_has_one_egress_rule`.
+- `k8s/monitoring/prometheus-values.yaml` adds the `homelab-services` rule group (`ArgoCdApplicationOutOfSync`, `ArgoCdApplicationUnhealthy`, `CloudflareTunnelDegraded`, and `ValkeyCacheErrors`).
+
 ## Acceptance Criteria
 - [x] `k8s/monitoring/k8s-monitoring-values.yaml` `integrations` gains the `alloy` (`k8s-monitoring`) and `grafana` (`grafana`) instances.
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `serviceMonitor.enabled: true`, and `test_prometheus_operator_crds_install_before_every_service_monitor` includes `("infra", "pyroscope")`.
@@ -61,7 +68,8 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - [x] `k8s/monitoring/dashboards/pyroscope.json` and `k8s/monitoring/dashboards/sre-service.json` query `service_name` from Pyroscope without hard-coded service lists or `created_by_name`, and `k8s/monitoring/prometheus-values.yaml` adds `PyroscopeQueryErrors`.
 - [x] `k8s/monitoring/dashboards/coredns.json` and `tests/fixtures/metrics/coredns.yaml` add the CoreDNS dashboard over captured `coredns_*` series (`job="integrations/kubernetes/kube-dns"`), verified by `tests/test_stack_dashboards.py` and `tests/test_k8s_monitoring_dashboards.py`.
 - [x] `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json`, `k8s-views-nodes.json`, and `otel-collector.json` queries match exported series and labels, verified against `tests/fixtures/metrics/` and `tests/fixtures/k8s_monitoring/cluster_metrics/` in `tests/test_stack_dashboards.py` (#1136).
-- Remaining children of #1128 delivered in subsequent PRs: #551 and #1367.
+- [x] Argo CD (`ServiceMonitor`s for `controller`, `server`, `repoServer`, and `redis-exporter`), `llm/valkey` (`redis-exporter` sidecar via `annotationAutodiscovery`), and `registry` (`annotationAutodiscovery` on port 5001) have exactly one scrape owner and one monitoring egress rule per port, and `homelab-services` alerts on Argo CD sync/health, tunnel HA connections, and Valkey cache errors (#551).
+- Remaining child of #1128 delivered in the final PR: #1367.
 - Pending a person, after the infra and logging stacks are redeployed:
   - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets, 1 Grafana and 1 Pyroscope;
   - `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;

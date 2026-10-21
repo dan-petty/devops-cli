@@ -81,6 +81,11 @@ SERVED_SERIES = frozenset(
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
+        # Argo CD, cloudflared, and Valkey redis_exporter (#551).
+        "argocd_app_info",
+        "cloudflared_tunnel_ha_connections",
+        "redis_rejected_connections_total",
+        "redis_up",
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -142,6 +147,9 @@ def test_the_baseline_rule_set() -> None:
         ("AlertmanagerNotificationsFailing", "warning"),
         ("AlloyLogEntriesDropped", "warning"),
         ("AlloyRemoteWriteSamplesFailed", "warning"),
+        ("ArgoCdApplicationOutOfSync", "warning"),
+        ("ArgoCdApplicationUnhealthy", "warning"),
+        ("CloudflareTunnelDegraded", "warning"),
         ("ClusterMetricsMissing", "critical"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
@@ -167,6 +175,7 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
         ("TargetDown", "warning"),
+        ("ValkeyCacheErrors", "warning"),
     ]
 
 
@@ -489,3 +498,43 @@ def test_pyroscope_query_errors_alerts_on_5xx_rate() -> None:
         "15m",
         "warning",
     )
+
+
+def test_homelab_services_rules_cover_argocd_tunnel_and_valkey_health() -> None:
+    """`homelab-services` alerts on Argo CD sync/health, Cloudflare Tunnel HA connections, and
+    Valkey cache errors (#551)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    rules = [
+        (r["alert"], r["expr"], r["for"], r["labels"]["severity"])
+        for r in groups["homelab-services"]
+    ]
+
+    assert rules == [
+        (
+            "ArgoCdApplicationOutOfSync",
+            'argocd_app_info{sync_status!="Synced"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "ArgoCdApplicationUnhealthy",
+            'argocd_app_info{health_status!~"Healthy|Progressing"} == 1',
+            "15m",
+            "warning",
+        ),
+        (
+            "CloudflareTunnelDegraded",
+            "sum(cloudflared_tunnel_ha_connections) < 2",
+            "5m",
+            "warning",
+        ),
+        (
+            "ValkeyCacheErrors",
+            "redis_up == 0 or increase(redis_rejected_connections_total[5m]) > 0",
+            "5m",
+            "warning",
+        ),
+    ]

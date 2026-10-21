@@ -56,6 +56,7 @@ COREDNS_NAMESPACE = "kube-system"
 COREDNS_METRICS_PORT = 9153
 LOKI_METRICS_PORT = 3100  # Loki's http-metrics port, which the Loki integration scrapes
 DCGM_METRICS_PORT = 9400
+ARGOCD_METRICS_PORTS = (8082, 8083, 8084, 9121)
 
 
 def _k8s_yaml(relative: str) -> Any:
@@ -587,6 +588,7 @@ class _Pods:
 
 def _repo_scrape_sources() -> dict[str, Any]:
     """The values and manifests that decide what scrapes each annotated component."""
+    valkey_docs = list(yaml.safe_load_all((K8S_DIR / "llm/valkey.yaml").read_text("utf-8")))
     return {
         "prometheus": _k8s_yaml("monitoring/prometheus-values.yaml"),
         "k8s-monitoring": _k8s_monitoring_values(),
@@ -595,7 +597,21 @@ def _repo_scrape_sources() -> dict[str, Any]:
         "loki": _k8s_yaml("logging/loki-values.yaml"),
         "cloudflared": _k8s_yaml("cloudflared/deployment.yaml"),
         "roadmap-service": _k8s_yaml("devops/roadmap-service/deployment.yaml"),
+        "argocd": _k8s_yaml("argocd/values.yaml"),
+        "valkey": next(
+            d for d in valkey_docs if isinstance(d, dict) and d.get("kind") == "Deployment"
+        ),
+        "registry": _k8s_yaml("registry/deployment.yaml"),
     }
+
+
+def _argocd_monitored(argocd: dict[str, Any]) -> bool:
+    """Whether Argo CD's controller, server, repoServer, and Valkey exporter ServiceMonitors are on (#551)."""
+    return all(
+        argocd.get(comp, {}).get("metrics", {}).get("enabled") is True
+        and argocd.get(comp, {}).get("metrics", {}).get("serviceMonitor", {}).get("enabled") is True
+        for comp in ("controller", "server", "repoServer", "redis")
+    ) and (argocd.get("redis", {}).get("exporter", {}).get("enabled") is True)
 
 
 def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
@@ -606,10 +622,18 @@ def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
 
 
 def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
-    """The components the server's pod discovery scraped before #1130, and DCGM."""
+    """The components the server's pod discovery scraped before #1130, DCGM, and #551's additions."""
     return {
         "cloudflared": _deployment_pods(sources["cloudflared"]),
         "roadmap-service": _deployment_pods(sources["roadmap-service"]),
+        "valkey": _deployment_pods(sources["valkey"]),
+        "registry": _deployment_pods(sources["registry"]),
+        "argocd": _Pods(
+            _argo_namespace("argocd"),
+            {"app.kubernetes.io/part-of": "argocd"},
+            {},
+            chart_monitor=_argocd_monitored(sources["argocd"]),
+        ),
         "alertmanager": _Pods(
             _argo_namespace("prometheus"),
             ALERTMANAGER_POD_LABELS,
@@ -683,6 +707,9 @@ def test_each_annotated_component_has_one_scrape_owner() -> None:
     assert _scrape_owners(_repo_scrape_sources()) == {
         "cloudflared": ["annotationAutodiscovery"],
         "roadmap-service": ["annotationAutodiscovery"],
+        "valkey": ["annotationAutodiscovery"],
+        "registry": ["annotationAutodiscovery"],
+        "argocd": ["chart ServiceMonitor"],
         "alertmanager": ["annotationAutodiscovery"],
         "otel-collector": ["kubernetes-pods"],
         "loki": ["integrations/loki"],
@@ -794,6 +821,7 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
             for pods in _annotated_components(_repo_scrape_sources()).values()
             if "prometheus.io/port" in pods.annotations
         ),
+        *((_argo_namespace("argocd"), port) for port in ARGOCD_METRICS_PORTS),
         (_argo_namespace("traefik"), traefik_port),
         (COREDNS_NAMESPACE, COREDNS_METRICS_PORT),
         (_argo_namespace("loki"), LOKI_METRICS_PORT),
@@ -805,14 +833,20 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
     }
 
     assert sorted(counts.items()) == [
+        (("argocd", 8082), 1),
+        (("argocd", 8083), 1),
+        (("argocd", 8084), 1),
+        (("argocd", 9121), 1),
         (("cloudflared", 2000), 1),
         (("devops", 8000), 1),
         (("kube-system", 9100), 1),
         (("kube-system", 9153), 1),
+        (("llm", 9121), 1),
         (("logging", 3100), 1),
         (("monitoring", 9093), 1),
         (("monitoring", 9400), 1),
         (("otel", 8888), 1),
+        (("registry", 5001), 1),
     ]
 
 
