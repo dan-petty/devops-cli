@@ -123,7 +123,31 @@ Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url`
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
 
 ### GPU Placement: Ollama tiers
-Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), scheduled by the node label `nvidia.com/gpu.total-vram-gib`. The gateway reaches each tier through its ClusterIP Service `ollama-<n>gib`.
+Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), each behind its ClusterIP Service `ollama-<n>gib`. The gateway reaches the tiers through aliases of those Services, `ollama-16gib-fast`, `ollama-48gib-fast`, `ollama-48gib-slow` and `ollama-64gib-standard` (`llm/gateway/configmap.yaml`).
+
+A tier's pods schedule only on a node whose labels satisfy the tier's required node affinity. Every tier requires `nvidia.com/gpu.total-vram-gib` to be one of its values, and three also require `nvidia.com/gpu.architecture`. `nvidia.com/gpu.present=true` marks a GPU node, and `deploy-stack` treats a node with `nvidia.com/gpu` capacity above zero as one too.
+
+| Tier | `nvidia.com/gpu.total-vram-gib` | `nvidia.com/gpu.architecture` |
+| :--- | :--- | :--- |
+| `ollama-16gib` | `16Gi`, `20Gi` | any |
+| `ollama-24gib` | `24Gi`, `28Gi` | `pascal`, `maxwell`, `kepler` |
+| `ollama-32gib` | `32Gi`, `36Gi`, `40Gi`, `44Gi` | any |
+| `ollama-48gib` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `ada-lovelace`, `ampere`, `blackwell`, `hopper` |
+| `ollama-48gib-slow` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` |
+| `ollama-64gib` | `64Gi`, `68Gi` | any |
+| `ollama-72gib` | `72Gi`, `76Gi`, `80Gi`, `84Gi`, `88Gi`, `92Gi` | any |
+| `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any |
+| `ollama-128gib` | `128Gi` | any |
+
+**What sets the labels.** The cluster's node-provisioning automation, which lives outside this repository, sets `nvidia.com/gpu.present` and `nvidia.com/gpu.architecture` on every GPU node. It sets `nvidia.com/gpu.total-vram-gib` only on a node with more than one GPU, as the sum of its GPUs' memory rounded to the nearest whole GiB. GPU Feature Discovery labels per-GPU memory and the GPU count, not a total. So a single-GPU node gets no total, and a multi-GPU total can come out as a value no tier lists, such as `47Gi`. Set the label by hand, with a value from the table:
+
+```bash
+kubectl label node <node> nvidia.com/gpu.total-vram-gib=<N>Gi --overwrite
+```
+
+`deploy-stack --stack llm` reads the nodes once, right after it checks the cluster is reachable, and warns about each GPU node no tier accepts: the missing or unaccepted `total-vram-gib` with the command above, or an `architecture` outside the accepted ones. If no node satisfies any tier, it says no Ollama pod will schedule, and if it cannot read the nodes it says it could not check the labels. It also warns on an Argo CD-managed cluster. It never stops the deploy, since the stack's other workloads need no GPU label. The accepted values are read from `ollama-profiles.yaml`, so a tier changed there is checked with no other edit.
+
+The gateway's policy `llm-gateway-perimeter` (`llm/gateway/networkpolicy.yaml`) is applied with the llm manifests, by `deploy-stack` or Argo CD's `llm` Application. It admits TCP 4000 from any source, since LiteLLM rejects a request without the master key, and limits the gateway's egress to the pods labelled `llm.devops.io/provider: ollama` on 11434, Valkey on 6379 and kube-system DNS on port 53.
 
 Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`, recorded in the manifest's header rather than suppressed with an ignore annotation.
 

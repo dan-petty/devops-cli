@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
+    CONST_K8S_OLLAMA_PROFILES_PATH,
 )
 from devops_cli.config.defaults import (
     DEFAULT_HELM_RECOVERY_MAX_RETRIES,
@@ -41,6 +42,7 @@ from devops_cli.k8s.argocd_overrides import (
 )
 from devops_cli.k8s.cluster_secrets import BASE_STACK, DETACHED_STACKS, secrets_for_stacks
 from devops_cli.k8s.configmap import render_active_devops_configmap
+from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
 from devops_cli.k8s.secret_push import namespace_exists
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -934,6 +936,21 @@ def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]
         runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
 
 
+def _warn_about_gpu_placement(k8s_dir: Path, context: str | None) -> None:
+    """Warn about every GPU node no Ollama tier accepts, and say so when none is placed.
+
+    The accepted labels come from the tiers' own node affinity. The deploy goes on in every
+    case: a cluster with no usable GPU label still gets the stack's other workloads (#1367).
+    """
+    nodes = runtime._read_nodes(context)
+    if nodes is None:
+        print_warning(MESSAGES.k8s.gpu_nodes_unreadable)
+        return
+    tiers = ollama_tiers(k8s_dir / CONST_K8S_OLLAMA_PROFILES_PATH)
+    for warning in placement_warnings(nodes, tiers):
+        print_warning(warning)
+
+
 def _apply_post_helm_paths(
     paths: Sequence[Path],
     kubectl_ctx: list[str],
@@ -1133,8 +1150,11 @@ def deploy_stack(
     if push_secrets:
         require_keyring_for_push()
 
-    # 3. Verify cluster reachability
+    # 3. Verify cluster reachability, then warn about GPU nodes no Ollama tier accepts. The read
+    # comes before the Argo CD early return, so the warning prints on either kind of cluster.
     _verify_cluster_ready(effective_context)
+    if "llm" in selected_stacks:
+        _warn_about_gpu_placement(k8s_dir, effective_context)
 
     if _is_cluster_argo_managed(effective_context):
         _handle_argo_managed_deployment(
