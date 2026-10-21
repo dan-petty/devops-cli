@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,6 +54,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
+from devops_cli.core import clock
 from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import (
     GitHubOperationError,
@@ -74,15 +75,12 @@ from devops_cli.github.request_classifier import (
 
 logger = logging.getLogger(__name__)
 
-_BURST_LIMIT_DECORATOR: Any = limits(calls=60, period=60)
 # The high-level gh groups whose reads `run_gh` may answer from its response cache.
 _CACHEABLE_CLI_GROUPS = frozenset(
     {"pr", "issue", "project", "label", "milestone", "repo", "workflow", "run"}
 )
 
 
-@sleep_and_retry  # type: ignore[untyped-decorator]
-@_BURST_LIMIT_DECORATOR  # type: ignore[untyped-decorator]
 def _burst_protected_subprocess(
     cmd: list[str],
     *,
@@ -833,6 +831,10 @@ class GitHubRateLimiter:
         self._total_throttles: int = 0
         self._total_wait_seconds: float = 0.0
         self._quotas: dict[str, QuotaState] = {}
+        burst_limit: Any = limits(calls=60, period=60, clock=clock.monotonic)
+        self._run_burst_protected: Callable[..., Any] = sleep_and_retry(
+            burst_limit(lambda *args, **kwargs: _burst_protected_subprocess(*args, **kwargs))
+        )
         if persist_path:
             self._sync_from_disk_locked()
             self.prune_expired_cache()
@@ -1656,7 +1658,7 @@ def _execute_gh_single_attempt(
     try:
         proc = cast(
             subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
+            limiter._run_burst_protected(
                 full_cmd,
                 input=input,
                 cwd=cwd,
