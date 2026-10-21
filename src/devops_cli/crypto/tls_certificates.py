@@ -6,7 +6,9 @@ import datetime
 import ipaddress
 import logging
 import os
+from collections.abc import Sequence
 from datetime import UTC
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 
 from cryptography import x509
@@ -54,13 +56,23 @@ def _write_restricted_file(
     os.chmod(valid_path, mode)
 
 
-def _build_san_extension(sans: list[str]) -> x509.SubjectAlternativeName:
+def _build_san_extension(
+    sans: Sequence[str | IPv4Address | IPv6Address],
+) -> x509.SubjectAlternativeName:
     """Construct SubjectAlternativeName extension supporting DNS names and IP addresses."""
     san_list: list[x509.GeneralName] = []
     seen: set[str] = set()
 
     for entry in sans:
-        cleaned = entry.strip()
+        if isinstance(entry, (IPv4Address, IPv6Address)):
+            str_val = str(entry)
+            if str_val in seen:
+                continue
+            seen.add(str_val)
+            san_list.append(x509.IPAddress(entry))
+            continue
+
+        cleaned = str(entry).strip()
         if not cleaned or cleaned in seen:
             continue
         seen.add(cleaned)
@@ -164,7 +176,7 @@ def generate_ca_certificate(
 
 def generate_server_certificate(
     common_name: str = DEFAULT_CERT_COMMON_NAME,
-    sans: list[str] | None = None,
+    sans: Sequence[str | IPv4Address | IPv6Address] | None = None,
     ca_cert_path: Path | None = None,
     ca_key_path: Path | None = None,
     output_dir: Path | None = None,
@@ -206,7 +218,7 @@ def generate_server_certificate(
     )
 
     # Resolve SAN list (ensure common_name is in SANs if not wildcard)
-    san_entries = list(sans or [])
+    san_entries: list[str | IPv4Address | IPv6Address] = list(sans or [])
     if common_name and common_name not in san_entries:
         san_entries.insert(0, common_name)
 
@@ -322,7 +334,7 @@ def generate_homelab_tls_bundle(
     )
 
     # 2. Compile SAN list
-    all_sans: list[str] = list(DEFAULT_HOMELAB_DOMAINS)
+    all_sans: list[str | IPv4Address | IPv6Address] = list(DEFAULT_HOMELAB_DOMAINS)
     all_sans.extend(DEFAULT_HOMELAB_IPS)
 
     # Add in-cluster Kubernetes DNS entries
@@ -347,7 +359,7 @@ def generate_homelab_tls_bundle(
         all_sans.extend(custom_ips)
 
     # Deduplicate while preserving order
-    dedup_sans = list(dict.fromkeys(all_sans))
+    dedup_sans: list[str | IPv4Address | IPv6Address] = list(dict.fromkeys(all_sans))
 
     # 3. Generate server certificate signed by CA
     srv_cert, srv_key, fullchain = generate_server_certificate(
@@ -367,7 +379,7 @@ def generate_homelab_tls_bundle(
         server_cert_path=str(srv_cert),
         server_key_path=str(srv_key),
         fullchain_path=str(fullchain or srv_cert),
-        sans=dedup_sans,
+        sans=[str(s) for s in dedup_sans],
         services_configured=[
             "argocd",
             "grafana",

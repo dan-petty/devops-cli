@@ -16,6 +16,7 @@ import re
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -64,7 +65,7 @@ class SampleRepository(BaseModel):
     @classmethod
     def _https_or_local(cls, value: str) -> str:
         """HTTPS for the catalog; a local repository for tests and mirrors."""
-        if not value.startswith(("https://", "file://")):
+        if urlsplit(value).scheme not in {"https", "file"}:
             raise ValueError(f"repository must be an https:// or file:// URL: {value}")
         return value
 

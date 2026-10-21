@@ -175,6 +175,24 @@ def test_cli_ai_ingest_docs_remote(tmp_path: Path) -> None:
         assert "Documentation Ingest" in result.output
 
 
+def test_cli_ai_ingest_docs_remote_uppercase_scheme(tmp_path: Path) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = "# Remote Docs\n\nRemote body."
+    mock_resp.headers = {"content-type": "text/markdown"}
+
+    with (
+        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
+        patch("httpx2.Client.get", return_value=mock_resp),
+    ):
+        result = runner.invoke(
+            ai_app,
+            ["ingest", "docs", "HTTPS://example.com/guide", "--output-dir", str(tmp_path)],
+        )
+        assert result.exit_code == 0
+        assert "Documentation Ingest" in result.output
+
+
 def test_ingest_local_docs_duplicate_filenames(tmp_path: Path) -> None:
     """Ensure duplicate filenames in different directories produce unique slugs and chunks."""
     guide_dir = tmp_path / "guide"

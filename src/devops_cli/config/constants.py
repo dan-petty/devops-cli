@@ -4077,6 +4077,7 @@ CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
     r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
 )
 CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "net-address-list",
     "net-cidr-build",
     "net-ip-literal",
     "net-port-table",

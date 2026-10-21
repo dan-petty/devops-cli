@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
+from urllib.parse import urlsplit
 
 import typer
 
@@ -88,7 +89,7 @@ def ingest_docs(
 
     ingester = DocsIngester()
     try:
-        if source.startswith(("http://", "https://")):
+        if urlsplit(source).scheme in {"http", "https"}:
             result = ingester.ingest_remote_docs(source, output_dir=output_dir, max_pages=max_pages)
         else:
             result = ingester.ingest_local_docs(Path(source), output_dir=output_dir)

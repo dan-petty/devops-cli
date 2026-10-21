@@ -253,3 +253,42 @@ def test_a_dry_run_fetch_fetches_nothing(tmp_path: Path, monkeypatch: pytest.Mon
         True,
     )
     assert not (tmp_path / "samples").exists()
+
+
+def test_sample_repository_url_scheme_validation() -> None:
+    """SampleRepository accepts uppercase HTTPS and file URLs, and rejects unsupported schemes (#1107)."""
+    valid_https = SampleRepository(
+        name="test-repo-https",
+        category=SampleCategory.PYTHON,
+        languages=["python"],
+        repository="HTTPS://example.com/repo.git",
+        commit="a" * 40,
+        license="MIT",
+        license_files=["LICENSE"],
+        paths=["src"],
+    )
+    assert valid_https.repository == "HTTPS://example.com/repo.git"
+
+    valid_file = SampleRepository(
+        name="test-repo-file",
+        category=SampleCategory.PYTHON,
+        languages=["python"],
+        repository="FILE:///local/repo.git",
+        commit="a" * 40,
+        license="MIT",
+        license_files=["LICENSE"],
+        paths=["src"],
+    )
+    assert valid_file.repository == "FILE:///local/repo.git"
+
+    with pytest.raises(ValidationError, match="repository must be an https:// or file:// URL"):
+        SampleRepository(
+            name="test-repo-ftp",
+            category=SampleCategory.PYTHON,
+            languages=["python"],
+            repository="ftp://example.com/repo.git",
+            commit="a" * 40,
+            license="MIT",
+            license_files=["LICENSE"],
+            paths=["src"],
+        )

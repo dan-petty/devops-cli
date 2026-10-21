@@ -32,9 +32,23 @@ Delivered across 5 incremental pull requests.
 - [x] Add meta-test `test_the_network_construct_gate_has_no_escape` and escape tests `test_every_network_construct_escape_is_reported` in `tests/test_architectural_invariants.py`.
 - [x] Add `tests/test_net_construct_rules.py` covering rule tests, scanner detection, TID251, and constants.
 
+### PR 3: `net-address-list` Rule and TLS Defaults Holding `ipaddress` Objects (Part of #1107)
+
+- [x] Add `net-address-list` rule to `.ast-grep/rules/net-address-list.yml` and test cases to `.ast-grep/rule-tests/net-address-list-test.yml`.
+- [x] Register `"net-address-list"` in `CONST_NET_CONSTRUCT_RULES` in `src/devops_cli/config/constants.py`.
+- [x] Migrate `DEFAULT_HOMELAB_IPS` in `src/devops_cli/config/defaults.py` and `CertGenerationRequest.sans` in `src/devops_cli/models/tls.py` to hold `ipaddress` objects.
+- [x] Update TLS consumers in `src/devops_cli/crypto/tls_certificates.py` (`_build_san_extension`, `generate_server_certificate`, `generate_homelab_stack_certificates`) and `src/devops_cli/commands/tls.py` to preserve certificate content and string JSON serialization.
+- [x] Remediate literal scheme tuples across the codebase with `urllib.parse.urlsplit(value).scheme`:
+  - `src/devops_cli/ai/agents/tools.py`: MCP toolset URL target scheme check.
+  - `src/devops_cli/ai/research/edges.py`: markdown href scheme filtering.
+  - `src/devops_cli/ai/review/samples.py`: sample repository HTTPS/file validation.
+  - `src/devops_cli/commands/ai_ingest.py`: remote documentation URL check.
+  - `src/devops_cli/commands/k8s/networking.py`: minikube service URL extraction.
+  - `src/devops_cli/ai/kb.py`: knowledge base article sources validation.
+- [x] Add unit tests for case-insensitive scheme matching (`HTTPS://`) and non-URLs, TLS SAN `x509.IPAddress` generation, string JSON output, and `net-address-list` ast-grep scanner detection.
+
 ### Follow-up Pull Requests
 
 - PR 2: AGENTS.md, template, `generate_agents.md`, `architecture.md` instruction updates and `.devops/review.md` house rule under #1107.
-- PR 3: `net-address-list` rule and TLS defaults holding `ipaddress` objects under #1107.
 - PR 4: `net-scheme-in`, `net-scheme-affix`, `net-url-build`, `net-bracket-affix` under #1107.
 - PR 5: `net-domain-suffix`, `net-domain-list`, `net-normalise`, `net-hostport` under #1107 (closes #1107).

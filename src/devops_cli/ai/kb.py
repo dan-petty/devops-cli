@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -199,7 +200,8 @@ class KbFrontMatter(BaseModel):
         if not v:
             raise ValueError("sources list cannot be empty")
         for url in v:
-            if not url.startswith(("http://", "https://")):
+            scheme = urlsplit(url).scheme
+            if scheme != "http" and scheme != "https":
                 raise ValueError(f"source URL must start with http:// or https://: {url}")
         return v
 

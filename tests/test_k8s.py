@@ -808,6 +808,10 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         _parse_minikube_service_url("Starting...\nhttp://192.0.2.49:30000\nDone")
         == "http://192.0.2.49:30000"
     )
+    assert (
+        _parse_minikube_service_url("Starting...\nHTTPS://192.0.2.49:30000\nDone")
+        == "HTTPS://192.0.2.49:30000"
+    )
     assert _parse_minikube_service_url("No URLs here") is None
 
     # 2. _extract_first_node_ip
