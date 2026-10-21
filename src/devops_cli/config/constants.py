@@ -3387,12 +3387,14 @@ CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
 CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
 CONST_DASHBOARD_DOMAIN_AI: Final[str] = "ai"
 CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
+CONST_DASHBOARD_DOMAIN_GITHUB: Final[str] = "github"
 CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_VALKEY,
+    CONST_DASHBOARD_DOMAIN_GITHUB,
 )
 # Human-readable labels used for tab titles and status banners.
 CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
@@ -3401,6 +3403,7 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
     CONST_DASHBOARD_DOMAIN_AI: "AI Review",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
+    CONST_DASHBOARD_DOMAIN_GITHUB: "GitHub",
 }
 
 # ── Docker Resource Sub-Tabs ─────────────────────────────────────────────────
@@ -3434,6 +3437,7 @@ CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
 # A tab not listed here focuses the first widget in it that can take focus.
 CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
     f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
+    f"tab-{CONST_DASHBOARD_DOMAIN_GITHUB}": "#github-queue-table",
     CONST_LOGS_TAB_ID: "#log-pane",
 }
 

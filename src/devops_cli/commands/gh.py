@@ -1593,30 +1593,26 @@ def runs_view_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """View details or failure logs of a specific workflow run."""
+    from devops_cli.github.run_view import fetch_workflow_run_view
+
     target_repo = repo or _resolve_repo()
-    cmd = ["run", "view", str(run_id)]
-    if log_failed:
-        cmd.append("--log-failed")
-    elif full_log:
-        cmd.append("--log")
-    if job:
-        cmd.extend(["--job", job])
-    if repo:
-        cmd.extend(["--repo", target_repo])
-
-    res = run_gh(cmd, check=False)
+    res = fetch_workflow_run_view(
+        run_id,
+        log_failed=log_failed,
+        full_log=full_log,
+        job=job,
+        repo=target_repo if repo else None,
+        runner=run_gh,
+    )
     if res.returncode != 0:
-        from devops_cli.security.sanitizer import mask_secrets
-
-        clean_err = mask_secrets(res.stderr.strip()[:256])
+        clean_err = res.stderr.strip()[:256]
         print_error(f"Failed to view workflow run #{run_id}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
     if res.stdout:
         from devops_cli.output import write_stream
-        from devops_cli.security.sanitizer import mask_secrets
 
-        write_stream(mask_secrets(res.stdout.rstrip()) + "\n")
+        write_stream(res.stdout.rstrip() + "\n")
 
 
 # =============================================================================

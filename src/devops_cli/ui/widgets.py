@@ -12,7 +12,9 @@ app composes a panel per domain and holds no per-domain rendering code at all.
 from __future__ import annotations
 
 import contextlib
+import json
 import queue
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -28,19 +30,36 @@ from textual.widgets import DataTable, Input, Select, Static, TabbedContent, Tab
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAIN_GITHUB,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
+    CONST_DASHBOARD_TABS_ID,
     CONST_DOCKER_RESOURCE_CONTAINERS,
     CONST_DOCKER_RESOURCE_LABELS,
     CONST_DOCKER_RESOURCES,
     CONST_LOG_STREAM_QUEUE_SIZE,
+    CONST_LOGS_TAB_ID,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_DASHBOARD_GITHUB_STALE_SECONDS,
+    DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS,
     DEFAULT_LOG_REDRAW_INTERVAL_SECONDS,
     DEFAULT_LOG_STREAM_POLL_SECONDS,
 )
+from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.github.check_verdict import PRCheckItem
+from devops_cli.github.pr_monitor import CopilotReviewStatus, get_copilot_review_status
+from devops_cli.github.pr_queue import (
+    GitHubPRSummary,
+    check_pacing_guard,
+    fetch_single_pr,
+)
+from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
+from devops_cli.github.run_view import fetch_workflow_run_view
 from devops_cli.models.k8s import PodInfo
-from devops_cli.output import Text
+from devops_cli.output import Text, escape_text
+from devops_cli.ui.data_providers import GitHubSummary
 from devops_cli.ui.log_buffer import VirtualLogBuffer
 from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
@@ -49,6 +68,7 @@ from devops_cli.ui.projections import (
     CONST_K8S_ALL_NAMESPACES_LABEL,
     DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
+    GITHUB_CHECKS_COLUMNS,
     REVIEW_SESSION_COLUMNS,
     docker_resource_keys,
     docker_resource_label,
@@ -56,6 +76,10 @@ from devops_cli.ui.projections import (
     filter_pods,
     finding_detail,
     finding_records,
+    github_check_identities,
+    github_check_rows,
+    github_identities,
+    github_rows,
     k8s_filter_banner,
     k8s_pod_row,
     loading_banner,
@@ -65,6 +89,7 @@ from devops_cli.ui.projections import (
     render_keys,
     review_session_keys,
     review_session_rows,
+    row_keys,
 )
 from devops_cli.ui.state import DomainSnapshot
 
@@ -188,7 +213,17 @@ class DomainPanel(Vertical):
             self._pending_snapshot = snapshot
 
 
-__all__ = ["DockerPanel", "DomainPanel", "K8sPanel", "LogPane", "ReviewPanel", "redraw_table"]
+ACTIONS_JOB_URL_PATTERN = re.compile(r"/actions/runs/(?P<run>\d+)/job/(?P<job>\d+)")
+
+__all__ = [
+    "DockerPanel",
+    "DomainPanel",
+    "GitHubPanel",
+    "K8sPanel",
+    "LogPane",
+    "ReviewPanel",
+    "redraw_table",
+]
 
 
 class K8sPanel(Vertical):
@@ -632,6 +667,332 @@ class ReviewPanel(Vertical):
         """Show or hide the finding detail pane, giving its width back to the table."""
         pane = self.query_one("#finding-detail-pane", VerticalScroll)
         pane.display = not pane.display
+
+
+class GitHubPanel(Vertical):
+    """The GitHub domain: pull request queue, inspector, and failing log viewer."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("enter", "inspect_pr", "Inspect PR", show=False),
+        Binding("v", "view_log", "View log", show=False),
+        Binding("o", "open_url", "Open in browser", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    GitHubPanel {
+        height: 1fr;
+    }
+    GitHubPanel > Static {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $boost;
+        color: $text;
+    }
+    GitHubPanel TabbedContent {
+        height: 1fr;
+    }
+    GitHubPanel DataTable {
+        height: 1fr;
+    }
+    GitHubPanel #github-inspector-container {
+        height: 1fr;
+        padding: 0 1;
+    }
+    GitHubPanel #github-inspector-summary {
+        margin-bottom: 1;
+    }
+    GitHubPanel #github-checks-table {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+    GitHubPanel #github-inspector-details {
+        height: auto;
+    }
+    """
+
+    def __init__(
+        self,
+        domain: str = CONST_DASHBOARD_DOMAIN_GITHUB,
+        *,
+        stale_after: float | None = DEFAULT_DASHBOARD_GITHUB_STALE_SECONDS,
+    ) -> None:
+        super().__init__(id=f"panel-{domain}")
+        self.domain = domain
+        self.stale_after = stale_after
+        self._prs: dict[str, GitHubPRSummary] = {}
+        self._current_inspector_pr: GitHubPRSummary | None = None
+        self._inspector_check_items: dict[str, PRCheckItem] = {}
+        self._inspector_fetching: bool = False
+        self._pending_snapshot: DomainSnapshot | None = None
+
+    @property
+    def label(self) -> str:
+        """Human-readable name for this domain."""
+        return CONST_DASHBOARD_DOMAIN_LABELS.get(self.domain, self.domain.title())
+
+    def compose(self) -> ComposeResult:
+        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
+        with TabbedContent(id="github-views"):
+            with TabPane("Queue", id="github-queue"):
+                yield DataTable(id="github-queue-table")
+            with TabPane("Inspector", id="github-inspector"):
+                yield self._inspector_layout()
+
+    @staticmethod
+    def _inspector_layout() -> Vertical:
+        return Vertical(
+            Static(
+                "Select a pull request from the Queue tab and press Enter to inspect.",
+                id="github-inspector-summary",
+            ),
+            DataTable(id="github-checks-table"),
+            Static("", id="github-inspector-details"),
+            id="github-inspector-container",
+        )
+
+    def on_mount(self) -> None:
+        queue_table = self.query_one("#github-queue-table", DataTable)
+        queue_table.cursor_type = "row"
+        queue_table.add_columns(*DOMAIN_COLUMNS[self.domain])
+
+        checks_table = self.query_one("#github-checks-table", DataTable)
+        checks_table.cursor_type = "row"
+        checks_table.add_columns(*GITHUB_CHECKS_COLUMNS)
+
+        if self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            self.apply(snapshot)
+
+    def apply(self, snapshot: DomainSnapshot) -> None:
+        """Render a domain snapshot into the banner and queue table."""
+        if not self.is_mounted:
+            self._pending_snapshot = snapshot
+            return
+        try:
+            banner = render_banner(snapshot, stale_after=self.stale_after)
+            self.query_one(f"#{self.domain}-banner", Static).update(banner)
+
+            queue_table = self.query_one("#github-queue-table", DataTable)
+            if snapshot.data is not None:
+                summary: GitHubSummary = snapshot.data
+                self._prs = {str(pr.number): pr for pr in summary.prs}
+                rows = github_rows(summary)
+                keys = row_keys(github_identities(summary))
+                redraw_table(queue_table, rows, keys)
+            else:
+                queue_table.clear()
+            self._pending_snapshot = None
+        except NoMatches:
+            self._pending_snapshot = snapshot
+
+    def _selected_pr(self) -> GitHubPRSummary | None:
+        """Return the PR highlighted in the queue table, if any."""
+        queue_table = self.query_one("#github-queue-table", DataTable)
+        key = _highlighted_key(queue_table)
+        return self._prs.get(key) if key else None
+
+    def _selected_or_inspector_pr(self) -> GitHubPRSummary | None:
+        """Return the active inspector PR or the highlighted queue PR."""
+        if self._current_inspector_pr is not None:
+            return self._current_inspector_pr
+        return self._selected_pr()
+
+    def action_inspect_pr(self) -> None:
+        """Begin inspection of the highlighted pull request in a background worker."""
+        if self._inspector_fetching:
+            self.notify("Inspector fetch already running", severity="warning")
+            return
+        pr = self._selected_pr()
+        if pr is None:
+            return
+        self._inspector_fetching = True
+        self.query_one("#github-views", TabbedContent).active = "github-inspector"
+        self._fetch_inspector_worker(pr)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Inspect PR on queue row selection."""
+        if event.data_table.id == "github-queue-table":
+            self.action_inspect_pr()
+
+    @work(thread=True)
+    def _fetch_inspector_worker(self, pr: GitHubPRSummary) -> None:
+        """Fetch inspector details off the UI thread."""
+        try:
+            repo_name = get_repo_origin_name()
+            if not repo_name:
+                self.app.call_from_thread(
+                    self._set_inspector_error, pr.number, "not a GitHub checkout"
+                )
+                return
+            parts = repo_name.split("/", 1)
+            owner, repo = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
+            try:
+                check_pacing_guard("graphql")
+            except GitHubRateLimitError as exc:
+                self.app.call_from_thread(self._set_inspector_error, pr.number, str(exc))
+                return
+
+            try:
+                single_pr = fetch_single_pr(owner, repo, pr.number)
+            except (
+                GitHubOperationError,
+                GitHubRateLimitError,
+                json.JSONDecodeError,
+                OSError,
+            ) as exc:
+                self.app.call_from_thread(self._set_inspector_error, pr.number, str(exc))
+                return
+
+            threads: list[ReviewThread] | None = None
+            threads_err = ""
+            try:
+                threads = list_pr_review_threads(owner, repo, pr.number, unresolved_only=True)
+            except (
+                GitHubOperationError,
+                GitHubRateLimitError,
+                json.JSONDecodeError,
+                OSError,
+            ) as exc:
+                threads_err = f"threads unread: {exc}"
+
+            try:
+                copilot_status = get_copilot_review_status(
+                    owner, repo, pr.number, unresolved_threads=threads
+                )
+            except (
+                GitHubOperationError,
+                GitHubRateLimitError,
+                json.JSONDecodeError,
+                OSError,
+            ):
+                copilot_status = None
+
+            self.app.call_from_thread(
+                self._set_inspector_data, single_pr, threads, threads_err, copilot_status
+            )
+        finally:
+            self._inspector_fetching = False
+
+    def _set_inspector_error(self, pr_number: int, reason: str) -> None:
+        """Display an inspector error on the UI thread."""
+        self._current_inspector_pr = None
+        self._inspector_check_items = {}
+        self.query_one("#github-inspector-summary", Static).update(
+            f"PR #{pr_number} unread: {reason}"
+        )
+        self.query_one("#github-checks-table", DataTable).clear()
+        self.query_one("#github-inspector-details", Static).update("")
+
+    def _set_inspector_data(
+        self,
+        pr: GitHubPRSummary,
+        threads: list[ReviewThread] | None,
+        threads_err: str,
+        copilot_status: CopilotReviewStatus | None,
+    ) -> None:
+        """Render fetched inspector data on the UI thread."""
+        self._current_inspector_pr = pr
+        head = pr.head_sha[:8] if pr.head_sha else "—"
+        diff = f"+{pr.additions}/-{pr.deletions} ({pr.changed_files} files)"
+        review = pr.review_decision.lower().replace("_", " ") if pr.review_decision else "None"
+        copilot_state = copilot_status.state if copilot_status else "unknown"
+        summary_text = (
+            f"[bold]PR #{pr.number}: {escape_text(pr.title)}[/bold]\n"
+            f"Head: {head} | Diff: {diff} | Review: {review}\n"
+            f"Copilot (as `pr monitor` reports it): {copilot_state}"
+        )
+        self.query_one("#github-inspector-summary", Static).update(summary_text)
+
+        checks_table = self.query_one("#github-checks-table", DataTable)
+        check_rows = github_check_rows(pr.checks.items)
+        check_keys = row_keys(github_check_identities(pr.checks.items))
+        self._inspector_check_items = dict(zip(check_keys, pr.checks.items, strict=False))
+        redraw_table(checks_table, check_rows, check_keys)
+
+        if threads_err:
+            threads_text = f"[red]{escape_text(threads_err)}[/red]"
+        elif not threads:
+            threads_text = "No unresolved review threads."
+        else:
+            lines = [f"Unresolved Threads ({len(threads)}):"]
+            for t in threads:
+                author = t.comments[0].author if t.comments else "unknown"
+                line_num = t.line or t.original_line or "?"
+                lines.append(f"  • {t.path}:{line_num} ({author})")
+            threads_text = "\n".join(lines)
+        self.query_one("#github-inspector-details", Static).update(threads_text)
+
+    def _selected_check_job(self) -> tuple[int, str] | None:
+        """Resolve the selected check run's Actions run ID and job ID."""
+        if self._current_inspector_pr is None:
+            self.notify("No pull request in inspector", severity="warning")
+            return None
+        checks_table = self.query_one("#github-checks-table", DataTable)
+        row_key = _highlighted_key(checks_table)
+        if row_key is None or not self._inspector_check_items:
+            self.notify("No check selected", severity="warning")
+            return None
+        item = self._inspector_check_items.get(row_key)
+        if item is None or not item.link:
+            self.notify(
+                "No link for this check. Press 'o' to open in browser.", severity="information"
+            )
+            return None
+        match = ACTIONS_JOB_URL_PATTERN.search(item.link)
+        if not match:
+            self.notify(
+                "No Actions job log available for this check. Press 'o' to open in browser.",
+                severity="information",
+            )
+            return None
+        return int(match.group("run")), match.group("job")
+
+    def action_view_log(self) -> None:
+        """View failing check run logs in the Logs tab."""
+        target = self._selected_check_job()
+        if target is None:
+            return
+        run_id, job_id = target
+        try:
+            check_pacing_guard("core")
+        except GitHubRateLimitError as exc:
+            self.notify(str(exc), severity="error")
+            return
+
+        repo_name = get_repo_origin_name() or ""
+
+        def run_log_source() -> Iterable[str]:
+            try:
+                check_pacing_guard("core")
+            except GitHubRateLimitError as exc:
+                yield f"Rate limit wait exceeded: {exc}\n"
+                return
+            res = fetch_workflow_run_view(
+                run_id=run_id,
+                job=job_id,
+                log_failed=True,
+                repo=repo_name,
+                timeout=DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS,
+            )
+            if res.stdout:
+                yield from res.stdout.splitlines(keepends=True)
+            if res.stderr:
+                yield from res.stderr.splitlines(keepends=True)
+            yield f"\n[Process completed with exit code {res.returncode}]\n"
+
+        pane = self.app.query_one("#log-pane", LogPane)
+        pane.title = f"GitHub run {run_id} job {job_id}"
+        pane.start_stream(run_log_source)
+        self.app.query_one(f"#{CONST_DASHBOARD_TABS_ID}", TabbedContent).active = CONST_LOGS_TAB_ID
+
+    def action_open_url(self) -> None:
+        """Open the active pull request URL in the default browser."""
+        pr = self._selected_or_inspector_pr()
+        if pr is None or not pr.url:
+            self.notify("No pull request in inspector", severity="warning")
+            return
+        self.app.open_url(pr.url)
 
 
 @runtime_checkable

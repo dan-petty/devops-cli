@@ -50,6 +50,18 @@ def empty_docker_engine(docker_engine: Any) -> Iterator[Any]:
         yield engine
 
 
+@pytest.fixture(autouse=True)
+def empty_github_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fake GitHub domain so dashboard tests do not invoke real gh commands."""
+    import devops_cli.ui.refresh as refresh_module
+    from devops_cli.config.constants import CONST_DASHBOARD_DOMAIN_GITHUB
+    from devops_cli.ui.data_providers import GitHubSummary
+
+    fake_fetchers = dict(refresh_module.DOMAIN_FETCHERS)
+    fake_fetchers[CONST_DASHBOARD_DOMAIN_GITHUB] = lambda: GitHubSummary(total_count=0, prs=[])
+    monkeypatch.setattr(refresh_module, "DOMAIN_FETCHERS", fake_fetchers)
+
+
 # =============================================================================
 # Subsystem Data Provider Tests
 # =============================================================================
@@ -451,6 +463,11 @@ async def test_textual_dashboard_app_lifecycle() -> None:
         await pilot.press("5")
         await pilot.pause()
         assert tabs.active == "tab-valkey"
+
+        # Switch to GitHub tab via key '6'
+        await pilot.press("6")
+        await pilot.pause()
+        assert tabs.active == "tab-github"
 
         # Switch back to K8s tab via key '1'
         await pilot.press("1")

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAIN_GITHUB,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_VALKEY,
@@ -28,6 +29,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_LOG_TAIL_LINES
 from devops_cli.ui.data_providers import (
     fetch_docker_status,
+    fetch_github_status,
     fetch_k8s_status,
     fetch_review_status,
     fetch_telemetry_status,
@@ -46,6 +48,7 @@ DOMAIN_FETCHERS: dict[str, Callable[[], Any]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: fetch_telemetry_status,
     CONST_DASHBOARD_DOMAIN_AI: fetch_review_status,
     CONST_DASHBOARD_DOMAIN_VALKEY: fetch_valkey_status,
+    CONST_DASHBOARD_DOMAIN_GITHUB: fetch_github_status,
 }
 
 

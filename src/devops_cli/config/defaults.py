@@ -808,6 +808,7 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS: float = 120.0
 # The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
 # --paginate` call (#983): sized for a listing of about DEFAULT_GH_MAX_PAGINATED_PAGES pages of
 # 100 items, not 100 pages of 30 s each.
@@ -965,8 +966,12 @@ DEFAULT_LOG_BUFFER_MAX_LINES: int = 10000
 DEFAULT_LOG_VIEWPORT_LINES: int = 50
 # Seconds between automatic dashboard refreshes.
 DEFAULT_DASHBOARD_REFRESH_SECONDS: int = 5
+DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS: int = 60
 # Age beyond which a domain snapshot is flagged as stale in the UI.
 DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
+DEFAULT_DASHBOARD_GITHUB_STALE_SECONDS: float = 120.0
+DEFAULT_DASHBOARD_GITHUB_PR_LIMIT: int = 50
+DEFAULT_DASHBOARD_GITHUB_MAX_PACING_SECONDS: float = 5.0
 # Minimum seconds between log-pane redraws. A busy stream produces lines far faster than
 # a terminal can usefully repaint; every line is still retained, only the drawing is
 # coalesced, which is what keeps the UI thread free under load.
