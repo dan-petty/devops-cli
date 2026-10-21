@@ -82,6 +82,7 @@ jobs:
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: test
+          save-uv-cache: "false"
           tooling-cache-paths: |
             .pytest_cache
 
@@ -362,6 +363,7 @@ jobs:
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: changed-tests
+          save-uv-cache: "false"
           tooling-cache-paths: |
             .pytest_cache
 
@@ -408,6 +410,7 @@ jobs:
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: rule-pack
+          save-uv-cache: "false"
 
       - name: Run Semgrep Rule Pack Tests
         if: steps.changed_rules.outputs.changed == 'true'
