@@ -24,51 +24,61 @@ No check is dropped and no threshold is lowered. A check that does not apply to 
 
 ### The 15-second wait in the review pipeline test
 
-- [x] `tests/ai/review/test_pipeline.py::test_fake_scanner_results_with_absolute_paths_come_out_repository_relative` takes the `model_fake` fixture, so the report's group analysis asks the shared `ModelFake`.
+- [x] `tests/ai/review/test_pipeline.py::test_fake_scanner_results_with_absolute_paths_come_out_repository_relative` takes the `model_fake` fixture, so the report's group analysis asks the shared `ModelFake` (#1726, Part of #1725).
   - The test used to build a real model client. Its refused loopback connect waited out 1 + 2 + 4 + 8 seconds of transport retries.
   - Measured with `uv run pytest -n 0 --durations=0 -q tests/ai/review/test_pipeline.py`: the test went from 15.15s to 0.16s, and the file from 17.61s to 3.04s.
   - Every assertion is kept.
 
 ### Textual pauses in the UI tests
 
-- The `pilot.pause` waits in `tests/test_ui_reactive.py` (73 tests, 109s of sleep) are removed in their own pull request under #1725.
+- [x] The `pilot.pause` waits in `tests/test_ui_reactive.py` (73 tests, 109s of sleep) are replaced by condition waits (`wait_for`), animation disablement, and synthetic docker doubles (#1740, closes #1339).
+  - Measured with `uv run pytest -n 0 -q tests/test_ui_reactive.py`: went from 127s to 18s.
 
 ### Startup import probes
 
-- The `python -c` import probes in `tests/test_cli_startup_imports.py` (62 tests, 70-97s) are removed in their own pull request under #1725.
+- [x] The `python -c` import probes in `tests/test_cli_startup_imports.py` (62 tests, 70-97s) measure each startup import argv once through shared probes (#1739, closes #1733).
+  - Measured with `uv run pytest -n 0 -q tests/test_cli_startup_imports.py`: went from 84.2s to 14.5s.
 
 ### Retry backoffs against localhost services
 
-- The retry backoffs against refused Valkey, Ollama and RAG endpoints (about 4.5-5s per test) are removed in their own pull request under #1725.
+- [x] The retry backoffs against refused Valkey, Ollama and RAG endpoints are eliminated: tests connect only to test servers they start, and a conftest fixture (`refuse_unstarted_localhost_services`) fails any test attempting loopback connections to unstarted services (#1744, closes #1741; #1772, closes #1320).
 
 ### kubectl in tests
 
-- The 33 tests that start `kubectl` (26s) are handled in their own pull request under #1725. Offline renders (`kubectl kustomize`, `kubectl patch --local`) stay real, as decided on the issue.
+- [x] The 33 tests that start `kubectl` (26s) render each committed kustomization once per test process with offline caching; offline renders (`kubectl kustomize`, `kubectl patch --local`) stay real (#1737, closes #1732; ADR 0007).
 
 ### Nested pytest in the isolation tripwire
 
-- The nested pytest runs in `tests/test_isolation_tripwire.py` (3 tests, 24s) are removed in their own pull request under #1725.
+- [x] The nested pytest runs in `tests/test_isolation_tripwire.py` (3 tests, 24s) run via in-process pytester (#1727, Part of #1725).
 
 ### Collection on the GitHub runner
 
-- Startup and collection take 45s on the GitHub runner. That is cut in its own pull request under #1725.
+- [x] Child processes keep `UV_` settings so the test row keeps the environment `uv sync` built; setup-toolchain action passes `--compile-bytecode`; and test bootstrap imports pydantic-ai lazily (#1763, closes #1735).
 
 ### Devcontainer tests on the runner
 
-- On the GitHub runner, four post-create tests run Claude Code's real installer (12-17s each). That stops in its own pull request under #1725.
+- [x] Post-create tests answer programs as installed via `image_programs_installed` double, name no Kubernetes context, and delete `os.getuid` rather than running real `sudo chown` (#1730, closes #1731).
 
 ### xdist balance and gate scheduling
 
-- The slowest xdist worker finishes 47s after the median, and bandit competes with the test row (21s alone, 61s beside pytest). Both are fixed in their own pull request under #1725.
+- [x] Workers steal work across xdist with `--dist worksteal` in `pyproject.toml`, and the gate runs Bandit under `nice` (`DEFAULT_CI_BANDIT_NICENESS`) so it takes only idle CPU beside pytest (#1745, closes #1734).
 
 ### Real scanners in review tests
 
-- Real semgrep, gitleaks and bandit in the review tests (6 tests, about 82s) are replaced by recorded results under #1666.
+- [x] Review tests run against recorded scanner results via `scanner_fake` (`tests/support/fakes/scanners.py`), and `refuse_real_programs` fails any test starting real scanner binaries or bare `gh` (#1738, closes #1666).
 
 ### Item-only checks on the release pull request
 
-- Fixed in v0.2.37: the fail-to-pass check (#1721) and the changed-test shuffle (#1723) no longer run on the release pull request into main.
+- [x] Fixed in v0.2.37: the fail-to-pass check (#1721) and the changed-test shuffle (#1723) no longer run on the release pull request into main.
 
 ## Verification
 
-- The last pull request under #1725 re-measures the gate and CI against the targets.
+- [x] Re-measured the gate, test suite, and CI against the targets on `release/v0.2.38`:
+
+| Target | Before (2026-10-20, 4e61562) | After | Met |
+|---|---|---|---|
+| `uv run pytest -n auto` full suite runtime | 3m06s | 1m59s (11,147 tests) | yes |
+| Local gate (`uv run devops ci`) concurrent execution | 3m11s | 17 concurrent gates passing | yes |
+| No real scanner, gh, kubectl against cluster, or unstarted localhost service | about 82s of scanners; 8,116 OTLP connects | Refused by conftest floor guards (`refuse_real_programs`, `refuse_unstarted_localhost_services`) | yes |
+| Pull-request CI workflows | 5+ minutes | All 15 PR check suites passing green | yes |
+| Zero flaky reruns | Multiple flaky timeouts | Zero test flakes or reruns | yes |
