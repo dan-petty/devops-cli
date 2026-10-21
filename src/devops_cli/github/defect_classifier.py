@@ -1,10 +1,11 @@
-"""Defect pull request classification and declared hardening surface analysis (#697).
+"""Defect pull request classification and declared hardening surface analysis (#697, #1151).
 
 A pull request is classified as a defect fix if it carries `type/bug` or `type/security`
 labels (as defined in `.github/labels.yml`) or has a Conventional Commits `fix(...)` / `fix:`
 title. Defect pull requests must record hardening guardrails or lessons on at least one declared
 hardening surface (`AGENTS.md`, `src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`,
-or `common_hallucinations.json`). `docs/ROADMAP.md` is strictly excluded because it is a generated view.
+`.devops/review.toml`, or `src/devops_cli/review/rules/`). `docs/ROADMAP.md` is strictly excluded
+because it is a generated view.
 """
 
 from __future__ import annotations
@@ -98,7 +99,8 @@ def match_hardening_surface(file_path: str) -> str | None:
     - `AGENTS.md`
     - `src/devops_cli/ai/tasks/*.md`
     - `src/devops_cli/ai/knowledge_base/`
-    - `common_hallucinations.json`
+    - `.devops/review.toml`
+    - `src/devops_cli/review/rules/`
 
     `docs/ROADMAP.md` is strictly excluded because it is a generated view.
     """
@@ -111,10 +113,13 @@ def match_hardening_surface(file_path: str) -> str | None:
             return "src/devops_cli/ai/tasks/*.md"
     if normalized.startswith("src/devops_cli/ai/knowledge_base/"):
         return "src/devops_cli/ai/knowledge_base/"
-    if normalized == "common_hallucinations.json" or normalized.endswith(
-        "/common_hallucinations.json"
+    if normalized == ".devops/review.toml":
+        return ".devops/review.toml"
+    if (
+        normalized.startswith("src/devops_cli/review/rules/")
+        and normalized != "src/devops_cli/review/rules/"
     ):
-        return "common_hallucinations.json"
+        return "src/devops_cli/review/rules/"
     return None
 
 

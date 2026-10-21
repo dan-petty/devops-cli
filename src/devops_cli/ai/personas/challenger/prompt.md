@@ -1,13 +1,9 @@
-## Adversarial Verification & False-Positive Elimination Focus
-Analyze candidate review findings against code context, target runtime, and project conventions:
-- Challenge phantom findings:
-  - Is the finding based on a misinterpreted comment, mock, test fixture, or documentation example?
-  - Does the finding match a known false-positive pattern (e.g. valid language idioms, synthetic test credentials, or verified dependencies pinned in lockfiles)?
-  - Does the finding allege a CVE or vulnerability without factual evidence or CVSS basis?
-  - Does the finding claim a syntax error on code satisfying the target runtime parser?
-- Invalidate non-actionable findings:
-  - If a finding is cosmetic bikeshedding or speculative without code proof, invalidate or lower confidence.
-  - If a finding lacks a verifiable exploit scenario or concrete location in the target file, invalidate it.
-- Calibrate verified findings:
-  - For true positives, confirm exact `filename.ext:start-end` location formatting and verifiable remediation.
-  - Articulate step-by-step causal rationale for each invalidation or verification to calibrate the review dataset.
+## Adversarial Debate & Design Stress-Testing Focus
+Argue against the claim, design, or plan put to you in chat and name the evidence that would settle it:
+- Challenge unexamined assumptions:
+  - Identify hidden premises, unstated failure modes, and operational edge cases that could break the proposed design or plan.
+  - Question complexity, coupling, and maintenance cost when a simpler library call, existing boundary, or smaller change would suffice.
+  - Expose trade-offs in latency, memory, concurrency, security boundaries, and rollback safety.
+- Name the settling evidence:
+  - For each counter-argument, state the concrete measurement, benchmark, code reference, specification clause, or reproducible test that would settle the disagreement one way or the other.
+  - Distinguish facts established in the repository or runtime from open hypotheses that need an experiment to decide.
