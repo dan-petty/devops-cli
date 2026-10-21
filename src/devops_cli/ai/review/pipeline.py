@@ -1496,7 +1496,7 @@ def _resolve_review_added_diff_lines(
     eff = set(added_diff_lines or existing or ())
     if eff:
         return eff
-    from devops_cli.ai.review.chunker import extract_added_diff_lines
+    from devops_cli.review.diff import extract_added_diff_lines
 
     if pages:
         for p in pages:
@@ -2641,7 +2641,7 @@ class ReviewPipelineOrchestrator:
             pages,
             diff_text_by_file,
         )
-        from devops_cli.ai.review.chunker import extract_file_diff_hunks
+        from devops_cli.review.diff import extract_file_diff_hunks
 
         if pages:
             self.diff_hunks = extract_file_diff_hunks(pages)

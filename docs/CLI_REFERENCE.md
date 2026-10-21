@@ -4770,7 +4770,7 @@ devops ai gateway tune [OPTIONS]
 | `--model`, `-m` | `string` | `devops-review` | Gateway model group to measure. |
 | `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
-| `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
+| `--prompt-tokens` | `integer` | `512` | Prompt size in tokens. |
 | `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |

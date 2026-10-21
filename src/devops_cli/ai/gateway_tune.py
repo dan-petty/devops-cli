@@ -374,13 +374,6 @@ def backend_label(api_base: str) -> str:
     return host.split(".", 1)[0]
 
 
-def review_page_tokens(context_window: int) -> int:
-    """Tokens in one review page for a context window, as `devops ai review` sizes its pages."""
-    from devops_cli.ai.review.chunker import review_page_chars
-
-    return int(review_page_chars(context_window) / CONST_REVIEW_CHARS_PER_TOKEN)
-
-
 def deployment_prompt_tokens(prompt_tokens: int, max_input_tokens: int | None) -> int:
     """Cap the prompt below a deployment's input limit.
 
@@ -736,7 +729,6 @@ __all__ = [
     "gpu_inventory",
     "measure_in_gateway_pod",
     "recommend_weights",
-    "review_page_tokens",
     "review_prompt",
     "tune_pool",
 ]

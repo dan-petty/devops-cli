@@ -292,7 +292,7 @@ def test_a_review_benchmark_is_kept_with_its_setup_and_corpus(
 
     assert (
         result.exit_code,
-        record.setup["page_chars"] > 0,
+        "page_chars" not in record.setup,
         record.subject == {"corpus_digest": record.results["corpus_digest"], "target": "corpus"},
         "Kept on this workstation only" in result.output,
     ) == (0, True, True, True)

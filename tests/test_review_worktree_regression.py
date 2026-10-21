@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devops_cli.ai.analyze.cache import FileAnalysisMeta
-from devops_cli.ai.review.chunker import _extract_header_filenames
 from devops_cli.ai.review.path_classes import (
     classify_path,
     is_fixture_path,
@@ -27,6 +26,7 @@ from devops_cli.git.operations import (
 from devops_cli.git.worktree import (
     review_worktrees_context,
 )
+from devops_cli.review.diff import diff_file_names
 
 
 def _init_git_repo(repo_dir: Path) -> None:
@@ -176,7 +176,7 @@ def test_deleted_files_and_renames_diff_parsing(tmp_path: Path) -> None:
     )
 
 
-def test_chunker_rename_extracts_target_path() -> None:
+def test_diff_rename_extracts_target_path() -> None:
     """Header extraction from rename diff tracks the target path at head."""
     page = (
         "diff --git a/old_dir/foo.py b/new_dir/foo.py\n"
@@ -184,7 +184,7 @@ def test_chunker_rename_extracts_target_path() -> None:
         "rename from old_dir/foo.py\n"
         "rename to new_dir/foo.py\n"
     )
-    extracted = _extract_header_filenames(page)
+    extracted = diff_file_names(page)
     assert extracted == ["new_dir/foo.py"]
 
 

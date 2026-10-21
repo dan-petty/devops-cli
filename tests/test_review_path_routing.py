@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.review.chunker import _extract_header_filenames, diff_pages
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.protocol import ReviewLLMClient
@@ -31,6 +30,7 @@ from devops_cli.ai.review.runner import (
 )
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.review import app as review_app
+from devops_cli.review.diff import diff_blocks, diff_file_names
 from devops_cli.security.base import ScanOutcome
 
 _ROUTED = (
@@ -57,7 +57,7 @@ def _diff(paths: tuple[str, ...]) -> str:
 
 
 def _page_files(pages: list[str]) -> list[str]:
-    return sorted({name for page in pages for name in _extract_header_filenames(page)})
+    return sorted({name for page in pages for name in diff_file_names(page)})
 
 
 def _write(root: Path, paths: tuple[str, ...]) -> None:
@@ -94,7 +94,7 @@ def _branch(root: Path, git: Callable[..., None], changed: tuple[str, ...]) -> N
 def test_the_branch_page_builder_keeps_only_reviewable_files() -> None:
     """Verify a diff touching code, a changelog fragment, a task file, the roadmap and generated
     command references gives persona pages for the code alone."""
-    assert _page_files(diff_pages(_diff(("src/app.py", *_ROUTED)))) == ["src/app.py"]
+    assert _page_files(diff_blocks(_diff(("src/app.py", *_ROUTED)))) == ["src/app.py"]
 
 
 def test_a_branch_review_reaches_the_personas_with_only_reviewable_files(

@@ -26,8 +26,6 @@ __all__ = [
     "collect_historical_category_metrics",
     "compute_category_metrics",
     "compute_verdict_distributions",
-    "diff_pages",
-    "diff_stream_chunks",
     "export_invalidated_feedback",
     "extract_imports_from_diff",
     "extract_imports_from_source",
@@ -73,8 +71,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
         "devops_cli.ai.review_schema",
         "compute_verdict_distributions",
     ),
-    "diff_pages": ("devops_cli.ai.review.chunker", "diff_pages"),
-    "diff_stream_chunks": ("devops_cli.ai.review.chunker", "diff_stream_chunks"),
     "export_invalidated_feedback": ("devops_cli.ai.review.exporter", "export_invalidated_feedback"),
     "extract_imports_from_diff": ("devops_cli.ai.review.ast_imports", "extract_imports_from_diff"),
     "extract_imports_from_source": (
@@ -82,7 +78,7 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
         "extract_imports_from_source",
     ),
     "extract_json_block": ("devops_cli.ai.review_schema", "extract_json_block"),
-    "find_repo_files": ("devops_cli.ai.review.chunker", "find_repo_files"),
+    "find_repo_files": ("devops_cli.review.targets", "find_repo_files"),
     "format_category_baseline_markdown": (
         "devops_cli.ai.review.category_metrics",
         "format_category_baseline_markdown",

@@ -544,9 +544,9 @@ def branch(
 
 def _resolve_pr_files(pages: list[str], pull: Any) -> list[str]:
     """Extract changed file paths from PR pages or pull object."""
-    from devops_cli.ai.review.chunker import _extract_header_filenames
+    from devops_cli.review.diff import diff_file_names
 
-    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
     if not all_files and pull:
         try:
             return [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]

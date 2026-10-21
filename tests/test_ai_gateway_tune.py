@@ -653,12 +653,12 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
     result = runner.invoke(gateway_cli_app, ["tune", "--concurrency", "1,4", "--format", "json"])
 
     report = json.loads(result.stdout)
-    # The default prompt is one review page for the analysis task's window (32768 tokens:
-    # 68812 characters, 19660 tokens), capped below a deployment's max_input_tokens.
+    # The default prompt is DEFAULT_GATEWAY_TUNE_PROMPT_TOKENS (512 tokens), capped below
+    # a deployment's max_input_tokens.
     assert (
         report["prompt_tokens"],
         [d["prompt_tokens"] for d in report["deployments"]],
-    ) == (19660, [11059, 19660])
+    ) == (512, [512, 512])
     assert (
         result.exit_code,
         report["model_group"],
