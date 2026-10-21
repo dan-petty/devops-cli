@@ -506,7 +506,7 @@ devops ai constellation [OPTIONS]
 
 ## `devops ai review`
 
-**AI-powered multi-persona code review system.**
+**AI-powered code review and group analysis system.**
 
 ```bash
 devops ai review [OPTIONS] COMMAND [ARGS]...
@@ -559,7 +559,7 @@ devops ai review path [OPTIONS] <targets>
 
 ### `devops ai review branch`
 
-**Review a git branch diff with one or all AI personas.**
+**Review a git branch diff.**
 
 ```bash
 devops ai review branch [OPTIONS] <branch_name>
@@ -597,7 +597,7 @@ devops ai review branch [OPTIONS] <branch_name>
 
 ### `devops ai review pr`
 
-**Review a GitHub pull request with one or all AI personas.**
+**Review a GitHub pull request.**
 
 ```bash
 devops ai review pr [OPTIONS] <number>

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from devops_cli.ai.personas import PERSONAS, Persona
-from tests.support.paths import REPO_ROOT
 
 
 def test_qa_persona_is_registered() -> None:
@@ -88,18 +87,6 @@ _REVIEW_PROMPT_RULES: tuple[str, ...] = (
 )
 
 
-# Rules true of this repository only, moved from the shared prompt to its `.devops/review.md`,
-# which the reviewers receive when they review this repository (#515).
-_OWN_REVIEW_CONVENTION_RULES: tuple[str, ...] = (
-    "is_symlink()",
-    "threading.RLock",
-    "NetworkPolicy",
-    "PEP 758",
-    "OpenMetrics",
-    "sanitize_prompt_injection",
-    "mergeable_state",
-    "response_repair.py",
-)
 # Removed on purpose (#515): the model never sees the catalog or the feedback dataset, an
 # improvement is not a finding, and private-address rules for documentation are a project's own.
 _REMOVED_REVIEW_PROMPT_RULES: tuple[str, ...] = (
@@ -115,28 +102,7 @@ def test_the_review_prompt_still_carries_every_rule() -> None:
     from devops_cli.ai.personas import _TASKS_DIR, _load
 
     prompt = _load(_TASKS_DIR / "review.md")
-    own = (REPO_ROOT / ".devops/review.md").read_text(encoding="utf-8")
     assert (
         [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt],
-        [rule for rule in _OWN_REVIEW_CONVENTION_RULES if rule not in own],
         [rule for rule in _REMOVED_REVIEW_PROMPT_RULES if rule in prompt],
-    ) == ([], [], [])
-
-
-def test_host_specific_rules_live_in_this_repositorys_conventions() -> None:
-    """The shared prompt forbids imposing one project's rules on another.
-
-    It once carried this repository's rules under a heading asking the model to ignore them
-    elsewhere, which every other target still received. They now live in this repository's
-    `.devops/review.md`, given to reviewers only when this repository is reviewed (#515).
-    """
-    from devops_cli.ai.personas import _TASKS_DIR, _load
-
-    prompt = _load(_TASKS_DIR / "review.md")
-    own = (REPO_ROOT / ".devops/review.md").read_text(encoding="utf-8")
-    markers = ("response_repair.py", "mergeable_state")
-    assert (
-        [m for m in markers if m in prompt],
-        [m for m in markers if m not in own],
-        "When the target is this repository" in prompt,
-    ) == ([], [], False)
+    ) == ([], [])

@@ -21,9 +21,8 @@ persona stage goes too, persona findings are reported unverified.
 flowchart TD
     A["devops review path / branch / pr"] --> B["1. Pre-analysis"]
     B --> C["2. Payloads: static scanners and their admission, dependencies, network references"]
-    C --> D["3. Persona review: devsecops, or the personas named"]
-    D --> F["4. Re-ranking"]
-    F --> G["5. Report: findings.json, candidates.json, review.md, profile.json"]
+    C --> D["3. Group analysis: bounded model analysis of admitted findings"]
+    D --> G["4. Report: findings.json, candidates.json, review.md, profile.json"]
     G --> H["devops review verify: a person's verdict"]
     H --> K["Review history"]
     K --> M["devops review stats, the report's category baseline"]
@@ -36,51 +35,30 @@ flowchart TD
 
 ### A Review
 
-`devops review path`, `branch` and `pr` (`commands/review.py:196`, `:417`, `:734`) all run
-`_execute_review_workflow` (`ai/review/runner.py:2142`). The analysis client is always an
-`LLMClient` (`ai/review/runner.py:1460-1483`), so every review takes the staged path
-(`ai/review/runner.py:2215`), under a profiler, through five stages
-(`ai/review/runner.py:2009-2070`):
+`devops review path`, `branch` and `pr` (`commands/review.py`) all run
+`_execute_review_workflow` (`ai/review/runner.py`). The analysis client is constructed
+only when model stages are enabled (`ReviewStageFlags.needs_model()`), under a profiler,
+through four stages:
 
-1. **Pre-analysis** (`ai/review/pipeline.py:2335`) refreshes each file's metadata: its purpose,
-   symbols and dependencies, and for a branch or pull request the symbols the diff removed
-   (`ai/review/pipeline.py:1215`).
-2. **Payloads** (`ai/review/pipeline.py:2948`) run the static scanners over the files
-   (`ai/review/pipeline.py:1263`: Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep) and admit
-   each candidate (`ai/review/pipeline.py:586-655`): its location must be in the reviewed tree, a
+1. **Pre-analysis** refreshes each file's metadata: its purpose,
+   symbols and dependencies, and for a branch or pull request the symbols the diff removed.
+2. **Payloads** run the static scanners over the files
+   (Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep) and admit
+   each candidate: its location must be in the reviewed tree, a
    `[[suppressions]]` entry of `.devops/review.toml` read where the diff starts suppresses it, and
-   its path class's `[severity_caps]` entry caps its severity unless a secret scanner reported it,
-   Gitleaks or Trivy's secret results (`ai/review/pipeline.py:578-583`, `:640`,
-   `ai/review/pipeline.py:2269`). They extract
+   its path class's `[severity_caps]` entry caps its severity unless a secret scanner reported it. They extract
    dependencies and network references, and look up their advisories and reputations.
-3. **Persona review** (`ai/review/pipeline.py:3332`). The DevSecOps persona reviews alone, unless
-   `--persona` names another or `--all` adds architect, qa, auditor and pm
-   (`ai/review/runner.py:115-126`). The sixth persona, challenger, runs only when `--persona`
-   names it (`ai/personas/__init__.py:18-24`). The CLI always passes that list, so the defaults by
-   kind of file (`ai/review/classification.py:258`) are never used. A persona's system prompt is
-   its `role.md`, `tasks/review.md` and its `prompt.md` (`ai/personas/__init__.py:74`), then the
-   target's conventions: the opening 3,000 characters of the nearest `AGENTS.md` or its peers and
-   up to 8,000 of `.devops/review.md` (`ai/review/pipeline.py:3034`), and
-   `ai/tasks/guardrails_isolation.md` closes it (`ai/review/classification.py:35`, `:48-62`).
-   Every persona reads every page of the file, with the prompt for its kind (code, configuration
-   or documentation; `ai/review/classification.py:309`), up to three chunks the RAG index returns
-   for the file's path and symbols when RAG is enabled (`ai/review/pipeline.py:1743-1763`), and the
-   contracts of the libraries a Python file imports. Findings of one file that report one defect
-   are merged (`ai/review/pipeline.py:3229`).
-4. **Re-ranking** (`ai/review/pipeline.py:3485-3505`) marks each file that has a reportable
-   finding not INVALIDATED and counts those findings. It changes no finding and reorders nothing;
-   the report sorts.
-5. **Report** (`ai/review/pipeline.py:4356`). The session's directory,
-   `<data dir>/reviews/<UTC timestamp>/` (`ai/review/pipeline.py:902`), receives:
-   - `findings.json`, the reported findings: VERIFIED, MITIGATED and UNVERIFIED, never INVALIDATED
-     (`ai/review/pipeline.py:3546`, `:4412`);
-   - `candidates.json`, every finding the review raised with its verdict
-     (`ai/review/pipeline.py:4420`);
-   - `review.md` (`ai/review/pipeline.py:4471`) and `profile.json`.
+3. **Group analysis** (`devops_cli.review.analysis`). Bounded per-group model analysis for admitted
+   review findings, grouping findings by enclosing symbol or rule, Kubernetes `(namespace, kind, name)`,
+   or package `purl`, grounding each group's single model call in installed-version rule documentation
+   and secret-masked code excerpts.
+4. **Report**. The session's directory, `<data dir>/reviews/<UTC timestamp>/`, receives:
+   - `findings.json`, the reported findings: VERIFIED, MITIGATED and UNVERIFIED, never INVALIDATED;
+   - `candidates.json`, every finding the review raised with its verdict;
+   - `review.md` and `profile.json`.
 
-No model and no criterion gives a finding its verdict: a persona's finding is reported UNVERIFIED
-until a person judges it, and `--no-persona-review` gives a tools-only review. Nothing compares the
-personas or counts their agreement.
+No model gives a finding its verdict: a tool finding is reported UNVERIFIED
+until a person judges it, and `--no-group-analysis` makes zero model calls.
 
 ### Verdicts
 
@@ -169,7 +147,7 @@ feedback loop that changes what it does once the defects are gone:
 
 ## 2. Review Protocol & Persona Guidelines
 
-Every persona's system prompt carries [`src/devops_cli/ai/tasks/review.md`](../src/devops_cli/ai/tasks/review.md)
+Interactive personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`, and `challenger`) provide domain-specific perspectives for `devops ai chat`. Every persona's system prompt carries [`src/devops_cli/ai/tasks/review.md`](../src/devops_cli/ai/tasks/review.md)
 (`ai/personas/__init__.py:74`). Its protocol has four steps: ground the review in the target,
 inspect, falsify before reporting, and formulate (`ai/tasks/review.md:1-3`). The notes below
 follow those steps, and the calibration records under step 3 are what each session taught.
@@ -184,15 +162,18 @@ follow those steps, and the calibration records under step 3 are what each sessi
 ### 2. Inspect
 
 - `review.md` names what to trace (`ai/tasks/review.md:12-23`): execution flow and resource lifecycles, whether a symbol exists before calling it missing, state after an empty declaration, path containment, egress and SSRF across redirects, repeated expensive work and unbounded untrusted input, bounded error detail, secret hygiene, the language version the project declares, and the review tool's own `<masked-kind>` markers.
-- What one project requires goes in its `.devops/review.md`, not in the shared prompts (section 4). This repository's file states, among others, read timeouts on HTTP clients, symlink-safe directory walks and error detail bounded to 256 characters (`.devops/review.md`, "House rules").
+- What one project requires goes in its `.devops/review.toml` and project conventions, not in the shared prompts. Examples include read timeouts on HTTP clients, symlink-safe directory walks and error detail bounded to 256 characters.
 
 ### 3. Falsify Before Reporting
 
 - Search for what disproves the defect: surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, caller constraints. Report only what can be seen; when showing the defect needs code the reviewer was not given, there is no finding (`ai/tasks/review.md:25-31`).
-- A persona sees no catalog of disproved claims. A false positive that recurs is a `.devops/review.toml` suppression with a reason and an expiry (section 1).
+- Review and analysis see no catalog of disproved claims. A false positive that recurs is a `.devops/review.toml` suppression with a reason and an expiry.
 - Dismiss theoretical or already-mitigated alerts; prioritize high-signal, reproducible flaws.
 - **Prefer the cheapest mechanical oracle over model judgement.** Before a finding is reported, ask which existing tool already decides it. A claim of a `None` dereference is decided by `mypy --strict`; a claim of invalid syntax by the parser; a claim that a symbol is missing by reading the module. A model asked to confirm something a tool has already disproved will sometimes confirm it.
 - **A finding describes the code as it is now.** Claims that a guard was "removed", "no longer present", or "dropped" must be confirmed against the current file. An assertion about an earlier state, remembered or inferred, is not a finding.
+
+> [!NOTE]
+> The calibration records below are preserved as historical record. #1150 deleted the common hallucinations catalog they name; a lesson is now recorded as a `.devops/review.toml` suppression or a rule-pack rule, and candidate-generating persona stages are deleted by #1151.
 
 #### Calibration Record: Session `20260921-212653`
 
@@ -565,10 +546,9 @@ A review sends two metrics of its own over OTLP, registered with every other dev
 | Metric | Type | Labels | What it counts |
 | :--- | :--- | :--- | :--- |
 | `devops_cli_review_duration_seconds` | Histogram | `target_type` (`path`, `branch`, `pr`) | The review's wall time (`telemetry/instruments.py:77-83`). |
-| `devops_cli_findings_total` | Counter | `persona`, `severity`, `status` | The findings `findings.json` reports, by status: VERIFIED, MITIGATED or UNVERIFIED, never INVALIDATED (`telemetry/instruments.py:84-89`, `ai/review/runner.py:2096-2112`). |
+| `devops_cli_findings_total` | Counter | `producer`, `severity`, `status` | The findings `findings.json` reports, by status: VERIFIED, MITIGATED or UNVERIFIED, never INVALIDATED (`telemetry/instruments.py`, `ai/review/runner.py`). |
 
-The `persona` label is the persona `--persona` named, or `devsecops`, whichever personas reported
-the finding (`ai/review/runner.py:2207`). The counter is sent once, when the report is written: a
+The `producer` label identifies the analyzer or scanner that reported the finding. The counter is sent once, when the report is written: a
 later `devops review verify` changes no metric, and nothing counts verdicts, invalidations or
 exports. Like every command, a review also counts in `devops_cli_command_total` and
 `devops_cli_command_duration_seconds` (`main.py:158-182`).
@@ -583,7 +563,7 @@ below.
 ### Review Profiles & Benchmarks
 
 Every review writes `profile.json` next to its `findings.json`: wall time per stage (pre-analysis,
-payloads, persona review, re-ranking, report), the LLM calls, prompt and completion
+payloads, group analysis, report), the LLM calls, prompt and completion
 tokens made during each stage, the backends the gateway routed them to, and the candidate,
 verified and reported finding counts. The profile's session ID is an attribute of the session's
 `review.session` span, so a slow stage can be followed into its trace. It also records how each
@@ -600,34 +580,26 @@ the backend that served them (`truncated`). When any reply hit the cap, the prof
 says how many.
 
 A single review is not a measurement: identical runs produce different numbers of candidate
-findings, and the time of every stage after persona review follows them. `devops review benchmark <targets> -n 3` reviews the
+findings, and the time of every stage after payloads follows them. `devops review benchmark <targets> -n 3` reviews the
 same files several times with the response cache bypassed and saves the medians under
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
 
 ### Project Review Conventions
 
-The shared review and verification prompts hold rules that are true of any project. What is
-intended in one project goes in that project's `.devops/review.md`. Examples include an internal
+The target's review conventions (`.devops/review.toml`, `AGENTS.md`) define project-specific
+suppressions, severity caps, and house rules. Examples include an internal
 connector allowed to reach private networks, output a CLI is meant to print, a type checker the
-project enforces, the inputs the project trusts, or house rules for its documentation. Facts about
-one project's code, which the shared prompts once carried as exemptions for every project, belong
-there too (#951). A test keeps this repository's file under the 8,000-character cap below, past
-which a rule is cut before any model reads it.
-
-`devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
-root, in full up to 8,000 characters. It gives the file to the persona reviewers, beside the
-general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
-This repository keeps its own rules in `.devops/review.md`.
+project enforces, the inputs the project trusts, or house rules for its documentation.
 
 A change is reviewed under the conventions it started from, so it cannot loosen its own review
-(#946). `devops review branch` reads both files with git at the merge base of the branch and its
+(#946). `devops review branch` reads conventions with git at the merge base of the branch and its
 base (at `HEAD` for uncommitted changes), not from the working tree, and `devops review pr` reads
 them from the pull request's base. A base with no local branch, as in a CI checkout of a feature,
 is `origin/<base>`, and the checked-out branch is never its own base: with no base at all the diff
 fails. The lookup also stops at a defect corpus's root, which its manifest marks, read at the same
 revision. It reads only regular files: a conventions file that is a link is skipped, on disk and
-at a revision, as the chunker skips a linked source file, so a reviewed tree cannot bring a file
+at a revision, so a reviewed tree cannot bring a file
 from outside it into the prompts. Each review's `profile.json` records `conventions_digest`, a digest of the conventions
 its prompts carried, empty when they carried none.
 

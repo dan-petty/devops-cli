@@ -8,12 +8,12 @@ This document provides an overview of the main command groups implemented in `de
 
 | Group | Subcommand | Purpose | Primary Flags / Arguments |
 | :--- | :--- | :--- | :--- |
-| **`ai`** | `devops ai review branch` | AI multi-persona branch code review | `branch_name`, `--base`, `--repo`, `--persona`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
-| | `devops ai review path` | AI multi-persona path/file code review | `path`, `--persona`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
+| **`ai`** | `devops ai review branch` | AI branch code review and group analysis | `branch_name`, `--base`, `--repo`, `--summary`, `--no-<stage>`, `--<stage>-only` |
+| | `devops ai review path` | AI path/file code review and group analysis | `path`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
 | | `devops ai review pr` | Review GitHub pull request by number | `number`, `--repo`, `--post`, `--no-<stage>`, `--<stage>-only` |
 | | `devops ai review findings` | Inspect a session's findings, or with `--candidates` every finding it raised | `--session`, `--status`, `--severity`, `--unverified`, `--verified`, `--invalidated`, `--mitigated`, `--candidates`, `--details` |
 | | `devops ai review verify` | Record a person's verdict on a finding or candidate | `--session`, `--index`, `--title`, `--candidate`, `--status` (required), `--reason` |
-| | `devops ai review benchmark` | Review the same files several times and report median time/tokens per stage | `targets`, `--runs`, `--pattern`, `--persona`, `--all` |
+| | `devops ai review benchmark` | Review the same files several times and report median time/tokens per stage | `targets`, `--runs`, `--pattern`, `--all` |
 | | `devops ai review export-feedback` | Export findings to a JSONL feedback dataset | `--output`, `--reviews-dir`, `--status` |
 | | `devops ai review stats` | Display review accuracy statistics | `--reviews-dir` |
 | | `devops ai chat` | Interactive chat with a Pydantic AI persona | `--persona`, `--model`, `--context`, `--rag`, `--tools`, `--thinking` |

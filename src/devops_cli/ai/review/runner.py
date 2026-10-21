@@ -1,4 +1,4 @@
-"""Multi-persona review execution runner, model warming, and session management."""
+"""Review execution runner, model warming, and session management."""
 
 from __future__ import annotations
 
