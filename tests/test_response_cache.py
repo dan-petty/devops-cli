@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import functools
+import json
 import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient, LLMResponse
@@ -15,8 +18,10 @@ from devops_cli.ai.response_cache import (
     get_llm_response_cache,
     reset_llm_response_cache,
 )
+from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import route_client
 
 
 @pytest.fixture(autouse=True)
@@ -203,6 +208,96 @@ def test_llm_client_exact_cache_hit(
     assert res2.cached is True
     assert res2.backend_info == "cache"
     assert dispatch_mock.call_count == 1  # No additional dispatch!
+
+
+def test_a_cache_entry_keeps_the_backend_and_model_that_served_it(
+    clean_cache: LLMResponseCache,
+) -> None:
+    """Verify an entry records the backend and model its reply carried beside the requested alias,
+    and one written without them reads back with neither (#1013)."""
+    store = functools.partial(
+        clean_cache.set,
+        provider="gateway",
+        model="alias",
+        system="sys",
+        prompt="prompt",
+        content="reply",
+    )
+    store(key="llm_served", served_by="https://example.com:11434", response_model="served-model")
+    store(key="llm_unserved")
+    clean_cache._memory_cache.clear()
+
+    read = [clean_cache.get(key) for key in ("llm_served", "llm_unserved")]
+
+    assert [
+        (entry.model, entry.served_by, entry.response_model) for entry in read if entry is not None
+    ] == [
+        ("alias", "https://example.com:11434", "served-model"),
+        ("alias", None, None),
+    ]
+
+
+def _served_gateway_client(
+    monkeypatch: pytest.MonkeyPatch, clean_cache: LLMResponseCache, served_by: str
+) -> tuple[LLMClient, list[httpx2.Request]]:
+    """A gateway client, over a transport that answers `served_by` as the backend and
+    `served-model` as the model, using the test's cache."""
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config, api_key="sk")
+    client._cache = clean_cache
+    body = {
+        "model": "served-model",
+        "choices": [{"message": {"content": "reply"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    headers = {CONST_AI_GATEWAY_SERVED_BY_HEADER: served_by}
+    sent = route_client(
+        client, monkeypatch, lambda _request: httpx2.Response(200, json=body, headers=headers)
+    )
+    return client, sent
+
+
+def test_a_cache_hit_returns_the_backend_and_model_that_served_the_reply(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, clean_cache: LLMResponseCache
+) -> None:
+    """Verify a hit carries the served backend and model of the reply it replays, and still
+    names the cache as its backend (#1013)."""
+    client, sent = _served_gateway_client(monkeypatch, clean_cache, "https://example.com:11434")
+
+    client.chat("system prompt", "hello world")
+    hit = client.chat("system prompt", "hello world")
+
+    assert (len(sent), hit.cached, hit.backend_info, hit.served_by, hit.model) == (
+        1,
+        True,
+        "cache",
+        "https://example.com:11434",
+        "served-model",
+    )
+
+
+def test_the_backend_a_cached_gateway_reply_records_carries_no_credentials(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, clean_cache: LLMResponseCache
+) -> None:
+    """Verify a gateway that names its backend with credentials in the URL leaves them out of
+    the entry: the cache stores the backend as the client reports it (#1013)."""
+    client, _sent = _served_gateway_client(
+        monkeypatch, clean_cache, "https://user:secret@example.com:11434"
+    )
+
+    client.chat("system prompt", "hello world")
+    (entry_file,) = clean_cache.cache_dir.rglob("*.json")
+    text = entry_file.read_text(encoding="utf-8")
+    entry = json.loads(text)
+
+    assert ("secret" in text, entry["served_by"], entry["response_model"], entry["model"]) == (
+        False,
+        "https://example.com:11434",
+        "served-model",
+        "demo-model",
+    )
 
 
 def test_llm_client_starting_point_warm_refinement(

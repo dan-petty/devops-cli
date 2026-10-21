@@ -9,7 +9,7 @@ import httpx2
 import pytest
 from pydantic_ai.messages import FinishReason, ModelResponse, TextPart
 
-from devops_cli.ai.client import LLMClient, LLMResponse, RequestPriority
+from devops_cli.ai.client import LLMClient, LLMResponse, ReplyRejectedError, RequestPriority
 from devops_cli.config.constants import (
     CONST_ANTHROPIC_STOP_REASONS,
     CONST_OLLAMA_DONE_REASONS,
@@ -130,12 +130,20 @@ def test_the_reason_survives_conversion_both_ways() -> None:
 
 @pytest.mark.parametrize(
     ("reason", "cached"),
-    [("length", False), ("content_filter", False), ("error", False), ("stop", True), (None, True)],
+    [
+        ("length", False),
+        ("content_filter", False),
+        ("error", False),
+        ("tool_call", False),
+        ("stop", True),
+        (None, True),
+    ],
 )
 def test_only_replies_that_ended_normally_are_cached(
     reason: FinishReason | None, cached: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify a cut, filtered or failed reply is returned but not cached, so it is asked again."""
+    """Verify a cut, filtered, failed or tool-calling reply is returned but not cached, so it
+    is asked again."""
     provider_calls: list[str] = []
 
     def provider(
@@ -168,3 +176,25 @@ def test_only_replies_that_ended_normally_are_cached(
         1 if cached else 2,
         cached,
     )
+
+
+def test_a_reply_the_validator_refuses_keeps_its_finish_reason(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str
+) -> None:
+    """Verify the rejection carries the reply as the provider gave it, so a caller reads why it
+    ended, and a refused reply is neither cached nor sent again (#1013)."""
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config, api_key="sk")
+    body = {"choices": [{"message": {"content": "not json"}, "finish_reason": "length"}]}
+    sent = route_client(client, monkeypatch, lambda _request: httpx2.Response(200, json=body))
+
+    with pytest.raises(ReplyRejectedError) as refused:
+        client.chat("sys", "user", validator=lambda text: False, max_retries=0)
+
+    assert (
+        len(sent),
+        str(refused.value.reply),
+        getattr(refused.value.reply, "finish_reason", None),
+    ) == (1, "not json", "length")

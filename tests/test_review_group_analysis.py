@@ -6,11 +6,13 @@ import json
 from pathlib import Path
 from typing import Any, Final
 
+import httpx2
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import LLMResponse
+from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
@@ -36,11 +38,13 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
+from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
 from devops_cli.review.state import FindingState
+from tests.llm_stream_fakes import route_client
 
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
     constants, "CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED", "reply-truncated"
@@ -1519,3 +1523,195 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
         assert len(fake_client.calls) == 1
         analysis_path = reviews_dir / "session_routed" / CONST_REVIEW_ANALYSIS_FILENAME
         assert analysis_path.is_file()
+
+
+_GROUP_SOURCE = "def a():\n    return 1\n"
+_GROUP_DOCS = {"rule:ruff:F401@0.15.10": "Module imported but unused."}
+
+
+def _group_payload(finding_id: str = "fp-a") -> str:
+    """A reply that parses and passes every G10 check for the one finding group."""
+    return json.dumps(
+        {
+            "explanation": "The import is unused.",
+            "root_cause": "A leftover import.",
+            "related_items": [],
+            "plan_steps": [{"description": "Step 1", "finding_ids": [finding_id]}],
+            "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
+            "code_quotes": ["    return 1"],
+        }
+    )
+
+
+def _group_reply(
+    text: str, *, finish_reason: str = "stop", reasoning: str | None = None
+) -> httpx2.Response:
+    """A gateway's non-streamed chat reply carrying `text`, and the model's `reasoning` if any."""
+    message = {"content": text} | ({} if reasoning is None else {"reasoning_content": reasoning})
+    choice = {"message": message, "finish_reason": finish_reason}
+    usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+    return httpx2.Response(200, json={"choices": [choice], "usage": usage})
+
+
+def _group_client(
+    monkeypatch: pytest.MonkeyPatch, replies: list[httpx2.Response]
+) -> tuple[LLMClient, list[httpx2.Request]]:
+    """A real gateway client whose transport answers with `replies` in turn, then the last again,
+    and the requests it receives. The client's cache is the test's own."""
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config, api_key="sk")
+
+    def answer(_request: httpx2.Request) -> httpx2.Response:
+        return replies.pop(0) if len(replies) > 1 else replies[0]
+
+    return client, route_client(client, monkeypatch, answer)
+
+
+def _analyze_group(client: LLMClient, tmp_path: Path, name: str = "session") -> Any:
+    """Run group analysis over the one finding group through `client`."""
+    from devops_cli.review.analysis import run_group_analysis
+
+    return run_group_analysis(
+        [_make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")],
+        llm_client=client,
+        file_contents={"src/app.py": _GROUP_SOURCE},
+        rule_docs=_GROUP_DOCS,
+        session_dir=tmp_path / name,
+    )
+
+
+def _cache_entries(tmp_path: Path) -> list[dict[str, Any]]:
+    """The entries the per-test response cache wrote to disk."""
+    files = (tmp_path / "test_llm_cache").rglob("*.json")
+    return [json.loads(path.read_text(encoding="utf-8")) for path in files]
+
+
+def test_a_group_reply_that_is_not_json_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A reply that does not parse costs one model call, records `schema-validation-failed` and
+    is not cached, so the next run asks the model again (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("not json")])
+
+    first = _analyze_group(client, tmp_path, "first")
+    calls_after_first = len(sent)
+    cached_after_first = _cache_entries(tmp_path)
+    _analyze_group(client, tmp_path, "second")
+
+    assert (
+        calls_after_first,
+        first.groups[0].status,
+        first.groups[0].rejected_reasons,
+        first.rejections,
+        cached_after_first,
+        len(sent),
+    ) == (1, "rejected", ["schema-validation-failed"], {"schema-validation-failed": 1}, [], 2)
+
+
+def test_a_group_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A reply that parses but fails a G10 check records that check's reason and is not cached
+    (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply(_group_payload("fp-unknown"))])
+
+    report = _analyze_group(client, tmp_path)
+
+    assert (
+        len(sent),
+        report.groups[0].status,
+        report.groups[0].rejected_reasons,
+        _cache_entries(tmp_path),
+    ) == (1, "rejected", ["unknown-finding-id"], [])
+
+
+def test_a_verified_group_reply_is_cached_and_answers_the_next_run(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A reply that passes its checks is cached, and the next run is verified from the cache
+    without a model call (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply(_group_payload())])
+
+    first = _analyze_group(client, tmp_path, "first")
+    second = _analyze_group(client, tmp_path, "second")
+
+    assert (
+        len(sent),
+        first.groups[0].status,
+        second.groups[0].status,
+        [entry["content"] for entry in _cache_entries(tmp_path)],
+    ) == (1, "verified", "verified", [_group_payload()])
+
+
+def test_a_cut_group_reply_that_is_not_json_is_rejected_as_truncated_after_one_call(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A reply cut at the token cap that also fails to parse is `reply-truncated`, not
+    `schema-validation-failed`: the rejection keeps the reply's finish reason (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("not json", finish_reason="length")])
+
+    report = _analyze_group(client, tmp_path)
+
+    assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
+        1,
+        [CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED],
+        [],
+    )
+
+
+def test_an_empty_group_reply_is_one_model_call_and_a_model_call_error(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """An empty reply is not resent: one model call, recorded as `model-call-error` (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("")])
+
+    report = _analyze_group(client, tmp_path)
+
+    assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
+        1,
+        ["model-call-error"],
+        [],
+    )
+
+
+def test_an_empty_group_reply_with_reasoning_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """An empty reply that carries reasoning reaches the checks, fails to parse, and is not
+    cached or resent (#1013)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("", reasoning="thinking it over")])
+
+    report = _analyze_group(client, tmp_path)
+
+    assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
+        1,
+        ["schema-validation-failed"],
+        [],
+    )
+
+
+def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_call(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A cached reply the checks reject is not served: the group makes one model call, is
+    verified, and the entry then holds the new reply (#1013)."""
+    replies = [_group_reply("not json")]
+    client, sent = _group_client(monkeypatch, replies)
+    _analyze_group(client, tmp_path, "probe")
+    request = json.loads(sent[0].content)
+    system, user = (message["content"] for message in request["messages"])
+    client.chat(system, user)
+    seeded = [entry["content"] for entry in _cache_entries(tmp_path)]
+    calls_before = len(sent)
+    replies[:] = [_group_reply(_group_payload())]
+
+    report = _analyze_group(client, tmp_path, "run")
+
+    assert (
+        seeded,
+        len(sent) - calls_before,
+        report.groups[0].status,
+        [entry["content"] for entry in _cache_entries(tmp_path)],
+    ) == (["not json"], 1, "verified", [_group_payload()])

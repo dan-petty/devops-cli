@@ -528,6 +528,8 @@ class LLMClient(
             context_tag=context_tag,
             wall_seconds=getattr(res, "wall_seconds", 0.0),
             backend_info=getattr(res, "backend_info", None),
+            served_by=getattr(res, "served_by", None),
+            response_model=getattr(res, "model", None),
             tokens={
                 "prompt": getattr(res, "prompt_tokens", None),
                 "completion": getattr(res, "completion_tokens", None),
@@ -572,6 +574,8 @@ class LLMClient(
             backend_info=CONST_RESPONSE_CACHE_SERVER,
             thinking=cached_entry.thinking,
             cached=True,
+            served_by=cached_entry.served_by,
+            model=cached_entry.response_model,
         )
 
     def _record_cache_hit(self) -> None:
