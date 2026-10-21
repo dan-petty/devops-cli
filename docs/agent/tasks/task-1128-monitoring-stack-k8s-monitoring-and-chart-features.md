@@ -32,6 +32,12 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - `k8s/monitoring/dashboards/pyroscope.json` replaces its hard-coded custom `$service` list with a Pyroscope `label_values(service_name)` query, and `k8s/monitoring/dashboards/sre-service.json` replaces `created_by_name` with Pyroscope `label_values({service_namespace="$namespace"}, service_name)` and selects flamegraphs by `{service_namespace="$namespace", service_name=~"$service"}`.
 - `k8s/monitoring/prometheus-values.yaml` adds `PyroscopeQueryErrors` (`sum by (route) (rate(pyroscope_request_duration_seconds_count{status_code=~"5.."}[15m])) > 0`, `for: 15m`, `warning`) to `monitoring-self`.
 
+### Part 5: CoreDNS Dashboard and Metric Capture (#822)
+- Verified on the live cluster that `up{job="integrations/kubernetes/kube-dns"}` returns `1` (`service="kube-dns"`, `namespace="kube-system"`) and `sum(rate(coredns_dns_requests_total[5m]))` returns `1.97`, and that all five CoreDNS dashboard queries return live data.
+- `tests/fixtures/metrics/coredns.yaml` captures the metric families, types, and label names served by `rancher/mirrored-coredns-coredns:1.12.0` on `kube-dns.kube-system.svc.cluster.local:9153/metrics`.
+- `k8s/monitoring/dashboards/coredns.json` (`uid: devops-coredns`, provisioned via `grafana-stack-dashboards` in `k8s/monitoring/dashboards/kustomization.yaml`) adds panels for requests by type and protocol, responses by rcode, request duration (p50/p95/p99), forward request duration (p50/p95/p99), and cache hits and misses.
+- `tests/test_stack_dashboards.py` registers `coredns` in `EXPORTERS` and `coredns.json` in `DASHBOARD_EXPORTERS`.
+
 ## Acceptance Criteria
 - [x] `k8s/monitoring/k8s-monitoring-values.yaml` `integrations` gains the `alloy` (`k8s-monitoring`) and `grafana` (`grafana`) instances.
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `serviceMonitor.enabled: true`, and `test_prometheus_operator_crds_install_before_every_service_monitor` includes `("infra", "pyroscope")`.
@@ -45,7 +51,8 @@ Parent issue #1128 consolidates the monitoring stack onto `grafana/k8s-monitorin
 - [x] `k8s/monitoring/pyroscope-values.yaml` sets `pyroscope.extraArgs.log.level: info` and `k8s/monitoring/grafana-values.yaml` disables the datasource sidecar and scopes the dashboard sidecar and RBAC to `monitoring` ConfigMaps, verified by structural tuple and debug-log-level tests in `tests/test_k8s_monitoring_integration.py`.
 - [x] `k8s/monitoring/pyroscope-values.yaml` disables the bundled Alloy subchart (`alloy.enabled: false`) and `k8s/monitoring/k8s-monitoring-values.yaml` configures `destinations.localPyroscope`, `profiling` (`ebpf.targetingScheme: all` and `pprof`), and `collectors.alloy-profiles`.
 - [x] `k8s/monitoring/dashboards/pyroscope.json` and `k8s/monitoring/dashboards/sre-service.json` query `service_name` from Pyroscope without hard-coded service lists or `created_by_name`, and `k8s/monitoring/prometheus-values.yaml` adds `PyroscopeQueryErrors`.
-- Remaining children of #1128 delivered in subsequent PRs: #822, #1136, #551, and #1367.
+- [x] `k8s/monitoring/dashboards/coredns.json` and `tests/fixtures/metrics/coredns.yaml` add the CoreDNS dashboard over captured `coredns_*` series (`job="integrations/kubernetes/kube-dns"`), verified by `tests/test_stack_dashboards.py` and `tests/test_k8s_monitoring_dashboards.py`.
+- Remaining children of #1128 delivered in subsequent PRs: #1136, #551, and #1367.
 - Pending a person, after the infra and logging stacks are redeployed:
   - `count by (job) (up{job=~"integrations/alloy|integrations/grafana|.*pyroscope.*"})` shows 3 Alloy targets, 1 Grafana and 1 Pyroscope;
   - `sum by (pod) (loki_write_sent_entries_total)` returns one row per `alloy-logs` pod and `alloy-singleton`;
