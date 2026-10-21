@@ -80,8 +80,8 @@ def test_each_builder_builds_a_valid_object_from_its_defaults(
             id="finding",
         ),
         pytest.param(
-            partial(make_finding, saved=True, persona="architect"),
-            lambda built: built.persona,
+            partial(make_finding, saved=True, producer="architect"),
+            lambda built: built.producer,
             "architect",
             id="saved-finding",
         ),

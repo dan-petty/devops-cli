@@ -18,7 +18,6 @@ from devops_cli.ai.review_schema import (
     Finding,
     ReviewSessionPayload,
     SavedFinding,
-    _merge_two_findings,
     compute_verdict_distributions,
 )
 from devops_cli.commands.review import app
@@ -83,38 +82,6 @@ def test_verdict_invariants_enforcement_raises() -> None:
     bad_mit_rep = Finding(title="f7", location="a.py:1", status="MITIGATED", reportable=False)
     with pytest.raises(AssertionError, match="must stay reportable"):
         assert_verdict_invariants([bad_mit_rep])
-
-
-@pytest.mark.parametrize(
-    ("base", "other", "verified_by"),
-    [
-        (("VERIFIED", "llm"), ("VERIFIED", "human"), "llm"),
-        (("UNVERIFIED", None), ("VERIFIED", "llm"), "llm"),
-        (("INVALIDATED", "deterministic:syntax_error"), ("VERIFIED", "llm"), "llm"),
-        (("VERIFIED", None), ("VERIFIED", None), None),
-    ],
-    ids=["both-verified", "one-verified", "verified-over-invalidated", "no-adjudicator"],
-)
-def test_a_merge_keeps_the_adjudicator_of_the_verified_input(
-    base: tuple[str, str | None], other: tuple[str, str | None], verified_by: str | None
-) -> None:
-    """Merging duplicates into a VERIFIED finding keeps the adjudicator of a verified input. It
-    never names `criteria`, which settles no VERIFIED verdict, nor the adjudicator of an input
-    that was not verified (#1043)."""
-
-    def finding(status: str, by: str | None) -> Finding:
-        return Finding(
-            title="Shell command built from input",
-            location="app.py:2",
-            status=status,
-            verified=status == "VERIFIED",
-            reportable=status != "INVALIDATED",
-            verified_by=by,
-        )
-
-    merged = _merge_two_findings(finding(*base), finding(*other))
-
-    assert (merged.status, merged.verified_by) == ("VERIFIED", verified_by)
 
 
 def test_compute_verdict_distributions_citation_rates() -> None:

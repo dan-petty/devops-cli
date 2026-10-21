@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -11,14 +10,12 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.chunker import (
     _paginate_file_diff_block,
     _split_diff_into_file_blocks,
     _split_source_file_blocks,
     diff_pages,
 )
-from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
@@ -26,33 +23,6 @@ from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import route_client
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
-
-
-def test_review_path_help_includes_persona_option() -> None:
-    result = runner.invoke(app, ["review", "path", "--help"])
-
-    assert result.exit_code == 0
-    clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", result.output)
-    assert "--persona" in clean_output
-
-
-def test_persona_system_prompt_includes_agents_md_when_present() -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-
-    prompt = _persona_system_prompt(persona, "Use latest Python by policy.")
-
-    assert persona.system_prompt in prompt
-    assert "Use latest Python by policy." in prompt
-    assert "Do not raise findings that merely restate or contradict" in prompt
-
-
-def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
-    persona = PERSONAS[Persona.DEVSECOPS]
-    prompt = _persona_system_prompt(persona, "")
-
-    assert prompt.startswith(persona.system_prompt)
-    assert "Security & Prompt Isolation Guardrails" in prompt
-    assert "Project Instructions" not in prompt
 
 
 def test_diff_pages_keeps_small_files_on_separate_pages() -> None:
@@ -209,8 +179,6 @@ def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.Monke
             "path",
             str(test_f),
             "--append-cache",
-            "--persona",
-            "devsecops",
             "--no-pre-analysis",
             "--no-static-scan",
         ],
@@ -247,8 +215,6 @@ def test_run_review_dry_run_skips_client_calls(
     results = review_runner._execute_review_workflow(
         ["### File: app.py\n```py\n   1 | print('hello')\n```\n"],
         "Dry Run Review",
-        False,
-        Persona.DEVSECOPS,
         False,
         review_runner.ReviewClients.model_construct(analysis=DummyClient()),
         target_dir=target_dir,
@@ -291,8 +257,6 @@ def test_dry_run_routed_files_only_leaves_reviews_dir_empty(
     results = review_runner._execute_review_workflow(
         [],
         "Routed Dry Run",
-        False,
-        Persona.DEVSECOPS,
         False,
         review_runner.ReviewClients.model_construct(analysis=MagicMock()),
         target_dir=target_dir,

@@ -79,10 +79,6 @@ class ReviewMessages:
     updated_finding_status: str = "Updated finding #{index} status → {status}"
     updated_candidate_status: str = "Updated candidate #{index} status → {status}"
     candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"
-    candidate_already_reported: str = (
-        "findings.json already reports candidate #{index}'s defect as finding #{number}; "
-        "give the verdict there with --index {number}."
-    )
     candidate_copy_ambiguous: str = (
         "Finding #{number} in findings.json reports candidates {candidates}, which share a "
         "persona, title, location and description; give the verdict there with --index {number}, "

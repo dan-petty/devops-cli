@@ -39,9 +39,10 @@ _COUNTED_LABELS = {CONST_STATUS_INVALIDATED: "invalidated", CONST_STATUS_VERIFIE
 
 
 class PromptEvalBenchmarkResult(BaseModel):
-    """The verdicts the feedback dataset records for one persona's findings."""
+    """The verdicts the feedback dataset records for one producer's findings."""
 
-    persona: str
+    producer: str
+    persona: str = ""
     total_cases: int
     labelled_invalidated: int
     labelled_verified: int
@@ -79,8 +80,8 @@ def _resolve_dataset_path(dataset_path: Path | None, data_root: Path) -> Path:
     return resolved
 
 
-def _load_records(path: Path, persona: str) -> list[dict[str, Any]]:
-    """Read the feedback dataset, keeping only the records for one persona."""
+def _load_records(path: Path, producer: str) -> list[dict[str, Any]]:
+    """Read the feedback dataset, keeping only the records for one producer."""
     if not path.is_file() or path.stat().st_size > _MAX_DATASET_BYTES:
         return []
     records: list[dict[str, Any]] = []
@@ -91,7 +92,8 @@ def _load_records(path: Path, persona: str) -> list[dict[str, Any]]:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(record, dict) and record.get("persona") in (persona, None):
+        rec_producer = record.get("producer") or record.get("persona")
+        if isinstance(record, dict) and rec_producer in (producer, None):
             records.append(record)
     return records
 
@@ -102,18 +104,23 @@ def _labeller(record: dict[str, Any]) -> str:
 
 
 def evaluate_persona_prompts(
-    persona: str = "devsecops",
+    producer: str = "devsecops",
     dataset_path: Path | None = None,
     include_deterministic: bool = False,
+    *,
+    persona: str | None = None,
 ) -> PromptEvalBenchmarkResult:
-    """Count the INVALIDATED and VERIFIED verdicts the dataset records for `persona`'s findings.
+    """Count the INVALIDATED and VERIFIED verdicts the dataset records for `producer`'s findings.
 
     The counts are reported for each labeller, and a record a deterministic check labelled is
     excluded unless `include_deterministic`. The dataset is the one `devops review
     export-feedback` appends to, a relative one under the review data root (`review_data_root`,
     #972).
     """
-    records = _load_records(_resolve_dataset_path(dataset_path, review_data_root()), persona)
+    effective_producer = persona if persona is not None else producer
+    records = _load_records(
+        _resolve_dataset_path(dataset_path, review_data_root()), effective_producer
+    )
 
     excluded: Counter[str] = Counter()
     by_labeller: defaultdict[str, Counter[str]] = defaultdict(Counter)
@@ -131,7 +138,8 @@ def evaluate_persona_prompts(
 
     totals: Counter[str] = sum(by_labeller.values(), Counter())
     return PromptEvalBenchmarkResult(
-        persona=persona,
+        producer=effective_producer,
+        persona=effective_producer,
         total_cases=len(records) - excluded.total(),
         labelled_invalidated=totals["invalidated"],
         labelled_verified=totals["verified"],

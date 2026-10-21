@@ -677,7 +677,7 @@ The mutated files sit under `files/`, and the manifest sits beside that director
 so the reviewer cannot read the answers. The corpus carries copies of the first source's
 conventions files where it has them, and the manifest marks the corpus root, where the conventions
 lookup stops: a corpus written under `.data/reviews/corpora/` is not reviewed under the
-conventions of the checkout around it. After `devops review path <corpus>/files --all`, run
+conventions of the checkout around it. After `devops review path <corpus>/files`, run
 `devops review corpus score <corpus>`. It reports:
 
 - how many injections some candidate matched (`candidates.json`);

@@ -18,11 +18,6 @@ class MainHelp:
 @dataclass(frozen=True)
 class OptionHelp:
     repo: str = "Repository root directory (default: current directory)."
-    persona: str = (
-        "Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins "
-        "over --all. Without it or --all, devsecops reviews alone."
-    )
-    all_personas: str = "Review with devsecops, architect, qa, auditor and pm (not challenger)."
     base_branch: str = "Base git branch to diff against (default: main)."
     format_type: str = "Output format type (table, json, yaml, markdown)."
     dry_run: str = "Preview execution plan without mutating external state."
@@ -167,7 +162,7 @@ class AICommandHelp:
     include_tests: str = "Include test modules in symbol map."
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
-    eval_review: str = "Persona whose recorded verdicts to count."
+    eval_review: str = "Producer whose recorded verdicts to count."
     include_deterministic: str = (
         "Also count records a deterministic check labelled; they are a machine's labels, not a "
         "person's, so they are excluded by default."
@@ -1376,10 +1371,6 @@ class ReviewCommandHelp:
     pre_analysis_only: str = "Run pre-analysis only and skip subsequent stages."
     no_static_scan: str = "Disable static security scanning."
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
-    no_persona_review: str = "Disable multi-persona LLM inspection."
-    persona_review_only: str = "Run persona review only and skip subsequent stages."
-    no_reranking: str = "Disable finding re-ranking and deduplication."
-    reranking_only: str = "Run re-ranking only and skip subsequent stages."
     no_group_analysis: str = "Disable model-driven group analysis."
     no_reporting: str = "Disable consolidated report generation."
     reporting_only: str = "Run report generation only."

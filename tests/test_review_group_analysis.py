@@ -1397,7 +1397,6 @@ def test_review_path_without_model_stages_builds_no_llm_client(tmp_path: Path) -
                 "review",
                 "path",
                 str(test_file),
-                "--no-persona-review",
                 "--no-group-analysis",
             ],
         )
@@ -1424,9 +1423,6 @@ def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_j
         patch(
             "devops_cli.commands.review._make_review_clients",
             return_value=ReviewClients(analysis=fake_client),
-        ),
-        patch(
-            "devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator.execute_multi_persona_review"
         ),
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
         patch("devops_cli.ai.review.pipeline._get_reviews_base_dir", return_value=reviews_dir),
@@ -1456,7 +1452,6 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
     """A review whose every file is routed to secret scan alone, with 1 admitted Gitleaks finding, calls fake client once and writes analysis.json."""
     from unittest.mock import patch
 
-    from devops_cli.ai.personas import Persona
     from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
     from devops_cli.security.gitleaks import ScanOutcome
 
@@ -1512,8 +1507,6 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
         result = _execute_review_workflow(
             pages=[],
             title="Routed files review",
-            all_personas=False,
-            persona=Persona.DEVSECOPS,
             summary_only=False,
             clients=ReviewClients(analysis=fake_client),
             target_type="path",

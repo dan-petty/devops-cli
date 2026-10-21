@@ -36,7 +36,6 @@ from devops_cli.ai.spend.ledger import observe_llm_calls
 from devops_cli.config.constants import (
     CONST_FINISH_REASON_LENGTH,
     CONST_FINISH_REASON_UNKNOWN,
-    CONST_PERSONA_REPLY_UNPARSED,
 )
 from devops_cli.core.repo import own_source_state
 from devops_cli.tools_lock import tools_lock_digest
@@ -146,9 +145,6 @@ class ReviewProfile(BaseModel):
     static_analyzer_reasons: dict[str, str] = Field(default_factory=dict)
     # How long each analyzer's scans ran, in seconds, summed over its runs (#1079).
     static_analyzer_seconds: dict[str, float] = Field(default_factory=dict)
-    persona_outcomes: dict[str, int] = Field(default_factory=dict)
-    persona_replies: list[dict[str, Any]] = Field(default_factory=list)
-    unparsed_personas: list[str] = Field(default_factory=list)
     coverage: dict[str, dict[str, str]] = Field(default_factory=dict)
     partial_context: bool = False
     rejections: dict[str, int] = Field(default_factory=dict)
@@ -198,9 +194,6 @@ class ReviewProfiler:
         self._static_analyzer_reasons: dict[str, str] = {}
         self._static_analyzer_seconds: dict[str, float] = {}
         self._conventions = ""
-        self._persona_replies: list[dict[str, Any]] = []
-        self._persona_outcomes: dict[str, int] = {}
-        self._unparsed_personas: set[str] = set()
         self._coverage: dict[str, dict[str, str]] = {}
         self._partial_context: bool = False
         self._rejections: dict[str, int] = {}
@@ -220,30 +213,6 @@ class ReviewProfiler:
         """Set typed candidate rejections."""
         with self._lock:
             self._rejections.update(rejections)
-
-    def record_persona_reply(
-        self,
-        *,
-        file: str,
-        persona: str,
-        outcome: str,
-        persona_title: str = "",
-        page: int = 1,
-    ) -> None:
-        """Record the outcome of a single persona review reply."""
-        with self._lock:
-            self._persona_replies.append(
-                {
-                    "file": file,
-                    "persona": persona,
-                    "persona_title": persona_title or persona,
-                    "outcome": outcome,
-                    "page": page,
-                }
-            )
-            self._persona_outcomes[outcome] = self._persona_outcomes.get(outcome, 0) + 1
-            if outcome == CONST_PERSONA_REPLY_UNPARSED:
-                self._unparsed_personas.add(persona_title or persona)
 
     def observe(self, call: dict[str, Any]) -> None:
         """Credit an LLM call to the stage running in the caller's context.
@@ -334,9 +303,6 @@ class ReviewProfiler:
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
-            replies = list(self._persona_replies)
-            outcomes = dict(self._persona_outcomes)
-            unparsed = sorted(self._unparsed_personas)
             coverage = {t: dict(m) for t, m in self._coverage.items()}
             partial_ctx = self._partial_context
             rejections = dict(self._rejections)
@@ -372,9 +338,6 @@ class ReviewProfiler:
             static_analyzer_seconds={
                 name: round(seconds, 3) for name, seconds in self._static_analyzer_seconds.items()
             },
-            persona_outcomes=outcomes,
-            persona_replies=replies,
-            unparsed_personas=unparsed,
             coverage=coverage,
             partial_context=partial_ctx,
             rejections=rejections,

@@ -62,26 +62,11 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
     assert len(payloads) == 1
     assert payloads[0].file_path == "src/dummy.py"
-    assert "ai_scratchpad" in payloads[0].model_dump()
-    assert payloads[0].ai_scratchpad["stage"] == "initialized"
 
     file_json = orchestrator.files_dir / "src_dummy_py.json"
     assert file_json.exists()
 
-    # Stage 3: Multi-persona content review
-    orchestrator.execute_multi_persona_review(
-        payloads,
-        diff_text_by_file={"src/dummy.py": "def foo(): pass"},
-        personas=["devsecops"],
-    )
-    assert payloads[0].ai_scratchpad["stage"] == "reviewed"
-    assert len(payloads[0].findings) == 1
-
-    # Stage 4: re-ranking
-    orchestrator.execute_finding_reranking(payloads)
-    assert payloads[0].ai_scratchpad["stage"] == "reranked"
-
-    # Stage 5: Consolidated report generation
+    # Stage 3: Consolidated report generation
     data_out, report_md = orchestrator.generate_consolidated_report(payloads)
     assert isinstance(data_out, dict)
     assert "Code Review Report" in report_md
@@ -271,80 +256,6 @@ def test_consolidated_report_findings_sorted_by_severity_and_confidence(
     assert crit1_idx < crit2_idx < high_idx < med1_idx < med2_idx < low_idx
 
 
-def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypatch) -> None:
-    """Duplicate findings across personas should be merged, retaining highest severity."""
-    from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
-
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session", target_dir=tmp_path)
-
-    # devsecops reports High severity finding
-    f_secops = SavedFinding(
-        severity="HIGH",
-        title="Insecure subprocess execution",
-        location="src/k8s.py:42-50",
-        confidence_score=0.90,
-        description="Subprocess invocation without sanitization",
-        fix="Use run_subprocess with check=True",
-        persona="devsecops",
-        persona_title="Security Engineer",
-        status="VERIFIED",
-        verified=True,
-        verified_by="criteria",
-    )
-
-    # auditor reports Medium severity finding for overlapping lines with similar title
-    f_auditor = SavedFinding(
-        severity="MEDIUM",
-        title="Insecure subprocess execution call",
-        location="src/k8s.py:45",
-        confidence_score=0.85,
-        description="Subprocess call lacks execution audit logging",
-        fix="Add audit logging wrapper",
-        persona="auditor",
-        persona_title="Compliance Auditor",
-        verified=False,
-    )
-
-    # qa reports distinct finding in another function
-    f_qa = SavedFinding(
-        severity="LOW",
-        title="Missing unit test edge case",
-        location="src/k8s.py:120",
-        confidence_score=0.95,
-        description="Timeout error case is uncovered",
-        fix="Add test_timeout unit test",
-        persona="qa",
-        persona_title="QA Engineer",
-        status="VERIFIED",
-        verified=True,
-        verified_by="criteria",
-    )
-
-    payload = FileReviewPayload(
-        file_path="src/k8s.py",
-        findings=[f_secops, f_auditor, f_qa],
-    )
-
-    data_out, report_md = orchestrator.generate_consolidated_report([payload])
-
-    # 3 raw findings should be consolidated into 2 unique findings
-    findings = data_out["findings"]
-    assert len(findings) == 2
-
-    # The merged finding should take highest severity (HIGH) and merged personas
-    merged_finding = next(f for f in findings if "subprocess" in f["title"].lower())
-    assert merged_finding["severity"] == "HIGH"
-    assert merged_finding["confidence_score"] == 0.90
-    assert "devsecops" in merged_finding["persona"]
-    assert "auditor" in merged_finding["persona"]
-    assert merged_finding["verified"] is True
-
-    # Check report_md rendering
-    assert "Insecure subprocess execution" in report_md
-    assert "Security Engineer, Compliance Auditor" in report_md
-
-
 def test_normalize_unicode_text_in_findings() -> None:
     """Findings must sanitize non-standard Unicode hyphens, spaces, and smart quotes."""
     from devops_cli.ai.review_schema import Finding, normalize_unicode_text
@@ -426,7 +337,6 @@ def test_criteria_based_verification_and_reportability(
         findings=[f_reportable, f_invalidated],
     )
 
-    orchestrator.execute_finding_reranking([payload])
     data_out, report_md = orchestrator.generate_consolidated_report([payload])
 
     # Only the reportable verified finding should be in the report
@@ -438,102 +348,6 @@ def test_criteria_based_verification_and_reportability(
     assert "- **Status**: VERIFIED" in report_md
     assert "Unchecked array access" in report_md
     assert "Hardcoded credentials" not in report_md
-
-
-def test_persona_and_persona_title_distinctness(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify that multi-persona reviews populate distinct short persona slug and full title."""
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    mock_client = MagicMock()
-    # Mock pipeline result step
-    step_mock = MagicMock()
-    step_mock.backend_info = "mock-ollama"
-    step_mock.agent_name = "NIST/PCI/SOC Auditor"
-    step_mock.parsed_data = None
-    step_mock.content = (
-        '{"recommendation": "REQUEST CHANGES", "summary": "Audit issues", "findings": ['
-        '{"severity": "LOW", "location": "task.yml:10", "title": "Missing validation", '
-        '"description": "Fields lack validation", "fix": "Add validation", '
-        '"confidence_score": 0.8, "verification_criteria": ["Missing block"], '
-        '"invalidation_criteria": ["Block present"]}]}'
-    )
-
-    pipeline_result_mock = MagicMock()
-    pipeline_result_mock.steps = [step_mock]
-
-    with patch(
-        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
-        return_value=pipeline_result_mock,
-    ):
-        orchestrator = ReviewPipelineOrchestrator(
-            session_id="persona-test", llm_client=mock_client, target_dir=tmp_path
-        )
-        payload = FileReviewPayload(file_path="task.yml")
-        orchestrator.execute_multi_persona_review(
-            [payload],
-            diff_text_by_file={"task.yml": "diff content"},
-            personas=["auditor"],
-        )
-
-        assert len(payload.findings) == 1
-        finding = payload.findings[0]
-        assert finding.persona == "auditor"
-        assert finding.persona_title == "NIST/PCI/SOC Auditor"
-        assert finding.persona != finding.persona_title
-        assert "thoughts" in payload.ai_scratchpad
-        assert len(payload.ai_scratchpad["thoughts"]) > 0
-
-
-def test_ai_scratchpad_thoughts_collection_across_stages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify that thoughts and LLM reasoning are accumulated into ai_scratchpad.thoughts."""
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    mock_client = MagicMock()
-    step_mock = MagicMock()
-    step_mock.backend_info = "mock-ollama"
-    step_mock.agent_name = "Principal DevSecOps Engineer"
-    step_mock.parsed_data = None
-    step_mock.thoughts = ["Analyzing potential command injection vector in auth handler"]
-    step_mock.content = (
-        "<think>Found unescaped user input passed to subshell</think>"
-        '{"recommendation": "REQUEST CHANGES", "summary": "Security flaw", "findings": ['
-        '{"severity": "HIGH", "location": "auth.py:12", "title": "Command injection", '
-        '"description": "Unescaped input", "fix": "Use shlex.quote", '
-        '"confidence_score": 0.9, "verification_criteria": ["os.system call with raw var"], '
-        '"invalidation_criteria": ["Input sanitized"]}]}'
-    )
-
-    pipeline_result_mock = MagicMock()
-    pipeline_result_mock.steps = [step_mock]
-
-    with patch(
-        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
-        return_value=pipeline_result_mock,
-    ):
-        orchestrator = ReviewPipelineOrchestrator(
-            session_id="thoughts-test",
-            llm_client=mock_client,
-            target_dir=tmp_path,
-        )
-        payload = FileReviewPayload(file_path="src/auth.py")
-        orchestrator.execute_multi_persona_review(
-            [payload],
-            diff_text_by_file={"src/auth.py": "diff"},
-            personas=["devsecops"],
-        )
-
-        thoughts = payload.ai_scratchpad.get("thoughts", [])
-        assert any("Analyzing potential command injection" in t for t in thoughts)
-        assert any("Evaluated src/auth.py" in t for t in thoughts)
-
-        # Reranking appends stage thoughts
-        orchestrator.execute_finding_reranking([payload])
-        reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
-        assert any("[Re-ranking]" in t for t in reranked_thoughts)
 
 
 def test_generate_consolidated_report_with_intelligence_tables(
@@ -906,29 +720,21 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
 
 
 def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
-    """Verify ReviewPipelineOrchestrator path resolution, conventions, server info, and metadata matching."""
+    """Verify ReviewPipelineOrchestrator path resolution, server info, and metadata matching."""
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-    from devops_cli.config.settings import AIConfig
     from devops_cli.models.ai import FileAnalysisMeta
 
-    # 1. Target conventions with AGENTS.md
-    agents_f = tmp_path / "AGENTS.md"
-    agents_f.write_text("# Project Rules\nAlways use Pydantic v2.", encoding="utf-8")
-
     orchestrator = ReviewPipelineOrchestrator(session_id="ext-test", target_dir=tmp_path)
-    conventions = orchestrator._read_target_conventions()
-    assert "Target Repository Conventions" in conventions
-    assert "Pydantic v2" in conventions
 
-    # 2. Path resolution
+    # 1. Path resolution
     safe_rel = orchestrator._resolve_file_path("src/app.py")
     assert str(tmp_path) in str(safe_rel)
 
     traversal_p = orchestrator._resolve_file_path("../../outside.py")
     assert str(tmp_path) in str(traversal_p)
 
-    # 3. Server info
+    # 2. Server info
     cfg = AIConfig(
         provider="ollama", model="qwen2.5-coder:14b", ollama_urls=["http://example.com:11434"]
     )
@@ -939,7 +745,7 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
     s_info = orchestrator_llm._get_server_info()
     assert "qwen2.5-coder:14b" in s_info or "ollama" in s_info.lower()
 
-    # 4. Matching metadata
+    # 3. Matching metadata
     meta_exact = FileAnalysisMeta(path="src/utils/helpers.py", key_symbols=["help1"])
     meta_dict = {"src/utils/helpers.py": meta_exact}
 
@@ -951,14 +757,6 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
 
     matched_none = orchestrator._find_matching_metadata("nonexistent.py", meta_dict)
     assert matched_none is None
-
-    # 5. Build multi-persona pipeline
-    pipe, lookup = orchestrator._build_multi_persona_pipeline(
-        ["devsecops", "architect", "unknown_p"], conventions
-    )
-    assert len(pipe.agents) == 3
-    assert "devsecops" in lookup
-    assert "architect" in lookup
 
 
 def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
@@ -1097,85 +895,16 @@ def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) ->
     assert "[/{status_color}]" in output
 
 
-def test_orchestrator_parallel_worker_pool_execution(tmp_path: Path) -> None:
-    """Verify ReviewPipelineOrchestrator executes reviews via ReviewWorkerPool."""
-    mock_llm = _create_mock_review_llm()
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="pool-test-session",
-        llm_client=mock_llm,
-        target_dir=tmp_path,
-        concurrency=3,
-        parallel=True,
-    )
-
-    fmeta1 = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
-    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
-    payloads = orchestrator.init_per_file_payloads(
-        ["src/one.py", "src/two.py"],
-        {"src/one.py": fmeta1, "src/two.py": fmeta2},
-    )
-
-    # 1. Test parallel multi-persona review via ReviewWorkerPool
-    diff_map = {"src/one.py": "def alpha(): pass", "src/two.py": "def beta(): pass"}
-    orchestrator.execute_multi_persona_review(
-        payloads, diff_text_by_file=diff_map, personas=["devsecops"]
-    )
-    assert all(p.ai_scratchpad["stage"] == "reviewed" for p in payloads)
-    assert all(len(p.findings) == 1 for p in payloads)
-
-    # 2. Test sequential fallback (parallel=False)
-    seq_orchestrator = ReviewPipelineOrchestrator(
-        session_id="seq-test-session",
-        llm_client=mock_llm,
-        target_dir=tmp_path,
-        concurrency=1,
-        parallel=False,
-    )
-    seq_payloads = seq_orchestrator.init_per_file_payloads(
-        ["src/one.py"],
-        {"src/one.py": fmeta1},
-    )
-    seq_orchestrator.execute_multi_persona_review(
-        seq_payloads, diff_text_by_file=diff_map, personas=["devsecops"]
-    )
-    assert seq_payloads[0].ai_scratchpad["stage"] == "reviewed"
-
-
-def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
+def test_orchestrator_worker_clamping_to_total_files() -> None:
     """Verify worker pool concurrency is clamped to total_files count."""
-    mock_llm = _create_mock_review_llm()
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="clamp-test-session",
-        llm_client=mock_llm,
-        target_dir=tmp_path,
-        concurrency=16,
-        parallel=True,
-    )
-    fmeta = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
-    payloads = orchestrator.init_per_file_payloads(["src/one.py"], {"src/one.py": fmeta})
+    from devops_cli.ai.review.pipeline import _review_worker_count
 
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
-        mock_pool = MagicMock()
-        mock_create.return_value = mock_pool
-        orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file={"src/one.py": "code"}, personas=["devsecops"]
-        )
-        assert not mock_create.called
+    config = AIConfig(provider="ollama", ollama_max_parallel=2)
+    count1, _ = _review_worker_count(config, total_files=1, requested=16)
+    assert count1 == 1
 
-    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
-    payloads2 = orchestrator.init_per_file_payloads(
-        ["src/one.py", "src/two.py"], {"src/one.py": fmeta, "src/two.py": fmeta2}
-    )
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
-        mock_pool = MagicMock()
-        mock_create.return_value = mock_pool
-        orchestrator.execute_multi_persona_review(
-            payloads2,
-            diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
-            personas=["devsecops"],
-        )
-        assert mock_create.called
-        assert mock_create.call_args.kwargs.get("concurrency") == 2
+    count2, _ = _review_worker_count(config, total_files=2, requested=16)
+    assert count2 == 2
 
 
 def _file_pool_size(
@@ -1187,32 +916,23 @@ def _file_pool_size(
     concurrency: int | None,
     gateway_enabled: bool = False,
 ) -> int:
-    """The concurrency the persona stage sizes its file pool at, for a review of `file_count`
-    files by a client of `provider` with three Ollama nodes of two slots each."""
+    """The concurrency sized for `file_count` files by a client of `provider`."""
+    from devops_cli.ai.review.pipeline import _review_worker_count
+    from devops_cli.output import print_info
+
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    mock_llm = _create_mock_review_llm()
-    mock_llm._config = AIConfig(
+    config = AIConfig(
         provider=provider,
         gateway_enabled=gateway_enabled,
         ollama_urls=[f"http://example.com:{port}" for port in (11434, 11435, 11436)],
         ollama_max_parallel=2,
     )
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id=f"pool-size-{provider}-{concurrency}",
-        llm_client=mock_llm,
-        target_dir=tmp_path,
-        concurrency=concurrency,
-        parallel=True,
-    )
-    paths = [f"src/file_{n}.py" for n in range(file_count)]
-    payloads = [FileReviewPayload(file_path=path) for path in paths]
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
-        orchestrator.execute_multi_persona_review(
-            payloads,
-            diff_text_by_file={path: "x = 1" for path in paths},
-            personas=["devsecops"],
+    count, clamped = _review_worker_count(config, file_count, concurrency)
+    if clamped is not None:
+        print_info(
+            f"--concurrency {clamped} is above the gateway's {count} backend slots; using {count}"
         )
-    return int(mock_create.call_args.kwargs["concurrency"])
+    return count
 
 
 def test_gateway_file_pool_is_the_slot_sum_whatever_the_ollama_nodes(
@@ -1269,42 +989,6 @@ def test_ollama_review_keeps_its_node_sizing_and_an_explicit_concurrency(
     assert (pool_size, "backend slots" in capsys.readouterr().out) == (expected_pool_size, False)
 
 
-def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:
-    """Verify worker pool isolates exceptions and marks payloads failed with errored_files entry."""
-    mock_llm = _create_mock_review_llm()
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="err-test-session",
-        llm_client=mock_llm,
-        target_dir=tmp_path,
-        concurrency=2,
-        parallel=True,
-    )
-    fmeta1 = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
-    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
-    payloads = orchestrator.init_per_file_payloads(
-        ["src/one.py", "src/two.py"], {"src/one.py": fmeta1, "src/two.py": fmeta2}
-    )
-
-    def _mock_safe_review(
-        idx: int, total: int, payload: FileReviewPayload, *args: object, **kwargs: object
-    ) -> None:
-        if payload.file_path == "src/two.py":
-            raise RuntimeError("Fatal worker error")
-        payload.ai_scratchpad["stage"] = "reviewed"
-
-    with patch.object(orchestrator, "_safe_review_file_payload", side_effect=_mock_safe_review):
-        orchestrator.execute_multi_persona_review(
-            payloads,
-            diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
-            personas=["devsecops"],
-        )
-        assert (
-            payloads[0].ai_scratchpad["stage"],
-            payloads[1].ai_scratchpad["stage"],
-            "src/two.py" in orchestrator.errored_files,
-        ) == ("reviewed", "failed", True)
-
-
 def test_review_page_chars_fit_the_context_window() -> None:
     """Verify review pages leave room for prompts inside the window, within the page floor and cap."""
     from devops_cli.ai.review.chunker import review_page_chars
@@ -1331,253 +1015,4 @@ def test_review_page_chars_fit_the_context_window() -> None:
         DEFAULT_REVIEW_MAX_DIFF_CHARS,
         DEFAULT_REVIEW_MIN_DIFF_CHARS,
         True,
-    )
-
-
-def test_execute_page_review_steps_isolates_persona_history() -> None:
-    """Verify each page is reviewed without other files' conversation history."""
-    from devops_cli.ai.review.pipeline import _execute_page_review_steps
-
-    pipeline = MagicMock()
-    pipeline.run.return_value = MagicMock(steps=[])
-
-    count, outcomes = _execute_page_review_steps(pipeline, "prompt", "a.py", 0, 1, {}, [], [], [])
-
-    assert (count, outcomes, pipeline.run.call_args.kwargs["message_history"]) == (0, [], [])
-
-
-def test_multi_persona_review_tracks_unparsed_replies_and_degrades_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify unparsed LLM replies are recorded in scratchpad and profile, degrading stage."""
-    from devops_cli.ai.review.profile import profiling
-
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    mock_llm = MagicMock()
-    mock_llm.chat_messages.return_value = "Everything looks clean and well implemented."
-    mock_llm.chat_complete.return_value = "Everything looks clean and well implemented."
-    mock_llm.chat.return_value = "Everything looks clean and well implemented."
-    mock_llm.complete.return_value = "Everything looks clean and well implemented."
-
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="unparsed-test", llm_client=mock_llm, target_dir=tmp_path
-    )
-    payloads = orchestrator.init_per_file_payloads(["src/clean.py"], {})
-
-    with profiling() as profiler:
-        orchestrator.execute_multi_persona_review(
-            payloads,
-            diff_text_by_file={"src/clean.py": "def foo(): pass\n"},
-            personas=["devsecops"],
-        )
-
-    p = payloads[0]
-    expected_replies = [
-        {
-            "persona": "devsecops",
-            "persona_title": "Principal DevSecOps Engineer",
-            "outcome": "unparsed",
-            "page": 1,
-        }
-    ]
-    profile = profiler.build(session_id="unparsed-test", target="src/clean.py")
-    assert (
-        p.ai_scratchpad["stage"],
-        p.ai_scratchpad["unparsed_personas"],
-        p.ai_scratchpad["persona_outcomes"],
-        p.ai_scratchpad["persona_replies"],
-        profile.unparsed_personas,
-        profile.persona_outcomes,
-    ) == (
-        "unparsed",
-        ["Principal DevSecOps Engineer"],
-        {"devsecops": "unparsed"},
-        expected_replies,
-        ["Principal DevSecOps Engineer"],
-        {"unparsed": 1},
-    )
-
-
-def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_mixed_replies(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify bare [] records empty outcome, and mixed persona outcomes degrade file to degraded."""
-    from devops_cli.ai.review.profile import profiling
-
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    mock_llm = MagicMock()
-
-    finding_json = (
-        '{"findings": [{"severity": "HIGH", "location": "src/app.py:1", '
-        '"title": "Secret Leak", "description": "Token in code", "fix": "Remove token", '
-        '"confidence_score": 0.95}]}'
-    )
-
-    def _fake_chat(*args: object, **kwargs: object) -> str:
-        text = f"{args} {kwargs}"
-        if "Enterprise Infrastructure Architect" in text:
-            return "[]"
-        if "Senior Test Engineer" in text:
-            return "I have reviewed this code and found no obvious functional defects."
-        return finding_json
-
-    mock_llm.chat_messages.side_effect = _fake_chat
-    mock_llm.chat_complete.side_effect = _fake_chat
-    mock_llm.chat.side_effect = _fake_chat
-    mock_llm.complete.side_effect = _fake_chat
-
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="mixed-test", llm_client=mock_llm, target_dir=tmp_path
-    )
-    payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
-
-    with profiling() as profiler:
-        orchestrator.execute_multi_persona_review(
-            payloads,
-            diff_text_by_file={"src/app.py": "API_KEY = 'secret'\n"},
-            personas=["devsecops", "architect", "qa"],
-        )
-
-    profile = profiler.build(session_id="mixed-test", target="src/app.py")
-    p = payloads[0]
-    assert (
-        p.ai_scratchpad["stage"],
-        p.ai_scratchpad["unparsed_personas"],
-        p.ai_scratchpad["persona_outcomes"],
-        len(p.findings),
-        profile.unparsed_personas,
-        profile.persona_outcomes,
-    ) == (
-        "degraded",
-        ["Senior Test Engineer"],
-        {"devsecops": "findings", "architect": "empty", "qa": "unparsed"},
-        1,
-        ["Senior Test Engineer"],
-        {"findings": 1, "empty": 1, "unparsed": 1},
-    )
-
-
-def test_execute_page_review_with_backoff_delegates_without_whole_page_retry() -> None:
-    """Verify _execute_page_review_with_backoff executes single page without whole-page retry loops."""
-    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
-
-    calls = 0
-
-    def mock_single_page(*args: object, **kwargs: object) -> int:
-        nonlocal calls
-        calls += 1
-        return 2
-
-    payload = FileReviewPayload(file_path="src/dummy.py")
-    with patch(
-        "devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_single_page
-    ):
-        result = _execute_page_review_with_backoff(
-            p_idx=1,
-            page_content="content",
-            fpath="src/dummy.py",
-            total_pages=1,
-            symbols="foo",
-            rag_context_str="",
-            contract_context_str="",
-            resolved_context=MagicMock(),
-            pipeline=MagicMock(),
-            persona_lookup={"qa": ("QA Engineer", "prompt")},
-            thoughts=[],
-            actual_servers=[],
-            file_findings=[],
-            file_replies=[],
-            payload=payload,
-            max_retries=3,
-        )
-
-    assert (result, calls) == (2, 1)
-
-
-def test_execute_page_review_with_backoff_propagates_exception_without_page_retry() -> None:
-    """Verify _execute_page_review_with_backoff propagates exception immediately (single retry layer)."""
-    from devops_cli.ai.client import AIClientError
-    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
-
-    calls = 0
-
-    def mock_fail(*args: object, **kwargs: object) -> int:
-        nonlocal calls
-        calls += 1
-        raise AIClientError("Provider request failed with HTTP 500: Server error")
-
-    payload = FileReviewPayload(file_path="src/dummy.py")
-    with patch("devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_fail):
-        with pytest.raises(AIClientError, match="Server error"):
-            _execute_page_review_with_backoff(
-                p_idx=1,
-                page_content="content",
-                fpath="src/dummy.py",
-                total_pages=1,
-                symbols="foo",
-                rag_context_str="",
-                contract_context_str="",
-                resolved_context=MagicMock(),
-                pipeline=MagicMock(),
-                persona_lookup={"qa": ("QA Engineer", "prompt")},
-                thoughts=[],
-                actual_servers=[],
-                file_findings=[],
-                file_replies=[],
-                payload=payload,
-                max_retries=2,
-            )
-
-    assert calls == 1
-
-
-def test_generate_consolidated_report_records_active_personas(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify generate_consolidated_report records active personas in findings.json and candidates.json."""
-    import json
-
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="persona-record-test",
-        llm_client=MagicMock(),
-        target_dir=tmp_path,
-    )
-    finding = SavedFinding(
-        location="src/sample.py:10",
-        title="Sample Finding",
-        description="Sample Description",
-        status="VERIFIED",
-        verified=True,
-        verified_by="criteria",
-        persona="devsecops",
-        reportable=True,
-    )
-    payload = FileReviewPayload(file_path="src/sample.py", findings=[finding])
-
-    # Case 1: Explicit personas passed to generate_consolidated_report
-    orchestrator.generate_consolidated_report([payload], personas=["devsecops"])
-    findings_data = json.loads(
-        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
-    )
-    candidates_data = json.loads(
-        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
-    )
-    assert (findings_data["personas"], candidates_data["personas"]) == (
-        ["devsecops"],
-        ["devsecops"],
-    )
-
-    # Case 2: Personas stored from execute_multi_persona_review
-    orchestrator.personas = ["qa", "auditor"]
-    orchestrator.generate_consolidated_report([payload])
-    findings_data2 = json.loads(
-        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
-    )
-    candidates_data2 = json.loads(
-        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
-    )
-    assert (findings_data2["personas"], candidates_data2["personas"]) == (
-        ["qa", "auditor"],
-        ["qa", "auditor"],
     )

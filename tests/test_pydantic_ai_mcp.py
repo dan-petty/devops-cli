@@ -91,7 +91,7 @@ async def test_create_devops_mcp_toolset() -> None:
     # Discovered prompts and resources on in-process server
     prompts = await ts.list_prompts()
     prompt_names = {p.name for p in prompts}
-    assert "code_review_prompt" in prompt_names
+    assert "architecture_analysis_prompt" in prompt_names
     assert "security_audit_prompt" in prompt_names
 
     resources = await ts.list_resources()

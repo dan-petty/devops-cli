@@ -249,14 +249,14 @@ devops ai config --provider ollama --model qwen2.5-coder:7b --ollama-urls http:/
 # Verify provider connectivity and latency
 devops ai test
 
-# Run every reviewer persona on the active branch against main
-devops review branch --all
+# Review the active branch against main
+devops review branch
 
 # Or explicitly review a specific feature branch against main
 devops review branch feat/my-feature --base main
 
-# Run targeted security review on a specific directory
-devops review path src/ --persona devsecops
+# Run targeted review on a specific directory
+devops review path src/
 ```
 
 ### Exposing FastMCP Tools to AI Assistants (`.vscode/mcp.json`)

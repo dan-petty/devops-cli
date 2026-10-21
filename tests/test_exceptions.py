@@ -21,7 +21,6 @@ from devops_cli.exceptions import (
 from devops_cli.exceptions.ai import (
     ContextBudgetExceededError,
     ModelUnavailableError,
-    PersonaExecutionError,
 )
 
 
@@ -90,14 +89,6 @@ def test_model_unavailable_error() -> None:
     assert err.exit_code == 12
     assert err.error_code == "MODEL_UNAVAILABLE"
     assert "claude-3-5-sonnet" in str(err)
-
-
-def test_persona_execution_error() -> None:
-    err = PersonaExecutionError("devsecops", "auth.py", "Timeout during inference")
-    assert err.exit_code == 13
-    assert err.error_code == "PERSONA_EXECUTION_ERROR"
-    assert "devsecops" in str(err)
-    assert "auth.py" in str(err)
 
 
 def test_validation_exceptions() -> None:

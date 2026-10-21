@@ -1,30 +1,8 @@
-"""Tests for diff hunk extraction and for a merge keeping where a finding was relocated from."""
+"""Tests for diff hunk extraction."""
 
 from __future__ import annotations
 
 from devops_cli.ai.review.chunker import extract_diff_hunks, extract_file_diff_hunks
-from devops_cli.ai.review_schema import Finding, _merge_two_findings
-
-
-def test_merge_two_findings_preserves_relocated_from() -> None:
-    """Verify that merging findings preserves relocated_from attribute."""
-    f1 = Finding(
-        title="Vulnerability A",
-        location="app.py:10",
-        relocated_from="app.py:1",
-        severity="HIGH",
-    )
-    f2 = Finding(
-        title="Vulnerability A",
-        location="app.py:10",
-        severity="MEDIUM",
-    )
-    merged = _merge_two_findings(f1, f2)
-    assert (merged.location, merged.relocated_from, merged.severity) == (
-        "app.py:10",
-        "app.py:1",
-        "HIGH",
-    )
 
 
 def test_extract_diff_hunks() -> None:

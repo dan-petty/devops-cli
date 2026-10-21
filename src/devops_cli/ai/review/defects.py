@@ -38,7 +38,6 @@ from pydantic import BaseModel, Field, computed_field
 from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import LINE_OVERLAP_TOLERANCE, SavedFinding, _parse_location
 from devops_cli.config.constants import (
-    CONST_PERSONA_REPLY_UNPARSED,
     CONST_REVIEW_CONVENTIONS_FILE,
     CONST_STATUS_INVALIDATED,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
@@ -1537,7 +1536,6 @@ class RunRow(BaseModel):
     reported_findings: int
     prompt_tokens: int
     completion_tokens: int
-    unparsed_replies: int
 
 
 # The per-run figures an arm averages and spreads, and the decimals its mean keeps: ratios to 3,
@@ -1581,7 +1579,7 @@ class CorpusRunsScore(BaseModel):
 
 
 def _run_row(score: CorpusScore, profile: ReviewProfile | None) -> RunRow:
-    """A session's figures; its tokens and unparsed persona replies count 0 without a profile."""
+    """A session's figures; its tokens count 0 without a profile."""
     profile = profile or ReviewProfile(session_id=score.session_id, target="")
     return RunRow(
         session_id=score.session_id,
@@ -1592,7 +1590,6 @@ def _run_row(score: CorpusScore, profile: ReviewProfile | None) -> RunRow:
         reported_findings=score.reported_findings,
         prompt_tokens=profile.prompt_tokens,
         completion_tokens=profile.completion_tokens,
-        unparsed_replies=profile.persona_outcomes.get(CONST_PERSONA_REPLY_UNPARSED, 0),
     )
 
 

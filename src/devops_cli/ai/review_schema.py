@@ -33,9 +33,6 @@ from devops_cli.config.constants import (
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
     CONST_REVIEW_TITLE_FILLER_WORDS,
     CONST_VERIFICATION_NOTE_KINDS,
-    REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD,
-    REVIEW_GENERIC_SYMBOL_STOPWORDS,
-    REVIEW_STRONG_SYMBOL_MIN_LENGTH,
 )
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
@@ -932,289 +929,6 @@ def _parse_location(
     return file_part, s_line, e_line
 
 
-def _extract_code_symbols(text: str) -> set[str]:
-    """Extract the distinctive code identifiers named in a piece of review prose."""
-    symbols: set[str] = set()
-
-    # Backtick-quoted identifiers and dotted paths.
-    for raw in re.findall(r"`([^`\n]{2,80})`", text):
-        symbols.update(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", raw))
-    # Bare identifiers written in call form, or carrying an underscore.
-    symbols.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\)", text))
-    symbols.update(re.findall(r"\b(_[A-Za-z0-9_]+|[A-Za-z0-9]+_[A-Za-z0-9_]+)\b", text))
-
-    return {
-        s.lower()
-        for s in symbols
-        if len(s) > 2 and s.lower() not in REVIEW_GENERIC_SYMBOL_STOPWORDS
-    }
-
-
-def _is_distinctive_symbol_overlap(shared: set[str]) -> bool:
-    """Report whether a shared symbol set is specific enough to identify one defect."""
-    if not shared:
-        return False
-    # A single shared symbol only counts when it is specific (private, snake_case, or
-    # long); otherwise require corroboration from a second shared symbol.
-    strong = any("_" in s or len(s) >= REVIEW_STRONG_SYMBOL_MIN_LENGTH for s in shared)
-    return strong or len(shared) > 1
-
-
-def _share_distinctive_symbol(primary: Finding, candidate: Finding) -> bool:
-    """Report whether two findings describe the same defect in the same code symbol.
-
-    A symbol named in both *titles* is strong evidence on its own. A symbol shared only
-    in the bodies is usually just the enclosing function both findings happen to sit
-    inside, so it additionally requires the two descriptions to tell a similar story;
-    otherwise genuinely different defects sharing one call site would be collapsed.
-    """
-    if _is_distinctive_symbol_overlap(
-        _extract_code_symbols(primary.title) & _extract_code_symbols(candidate.title)
-    ):
-        return True
-
-    body_shared = _extract_code_symbols(primary.description) & _extract_code_symbols(
-        candidate.description
-    )
-    if not _is_distinctive_symbol_overlap(body_shared):
-        return False
-
-    primary_body = _tokenize_title(primary.description)
-    candidate_body = _tokenize_title(candidate.description)
-    union = primary_body | candidate_body
-    if not union:
-        return False
-    overlap = len(primary_body & candidate_body) / len(union)
-    return overlap >= REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD
-
-
-_DISMISSED_STATUSES = frozenset({"INVALIDATED", "MITIGATED"})
-
-
-def _title_similarity(primary: Finding, candidate: Finding) -> tuple[float, float]:
-    """Jaccard and overlap coefficients of two findings' distinguishing title words."""
-    primary_terms = _tokenize_title(primary.title)
-    candidate_terms = _tokenize_title(candidate.title)
-    if not primary_terms or not candidate_terms:
-        return 0.0, 0.0
-    shared = len(primary_terms & candidate_terms)
-    return (
-        shared / len(primary_terms | candidate_terms),
-        shared / min(len(primary_terms), len(candidate_terms)),
-    )
-
-
-def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
-    """Determine if two findings describe the same underlying issue across personas or segments.
-
-    A missed merge leaves a duplicate in the report; a wrong merge loses a defect, so merging
-    needs positive evidence. Findings at overlapping lines merge when their distinguishing title
-    words agree. Findings far apart merge only with near-identical titles naming the same code
-    symbol: personas do cite one defect at different lines, but two hardcoded secrets or two
-    unbounded requests in one file are separate defects.
-    """
-    primary_file, primary_start, primary_end = _parse_location(primary.location)
-    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
-    if not primary_file or primary_file.lower() != candidate_file.lower():
-        return False
-    if (primary.status in _DISMISSED_STATUSES) != (candidate.status in _DISMISSED_STATUSES):
-        return False
-
-    same_title = primary.title.strip().lower() == candidate.title.strip().lower()
-    jaccard, overlap = _title_similarity(primary, candidate)
-    if (
-        primary_start is None
-        or primary_end is None
-        or candidate_start is None
-        or candidate_end is None
-    ):
-        # Without lines to compare, the code each finding names is the only other evidence:
-        # "Hardcoded secret: `AWS_KEY`" and "Hardcoded secret: `DB_PASSWORD`" are two findings,
-        # even after verification has dropped a miscounted line from one of them.
-        if _name_different_symbols(primary, candidate):
-            return False
-        return same_title or jaccard >= TITLE_SIMILARITY_THRESHOLD or overlap >= 0.6
-
-    overlapping = (
-        max(primary_start, candidate_start)
-        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
-    )
-    if overlapping:
-        return (
-            same_title
-            or jaccard >= 0.4
-            or overlap >= 0.5
-            or _share_title_symbol_and_word(primary, candidate)
-        )
-    return (same_title or jaccard >= 0.8) and _share_distinctive_symbol(primary, candidate)
-
-
-def _name_different_symbols(primary: Finding, candidate: Finding) -> bool:
-    """Both findings name code symbols, and none of them in common."""
-    primary_symbols = _extract_code_symbols(f"{primary.title} {primary.description}")
-    candidate_symbols = _extract_code_symbols(f"{candidate.title} {candidate.description}")
-    return bool(primary_symbols and candidate_symbols) and not primary_symbols & candidate_symbols
-
-
-def _share_title_symbol_and_word(primary: Finding, candidate: Finding) -> bool:
-    """Both titles name the same code symbol and share one more distinguishing symbol or word.
-
-    "Uninitialized _watcher leads to ineffective stop()" and "`_watcher` never set, `stop()` may
-    not terminate" are one defect; "`parse_config` swallows exceptions" and "`parse_config`
-    reads without a size limit" are two defects in one function.
-    """
-    shared_symbols = _extract_code_symbols(primary.title) & _extract_code_symbols(candidate.title)
-    if not _is_distinctive_symbol_overlap(shared_symbols):
-        return False
-    shared_words = _tokenize_title(primary.title) & _tokenize_title(candidate.title)
-    return len(shared_words | shared_symbols) >= 2
-
-
-def _first_set(base: Finding, other: Finding, names: Sequence[str]) -> dict[str, Any]:
-    """Each named field's value on `base`, or on `other` where `base` has none."""
-    return {name: getattr(base, name) or getattr(other, name) for name in names}
-
-
-def _merge_two_findings[F: Finding](base: F, other: F) -> F:  # noqa: C901
-    """Merge duplicate finding `other` into `base`, taking highest severity and confidence."""
-    base_sev = base.severity.upper().strip()
-    other_sev = other.severity.upper().strip()
-    severest = (
-        base if _SEVERITY_RANK.get(base_sev, 99) <= _SEVERITY_RANK.get(other_sev, 99) else other
-    )
-    best_sev = severest.severity.upper().strip()
-
-    base_conf = base.confidence_score
-    other_conf = other.confidence_score
-    best_conf: float | None = None
-    if base_conf is not None and other_conf is not None:
-        best_conf = max(base_conf, other_conf)
-    elif base_conf is not None:
-        best_conf = base_conf
-    else:
-        best_conf = other_conf
-
-    best_status = (
-        base.status
-        if _STATUS_RANK.get(base.status, 99) <= _STATUS_RANK.get(other.status, 99)
-        else other.status
-    )
-    verified_by: str | None
-    if best_status == "VERIFIED":
-        verified = True
-        mitigated = False
-        reportable = True
-        # The adjudicator of a verified input: a merge invents none (#1043).
-        verified_by = next(
-            (f.verified_by for f in (base, other) if f.status == "VERIFIED" and f.verified_by),
-            None,
-        )
-    elif best_status == "INVALIDATED":
-        verified = False
-        mitigated = False
-        reportable = False
-        verified_by = base.verified_by or other.verified_by
-    elif best_status == "MITIGATED":
-        verified = False
-        mitigated = True
-        reportable = True
-        verified_by = base.verified_by or other.verified_by
-    else:
-        verified = False
-        mitigated = False
-        reportable = True
-        verified_by = None
-
-    desc = (
-        base.description if len(base.description) >= len(other.description) else other.description
-    )
-    fix = base.fix if len(base.fix) >= len(other.fix) else other.fix
-    refs = list(dict.fromkeys(base.references + other.references))
-    ver_crit = list(dict.fromkeys(base.verification_criteria + other.verification_criteria))
-    inv_crit = list(dict.fromkeys(base.invalidation_criteria + other.invalidation_criteria))
-    ver_match = list(
-        dict.fromkeys(base.verified_criteria_matched + other.verified_criteria_matched)
-    )
-    inv_match = list(
-        dict.fromkeys(base.invalidated_criteria_matched + other.invalidated_criteria_matched)
-    )
-    crit_results = list(
-        dict.fromkeys(base.criteria_execution_results + other.criteria_execution_results)
-    )
-
-    updates: dict[str, Any] = {
-        "severity": best_sev,
-        "severity_raw": severest.severity_raw,
-        "confidence_score": best_conf,
-        "status": best_status,
-        "verified": verified,
-        "mitigated": mitigated,
-        "reportable": reportable,
-        "verified_by": verified_by,
-        "description": desc,
-        "fix": fix,
-        "references": refs,
-        "verification_criteria": ver_crit,
-        "invalidation_criteria": inv_crit,
-        "criteria_execution_results": crit_results,
-        "verified_criteria_matched": ver_match,
-        "invalidated_criteria_matched": inv_match,
-        "relocated_from": base.relocated_from or other.relocated_from,
-        "category": base.category or other.category,
-        **_first_set(base, other, ("category_raw", "reference_note")),
-        "observed_value": base.observed_value or other.observed_value,
-        "expected_value": base.expected_value or other.expected_value,
-        "finding_id": base.finding_id if base.finding_id is not None else other.finding_id,
-        "mitigating_mechanism": base.mitigating_mechanism or other.mitigating_mechanism,
-        "perimeter_files": list(dict.fromkeys(base.perimeter_files + other.perimeter_files)),
-        "regression_test": base.regression_test or other.regression_test,
-    }
-
-    if isinstance(base, SavedFinding):
-        base_personas = [p.strip() for p in base.persona.split(",") if p.strip()]
-        other_personas = (
-            [p.strip() for p in other.persona.split(",") if p.strip()]
-            if isinstance(other, SavedFinding)
-            else []
-        )
-        for p in other_personas:
-            if p and p not in base_personas:
-                base_personas.append(p)
-        updates["persona"] = ", ".join(base_personas)
-
-        base_titles = [t.strip() for t in base.persona_title.split(",") if t.strip()]
-        other_titles = (
-            [t.strip() for t in other.persona_title.split(",") if t.strip()]
-            if isinstance(other, SavedFinding)
-            else []
-        )
-        for t in other_titles:
-            if t and t not in base_titles:
-                base_titles.append(t)
-        updates["persona_title"] = ", ".join(base_titles)
-
-    return base.model_copy(update=updates)
-
-
-def consolidate_duplicate_findings[F: Finding](findings: list[F]) -> list[F]:
-    """Consolidate duplicate findings across personas, merging metadata and scores."""
-    if not findings:
-        return []
-
-    consolidated: list[F] = []
-    for f in findings:
-        matched = False
-        for idx, existing in enumerate(consolidated):
-            if _are_findings_duplicate(existing, f):
-                consolidated[idx] = _merge_two_findings(existing, f)
-                matched = True
-                break
-        if not matched:
-            consolidated.append(f)
-
-    return sort_findings(consolidated)
-
-
 def _location_key(location: str) -> tuple[str, int]:
     """A location as its file and first line, so line 9 sorts before line 12."""
     file_part, start, _ = _parse_location(location)
@@ -1258,9 +972,14 @@ class CitedCode(BaseModel):
 
 
 class SavedFinding(Finding):
-    persona: str = ""
-    persona_title: str = ""
+    fingerprint: str = ""
+    producer: str = Field(default="", validation_alias=AliasChoices("producer", "persona"))
     recommendation: str = "REQUEST CHANGES"
+
+    @property
+    def persona(self) -> str:
+        return self.producer
+
     # On a finding a VERIFIED or MITIGATED verdict moved into findings.json, the number of the
     # candidate in candidates.json it was moved from, which later verdicts on either keep in step.
     moved_from_candidate: int | None = None
@@ -1276,7 +995,6 @@ class FileReviewPayload(BaseModel):
     metadata: FileAnalysisMeta | None = None
     linked_files: list[FileAnalysisMeta] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
-    ai_scratchpad: dict[str, Any] = Field(default_factory=dict)
     thinking_traces: dict[str, str] = Field(default_factory=dict)
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
@@ -1293,7 +1011,6 @@ class ReviewSessionPayload(BaseModel):
     # What the session reviewed (`history.review_subject`); empty for a session written before
     # #607, which review history counts on its own.
     subject: dict[str, str] = Field(default_factory=dict)
-    personas: list[str] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
@@ -1309,7 +1026,7 @@ class ReviewSessionPayload(BaseModel):
 
     @property
     def sorted_findings(self) -> list[SavedFinding]:
-        return consolidate_duplicate_findings(self.findings)
+        return sort_findings(self.findings)
 
 
 def derive_recommendation(findings: list[Finding]) -> str:
@@ -1384,11 +1101,11 @@ class ReviewResult(BaseModel):
 
     @property
     def sorted_findings(self) -> list[Finding]:
-        return consolidate_duplicate_findings(self.findings)
+        return sort_findings(self.findings)
 
     def merge(self, other: ReviewResult) -> ReviewResult:
         """Merge another ReviewResult, deduplicating and consolidating findings."""
-        merged_findings = consolidate_duplicate_findings(self.findings + other.findings)
+        merged_findings = sort_findings(self.findings + other.findings)
         recommendation = derive_recommendation(merged_findings)
         scores = [s for s in (self.confidence_score, other.confidence_score) if s is not None]
         merged_conf = round(sum(scores) / len(scores), 2) if scores else None

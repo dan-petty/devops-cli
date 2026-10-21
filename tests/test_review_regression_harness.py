@@ -25,7 +25,6 @@ from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
     SavedFinding,
-    consolidate_duplicate_findings,
     parse_review_response,
     reset_verification_state,
 )
@@ -64,14 +63,15 @@ def _through_the_pipeline(findings: list[dict[str, Any]], project: Path) -> list
     parsed = parse_review_response(reply)
     assert parsed is not None, "the reply lost every finding to one malformed field"
     saved = [
-        SavedFinding(**reset_verification_state(f).model_dump(), persona="devsecops")
+        SavedFinding(
+            **reset_verification_state(f).model_dump(),
+            producer="scanner",
+            fingerprint=f.title,
+        )
         for f in parsed.findings
     ]
-    checked = consolidate_duplicate_findings(saved)
     orchestrator = ReviewPipelineOrchestrator(session_id="harness", target_dir=project)
-    payloads = [
-        FileReviewPayload(file_path=f.location.split(":")[0], findings=[f]) for f in checked
-    ]
+    payloads = [FileReviewPayload(file_path=f.location.split(":")[0], findings=[f]) for f in saved]
     return orchestrator._collect_and_deduplicate_findings(payloads)
 
 

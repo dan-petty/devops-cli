@@ -10,8 +10,6 @@ from devops_cli.ai.review.review_environment import (
     validate_criteria_command,
 )
 from devops_cli.ai.review_schema import (
-    CriterionExecutionResult,
-    Finding,
     VerificationCriterion,
 )
 from tests.support.paths import REPO_ROOT
@@ -163,32 +161,6 @@ def test_verification_criterion_model_normalization_from_dict() -> None:
 
     with pytest.raises(ValueError, match="not in closed read-only allowlist"):
         VerificationCriterion.model_validate({"command": "rm -rf /", "executable": True})
-
-
-def test_finding_merge_consolidates_criteria_execution_results() -> None:
-    """Verify that duplicate findings merge criteria_execution_results uniquely."""
-    res_a = CriterionExecutionResult(
-        command="python -c 'pass'", executable=True, exit_code=0, passed=True
-    )
-    res_b = CriterionExecutionResult(
-        command="python -c 'exit(1)'", executable=True, exit_code=1, passed=False
-    )
-    f1 = Finding(
-        title="Defect A",
-        location="src/mod.py:10",
-        severity="HIGH",
-        criteria_execution_results=[res_a],
-    )
-    f2 = Finding(
-        title="Defect A",
-        location="src/mod.py:10",
-        severity="MEDIUM",
-        criteria_execution_results=[res_a, res_b],
-    )
-    from devops_cli.ai.review_schema import _merge_two_findings
-
-    merged = _merge_two_findings(f1, f2)
-    assert (len(merged.criteria_execution_results), merged.severity) == (2, "HIGH")
 
 
 _NOT_ALLOWLISTED = "is not in allowed criteria binaries"
