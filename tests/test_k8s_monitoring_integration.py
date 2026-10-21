@@ -632,13 +632,24 @@ def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
     }
 
 
+def _selector_matches(selectors: dict[str, str | list[str]], labels: dict[str, str]) -> bool:
+    """Whether pod labels match an integration's labelSelectors (string or list of strings)."""
+    return all(
+        labels.get(key) in (values if isinstance(values, list) else [values])
+        for key, values in selectors.items()
+    )
+
+
 def _scrape_owners(sources: dict[str, Any]) -> dict[str, list[str]]:
     """Every scrape that claims each annotated component."""
     server_namespaces = _server_pod_namespaces(sources["prometheus"])
     values = sources["k8s-monitoring"]
     autodiscovery = values["annotationAutodiscovery"]
     instances = [
-        (f"integrations/{kind}", instance["labelSelectors"])
+        (
+            f"integrations/{kind}",
+            instance.get("labelSelectors", {"app.kubernetes.io/name": instance["name"]}),
+        )
         for kind, integration in values["integrations"].items()
         if isinstance(integration, dict)
         for instance in integration.get("instances", [])
@@ -656,7 +667,7 @@ def _scrape_owners(sources: dict[str, Any]) -> dict[str, list[str]]:
         return [
             *(["kubernetes-pods"] if server else []),
             *(["annotationAutodiscovery"] if autodiscovered else []),
-            *(owner for owner, selectors in instances if selectors.items() <= pods.labels.items()),
+            *(owner for owner, selectors in instances if _selector_matches(selectors, pods.labels)),
             *(["chart ServiceMonitor"] if pods.chart_monitor else []),
         ]
 

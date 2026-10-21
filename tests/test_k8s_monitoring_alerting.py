@@ -20,12 +20,14 @@ import pytest
 import yaml
 
 from devops_cli.prometheus.promql import selectors
-from tests.support.paths import REPO_ROOT
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"
+PYROSCOPE_VALUES = K8S / "monitoring" / "pyroscope-values.yaml"
+ALLOY_ALLOW_LIST = FIXTURES / "k8s_monitoring" / "integrations" / "alloy.yaml"
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -64,6 +66,11 @@ SERVED_SERIES = frozenset(
         "prometheus_tsdb_size_retentions_total",
         "prometheus_tsdb_storage_blocks_bytes",
         "prometheus_tsdb_wal_storage_size_bytes",
+        # Alloy collectors, scraped by k8s-monitoring's Alloy integration within its default allow
+        # list (#1131).
+        "loki_write_dropped_entries_total",
+        "loki_write_sent_entries_total",
+        "prometheus_remote_storage_samples_failed_total",
         # Loki, scraped by k8s-monitoring's Loki integration within its default allow list, which
         # finds Loki's pods only where the logging stack runs.
         "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
@@ -131,6 +138,8 @@ def test_the_baseline_rule_set() -> None:
     assert sorted((rule["alert"], rule["labels"]["severity"]) for rule in _rules()) == [
         ("AlertmanagerConfigReloadFailed", "warning"),
         ("AlertmanagerNotificationsFailing", "warning"),
+        ("AlloyLogEntriesDropped", "warning"),
+        ("AlloyRemoteWriteSamplesFailed", "warning"),
         ("ClusterMetricsMissing", "critical"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
@@ -340,3 +349,90 @@ def test_no_scrape_targets_the_components_k3s_runs_in_process() -> None:
         for component in ("controlPlane", "kubeControllerManager", "kubeScheduler", "kubeProxy")
         if cluster_metrics.get(component, {}).get("enabled") is True
     ] == []
+
+
+def _allow_list(path: Path) -> tuple[str, frozenset[str]]:
+    """A chart allow-list fixture's `(chart_version, metric_names)`."""
+    text = path.read_text(encoding="utf-8")
+    (version,) = [
+        line.removeprefix("# chart: grafana/k8s-monitoring ").strip()
+        for line in text.splitlines()
+        if line.startswith("# chart: grafana/k8s-monitoring ")
+    ]
+    return version, frozenset(yaml.safe_load(text))
+
+
+def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> None:
+    """The Alloy collectors, Grafana and Pyroscope are scraped, and dropped samples or log
+    entries alert (#1131)."""
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    pipeline_rules = [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in groups["homelab-telemetry-pipeline"]
+    ]
+    integrations = _yaml(K8S_MONITORING_VALUES)["integrations"]
+    (alloy,) = integrations["alloy"]["instances"]
+    (grafana,) = integrations["grafana"]["instances"]
+    pyroscope_monitor = _yaml(PYROSCOPE_VALUES)["serviceMonitor"]["enabled"]
+
+    assert (
+        pipeline_rules,
+        alloy["name"],
+        alloy["labelSelectors"],
+        grafana,
+        pyroscope_monitor,
+    ) == (
+        [
+            (
+                "AlloyRemoteWriteSamplesFailed",
+                'increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[15m]) > 0',
+                "15m",
+                "warning",
+            ),
+            (
+                "AlloyLogEntriesDropped",
+                'increase(loki_write_dropped_entries_total{job="integrations/alloy"}[15m]) > 0',
+                "15m",
+                "warning",
+            ),
+        ],
+        "k8s-monitoring",
+        {"app.kubernetes.io/name": ["alloy-metrics", "alloy-logs", "alloy-singleton"]},
+        {"name": "grafana"},
+        True,
+    )
+
+
+def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_list() -> None:
+    """Every metric in `homelab-telemetry-pipeline` is kept by the Alloy integration's default
+    allow list, whose fixture matches the `k8s-monitoring` chart pin (#1131)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    (k8s_monitoring,) = [
+        release
+        for release in _HELM_RELEASES_BY_STACK["infra"]
+        if release["name"] == "k8s-monitoring"
+    ]
+    fixture_version, allow_list = _allow_list(ALLOY_ALLOW_LIST)
+    groups = {
+        group["name"]: group["rules"]
+        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    }
+    rule_metrics = {
+        selector.metric
+        for rule in groups["homelab-telemetry-pipeline"]
+        for selector in selectors(rule["expr"])
+    }
+
+    assert (
+        fixture_version,
+        len(rule_metrics) > 0,
+        sorted(metric or "" for metric in rule_metrics - allow_list),
+    ) == (
+        k8s_monitoring["version"],
+        True,
+        [],
+    )

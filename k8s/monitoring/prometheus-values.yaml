@@ -454,3 +454,23 @@ serverFiles:
             annotations:
               summary: "Alertmanager cannot deliver {{ $labels.integration }} notifications"
               description: "Alertmanager's {{ $labels.integration }} notifications have failed for 15 minutes. Its log names the error."
+      # Alloy's metric remote-write and log-write drops (#1131), scraped by k8s-monitoring's
+      # Alloy integration (`job="integrations/alloy"`).
+      - name: homelab-telemetry-pipeline
+        rules:
+          - alert: AlloyRemoteWriteSamplesFailed
+            expr: increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[15m]) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy collector {{ $labels.pod }} failed to remote-write samples"
+              description: "Alloy collector {{ $labels.pod }} failed to send {{ $value | humanize }} samples to Prometheus in 15 minutes, so those samples were dropped."
+          - alert: AlloyLogEntriesDropped
+            expr: increase(loki_write_dropped_entries_total{job="integrations/alloy"}[15m]) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy collector {{ $labels.pod }} dropped log entries"
+              description: "Alloy collector {{ $labels.pod }} dropped {{ $value | humanize }} log entries on their way to Loki in 15 minutes."
