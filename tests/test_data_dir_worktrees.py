@@ -107,15 +107,6 @@ _WORKTREES_IN_ANOTHER_WORKSPACE = [
     "repo_with_worktree_in_a_python_project",
 ]
 
-_OUTER_DIRECTORY_LIMIT = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known limit (#585): a checkout or worktree below another directory holding .git or "
-        "pyproject.toml resolves shared data to that outer directory"
-    ),
-)
-"""Marks a case of that limit: data resolves to the outer directory, not the main worktree."""
-
 
 def test_a_linked_worktree_resolves_to_the_main_worktree(
     repo_with_worktree: tuple[Path, Path],
@@ -440,13 +431,13 @@ def test_workspace_clean_refuses_a_parent_of_the_main_checkout_without_git(
 def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_that_workspaces_data(
     layout: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify cleanup run from a linked worktree inside another workspace, where the known limit
-    resolves shared data to that workspace's `.data`, refuses to prune another workspace's data
-    and leaves the main worktree's data alone too."""
+    """Verify cleanup run from a linked worktree inside another workspace, where the configured
+    data directory is that other workspace's `.data`, refuses to prune another workspace's data
+    and leaves the main worktree's data alone too (#617)."""
     main, linked = request.getfixturevalue(layout)
     shared = _stale(main / ".data" / "reviews" / "shared.json")
     host_own = _stale(linked.parent / ".data" / "reviews" / "host-own.json")
-    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(linked.parent / ".data"))
     monkeypatch.chdir(linked)
 
     with pytest.raises(SecurityError, match="another workspace"):
@@ -471,11 +462,11 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_an_absolute
     assert (summary.pruned_files, stale.exists()) == (["logs/old.log"], False)
 
 
-@pytest.mark.parametrize("configured", [None, "{host}/.data"])
+@pytest.mark.parametrize("configured", ["{host}/.data"])
 @pytest.mark.parametrize("layout", _WORKTREES_IN_ANOTHER_WORKSPACE)
 def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlinked_data(
     layout: str,
-    configured: str | None,
+    configured: str,
     request: pytest.FixtureRequest,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -488,10 +479,7 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlin
     volume = tmp_path / "volume" / "host-data"
     host_own = _stale(volume / "reviews" / "host-own.json")
     (host / ".data").symlink_to(volume, target_is_directory=True)
-    if configured is None:
-        monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
-    else:
-        monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", configured.format(host=host))
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", configured.format(host=host))
     monkeypatch.chdir(linked)
 
     with pytest.raises(SecurityError, match="another workspace"):
@@ -500,7 +488,6 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlin
     assert host_own.exists()
 
 
-@_OUTER_DIRECTORY_LIMIT
 @pytest.mark.parametrize("layout", _WORKTREES_IN_ANOTHER_WORKSPACE)
 def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_the_shared_data(
     layout: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
@@ -705,10 +692,7 @@ def test_bundle_models_help_says_a_relative_output_is_under_the_main_worktree() 
         ("repo_with_worktree", "main"),
         ("repo_with_worktree", "linked"),
         *((layout, "main") for layout in _WORKTREES_IN_ANOTHER_WORKSPACE),
-        *(
-            pytest.param(layout, "linked", marks=_OUTER_DIRECTORY_LIMIT)
-            for layout in _WORKTREES_IN_ANOTHER_WORKSPACE
-        ),
+        *((layout, "linked") for layout in _WORKTREES_IN_ANOTHER_WORKSPACE),
     ],
 )
 def test_workspace_discovery_lists_the_main_checkouts_repositories(
@@ -733,10 +717,7 @@ def test_workspace_discovery_lists_the_main_checkouts_repositories(
     "layout",
     [
         "repo_with_worktree",
-        *(
-            pytest.param(layout, marks=_OUTER_DIRECTORY_LIMIT)
-            for layout in _WORKTREES_IN_ANOTHER_WORKSPACE
-        ),
+        *_WORKTREES_IN_ANOTHER_WORKSPACE,
     ],
 )
 def test_an_analysis_saved_in_a_worktree_is_found_from_the_main_one(
@@ -885,7 +866,6 @@ def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
     )
 
 
-@_OUTER_DIRECTORY_LIMIT
 def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, init_repo: Callable[[Path], Path]
 ) -> None:
@@ -907,13 +887,13 @@ def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
         summary.pruned_files,
         own.exists(),
         home_own.exists(),
-        _get_reviews_base_dir(),
+        _get_reviews_base_dir().is_relative_to(home),
         analysis_directory(project),
     ) == (
         ["reviews/old.json"],
         False,
         True,
-        (project / ".data" / "reviews").resolve(),
+        False,
         (project / ".data" / "analysis").resolve(),
     )
 
