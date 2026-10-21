@@ -1,0 +1,9 @@
+id: net-ip-literal
+valid:
+  - 'is_loop = ipaddress.ip_address(host).is_loopback'
+  - 'matches = "0.0.0.0/0" in line'
+  - 'if not match or "0.0.0.0/0" in match.group(3): pass'
+invalid:
+  - 'is_local = host == "127.0.0.1"'
+  - 'local = "127.0.0.1" in url'
+  - 'local = "::1" not in parsed.netloc'

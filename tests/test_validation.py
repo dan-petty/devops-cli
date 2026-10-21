@@ -234,6 +234,19 @@ def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch
     with patch("socket.getaddrinfo", return_value=mock_pub_addrinfo):
         _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "test")
 
+    # Default ports 443 and 80 derived from URL scheme via httpx2.URL(url).origin.port
+    resolved_ports: list[int | None] = []
+
+    def _mock_resolve(host: str, port: int | None = None, **_kwargs: object) -> list[Any]:
+        resolved_ports.append(port)
+        return [ipaddress.ip_address("93.184.216.34")]
+
+    with patch("devops_cli.core.validation._resolve_host_ips", side_effect=_mock_resolve):
+        _enforce_non_private_ssrf("https://example.com", "example.com", "https", None, "test")
+        _enforce_non_private_ssrf("http://example.com", "example.com", "http", None, "test")
+
+    assert resolved_ports == [443, 80]
+
 
 def test_validation_edge_cases() -> None:
     """Verify validate_safe_directory_path and validate_session_id."""

@@ -74,6 +74,22 @@ repos:
         types: [python]
         require_serial: true
 
+      - id: ast-grep-scan
+        name: ast-grep scan (hand-rolled network constructs)
+        entry: uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+
+      - id: ast-grep-test
+        name: ast-grep test (network construct rule tests)
+        entry: uv run ast-grep test --skip-snapshot-tests
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+
       - id: devops-ci-pre-push
         name: devops ci (pre-push quality gate)
         entry: uv run devops ci

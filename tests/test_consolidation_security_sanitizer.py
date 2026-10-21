@@ -269,6 +269,13 @@ def test_sanitize_telemetry_endpoint() -> None:
         sanitize_telemetry_endpoint("http://127.0.0.1:4318/v1/traces")
         == "http://127.0.0.1:4318/v1/traces"
     )
+    assert (
+        sanitize_telemetry_endpoint("http://127.0.0.2:4318/v1/traces")
+        == "http://127.0.0.2:4318/v1/traces"
+    )
+    assert (
+        sanitize_telemetry_endpoint("http://[::1]:4318/v1/traces") == "http://[::1]:4318/v1/traces"
+    )
 
     # Internal private IP redacted
     assert (

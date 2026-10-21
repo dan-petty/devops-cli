@@ -20,6 +20,8 @@ import pytest
 from devops_cli.config.constants import (
     CONST_AST_GREP_IGNORE_COMMENT_RE,
     CONST_AST_GREP_NET_RULE_ID_RE,
+    CONST_AST_GREP_SCAN_ARGS,
+    CONST_BANNED_HAND_ROLLED_APIS,
     CONST_BLIND_EXCEPTION_TYPES,
     CONST_C901_SUPPRESSION,
     CONST_COMPLEXITY_CAP_ROOTS,
@@ -28,6 +30,7 @@ from devops_cli.config.constants import (
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
+    CONST_NET_CONSTRUCT_RULES,
     CONST_NOQA_COMMENT_RE,
     CONST_NOQA_RULE_CODE_RE,
     CONST_NOSEC_COMMENT_RE,
@@ -1282,6 +1285,184 @@ def _complexity_cap_escapes(pyproject: Mapping[str, Any], project: Path) -> list
     ]
 
 
+def _sgconfig_escapes(project: Path) -> list[str]:
+    """Report unlisted keys, modified ruleDirs, or extra sgconfig.yml files (#1107)."""
+    sgconfig = project / "sgconfig.yml"
+    if not sgconfig.is_file():
+        return ["sgconfig.yml: missing"]
+    import yaml
+
+    try:
+        raw = yaml.safe_load(sgconfig.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return [f"[sgconfig.yml] malformed: {exc}"]
+    unlisted = [
+        f"[sgconfig.yml] {k}: outside the allowlist"
+        for k in sorted(set(raw.keys()) - {"ruleDirs", "testConfigs"})
+    ]
+    rule_dirs = raw.get("ruleDirs")
+    rule_dirs_escape = (
+        []
+        if rule_dirs == [".ast-grep/rules"]
+        else [f"[sgconfig.yml] ruleDirs: {rule_dirs}, not ['.ast-grep/rules']"]
+    )
+    seconds = [
+        f"{p.relative_to(project).as_posix()}: a second sgconfig.yml"
+        for p in sorted(project.rglob("sgconfig.yml"))
+        if p != sgconfig and not any(part == "repos" for part in p.parts)
+    ]
+    return [*unlisted, *rule_dirs_escape, *seconds]
+
+
+def _rule_file_escapes(data: dict[str, Any], rid: str) -> list[str]:
+    """Check rule properties: severity must be error, and files/ignores may not be set."""
+    escapes: list[str] = []
+    if data.get("severity") != "error":
+        escapes.append(f"[{rid}] severity: {data.get('severity')}, not error")
+    if "files" in data:
+        escapes.append(f"[{rid}] files: outside the allowlist")
+    if "ignores" in data:
+        escapes.append(f"[{rid}] ignores: outside the allowlist")
+    return escapes
+
+
+def _read_rule_files(project: Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Read rule definition YAML files from .ast-grep/rules/."""
+    import yaml
+
+    rules_dir = project / ".ast-grep" / "rules"
+    rule_files = sorted(rules_dir.glob("*.yml")) if rules_dir.is_dir() else []
+    rules: dict[str, dict[str, Any]] = {}
+    rule_escapes: list[str] = []
+    for rf in rule_files:
+        try:
+            data = yaml.safe_load(rf.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        rid = data.get("id")
+        if isinstance(rid, str) and rid:
+            rules[rid] = data
+            rule_escapes.extend(_rule_file_escapes(data, rid))
+    return rules, rule_escapes
+
+
+def _read_test_files(project: Path) -> dict[str, dict[str, Any]]:
+    """Read rule test YAML files from .ast-grep/rule-tests/."""
+    import yaml
+
+    tests_dir = project / ".ast-grep" / "rule-tests"
+    test_files = sorted(tests_dir.glob("*.yml")) if tests_dir.is_dir() else []
+    tests: dict[str, dict[str, Any]] = {}
+    for tf in test_files:
+        try:
+            data = yaml.safe_load(tf.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        tid = data.get("id")
+        if isinstance(tid, str) and tid:
+            tests[tid] = data
+    return tests
+
+
+def _rule_test_case_escapes(tests: dict[str, dict[str, Any]]) -> list[str]:
+    """Verify each net construct rule has at least one valid and one invalid case."""
+    escapes: list[str] = []
+    for rid in sorted(CONST_NET_CONSTRUCT_RULES):
+        tdata = tests.get(rid)
+        if not tdata or not tdata.get("valid"):
+            escapes.append(f"[{rid}] has no valid case")
+        if not tdata or not tdata.get("invalid"):
+            escapes.append(f"[{rid}] has no invalid case")
+    return escapes
+
+
+def _ast_grep_rules_and_tests_escapes(project: Path) -> list[str]:
+    """Report missing or unlisted ast-grep rules, severity/filter escapes, or missing test cases."""
+    rules, rule_escapes = _read_rule_files(project)
+    found_ids = set(rules.keys())
+    expected_ids = set(CONST_NET_CONSTRUCT_RULES)
+    id_escapes = [
+        f"{rid}: missing from .ast-grep/rules" for rid in sorted(expected_ids - found_ids)
+    ] + [f"[{rid}] outside CONST_NET_CONSTRUCT_RULES" for rid in sorted(found_ids - expected_ids)]
+    tests = _read_test_files(project)
+    return [*id_escapes, *rule_escapes, *_rule_test_case_escapes(tests)]
+
+
+def _pre_commit_scan_cmd_escapes(project: Path, expected_cmd: list[str]) -> list[str]:
+    """Report whether the ast-grep-scan pre-commit hook runs the expected scan command."""
+    import yaml
+
+    pre_commit_file = project / ".pre-commit-config.yaml"
+    if not pre_commit_file.is_file():
+        return []
+    try:
+        cfg = yaml.safe_load(pre_commit_file.read_text(encoding="utf-8")) or {}
+        hooks = [h for r in cfg.get("repos", []) for h in r.get("hooks", [])]
+        scan_hook = next((h for h in hooks if h.get("id") == "ast-grep-scan"), None)
+        if scan_hook is None:
+            return ["ast-grep-scan hook: missing from .pre-commit-config.yaml"]
+        entry = scan_hook.get("entry", "").split()
+        args = scan_hook.get("args", [])
+        cmd = [*entry, *args]
+        if cmd != expected_cmd:
+            return [f"ast-grep-scan hook cmd: {cmd}, not {expected_cmd}"]
+    except Exception as exc:
+        return [f"[.pre-commit-config.yaml] malformed: {exc}"]
+    return []
+
+
+def _scan_command_escapes(project: Path) -> list[str]:
+    """Report scan commands differing from CONST_AST_GREP_SCAN_ARGS in CI or pre-commit."""
+    expected_cmd = ["uv", "run", "ast-grep", *CONST_AST_GREP_SCAN_ARGS]
+    from devops_cli.commands.ci import get_check_specs
+
+    specs = {s.name: s for s in get_check_specs()}
+    constructs_spec = specs.get("constructs")
+    ci_escapes: list[str] = []
+    if constructs_spec is None:
+        ci_escapes.append("constructs row: missing from get_check_specs()")
+    elif constructs_spec.cmd != expected_cmd:
+        ci_escapes.append(f"constructs row cmd: {constructs_spec.cmd}, not {expected_cmd}")
+
+    return [*ci_escapes, *_pre_commit_scan_cmd_escapes(project, expected_cmd)]
+
+
+def _tid251_escapes(lint: Mapping[str, Any]) -> list[str]:
+    """Report unenforced TID251, per-file waivers of TID251, or missing banned socket APIs."""
+    select = [*lint.get("select", []), *lint.get("extend-select", [])]
+    ignore = [*lint.get("ignore", []), *lint.get("extend-ignore", [])]
+    rule = "TID251"
+    escapes: list[str] = []
+    if rule not in select or not _ruff_enforces(rule, select, ignore):
+        escapes.append(f"{rule}: not enforced")
+
+    for table in CONST_RUFF_PER_FILE_IGNORE_KEYS:
+        for pattern, codes in lint.get(table, {}).items():
+            if any(_names_rule(rule, code) for code in codes):
+                escapes.append(f"[tool.ruff.lint.{table}] {pattern}: waives {rule}")
+
+    banned = lint.get("flake8-tidy-imports", {}).get("banned-api", {})
+    for api in sorted(CONST_BANNED_HAND_ROLLED_APIS):
+        if api not in banned:
+            escapes.append(f"{api}: missing from flake8-tidy-imports.banned-api")
+
+    return escapes
+
+
+def _network_construct_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
+    """Report every way a committed file lets a hand-rolled network construct past the gate (#1107)."""
+    lint = pyproject.get("tool", {}).get("ruff", {}).get("lint", {})
+    covered = [p for p in (project / "src").rglob("*") if p.is_file()]
+    sources = [p for p in covered if p.suffix in CONST_RUFF_SOURCE_SUFFIXES]
+    return [
+        *_sgconfig_escapes(project),
+        *_ast_grep_rules_and_tests_escapes(project),
+        *_scan_command_escapes(project),
+        *_ignore_file_escapes(project, covered, sources),
+        *_tid251_escapes(lint),
+    ]
+
+
 def _c901_suppressions(project: Path) -> dict[str, int]:
     """Count the noqa comments naming C901 in each covered file, keyed by its project path.
 
@@ -1650,6 +1831,254 @@ def test_the_complexity_cap_has_no_escape() -> None:
     """
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert _complexity_cap_escapes(pyproject, REPO_ROOT) == []
+
+
+def _complying_network_construct_pyproject() -> dict[str, Any]:
+    """Build, as a fresh dict, a pyproject.toml the network construct meta-test accepts."""
+    lint = {
+        "select": ["E", "TID251"],
+        "ignore": [],
+        "flake8-tidy-imports": {
+            "banned-api": {
+                api: {"msg": "Parse and format addresses with ipaddress.ip_address."}
+                for api in sorted(CONST_BANNED_HAND_ROLLED_APIS)
+            }
+        },
+    }
+    ruff = {"target-version": "py314", "line-length": 100, "exclude": [*CONST_RUFF_EXCLUDE]}
+    return {"tool": {"ruff": {**ruff, "lint": lint}}}
+
+
+def _populate_complying_network_construct_tree(project: Path) -> None:
+    """Populate a tmp_path tree with files complying with the network construct gate."""
+    (project / "sgconfig.yml").write_text(
+        "ruleDirs:\n  - .ast-grep/rules\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n",
+        encoding="utf-8",
+    )
+    (project / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: ast-grep-scan\n"
+        f"        entry: uv run ast-grep {' '.join(CONST_AST_GREP_SCAN_ARGS)}\n",
+        encoding="utf-8",
+    )
+    (project / "src").mkdir(parents=True, exist_ok=True)
+    (project / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (project / ".gitignore").write_text("target/\n", encoding="utf-8")
+
+    rules_dir = project / ".ast-grep" / "rules"
+    tests_dir = project / ".ast-grep" / "rule-tests"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    tests_dir.mkdir(parents=True, exist_ok=True)
+
+    for rid in CONST_NET_CONSTRUCT_RULES:
+        (rules_dir / f"{rid}.yml").write_text(
+            f"id: {rid}\nlanguage: python\nseverity: error\nmessage: msg\nrule:\n  pattern: $X\n",
+            encoding="utf-8",
+        )
+        (tests_dir / f"{rid}-test.yml").write_text(
+            f"id: {rid}\nvalid:\n  - 'x = 1'\ninvalid:\n  - 'y = 2'\n",
+            encoding="utf-8",
+        )
+
+
+_NETWORK_CONSTRUCT_ESCAPES = [
+    pytest.param((), None, {}, [], id="complying"),
+    pytest.param(
+        (),
+        None,
+        {
+            "sgconfig.yml": (
+                "ruleDirs:\n  - .ast-grep/rules\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n"
+                "extraKey: true\n"
+            )
+        },
+        ["[sgconfig.yml] extraKey: outside the allowlist"],
+        id="sgconfig-unlisted-key",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            "sgconfig.yml": (
+                "ruleDirs:\n  - .ast-grep/other\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n"
+            )
+        },
+        ["[sgconfig.yml] ruleDirs: ['.ast-grep/other'], not ['.ast-grep/rules']"],
+        id="sgconfig-ruledirs-modified",
+    ),
+    pytest.param(
+        (),
+        None,
+        {"subdir/sgconfig.yml": "ruleDirs: []\n"},
+        ["subdir/sgconfig.yml: a second sgconfig.yml"],
+        id="second-sgconfig",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".ast-grep/rules/net-port-table.yml": None},
+        ["net-port-table: missing from .ast-grep/rules"],
+        id="rule-missing",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-custom.yml": (
+                "id: net-custom\nlanguage: python\nseverity: error\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-custom] outside CONST_NET_CONSTRUCT_RULES"],
+        id="rule-unlisted",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: warning\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] severity: warning, not error"],
+        id="rule-severity-not-error",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: error\nfiles: [src]\n"
+                "rule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] files: outside the allowlist"],
+        id="rule-files-set",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: error\nignores: [src]\n"
+                "rule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] ignores: outside the allowlist"],
+        id="rule-ignores-set",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rule-tests/net-port-table-test.yml": "id: net-port-table\ninvalid:\n  - 'x = 1'\n"
+        },
+        ["[net-port-table] has no valid case"],
+        id="rule-no-valid-case",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rule-tests/net-port-table-test.yml": "id: net-port-table\nvalid:\n  - 'x = 1'\n"
+        },
+        ["[net-port-table] has no invalid case"],
+        id="rule-no-invalid-case",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".pre-commit-config.yaml": (
+                "repos:\n  - repo: local\n    hooks:\n      - id: ast-grep-scan\n"
+                "        entry: uv run ast-grep scan src\n"
+            )
+        },
+        [
+            f"ast-grep-scan hook cmd: ['uv', 'run', 'ast-grep', 'scan', 'src'], "
+            f"not {['uv', 'run', 'ast-grep', *CONST_AST_GREP_SCAN_ARGS]}"
+        ],
+        id="precommit-scan-cmd-changed",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".pre-commit-config.yaml": "repos: []\n"},
+        ["ast-grep-scan hook: missing from .pre-commit-config.yaml"],
+        id="precommit-scan-hook-missing",
+    ),
+    pytest.param(
+        (),
+        None,
+        {".gitignore": "src/app.py\n"},
+        ["src/app.py: matched by .gitignore"],
+        id="ignore-file-hides-source",
+    ),
+    pytest.param(
+        ("lint", "select"),
+        ["E"],
+        {},
+        ["TID251: not enforced"],
+        id="tid251-unselected",
+    ),
+    pytest.param(
+        ("lint", "ignore"),
+        ["TID251"],
+        {},
+        ["TID251: not enforced"],
+        id="tid251-ignored",
+    ),
+    pytest.param(
+        ("lint", "per-file-ignores"),
+        {"src/*": ["TID251"]},
+        {},
+        ["[tool.ruff.lint.per-file-ignores] src/*: waives TID251"],
+        id="tid251-waived",
+    ),
+    pytest.param(
+        ("lint", "flake8-tidy-imports", "banned-api"),
+        {"socket.inet_ntoa": {"msg": "x"}},
+        {},
+        [
+            "socket.inet_aton: missing from flake8-tidy-imports.banned-api",
+            "socket.inet_ntop: missing from flake8-tidy-imports.banned-api",
+            "socket.inet_pton: missing from flake8-tidy-imports.banned-api",
+        ],
+        id="banned-api-missing",
+    ),
+]
+
+
+@pytest.mark.parametrize("path, value, files, expected", _NETWORK_CONSTRUCT_ESCAPES)
+def test_every_network_construct_escape_is_reported(
+    tmp_path: Path,
+    path: Sequence[str],
+    value: object,
+    files: Mapping[str, str | None],
+    expected: list[str],
+) -> None:
+    """Every way to bypass the network construct gate without detection is reported (#1107)."""
+    _populate_complying_network_construct_tree(tmp_path)
+    pyproject = _complying_network_construct_pyproject()
+    if path:
+        _edit(pyproject["tool"]["ruff"], path, value)
+    for name, content in files.items():
+        dest = tmp_path / name
+        if content is None:
+            if dest.exists():
+                dest.unlink()
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+
+    assert _network_construct_escapes(pyproject, tmp_path) == expected
+
+
+def test_the_network_construct_gate_has_no_escape() -> None:
+    """The ast-grep rules, sgconfig, pre-commit and TID251 gate network constructs with no escape (#1107)."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert _network_construct_escapes(pyproject, REPO_ROOT) == []
 
 
 def test_c901_suppressions_stay_under_the_ceiling() -> None:

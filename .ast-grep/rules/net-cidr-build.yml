@@ -1,0 +1,7 @@
+id: net-cidr-build
+language: python
+severity: error
+message: CIDR built as text. Use ipaddress.ip_network(value, strict=False).with_prefixlen.
+rule:
+  kind: string
+  regex: '^f["\''].*\}/(32|128)["\'']$'
