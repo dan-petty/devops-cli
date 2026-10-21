@@ -99,6 +99,7 @@ dev = [
     "mutmut==3.8.0",
     "syrupy==6.1.1",
     "ast-grep-cli==0.51.0",
+    "time-machine==3.5.1",
 ]
 
 [tool.hatch.build.targets.wheel]

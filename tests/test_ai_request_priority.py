@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import threading
-import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -100,11 +99,12 @@ def test_acquire_ollama_slot_priority_preemption() -> None:
     assert (acquisition_order, held_until_released) == (["high", "normal"], True)
 
 
-def test_as_available_non_blocking_when_full() -> None:
+def test_as_available_non_blocking_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify AS_AVAILABLE requests raise immediately without blocking when cluster is full."""
     candidates = ["http://example.com:11434"]
     slot_held = threading.Event()
     release_gate = threading.Event()
+    waits: list[float | None] = []
 
     def _occupy() -> bool:
         """Hold the slot until the test lets it go; whether the test did."""
@@ -116,17 +116,22 @@ def test_as_available_non_blocking_when_full() -> None:
         f = executor.submit(_occupy)
         assert slot_held.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
 
-        t0 = time.monotonic()
-        with pytest.raises(AIClientError, match="No capacity available for as-available"):
+        with (
+            monkeypatch.context() as patch_wait,
+            pytest.raises(AIClientError, match="No capacity available for as-available"),
+        ):
+            patch_wait.setattr(
+                threading.Condition,
+                "wait",
+                lambda self, timeout=None: waits.append(timeout) or False,
+            )
             with acquire_ollama_slot(
                 candidates, max_parallel=1, priority=RequestPriority.AS_AVAILABLE
             ):
                 pass
-        elapsed = time.monotonic() - t0
 
-        assert elapsed < 0.2
         release_gate.set()
-        assert f.result() is True
+        assert (waits, f.result()) == ([], True)
 
 
 def test_as_available_yields_when_higher_priority_waiting() -> None:
