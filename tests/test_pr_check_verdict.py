@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from typing import Any
 from unittest.mock import MagicMock
 
 import httpx2
@@ -241,10 +243,24 @@ def test_fetch_pr_check_verdicts_rest_fallback_on_cli_failure(github_api: GitHub
             ]
         }
     )
+    mock_rest_statuses = json.dumps(
+        {
+            "state": "success",
+            "total_count": 1,
+            "statuses": [
+                {
+                    "context": "ci/status",
+                    "state": "success",
+                    "target_url": "https://example.com/s",
+                }
+            ],
+        }
+    )
     mock_runner = MagicMock(
         side_effect=[
             MagicMock(returncode=1, stdout="", stderr="GraphQL error: rate limit"),
             MagicMock(returncode=0, stdout=mock_pr_view, stderr=""),
+            MagicMock(returncode=0, stdout=mock_rest_statuses, stderr=""),
         ]
     )
     github_api.route("GET", _check_runs("c0ffee123456"), _json(mock_rest_check_runs))
@@ -253,9 +269,8 @@ def test_fetch_pr_check_verdicts_rest_fallback_on_cli_failure(github_api: GitHub
         verdict.exit_code,
         verdict.pass_count,
         verdict.pending_count,
-        verdict.items[0].name,
-        verdict.items[1].name,
-    ) == (8, 1, 1, "Tests", "Coverage")
+        [i.name for i in verdict.items],
+    ) == (8, 2, 1, ["Tests", "Coverage", "ci/status"])
 
 
 def test_fetch_pr_check_verdicts_fails_closed_when_rest_fails(github_api: GitHubApiFake) -> None:
@@ -385,10 +400,24 @@ def test_rest_pagination_bucket_count_matches_total_count(github_api: GitHubApiF
         "GET", _check_runs("headsha999"), github_json(page_1, headers=next_page(second))
     )
     github_api.route("GET", second, github_json(page_2))
+    mock_rest_statuses = json.dumps(
+        {
+            "state": "success",
+            "total_count": 1,
+            "statuses": [
+                {
+                    "context": "ci/status",
+                    "state": "success",
+                    "target_url": "https://example.com/s",
+                }
+            ],
+        }
+    )
     mock_runner = MagicMock(
         side_effect=[
             MagicMock(returncode=1, stdout="", stderr="CLI json not available"),
             MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "headsha999"}}), stderr=""),
+            MagicMock(returncode=0, stdout=mock_rest_statuses, stderr=""),
         ]
     )
     verdict = fetch_pr_check_verdicts(401, repo="owner/repo", runner=mock_runner)
@@ -401,7 +430,8 @@ def test_rest_pagination_bucket_count_matches_total_count(github_api: GitHubApiF
         verdict.fail_count,
         verdict.cancel_count,
         verdict.pending_count,
-    ) == (5, 1, False, 1, 1, 1, 1, 1)
+        verdict.items[-1].name,
+    ) == (6, 1, False, 2, 1, 1, 1, 1, "ci/status")
 
 
 def test_fetch_pr_check_verdicts_zero_runs_and_zero_statuses_reports_pending(
@@ -600,3 +630,31 @@ def test_a_cancelled_run_a_newer_run_of_its_check_replaced_does_not_fail_the_pr(
     )
     verdict = fetch_pr_check_verdicts(1599, repo="owner/repo", runner=mock_runner)
     assert verdict.is_passing is passing
+
+
+@pytest.mark.parametrize(
+    "error",
+    [StopIteration("status mock exhausted"), IndexError("status index out of range")],
+    ids=["stop-iteration", "index-error"],
+)
+def test_commit_status_read_raising_propagates_and_never_passes(
+    github_api: GitHubApiFake, error: BaseException
+) -> None:
+    """When check runs pass and the commit status runner raises StopIteration or IndexError,
+    fetch_pr_check_verdicts propagates the exception rather than returning a passing verdict (#1350)."""
+    github_api.route("GET", _check_runs("sha_raise"), github_json(_ONE_PASSING_BUILD))
+    responses = iter(
+        [
+            subprocess.CompletedProcess(["gh"], 1, "", "CLI error"),
+            subprocess.CompletedProcess(["gh"], 0, json.dumps({"head": {"sha": "sha_raise"}}), ""),
+        ]
+    )
+
+    def runner(_cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        try:
+            return next(responses)
+        except StopIteration:
+            raise error from None
+
+    with pytest.raises(type(error)):
+        fetch_pr_check_verdicts(1350, repo="owner/repo", runner=runner)

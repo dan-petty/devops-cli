@@ -334,10 +334,7 @@ def _fetch_commit_statuses_from_rest(
         "api",
         f"repos/{owner}/{repo_name}/commits/{head_sha}/status",
     ]
-    try:
-        res = runner(status_cmd, check=False, quiet=True)
-    except StopIteration, IndexError:
-        return [], None, ""
+    res = runner(status_cmd, check=False, quiet=True)
 
     if res.returncode != 0:
         err_msg = res.stderr.strip() or f"exit code {res.returncode}"
