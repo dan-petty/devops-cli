@@ -281,7 +281,6 @@ class GeneralMessages:
     key_already_exists: str = "Key already exists: {key_path}"
     generated_key: str = "Generated: {key_path}"
     public_key_path: str = "Public key: {pub_path}"
-    no_ssh_key_found: str = "No managed SSH key found. Run 'devops ssh generate' first."
     public_key_not_found: str = "Public key not found: {pub_path}"
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
     vscode_cli_unavailable: str = "Workspace updated, but VS Code CLI is not available to reload."
@@ -1031,9 +1030,14 @@ class TLSMessages:
 @dataclass(frozen=True)
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
-    no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
+    no_project_key: str = (
+        "No managed SSH key with the prefix '{prefix}' exists in {key_dir}. "
+        "Run 'devops ssh generate' to make one."
+    )
+    list_all_tip: str = "Add '--all' to show the keys of all projects."
+    all_with_prefix: str = "Use '--all' or '--prefix'. Do not use both."
     no_managed_keys_pattern: str = (
-        "No managed SSH keys found (expected: [prefix-]id_ed25519-YYYYMMDD)."
+        "No managed SSH keys found (expected: PREFIX-id_ed25519-YYYYMMDD or id_ed25519-YYYYMMDD)."
     )
     registered_and_configured: str = "Registered new key and updated git signing config."
     cleaned_unregistered_keys: str = (

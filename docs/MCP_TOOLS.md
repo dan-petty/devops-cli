@@ -133,7 +133,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_uv_audit`](#scan-uv-audit) | `true` | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | `true` | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | `true` | Query the OSV.dev vulnerability database for package CVE intelligence. |
-| [`ssh_audit`](#ssh-audit) | `true` | List all managed SSH keys with their age and rotation status. |
+| [`ssh_audit`](#ssh-audit) | `true` | List the managed SSH keys of the project prefix with their age and rotation status. |
 | [`ssh_status`](#ssh-status) | `true` | Show the active SSH key and days until rotation. |
 | [`telemetry_logfire`](#telemetry-logfire) | `true` | Display Logfire structured observability bridge status and token metrics. |
 | [`telemetry_profile`](#telemetry-profile) | `true` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
@@ -2200,7 +2200,7 @@ Query the OSV.dev vulnerability database for package CVE intelligence.
 
 ### `ssh_audit`
 
-List all managed SSH keys with their age and rotation status.
+List the managed SSH keys of the project prefix with their age and rotation status.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2210,6 +2210,7 @@ List all managed SSH keys with their age and rotation status.
 |---|---|---|---|---|
 | `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `all_projects` | `boolean` | No | `False` | List the managed keys of all projects, not only the keys of the prefix. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ssh_status`

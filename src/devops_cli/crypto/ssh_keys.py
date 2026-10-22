@@ -252,32 +252,30 @@ def parse_key_prefix(key_path: Path) -> str | None:
     return match.group("prefix")
 
 
-def find_newest_key(
-    key_dir: Path,
-    prefix: str | None = None,
-    *,
-    fallback_to_any: bool = True,
-) -> Path | None:
-    """Return the newest managed SSH private key (optionally filtered by prefix), or None."""
+def find_newest_key(key_dir: Path, prefix: str | None = None) -> Path | None:
+    """Return the newest managed SSH private key of *prefix* (of any prefix when None), or None."""
     keys = list_managed_keys(key_dir, prefix=prefix)
-    if not keys and prefix is not None:
-        variant = prefix.replace("_", "-") if "_" in prefix else prefix.replace("-", "_")
-        keys = list_managed_keys(key_dir, prefix=variant)
-    if not keys and prefix is not None:
-        if fallback_to_any:
-            keys = list_managed_keys(key_dir)
-        else:
-            keys = [p for p in list_managed_keys(key_dir) if parse_key_prefix(p) is None]
     if not keys:
         return None
     return max(keys, key=lambda path: parse_key_date(path) or date.min)
 
 
+def _fold_separators(prefix: str) -> str:
+    """Return *prefix* with each underscore as a hyphen: the two separators of a prefix are one."""
+    return prefix.replace("_", "-")
+
+
 def list_managed_keys(key_dir: Path, prefix: str | None = None) -> list[Path]:
-    """List all managed SSH private keys matching [prefix-]id_ed25519-YYYYMMDD."""
+    """List the managed SSH private keys matching [prefix-]id_ed25519-YYYYMMDD.
+
+    With a *prefix*, list only the keys of that prefix. A hyphen and an underscore are the same
+    separator, so `my-app` matches `my_app-id_ed25519-20260831`. The empty prefix matches the
+    keys that have no prefix. This is the one place that selects keys by prefix.
+    """
     expanded = key_dir.expanduser()
     if not expanded.is_dir():
         return []
+    wanted = None if prefix is None else _fold_separators(prefix)
     result: list[Path] = []
     for path in expanded.iterdir():
         if not path.is_file():
@@ -285,7 +283,7 @@ def list_managed_keys(key_dir: Path, prefix: str | None = None) -> list[Path]:
         m = _KEY_RE.match(path.name)
         if not m:
             continue
-        if prefix is not None and m.group("prefix") != prefix:
+        if wanted is not None and _fold_separators(m.group("prefix") or "") != wanted:
             continue
         result.append(path)
     return result

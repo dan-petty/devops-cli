@@ -73,7 +73,6 @@ class K8sErrorMessages:
 @dataclass(frozen=True)
 class SSHErrorMessages:
     key_already_exists: str = "Key already exists: {key_path}"
-    no_ssh_key_found: str = "No managed SSH key found. Run 'devops ssh generate' first."
     public_key_not_found: str = "Public key not found: {pub_path}"
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
     registration_failed: str = "GitHub key registration failed: {exc}"

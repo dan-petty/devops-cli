@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -448,10 +449,19 @@ class TestDevcontainerCli:
         assert "Installed pre-commit Git hooks" in result.output
         assert any(c == ["uv", "run", "pre-commit", "install"] for c in calls)
 
+    @pytest.mark.parametrize(
+        "target_key_name",
+        ["test-local-dev-id_ed25519-20260908", "test_local_dev-id_ed25519-20260908"],
+    )
     def test_post_start_honors_workspace_ssh_key_prefix(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        target_key_name: str,
     ) -> None:
-        """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix."""
+        """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix,
+        whether the key spells the prefix separators with hyphens or with underscores."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         ssh_dir = fake_home / ".ssh"
@@ -465,7 +475,7 @@ class TestDevcontainerCli:
         (ws / ".git").mkdir()
         (ws / "config.yaml").write_text("ssh:\n  key_prefix: test-local-dev\n", encoding="utf-8")
 
-        key_target = ssh_dir / "test-local-dev-id_ed25519-20260908"
+        key_target = ssh_dir / target_key_name
         key_foreign = ssh_dir / "devops_cli-id_ed25519-20260908"
         key_target.write_text("target", encoding="utf-8")
         key_foreign.write_text("foreign", encoding="utf-8")
@@ -482,10 +492,7 @@ class TestDevcontainerCli:
 
         result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
         assert result.exit_code == 0
-        assert (
-            "Configured Git SSH commit signing with key test-local-dev-id_ed25519-20260908"
-            in result.output
-        )
+        assert f"Configured Git SSH commit signing with key {target_key_name}" in result.output
         assert any(
             c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
             and c[5:] == ["user.signingkey", str(key_target)]
@@ -526,6 +533,60 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Configured Git SSH commit signing" not in result.output
         assert not any("user.signingkey" in c for c in calls)
+
+    @pytest.mark.parametrize(
+        ("key_ages", "expected_key"),
+        [
+            ({"id_ed25519-20260801": 1, "id_rsa": 2}, "id_ed25519-20260801"),
+            ({"id_rsa": 1, "id_ecdsa": 2}, "id_ecdsa"),
+        ],
+    )
+    def test_post_start_signs_with_a_key_without_a_prefix_when_the_workspace_has_none(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        key_ages: dict[str, int],
+        expected_key: str,
+    ) -> None:
+        """Verify post-start falls back to the managed key without a prefix, though a newer key of
+        another kind exists, then to the newest unmanaged key, and never to a key of another
+        project, though that key is the newest of all."""
+        fake_home = tmp_path / "home"
+        ssh_dir = fake_home / ".ssh"
+        ssh_dir.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        ws = tmp_path / "isolated-proj"
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / "config.yaml").write_text("ssh:\n  key_prefix: isolated-proj\n", encoding="utf-8")
+
+        for key_name, age_rank in {**key_ages, "devops_cli-id_ed25519-20260908": 3}.items():
+            key_path = ssh_dir / key_name
+            key_path.write_text(key_name, encoding="utf-8")
+            os.utime(key_path, (age_rank * 1_000_000, age_rank * 1_000_000))
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
+        assert result.exit_code == 0
+        assert f"Configured Git SSH commit signing with key {expected_key}" in result.output
+        assert any(
+            c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
+            and c[5:] == ["user.signingkey", str(ssh_dir / expected_key)]
+            for c in calls
+        )
 
     def test_post_create_installs_pre_commit_when_missing(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
