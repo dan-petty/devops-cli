@@ -7,7 +7,6 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | `ai.allow_private_network` | No | Permit private-IP network targets |
 | `DEVOPS_CLI_AI_API_BASE_URL` | `ai.api_base_url` | No | AI API base URL |
 | `DEVOPS_CLI_AI_API_KEY` | `ai.api_key` | 🔒 Yes | AI API key (stored in OS keyring) |
-| `DEVOPS_CLI_AI_CACHE_BACKEND` | `ai.cache.backend` | No | AI cache storage backend: 'memory', 'disk', or 'valkey' (default: disk) |
 | `DEVOPS_CLI_AI_GATEWAY_URL` | `ai.gateway_url` | No | AI gateway URL |
 | `DEVOPS_CLI_AI_MAX_RETRIES` | `ai.max_retries` | No | Maximum retry count for AI requests upon response validation failure |
 | `DEVOPS_CLI_AI_MODEL` | `ai.model` | No | Default AI model name |

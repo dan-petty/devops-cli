@@ -586,15 +586,6 @@ DEFAULT_VALKEY_HOST: str = "localhost"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
-DEFAULT_VALKEY_SCAN_COUNT: int = 100
-
-# ── Tiered Cache Defaults ────────────────────────────────────────────────────
-# Entries retained by the in-process L1 cache before least-recently-used eviction.
-DEFAULT_CACHE_L1_MAX_ENTRIES: int = 2048
-# Lifetime applied to cached values when a call site does not specify one.
-DEFAULT_CACHE_TTL_SECONDS: float = 3600.0
-# Lifetime for cached AI artefacts (embeddings, findings, LLM responses).
-DEFAULT_AI_CACHE_TTL_SECONDS: int = 86400
 
 # ── Sparse Lexical (BM25) Ranking Defaults ───────────────────────────────────
 # Term-frequency saturation and length-normalisation constants. These are the values

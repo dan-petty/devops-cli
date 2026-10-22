@@ -20,7 +20,6 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
     DEFAULT_VALKEY_PORT,
-    DEFAULT_VALKEY_SCAN_COUNT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
 )
 from devops_cli.core.validation import is_non_public_ip
@@ -205,20 +204,9 @@ class ValkeyClient:
         """Set a string, expiring after `ex` seconds when given."""
         return bool(self._call(self._valkey.set, key, value, ex=ex))
 
-    def delete(self, *keys: str) -> int:
-        """Remove keys; the number removed."""
-        return int(self._call(self._valkey.delete, *keys))
-
     def keys(self, pattern: str) -> list[str]:
         """Every key matching a glob pattern."""
         return list(self._call(self._valkey.keys, pattern))
-
-    def scan_iter(
-        self, match: str | None = None, count: int = DEFAULT_VALKEY_SCAN_COUNT
-    ) -> Iterator[str]:
-        """Matching keys, found by SCAN without blocking the server."""
-        with _valkey_failures(self.host, self.port, self.timeout):
-            yield from self._valkey.scan_iter(match=match, count=count)
 
     def dbsize(self) -> int:
         """The number of keys in the current database."""

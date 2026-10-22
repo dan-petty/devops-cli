@@ -3,6 +3,8 @@
 **Issue**: [#312](https://github.com/dan-petty/devops-cli/issues/312)
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`
 
+**Update**: Item #1113 deleted `valkey/pool.py`, `cache/tiered.py` and `ai/cache/valkey_cache.py`. valkey-py now provides the connection pool and pipelines. This file records the original work.
+
 ---
 
 ## 1. Description & Objectives
