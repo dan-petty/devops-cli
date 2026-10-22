@@ -19,6 +19,8 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from prometheus_client.parser import text_string_to_metric_families
+from pydantic import ValidationError, create_model
 
 from devops_cli.config import Settings
 from devops_cli.config.constants import (
@@ -26,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_DELIVERY_HEADER,
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_LANE_MODEL,
@@ -36,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    WebhookProviderName,
 )
 from devops_cli.config.settings import ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
@@ -44,7 +48,13 @@ from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import JobOutcome, build_stub_table, run_due_jobs, service_pause_until
 from devops_cli.server.json_logs import JsonLogFormatter
-from devops_cli.server.routes.webhooks import verify_webhook_signature
+from devops_cli.server.routes.webhooks import (
+    HmacSha256,
+    WebhookConsumer,
+    create_webhook_router,
+    invalid_payload_detail,
+    roadmap_consumer,
+)
 from devops_cli.server.service import (
     PauseReader,
     RepoWorker,
@@ -91,24 +101,27 @@ def _reset_metrics() -> None:
     reset_tracer()
 
 
-def test_verify_webhook_signature_canonical() -> None:
-    """Test verify_webhook_signature constant-time comparison against expected HMAC."""
+def test_hmac_sha256_verifier_checks_the_header_digest_against_each_subjects_secret() -> None:
+    """The verifier accepts only the digest of the body under a subject's own secret, compared
+    in constant time, and names every subject whose secret matches."""
+    verifier = HmacSha256(header=CONST_GH_WEBHOOK_SIGNATURE_HEADER, prefix="sha256=")
     payload = b'{"hello":"world"}'
     secret = "test-secret-key"
     sig = _sign(payload, secret)
 
-    valid_res = verify_webhook_signature(payload, sig, secret)
-    bad_sig_res = verify_webhook_signature(payload, "sha256=invalidhash", secret)
-    bad_header_res = verify_webhook_signature(payload, "invalid_format", secret)
-    empty_secret_res = verify_webhook_signature(payload, sig, "")
-    none_sig_res = verify_webhook_signature(payload, None, secret)
+    checks = (
+        verifier.verify(payload, sig, secret),
+        verifier.verify(payload, "sha256=invalidhash", secret),
+        verifier.verify(payload, "invalid_format", secret),
+        verifier.verify(payload, sig, ""),
+        verifier.verify(payload, None, secret),
+        verifier.verify(payload, "sha256=\u00e9", secret),
+    )
+    secrets = {"example-org/repo1": secret, "example-org/repo2": "other-secret", "no-secret": ""}
 
-    assert (valid_res, bad_sig_res, bad_header_res, empty_secret_res, none_sig_res) == (
-        True,
-        False,
-        False,
-        False,
-        False,
+    assert (checks, verifier.signers(payload, sig, secrets)) == (
+        (True, False, False, False, False, False),
+        frozenset({"example-org/repo1"}),
     )
 
 
@@ -458,7 +471,7 @@ def test_multi_concurrency_coalescing_and_multi_repo() -> None:
             ).encode("utf-8")
             h_bulk = {
                 "Content-Type": "application/json",
-                CONST_GH_WEBHOOK_EVENT_HEADER: "push",
+                CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
                 CONST_GH_WEBHOOK_DELIVERY_HEADER: f"bulk-{i}",
                 CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p_bulk, "secret-1"),
             }
@@ -607,10 +620,12 @@ def test_readyz_and_healthz_lifecycle() -> None:
 
 
 def test_service_app_strict_routes() -> None:
-    """Test that only the 4 service routes are served and unmounted routes return 404."""
+    """Test that only the service routes are served: the probes, the metrics and one webhook
+    route for each declared provider. Any other route, and a provider nothing declares, is 404."""
     settings = _make_settings(repos=["example-org/repo1"])
     secrets = {"example-org/repo1": "secret-1"}
     app = create_service_app(settings=settings, secrets=secrets)
+    served = set(app.openapi()["paths"])
 
     with TestClient(app) as client:
         res_root = client.get("/")
@@ -619,15 +634,34 @@ def test_service_app_strict_routes() -> None:
         res_ready = client.get("/readyz")
         res_health = client.get("/healthz")
         res_metrics = client.get("/metrics")
+        res_undeclared = _github_post(
+            client, "issues", _event_payload(), "undeclared-1", route="gitlab"
+        )
 
         assert (
+            served,
             res_root.status_code,
             res_docs.status_code,
             res_cfg.status_code,
             res_ready.status_code,
             res_health.status_code,
             res_metrics.status_code,
-        ) == (404, 404, 404, 200, 200, 200)
+            res_undeclared.status_code,
+        ) == (
+            {
+                "/readyz",
+                "/healthz",
+                "/metrics",
+                *(f"/webhooks/{name}" for name in WebhookProviderName),
+            },
+            404,
+            404,
+            404,
+            200,
+            200,
+            200,
+            404,
+        )
 
 
 def test_prometheus_metrics_export() -> None:
@@ -1429,3 +1463,484 @@ def test_service_app_quiets_httpx_loggers() -> None:
         log_cfg["httpx2"]["level"],
         log_cfg["httpcore"]["level"],
     ) == (True, True, True, logging.WARNING, logging.WARNING, logging.WARNING)
+
+
+# ── One router verifies each provider its own way and delivers to its consumers (#1386) ──────
+
+ROUTER_LOGGER = "devops_cli.server.routes.webhooks"
+
+
+def _event_payload(
+    action: str | None = "opened", *, sender: str = "alice", **extra: Any
+) -> dict[str, Any]:
+    """What GitHub sends for repository A, with the fields the Service reads and the rest it
+    ignores."""
+    return {
+        "repository": {"full_name": REPO_A, "default_branch": "main"},
+        "action": action,
+        "sender": {"login": sender},
+        **extra,
+    }
+
+
+def _github_post(
+    client: TestClient,
+    event: str,
+    payload: dict[str, Any],
+    delivery: str,
+    *,
+    route: str = "github",
+    secret: str = "secret-1",
+    headers: Mapping[str, str | bytes] | None = None,
+) -> Any:
+    """Deliver `payload` as `event`, signed with `secret`; the response."""
+    body = json.dumps(payload).encode("utf-8")
+    sent = {
+        "Content-Type": "application/json",
+        CONST_GH_WEBHOOK_EVENT_HEADER: event,
+        CONST_GH_WEBHOOK_DELIVERY_HEADER: delivery,
+        CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(body, secret),
+        **(headers or {}),
+    }
+    return client.post(f"/webhooks/{route}", content=body, headers=sent)
+
+
+def _lanes_settled(app: FastAPI) -> bool:
+    """Whether every worker has run what was enqueued for it."""
+    return all(
+        worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+        for worker in app.state.service_manager.workers.values()
+    )
+
+
+def _webhook_keys(lanes: _Lanes) -> dict[str, list[tuple[str, str, str]]]:
+    """The webhook trigger keys each lane's rounds ran, the start-up poll left out."""
+    return {
+        lane: [key for batch in batches for key in batch.counts if key[0] == "webhook"]
+        for lane, batches in lanes.batches.items()
+    }
+
+
+def _unblocked_lanes() -> _Lanes:
+    """Lane jobs that record their rounds, the model lane's start-up round answering at once."""
+    lanes = _Lanes()
+    lanes.model_answers.set()
+    return lanes
+
+
+def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
+    """The deliveries counter as /metrics exports it: {(provider, event, outcome): count}."""
+    return {
+        (sample.labels["provider"], sample.labels["event"], sample.labels["outcome"]): sample.value
+        for family in text_string_to_metric_families(client.get("/metrics").text)
+        for sample in family.samples
+        if sample.name == CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES
+    }
+
+
+@pytest.mark.parametrize(
+    ("event", "payload"),
+    [
+        ("issue_comment", _event_payload("created")),
+        ("create", _event_payload(None, ref="v1", ref_type="tag")),
+        ("push", _event_payload(None, ref="refs/heads/main", deleted=False)),
+        ("workflow_run", _event_payload("completed")),
+    ],
+)
+def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_round(
+    event: str, payload: dict[str, Any]
+) -> None:
+    """Comments, branch and tag creations, pushes (a default-branch push included) and every
+    other event the roadmap's jobs read nothing from are acknowledged and run nothing. A repeat
+    of such a delivery is acknowledged again, since the delivery cache holds only deliveries a
+    consumer took."""
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        responses = [_github_post(client, event, payload, "unsubscribed-1") for _ in range(2)]
+        settled = _lanes_settled(app)
+    assert ([(r.status_code, r.json()) for r in responses], settled, _webhook_keys(lanes)) == (
+        [(200, {"status": "no_subscriber"})] * 2,
+        True,
+        {RELEASE_LANE: [], MODEL_LANE: []},
+    )
+
+
+@pytest.mark.parametrize("event", ["issues", "pull_request", "milestone", "release"])
+def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(event: str) -> None:
+    """Each event a roadmap job's batch keys name reaches the release lane and the model lane as
+    a ("webhook", <event>, <action>) trigger, whatever its action."""
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        response = _github_post(client, event, _event_payload("labeled"), "roadmap-1")
+        settled = _lanes_settled(app)
+    key = ("webhook", event, "labeled")
+    assert (response.status_code, response.json(), settled, _webhook_keys(lanes)) == (
+        202,
+        {"status": "accepted"},
+        True,
+        {RELEASE_LANE: [key], MODEL_LANE: [key]},
+    )
+
+
+def test_the_machine_accounts_own_event_reaches_neither_lane() -> None:
+    """The roadmap's own writes come back as webhooks from the machine account. The roadmap
+    consumer refuses them, and answers with the reason."""
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        response = _github_post(
+            client, "issues", _event_payload("opened", sender="BOT-ACCOUNT"), "own-write-1"
+        )
+        settled = _lanes_settled(app)
+    assert (response.status_code, response.json(), settled, _webhook_keys(lanes)) == (
+        200,
+        {"status": "ignored_machine_account"},
+        True,
+        {RELEASE_LANE: [], MODEL_LANE: []},
+    )
+
+
+def test_a_consumer_receives_only_the_events_it_subscribes_to() -> None:
+    """A consumer a test declares, with a recording delivery target, takes the events it names
+    from its provider. The roadmap consumer is not among the consumers given, so an event it
+    would take has no subscriber."""
+    received: list[tuple[str, str, str]] = []
+    recorder = _recording_consumer(frozenset({"issue_comment"}), received)
+    app = create_service_app(
+        settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"}, consumers=[recorder]
+    )
+    with TestClient(app) as client:
+        answers = [
+            _github_post(client, event, _event_payload(action), f"recorder-{n}").json()
+            for n, (event, action) in enumerate(
+                [("issue_comment", "created"), ("issues", "opened"), ("push", "")]
+            )
+        ]
+    assert (answers, received) == (
+        [{"status": "accepted"}, {"status": "no_subscriber"}, {"status": "no_subscriber"}],
+        [(REPO_A, "issue_comment", "created")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"action": "opened"}, "repository"),
+        ({"action": "opened", "repository": {}}, "repository.full_name"),
+        (
+            {"action": 7, "repository": {"full_name": REPO_A}, "sender": {}},
+            "action: Input should be a valid string; sender.login",
+        ),
+    ],
+)
+def test_a_payload_missing_a_field_the_service_reads_gets_400_naming_the_field(
+    payload: dict[str, Any], field: str
+) -> None:
+    """A body that is signed but does not validate gets 400 naming the failing fields' paths,
+    within the bound on error details. An unsigned one gets 401 before validation, so the
+    schema can't be probed without a secret."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        invalid = _github_post(client, "issues", payload, "invalid-1")
+        unsigned = _github_post(client, "issues", payload, "invalid-2", secret="wrong")
+    detail = invalid.json()["error"]
+    assert (
+        invalid.status_code,
+        field in detail,
+        len(detail) <= CONST_MAX_ERROR_DETAIL_LENGTH,
+        unsigned.status_code,
+        unsigned.json(),
+    ) == (400, True, True, 401, {"error": "invalid signature"})
+
+
+def test_whole_error_text_for_a_payload_without_a_repository_name() -> None:
+    """The 400 names the field and why, and nothing from the body."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        response = _github_post(client, "issues", {"repository": {}, "zen": "x" * 500}, "bare-1")
+    assert (response.status_code, response.json()) == (
+        400,
+        {"error": "invalid payload: repository.full_name: Field required"},
+    )
+
+
+def test_a_signature_header_with_non_ascii_text_is_refused_with_401() -> None:
+    """A digest is hex, so a header that carries other text can't match, and the check says so
+    rather than failing the request (the header's bytes, which HTTP does not limit to ASCII)."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        response = _github_post(
+            client,
+            "issues",
+            _event_payload(),
+            "non-ascii-1",
+            headers={CONST_GH_WEBHOOK_SIGNATURE_HEADER: "sha256=é".encode()},
+        )
+    assert (response.status_code, response.json()) == (401, {"error": "invalid signature"})
+
+
+def test_one_delivery_writes_one_record_with_its_six_keys_and_no_secret(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A delivery's record carries the provider, event, action, delivery, repository and outcome.
+    It never carries the body, the signature or an Authorization header's value."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    payload = _event_payload("opened", issue={"body": "body-marker-5678"})
+    signature = _sign(json.dumps(payload).encode("utf-8"), "secret-1")
+    with caplog.at_level(logging.INFO, logger=ROUTER_LOGGER), TestClient(app) as client:
+        _github_post(
+            client,
+            "issues",
+            payload,
+            "record-1",
+            headers={"Authorization": "Bearer token-marker-1234"},
+        )
+    records = [record for record in caplog.records if record.name == ROUTER_LOGGER]
+    line = JsonLogFormatter().format(records[0])
+    written = {key: value for key, value in json.loads(line).items() if key != "time"}
+    assert (len(records), written) == (
+        1,
+        {
+            "level": "INFO",
+            "logger": ROUTER_LOGGER,
+            "message": "Webhook delivery handled.",
+            "provider": "github",
+            "event": "issues",
+            "action": "opened",
+            "delivery": "record-1",
+            "repo": REPO_A,
+            "outcome": "accepted",
+        },
+    )
+    leaked = [text for text in (signature, "token-marker-1234", "body-marker-5678") if text in line]
+    assert leaked == []
+
+
+def test_header_values_in_the_record_and_the_counter_are_bounded(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The event and delivery headers are text any sender can choose. The record keeps their
+    first 256 characters, and the counter files an event no consumer subscribes to under
+    "other", so a flood of event names grows no series."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with caplog.at_level(logging.INFO, logger=ROUTER_LOGGER), TestClient(app) as client:
+        response = _github_post(client, "e" * 1000, _event_payload(), "d" * 1000)
+        series = _delivery_series(client)
+    record = next(record for record in caplog.records if record.name == ROUTER_LOGGER)
+    assert (response.json(), record.event, record.delivery, series) == (
+        {"status": "no_subscriber"},
+        "e" * 256,
+        "d" * 256,
+        {("github", "other", "no_subscriber"): 1.0},
+    )
+
+
+def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
+    """Accepted, repeated, pong, machine-account, no-subscriber, refused and draining deliveries
+    all count under the provider, the event (an undeclared one as "other") and the outcome."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        statuses = [
+            _github_post(client, "issues", _event_payload(), "count-1").status_code,
+            _github_post(client, "issues", _event_payload(), "count-1").status_code,
+            _github_post(
+                client, "issues", _event_payload(sender="bot-account"), "count-2"
+            ).status_code,
+            _github_post(client, "ping", _event_payload(None), "count-3").status_code,
+            _github_post(client, "issue_comment", _event_payload(), "count-4").status_code,
+            _github_post(client, "made-up-1", _event_payload(), "count-5").status_code,
+            _github_post(client, "made-up-2", _event_payload(), "count-6").status_code,
+            _github_post(client, "issues", _event_payload(), "count-7", secret="wrong").status_code,
+            _github_post(
+                client,
+                "issues",
+                _event_payload(),
+                "count-8",
+                headers={"Content-Type": "text/plain"},
+            ).status_code,
+            client.post(
+                "/webhooks/github",
+                content=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+                },
+            ).status_code,
+            _github_post(client, "issues", {"action": "opened"}, "count-9").status_code,
+        ]
+    statuses.append(_github_post(client, "issues", _event_payload(), "count-10").status_code)
+    assert (statuses, _delivery_series(client)) == (
+        [202, 200, 200, 200, 200, 200, 200, 401, 415, 400, 400, 503],
+        {
+            ("github", "issues", "accepted"): 1.0,
+            ("github", "issues", "ignored"): 2.0,
+            ("github", "ping", "ignored"): 1.0,
+            ("github", "other", "no_subscriber"): 3.0,
+            ("github", "issues", "rejected"): 5.0,
+        },
+    )
+
+
+@pytest.mark.parametrize("digits", [5000, 4301, 4300, 20])
+def test_a_content_length_over_the_cap_gets_413_whatever_its_number_of_digits(
+    digits: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A declared length above the cap is refused before the body is read, however many digits it
+    has: it writes its one record and counts once. Python converts no more than 4300 digits to an
+    integer, so the digits are counted first."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with caplog.at_level(logging.INFO, logger=ROUTER_LOGGER), TestClient(app) as client:
+        response = _github_post(
+            client, "issues", _event_payload(), "length-1", headers={"Content-Length": "9" * digits}
+        )
+        series = _delivery_series(client)
+    outcomes = [record.outcome for record in caplog.records if record.name == ROUTER_LOGGER]
+    assert (response.status_code, response.json(), outcomes, series) == (
+        413,
+        {"error": "payload too large"},
+        ["rejected"],
+        {("github", "issues", "rejected"): 1.0},
+    )
+
+
+def test_a_content_length_padded_with_zeros_is_judged_by_its_value() -> None:
+    """Leading zeros are part of a valid Content-Length, so a small number written with thousands
+    of them is no larger than the cap."""
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        response = _github_post(
+            client,
+            "issues",
+            _event_payload(),
+            "length-2",
+            headers={"Content-Length": "0" * 5000 + "2"},
+        )
+    assert (response.status_code, response.json()) == (202, {"status": "accepted"})
+
+
+def test_the_detail_of_an_invalid_payload_is_cut_to_the_bound_on_error_details() -> None:
+    """A payload model's failed fields can add up to more than the bound on error details, as a
+    model with long field names does, and the text that names them is cut to it."""
+    wide_model = create_model("WidePayload", **{"f" * 300: (str, ...)})
+    with pytest.raises(ValidationError) as failure:
+        wide_model.model_validate_json("{}")
+    prefix = "invalid payload: "
+    assert invalid_payload_detail(failure.value) == prefix + "f" * (
+        CONST_MAX_ERROR_DETAIL_LENGTH - len(prefix)
+    )
+
+
+def _recording_consumer(
+    events: frozenset[str], received: list[tuple[str, str, str]]
+) -> WebhookConsumer:
+    """A consumer of GitHub's `events` that takes every payload and records what it receives."""
+    return WebhookConsumer(
+        name="recorder",
+        provider=WebhookProviderName.GITHUB,
+        events=events,
+        deliver=lambda repo, event, action: received.append((repo, event, action)),
+    )
+
+
+def _refusing_consumer(name: str, refusal: str, delivered: list[str]) -> WebhookConsumer:
+    """A consumer of `issues` that refuses every payload with the status `refusal`."""
+    return WebhookConsumer(
+        name=name,
+        provider=WebhookProviderName.GITHUB,
+        events=frozenset({"issues"}),
+        deliver=lambda repo, event, action: delivered.append(name),
+        refusal=lambda payload: refusal,
+    )
+
+
+def test_the_machine_accounts_event_is_refused_by_the_roadmap_consumer_alone() -> None:
+    """The roadmap consumer refuses the machine account's own writes, and the refusal is its own:
+    a consumer subscribed beside it still receives the event, while neither lane runs a round for
+    it. Another sender's event reaches the recorder and both lanes."""
+    lanes = _unblocked_lanes()
+    received: list[tuple[str, str, str]] = []
+    manager = ServiceManager(
+        config=_make_settings(repos=[REPO_A]).service,
+        secrets={REPO_A: "secret-1"},
+        jobs=lanes.jobs(),
+        clock=lambda: datetime.now(UTC),
+        sleep_func=asyncio.sleep,
+    )
+    app = FastAPI()
+    app.include_router(
+        create_webhook_router(
+            manager,
+            [_recording_consumer(frozenset({"issues"}), received), roadmap_consumer(manager)],
+        )
+    )
+    for worker in manager.workers.values():
+        worker.start()
+    try:
+        with TestClient(app) as client:
+            answers = [
+                _github_post(client, "issues", _event_payload("opened"), "shared-1"),
+                _github_post(
+                    client, "issues", _event_payload("closed", sender="BOT-ACCOUNT"), "shared-2"
+                ),
+            ]
+        settled = all(
+            worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS) for worker in manager.workers.values()
+        )
+    finally:
+        asyncio.run(manager.drain_and_stop())
+    key = ("webhook", "issues", "opened")
+    assert (
+        [(answer.status_code, answer.json()) for answer in answers],
+        received,
+        settled,
+        _webhook_keys(lanes),
+    ) == (
+        [(202, {"status": "accepted"})] * 2,
+        [(REPO_A, "issues", "opened"), (REPO_A, "issues", "closed")],
+        True,
+        {RELEASE_LANE: [key], MODEL_LANE: [key]},
+    )
+
+
+@pytest.mark.parametrize("order", [("first", "second"), ("second", "first")])
+def test_when_every_subscribed_consumer_refuses_the_first_refusals_status_answers(
+    order: tuple[str, str],
+) -> None:
+    """A payload that every consumer subscribed to its event refuses is delivered to none, and
+    the answer carries the status of the consumer declared first."""
+    delivered: list[str] = []
+    consumers = [_refusing_consumer(name, f"refused_by_{name}", delivered) for name in order]
+    app = create_service_app(
+        settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"}, consumers=consumers
+    )
+    with TestClient(app) as client:
+        response = _github_post(client, "issues", _event_payload(), "refused-1")
+        series = _delivery_series(client)
+    assert (response.status_code, response.json(), delivered, series) == (
+        200,
+        {"status": f"refused_by_{order[0]}"},
+        [],
+        {("github", "issues", "ignored"): 1.0},
+    )
+
+
+def test_a_consumer_whose_refusal_is_empty_text_still_refuses_the_payload() -> None:
+    """Only None takes a payload: a refusal that is the empty text is a refusal, which the
+    answer carries, and the delivery is neither taken nor lost to a failed request."""
+    delivered: list[str] = []
+    app = create_service_app(
+        settings=_make_settings(repos=[REPO_A]),
+        secrets={REPO_A: "secret-1"},
+        consumers=[_refusing_consumer("empty", "", delivered)],
+    )
+    with TestClient(app) as client:
+        response = _github_post(client, "issues", _event_payload(), "refused-2")
+        series = _delivery_series(client)
+    assert (response.status_code, response.json(), delivered, series) == (
+        200,
+        {"status": ""},
+        [],
+        {("github", "issues", "ignored"): 1.0},
+    )

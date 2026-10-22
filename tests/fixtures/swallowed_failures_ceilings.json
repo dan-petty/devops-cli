@@ -141,7 +141,6 @@
   "src/devops_cli/security/tflint.py": 1,
   "src/devops_cli/security/vulnerability_lookup.py": 8,
   "src/devops_cli/server/routes/stream.py": 1,
-  "src/devops_cli/server/routes/webhooks.py": 1,
   "src/devops_cli/server/service.py": 5,
   "src/devops_cli/telemetry/logfire.py": 6,
   "src/devops_cli/telemetry/memory_profiler.py": 4,

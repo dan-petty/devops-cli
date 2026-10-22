@@ -9,8 +9,10 @@ from typing import Any
 import yaml
 
 from devops_cli.config import options as opt
+from devops_cli.config.constants import WebhookExposure
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.config.settings import Settings
+from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -140,21 +142,29 @@ def test_pod_annotations_name_port_8000() -> None:
     )
 
 
-def test_ingress_has_class_traefik_one_host_and_prefix_path() -> None:
+def test_ingress_has_class_traefik_one_host_and_a_prefix_path_for_each_tunnel_provider() -> None:
+    """The public Ingress routes exactly the webhook path of each provider the router marks as
+    reached through the tunnel (#1386). A cluster provider has no public path."""
     ingress = _doc("ingress.yaml")
     rules = ingress["spec"]["rules"]
     assert (len(rules), ingress["spec"]["ingressClassName"]) == (1, "traefik")
 
     rule = rules[0]
-    paths = rule["http"]["paths"]
-    assert (
-        rule["host"],
-        len(paths),
-        paths[0]["path"],
-        paths[0]["pathType"],
-        paths[0]["backend"]["service"]["name"],
-        paths[0]["backend"]["service"]["port"]["number"],
-    ) == ("hooks.example.com", 1, "/webhooks/github", "Prefix", "roadmap-service", 8000)
+    routed = [
+        (
+            entry["path"],
+            entry["pathType"],
+            entry["backend"]["service"]["name"],
+            entry["backend"]["service"]["port"]["number"],
+        )
+        for entry in rule["http"]["paths"]
+    ]
+    expected = [
+        (provider.path, "Prefix", "roadmap-service", 8000)
+        for provider in WEBHOOK_PROVIDERS.values()
+        if provider.exposure is WebhookExposure.TUNNEL
+    ]
+    assert (rule["host"], routed) == ("hooks.example.com", expected)
 
 
 def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:

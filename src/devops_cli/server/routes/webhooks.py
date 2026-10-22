@@ -1,29 +1,44 @@
-"""GitHub webhook endpoint and HMAC signature verification."""
+"""The webhook router (#1386): one route per declared provider, each verified its own way, its body
+parsed into a typed payload and delivered to the consumers subscribed to its event."""
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import logging
 import threading
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Final
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_DELIVERY_HEADER,
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
+    CONST_GH_WEBHOOK_SIGNATURE_PREFIX,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
+    CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    CONST_SERVICE_OUTCOME_ACCEPTED,
+    CONST_SERVICE_OUTCOME_IGNORED,
+    CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
+    CONST_SERVICE_OUTCOME_REJECTED,
     CONST_SERVICE_PING_EVENT,
     CONST_SERVICE_SOURCE_WEBHOOK,
+    WebhookExposure,
+    WebhookProviderName,
 )
+from devops_cli.lang import MESSAGES
+from devops_cli.models.webhooks import GitHubWebhookPayload
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
@@ -32,21 +47,113 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def verify_webhook_signature(
-    payload: bytes | str,
-    signature_header: str | None,
-    secret: str,
-) -> bool:
-    """Verify GitHub webhook payload against HMAC-SHA256 signature using constant-time comparison."""
-    if not signature_header or not secret:
-        return False
-    if not signature_header.startswith("sha256="):
-        return False
-    received_hash = signature_header[len("sha256=") :]
-    payload_bytes = payload.encode("utf-8") if isinstance(payload, str) else payload
-    secret_bytes = secret.encode("utf-8")
-    computed_hash = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(received_hash, computed_hash)
+class HmacSha256(BaseModel):
+    """Verifies a body against the hex HMAC-SHA256 digest that a request header carries after an
+    optional prefix, with one secret per subject (a repository, for GitHub)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    header: str
+    prefix: str = ""
+
+    def verify(self, body: bytes, signature: str | None, secret: str) -> bool:
+        """Whether `signature` is the digest of `body` under `secret`, compared in constant
+        time. The digest is hex, so text that is not ASCII can't match."""
+        if not signature or not secret or not signature.startswith(self.prefix):
+            return False
+        received = signature[len(self.prefix) :]
+        computed = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(received.encode("utf-8"), computed.encode("utf-8"))
+
+    def signers(
+        self, body: bytes, signature: str | None, secrets: Mapping[str, str]
+    ) -> frozenset[str]:
+        """The subjects whose secret `signature` is the digest of `body` under."""
+        return frozenset(
+            subject for subject, secret in secrets.items() if self.verify(body, signature, secret)
+        )
+
+
+class WebhookProvider(BaseModel):
+    """What the router knows of one sender: how its requests prove who sent them, where their
+    event name and delivery id are, the payload model its bodies validate into, the event that
+    only asks whether the Service is listening, and how it is reached."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: WebhookProviderName
+    exposure: WebhookExposure
+    verifier: HmacSha256
+    event_header: str
+    delivery_header: str
+    ping_event: str
+    payload_model: type[GitHubWebhookPayload]
+
+    @property
+    def path(self) -> str:
+        """The route the provider's requests are posted to."""
+        return f"/webhooks/{self.name}"
+
+
+def _takes_every_payload(_payload: GitHubWebhookPayload) -> str | None:
+    """The refusal of a consumer that narrows its events no further."""
+    return None
+
+
+class WebhookConsumer(BaseModel):
+    """What takes a provider's events: the `events` it subscribes to, a `refusal` that narrows
+    them by their payload (the status that says why the consumer ignores a payload, or None to
+    take it), and the `deliver` target that receives the repository, event and action of each
+    event it takes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    provider: WebhookProviderName
+    events: frozenset[str]
+    deliver: Callable[[str, str, str], None]
+    refusal: Callable[[GitHubWebhookPayload], str | None] = _takes_every_payload
+
+
+WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
+    WebhookProviderName.GITHUB: WebhookProvider(
+        name=WebhookProviderName.GITHUB,
+        exposure=WebhookExposure.TUNNEL,
+        verifier=HmacSha256(
+            header=CONST_GH_WEBHOOK_SIGNATURE_HEADER, prefix=CONST_GH_WEBHOOK_SIGNATURE_PREFIX
+        ),
+        event_header=CONST_GH_WEBHOOK_EVENT_HEADER,
+        delivery_header=CONST_GH_WEBHOOK_DELIVERY_HEADER,
+        ping_event=CONST_SERVICE_PING_EVENT,
+        payload_model=GitHubWebhookPayload,
+    )
+}
+
+
+def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
+    """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
+    its repository, except the machine account's own writes. Its delivery target is
+    `ServiceManager.enqueue_trigger`, the one seam between the router and the lane workers."""
+
+    def deliver(repo: str, event: str, action: str) -> None:
+        service_manager.enqueue_trigger(repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action)
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_TRIGGERS,
+            labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
+        )
+
+    def refuse_machine_account(payload: GitHubWebhookPayload) -> str | None:
+        account, sender = service_manager.machine_account, payload.sender
+        own_write = account and sender and sender.login.lower() == account.lower()
+        return "ignored_machine_account" if own_write else None
+
+    return WebhookConsumer(
+        name="roadmap",
+        provider=WebhookProviderName.GITHUB,
+        events=CONST_ROADMAP_WEBHOOK_EVENTS,
+        deliver=deliver,
+        refusal=refuse_machine_account,
+    )
 
 
 class DeliveryLRUCache:
@@ -69,179 +176,219 @@ class DeliveryLRUCache:
             return False
 
 
-async def _read_and_cap_body(request: Request) -> tuple[bytes | None, Response | None]:
-    """Read the incoming request body while enforcing the 25 MiB size cap."""
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > CONST_SERVICE_MAX_BODY_BYTES:
-                return None, JSONResponse(status_code=413, content={"error": "payload too large"})
-        except ValueError:
-            pass
+@dataclass(frozen=True)
+class _Reply:
+    """What a delivery is answered with, and the outcome it counts as."""
+
+    status: int
+    body: dict[str, str]
+    outcome: str
+
+
+def _rejected(status: int, error: str) -> _Reply:
+    return _Reply(status, {"error": error}, CONST_SERVICE_OUTCOME_REJECTED)
+
+
+def _acknowledged(status: str, outcome: str) -> _Reply:
+    return _Reply(200, {"status": status}, outcome)
+
+
+@dataclass
+class _Delivery:
+    """What one request is known by, filled in as it is read, and written to its record and its
+    count. The event and delivery id are the sender's text until the signature checks out."""
+
+    provider: WebhookProviderName
+    event: str
+    delivery: str
+    declared_events: frozenset[str]
+    repo: str | None = None
+    action: str | None = None
+
+    def conclude(self, outcome: str) -> None:
+        """Count the delivery and write its one record. An event no consumer subscribes to counts
+        as "other", and the sender's text is cut to the bound on error details."""
+        event = self.event if self.event in self.declared_events else CONST_SERVICE_EVENT_OTHER
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+            labels={"provider": str(self.provider), "event": event, "outcome": outcome},
+        )
+        logger.info(
+            MESSAGES.serve.webhook_delivery,
+            extra={
+                "provider": str(self.provider),
+                "event": self.event[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                "action": self.action,
+                "delivery": self.delivery[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                "repo": self.repo,
+                "outcome": outcome,
+            },
+        )
+
+
+def _declares_more_than_the_cap(declared: str) -> bool:
+    """Whether a Content-Length value is a number above the size cap. Python converts no more
+    than 4300 digits to an integer, so a number with more significant digits than the cap has is
+    above it without being converted. Leading zeros are not significant."""
+    if not (declared.isascii() and declared.isdecimal()):
+        return False
+    significant = declared.lstrip("0")
+    return len(significant) > len(str(CONST_SERVICE_MAX_BODY_BYTES)) or (
+        int(significant or "0") > CONST_SERVICE_MAX_BODY_BYTES
+    )
+
+
+async def _read_capped_body(request: Request) -> bytes | None:
+    """Read the request body, or None once it passes the size cap, by the length it declares or
+    by the bytes it streams."""
+    if _declares_more_than_the_cap(request.headers.get("content-length", "")):
+        return None
 
     body_chunks: list[bytes] = []
     total_bytes = 0
     async for chunk in request.stream():
         total_bytes += len(chunk)
         if total_bytes > CONST_SERVICE_MAX_BODY_BYTES:
-            return None, JSONResponse(status_code=413, content={"error": "payload too large"})
+            return None
         body_chunks.append(chunk)
-
-    return b"".join(body_chunks), None
-
-
-def _check_headers_and_type(request: Request) -> tuple[str | None, str | None, Response | None]:
-    """Validate Content-Type and presence of required delivery headers."""
-    content_type = request.headers.get("content-type", "")
-    if not content_type.startswith("application/json"):
-        return (
-            None,
-            None,
-            JSONResponse(status_code=415, content={"error": "unsupported media type"}),
-        )
-
-    event = request.headers.get(CONST_GH_WEBHOOK_EVENT_HEADER)
-    delivery_id = request.headers.get(CONST_GH_WEBHOOK_DELIVERY_HEADER)
-    if not event or not delivery_id:
-        return (
-            None,
-            None,
-            JSONResponse(status_code=400, content={"error": "missing event or delivery header"}),
-        )
-
-    return event, delivery_id, None
+    return b"".join(body_chunks)
 
 
-def _verify_signature_and_extract_payload(
-    raw_body: bytes,
-    signature_header: str | None,
-    service_manager: ServiceManager,
-) -> tuple[dict[str, Any] | None, str | None, Response | None]:
-    """Authenticate HMAC signature across managed repo secrets and parse payload body."""
-    if not signature_header:
-        return None, None, JSONResponse(status_code=401, content={"error": "missing signature"})
-
-    matching_repos = [
-        repo
-        for repo in service_manager.managed_repos
-        if repo in service_manager.secrets
-        and verify_webhook_signature(raw_body, signature_header, service_manager.secrets[repo])
-    ]
-    if not matching_repos:
-        return None, None, JSONResponse(status_code=401, content={"error": "invalid signature"})
-
-    try:
-        payload = json.loads(raw_body.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return (
-                None,
-                None,
-                JSONResponse(status_code=400, content={"error": "body must be a json object"}),
-            )
-    except Exception:
-        return None, None, JSONResponse(status_code=400, content={"error": "invalid json body"})
-
-    repo_obj = payload.get("repository")
-    repo_name = repo_obj.get("full_name") if isinstance(repo_obj, dict) else None
-    if (
-        not repo_name
-        or repo_name not in service_manager.managed_repos
-        or repo_name not in matching_repos
-    ):
-        return (
-            None,
-            None,
-            JSONResponse(
-                status_code=401, content={"error": "unmanaged repository or signature mismatch"}
-            ),
-        )
-
-    return payload, repo_name, None
-
-
-def _check_ignored_delivery(
-    payload: dict[str, Any],
-    event: str,
-    delivery_id: str,
-    service_manager: ServiceManager,
-) -> Response | None:
-    """Filter out ping events, machine account actions, and duplicate deliveries."""
-    if event == CONST_SERVICE_PING_EVENT:
-        return JSONResponse(status_code=200, content={"status": "pong"})
-
-    if service_manager.machine_account:
-        sender_obj = payload.get("sender")
-        sender_login = sender_obj.get("login") if isinstance(sender_obj, dict) else None
-        if sender_login and sender_login.lower() == service_manager.machine_account.lower():
-            return JSONResponse(status_code=200, content={"status": "ignored_machine_account"})
-
-    if service_manager.delivery_cache.check_and_add(delivery_id):
-        return JSONResponse(status_code=200, content={"status": "duplicate"})
-
+def _refuse_before_reading(
+    request: Request, service_manager: ServiceManager, delivery: _Delivery
+) -> _Reply | None:
+    """Refuse a delivery while draining, one that is not JSON, or one without its event name or
+    delivery id, before its body is read."""
+    if service_manager.is_draining():
+        return _rejected(503, "service is draining")
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        return _rejected(415, "unsupported media type")
+    if not delivery.event or not delivery.delivery:
+        return _rejected(400, "missing event or delivery header")
     return None
 
 
-def create_webhook_router(service_manager: ServiceManager) -> APIRouter:
-    """Construct APIRouter for GitHub webhook receiver."""
+def invalid_payload_detail(failure: ValidationError) -> str:
+    """The paths and reasons of a payload's failed fields, within the bound on error details. It
+    names no value from the body."""
+    details = "; ".join(
+        f"{'.'.join(map(str, error['loc'])) or 'body'}: {error['msg']}"
+        for error in failure.errors(include_url=False, include_context=False, include_input=False)
+    )
+    return f"invalid payload: {details}"[:CONST_MAX_ERROR_DETAIL_LENGTH]
+
+
+def _authenticated_payload(
+    request: Request, provider: WebhookProvider, service_manager: ServiceManager, body: bytes
+) -> GitHubWebhookPayload | _Reply:
+    """The body's typed payload once its signature matches the secret of the repository it names,
+    or the 401 or 400 that refuses it. It validates only a body that was signed, so a sender
+    without a secret learns nothing of the schema."""
+    signature = request.headers.get(provider.verifier.header)
+    if not signature:
+        return _rejected(401, "missing signature")
+    signers = provider.verifier.signers(body, signature, service_manager.secrets)
+    if not signers:
+        return _rejected(401, "invalid signature")
+    try:
+        payload = provider.payload_model.model_validate_json(body)
+    except ValidationError as failure:
+        return _rejected(400, invalid_payload_detail(failure))
+    repo = payload.repository.full_name
+    if repo not in service_manager.managed_repos or repo not in signers:
+        return _rejected(401, "unmanaged repository or signature mismatch")
+    return payload
+
+
+def _hand_to_consumers(
+    delivery: _Delivery, payload: GitHubWebhookPayload, subscribed: Sequence[WebhookConsumer]
+) -> _Reply:
+    """Deliver the event to each subscribed consumer that takes this payload. When none does,
+    the answer is the first refusal's status."""
+    verdicts = [(consumer, consumer.refusal(payload)) for consumer in subscribed]
+    takers = [consumer for consumer, refusal in verdicts if refusal is None]
+    refusals = [refusal for _consumer, refusal in verdicts if refusal is not None]
+    for consumer in takers:
+        consumer.deliver(payload.repository.full_name, delivery.event, payload.action or "")
+    if takers:
+        return _Reply(202, {"status": "accepted"}, CONST_SERVICE_OUTCOME_ACCEPTED)
+    return _acknowledged(refusals[0], CONST_SERVICE_OUTCOME_IGNORED)
+
+
+def _route(
+    delivery: _Delivery,
+    provider: WebhookProvider,
+    payload: GitHubWebhookPayload,
+    service_manager: ServiceManager,
+    consumers: Sequence[WebhookConsumer],
+) -> _Reply:
+    """Answer a ping, acknowledge an event nothing subscribes to, drop a repeated delivery id,
+    and deliver any other event to its subscribers."""
+    if delivery.event == provider.ping_event:
+        return _acknowledged("pong", CONST_SERVICE_OUTCOME_IGNORED)
+    subscribed = [consumer for consumer in consumers if delivery.event in consumer.events]
+    if not subscribed:
+        return _acknowledged("no_subscriber", CONST_SERVICE_OUTCOME_NO_SUBSCRIBER)
+    if service_manager.delivery_cache.check_and_add(delivery.delivery):
+        return _acknowledged("duplicate", CONST_SERVICE_OUTCOME_IGNORED)
+    return _hand_to_consumers(delivery, payload, subscribed)
+
+
+async def _read_and_route(
+    request: Request,
+    provider: WebhookProvider,
+    service_manager: ServiceManager,
+    consumers: Sequence[WebhookConsumer],
+    delivery: _Delivery,
+) -> _Reply:
+    """Read the body, authenticate and validate it, and route the event."""
+    body = await _read_capped_body(request)
+    if body is None:
+        return _rejected(413, "payload too large")
+    payload = _authenticated_payload(request, provider, service_manager, body)
+    if isinstance(payload, _Reply):
+        return payload
+    delivery.repo, delivery.action = payload.repository.full_name, payload.action
+    return _route(delivery, provider, payload, service_manager, consumers)
+
+
+def _receiver(
+    provider: WebhookProvider,
+    service_manager: ServiceManager,
+    consumers: Sequence[WebhookConsumer],
+) -> Callable[[Request], Awaitable[Response]]:
+    """The route handler of one provider, over the consumers that take its events."""
+    taking = [consumer for consumer in consumers if consumer.provider is provider.name]
+    declared_events = frozenset({provider.ping_event}).union(*(c.events for c in taking))
+
+    async def receive(request: Request) -> Response:
+        delivery = _Delivery(
+            provider=provider.name,
+            event=request.headers.get(provider.event_header, ""),
+            delivery=request.headers.get(provider.delivery_header, ""),
+            declared_events=declared_events,
+        )
+        reply = _refuse_before_reading(request, service_manager, delivery) or await _read_and_route(
+            request, provider, service_manager, taking, delivery
+        )
+        delivery.conclude(reply.outcome)
+        return JSONResponse(status_code=reply.status, content=reply.body)
+
+    return receive
+
+
+def create_webhook_router(
+    service_manager: ServiceManager, consumers: Sequence[WebhookConsumer] | None = None
+) -> APIRouter:
+    """Construct the APIRouter with a POST route for each declared provider, delivering to
+    `consumers`, or to the roadmap consumer when none are given."""
+    active = (roadmap_consumer(service_manager),) if consumers is None else tuple(consumers)
     router = APIRouter(tags=["webhooks"])
-
-    @router.post("/webhooks/github")
-    async def receive_github_webhook(request: Request) -> Response:
-        if service_manager.is_draining():
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "rejected"}
-            )
-            return JSONResponse(status_code=503, content={"error": "service is draining"})
-
-        event, delivery_id, err_resp = _check_headers_and_type(request)
-        if err_resp is not None:
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "rejected"}
-            )
-            return err_resp
-
-        raw_body, body_err = await _read_and_cap_body(request)
-        if body_err is not None or raw_body is None:
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "rejected"}
-            )
-            return body_err or JSONResponse(status_code=413, content={"error": "payload too large"})
-
-        signature_header = request.headers.get(CONST_GH_WEBHOOK_SIGNATURE_HEADER)
-        payload, repo_name, auth_err = _verify_signature_and_extract_payload(
-            raw_body, signature_header, service_manager
+    for provider in WEBHOOK_PROVIDERS.values():
+        router.add_api_route(
+            provider.path,
+            _receiver(provider, service_manager, active),
+            methods=["POST"],
+            name=f"receive_{provider.name}_webhook",
         )
-        if auth_err is not None or payload is None or repo_name is None:
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "rejected"}
-            )
-            return auth_err or JSONResponse(
-                status_code=401, content={"error": "authentication failed"}
-            )
-
-        ignored_resp = _check_ignored_delivery(
-            payload, str(event), str(delivery_id), service_manager
-        )
-        if ignored_resp is not None:
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "ignored"}
-            )
-            return ignored_resp
-
-        action = str(payload.get("action", ""))
-        service_manager.enqueue_trigger(
-            repo=repo_name,
-            source=CONST_SERVICE_SOURCE_WEBHOOK,
-            event=str(event),
-            action=action,
-        )
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, labels={"outcome": "accepted"}
-        )
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_TRIGGERS,
-            labels={"repo": repo_name, "source": CONST_SERVICE_SOURCE_WEBHOOK},
-        )
-        return JSONResponse(status_code=202, content={"status": "accepted"})
-
     return router
