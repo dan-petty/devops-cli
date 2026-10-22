@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
@@ -25,9 +25,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import nearest_checkout
 from devops_cli.dry_run import state as dry_run_state
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +283,33 @@ def materialize_targets(targets: Iterable[Path], tree: Path, workdir: Path) -> M
     return MaterializedTargets(origins)
 
 
+def _scan_targets(target_path: Any) -> tuple[Path, ...]:
+    """The files or directories a scan reads, as absolute paths in the scanned tree.
+
+    A review's isolated scan links its files under a scratch directory. The tree holds the files
+    it was given, so those are the targets. A relative path stands in the current directory. A
+    name that is no path, such as the image `ghcr.io/org/img:latest`, stands there as a path that
+    does not exist.
+    """
+    if isinstance(target_path, MaterializedTargets):
+        paths: Iterable[Any] = target_path.origins.values()
+    elif isinstance(target_path, list | tuple):
+        paths = target_path
+    else:
+        paths = (target_path,)
+    return tuple(Path(path).resolve() for path in paths)
+
+
+def _scan_tree(targets: tuple[Path, ...]) -> Path:
+    """The tree that holds `targets`: the checkout of their common directory, else that directory.
+
+    The common directory is the nearest one that exists, because a target can name no file.
+    """
+    common = Path(os.path.commonpath(targets))
+    directory = next(path for path in (common, *common.parents) if path.is_dir())
+    return nearest_checkout(directory) or directory
+
+
 def _evaluate_preflight(
     scanner: BaseSecurityScanner, target_path: Any, **kwargs: Any
 ) -> ScanOutcome | None:
@@ -415,6 +446,12 @@ def _is_mocked(module_name: str | None, attr_name: str) -> Any:
     return target if isinstance(target, NonCallableMock) else None
 
 
+def _patched_run_subprocess(scanner_module: str) -> Any:
+    """The `run_subprocess` a test patched in this module or in `scanner_module`, else None."""
+    own = getattr(sys.modules.get(scanner_module), "run_subprocess", None)
+    return next((c for c in (run_subprocess, own) if isinstance(c, NonCallableMock)), None)
+
+
 class ScannerConfigFile(NamedTuple):
     """A config or ignore file devops-cli hands a scanner, and the flag that names it."""
 
@@ -433,6 +470,14 @@ class BaseSecurityScanner(ABC):
     # The files an isolated scan hands the scanner in place of the config and ignore files it
     # would read from its working directory or the scanned tree (#972).
     isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = ()
+
+    def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
+        """Start the scanner's tool through `tool_executor`; without one, as a child process."""
+        if tool_executor is None:
+            from devops_cli.security.tool_executor import DirectToolExecutor
+
+            tool_executor = DirectToolExecutor()
+        self._tool_executor: ToolExecutor = tool_executor
 
     @abstractmethod
     def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
@@ -491,18 +536,35 @@ class BaseSecurityScanner(ABC):
             mock_cb = _is_mocked(mod_name, "check_binary")
             if mock_cb is not None:
                 return bool(mock_cb(self.binary_name))
-        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
-            if _is_mocked(mod_name, "run_subprocess") is not None:
-                return True
+        if _patched_run_subprocess(self.__class__.__module__) is not None:
+            return True
         return check_binary(self.binary_name)
 
-    def _run_subprocess(self, cmd: list[str], **kwargs: Any) -> Any:
-        """Execute subprocess command, honoring module-level test mocks."""
-        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
-            mock_proc = _is_mocked(mod_name, "run_subprocess")
-            if mock_proc is not None:
-                return mock_proc(cmd, **kwargs)
-        return run_subprocess(cmd, **kwargs)
+    def _run_tool(self, cmd: list[str], cwd_dir: Path, target_path: Any, timeout: float) -> Any:
+        """Start `cmd` through the tool executor and answer as a finished process, honoring
+        module-level test mocks.
+
+        A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
+        """
+        if (patched := _patched_run_subprocess(self.__class__.__module__)) is not None:
+            return patched(cmd, cwd=cwd_dir, timeout=timeout, check=False, input="")
+        # Imported here: the executor pulls in the sandbox and the canary, which a scanner that
+        # never runs does not need.
+        from devops_cli.security.tool_executor import ToolLimits, ToolRequest
+
+        targets = _scan_targets(target_path)
+        request = ToolRequest(
+            tool=cmd[0],
+            arguments=tuple(cmd[1:]),
+            workdir=_scan_tree(targets),
+            cwd=cwd_dir,
+            targets=targets,
+            limits=ToolLimits(wall_seconds=timeout),
+        )
+        result = self._tool_executor.run(request)
+        if result.timed_out:
+            raise subprocess.TimeoutExpired(cmd, timeout, result.stdout, result.stderr)
+        return subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
 
     def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
         """Safely resolve working directory for subprocess execution: the target's.
@@ -540,9 +602,7 @@ class BaseSecurityScanner(ABC):
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
             try:
-                proc = self._run_subprocess(
-                    cmd, cwd=cwd_dir, timeout=timeout, check=False, input=""
-                )
+                proc = self._run_tool(cmd, cwd_dir, target_path, timeout)
                 is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
                 if not is_valid_json:
                     return _handle_non_json_output(self, proc, target_path)

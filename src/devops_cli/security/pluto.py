@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_PLUTO, build_pluto_cmd
@@ -14,6 +14,9 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +109,7 @@ def run_pluto_scan(
     tree: Path | None = None,
     kubernetes_version: str | None = None,
     require_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Pluto deprecated API scanner and return scan outcome; `isolated` for a review.
 
@@ -125,7 +129,7 @@ def run_pluto_scan(
             findings=[],
             reason="missing review.kubernetes_version in .devops/review.toml",
         )
-    scanner = PlutoScanner()
+    scanner = PlutoScanner(tool_executor)
     return scanner.scan(
         target,
         isolated=isolated,

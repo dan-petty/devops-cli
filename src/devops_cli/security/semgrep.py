@@ -6,7 +6,7 @@ import os
 from collections.abc import Sequence
 from itertools import batched
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_SEMGREP, build_semgrep_cmd
@@ -38,6 +38,9 @@ from devops_cli.security.semgrep_registry import (
     is_registry_id,
     warn_of_old_cache,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 _SEMGREP_SEVERITY_MAP: dict[str, str] = {
     "ERROR": "HIGH",
@@ -397,6 +400,7 @@ def run_semgrep_scan(
     *,
     reviewed_tree: Path | None = None,
     ruleset: CachedRuleset | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Semgrep AST pattern scanner and return scan outcome; `reviewed_tree` for a review.
 
@@ -412,7 +416,7 @@ def run_semgrep_scan(
     on its command line. The targets are scanned in
     batches of `DEFAULT_SEMGREP_REVIEW_BATCH_FILES`, each under its own timeout.
     """
-    scanner = SemgrepScanner()
+    scanner = SemgrepScanner(tool_executor)
     if reviewed_tree is None:
         return scanner.scan(target, timeout=timeout, config=config, ruleset=ruleset)
     files = _scannable_files(target if isinstance(target, list) else [target])

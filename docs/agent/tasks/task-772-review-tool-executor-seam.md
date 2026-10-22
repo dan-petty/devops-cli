@@ -74,7 +74,7 @@ The executor sets no limit on processes. RLIMIT_NPROC counts every process of th
 - [x] The fake is in `tests/support/fakes/tool_executor.py`, and `tests/support/bootstrap.py` registers it. The contract suite in `tests/test_tool_executor_contract.py` runs each shared case over the fake and over the real executor. The real side carries the `bwrap` mark and tests skip it where bubblewrap is missing.
 - [x] `docs/TESTING.md` names the seam, the fake and the contract suite.
 - Not done: the orchestrator takes its workspace, scanners and enrichers through its constructor. No review module probes `Path.cwd()`. The three named pipeline tests run under 5 seconds. A later Part of #772 does this.
-- Not done: the scanners and the canary runner take a `ToolExecutor`. `scanner_fake` is rebuilt over the executor fake. A later Part of #772 does this.
+- Not done here: the canary runner and mypy take a `ToolExecutor`, and `scanner_fake` is rebuilt over the executor fake (a later Part of #772). The scanners and the review pipeline take the executor in the Part that `task-772-the-review-scanners-run-through-the-tool-executor.md` describes.
 - Not done: the `ToolRun` records and the limits in force enter the review profile, `review.md` and `SECURITY.md`. A later Part of #772 does this.
 - Not done: the sandboxed executor becomes the production default. A later Part of #772 does this. That part needs the Semgrep registry consumer of #1144. It needs a fetch step for the OSV database and one for the Trivy database. It needs a decision for popeye and a decision for hosts without bubblewrap.
 - Not done: `changelog.d/772.md` (the closing Part of #772 adds it).

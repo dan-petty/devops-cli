@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
@@ -134,6 +134,9 @@ from devops_cli.security.vulnerability_lookup import (
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -606,6 +609,7 @@ def _scan_kubernetes_manifests(
     tree: Path | None = None,
     kubernetes_version: str | None = None,
     require_kubernetes_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan Kubernetes YAML manifests with Kube-linter and Pluto.
 
@@ -618,7 +622,7 @@ def _scan_kubernetes_manifests(
     manifests = [yp for yp in yaml_paths if _is_scannable_manifest(yp)]
     findings: list[SavedFinding] = []
     for yp in manifests:
-        kl = run_kubelinter_scan(yp, isolated=True)
+        kl = run_kubelinter_scan(yp, isolated=True, tool_executor=tool_executor)
         _observe_outcome(outcomes, "Kube-linter", kl)
         if kl:
             findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
@@ -629,6 +633,7 @@ def _scan_kubernetes_manifests(
             tree=tree,
             kubernetes_version=kubernetes_version,
             require_version=require_kubernetes_version,
+            tool_executor=tool_executor,
         )
         _observe_outcome(outcomes, "Pluto", pl)
         if pl:
@@ -639,13 +644,17 @@ def _scan_kubernetes_manifests(
 def _scan_container_and_lockfiles(
     container_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan container files with Trivy."""
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
     for dp in container_paths:
-        t_findings = run_trivy_scan(dp, scan_type="config", isolated=True)
+        t_findings = run_trivy_scan(
+            dp, scan_type="config", isolated=True, tool_executor=tool_executor
+        )
         _observe_outcome(outcomes, "Trivy", t_findings)
         if t_findings:
             findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
@@ -656,6 +665,7 @@ def _scan_lockfiles(
     lockfiles: list[Path],
     outcomes: dict[str, Any] | None = None,
     tree: Path | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan lockfiles with osv-scanner offline (#1146)."""
     from devops_cli.security.base import ScanOutcome
@@ -673,7 +683,7 @@ def _scan_lockfiles(
                 _observe_outcome(outcomes, "osv-scanner", gap_outcome)
         return []
 
-    outcome = run_osv_scan(lockfiles, tree=tree, isolated=True)
+    outcome = run_osv_scan(lockfiles, tree=tree, isolated=True, tool_executor=tool_executor)
     _observe_outcome(outcomes, "osv-scanner", outcome)
     if profiler := active_profiler():
         scanner_digest = getattr(outcome, "snapshot_digest", "") or get_or_compute_snapshot_digest()
@@ -1246,13 +1256,15 @@ def _static_analysis_line(states: dict[str, str], severities: Counter[str]) -> s
 def _scan_secrets(
     paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Run the Gitleaks secret scan."""
     if not paths:
         return []
     from devops_cli.security.gitleaks import run_gitleaks_scan
 
-    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True)
+    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Gitleaks", gl)
     return _wrap_static_findings(gl, tool="gitleaks")
 
@@ -1262,6 +1274,7 @@ def _scan_semgrep(
     outcomes: dict[str, Any] | None = None,
     *,
     tree: Path,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Run Semgrep AST static analysis on the reviewed files of `tree`, linked or copied under
     its working directory (#1079), with the cached registry ruleset (#1144)."""
@@ -1275,7 +1288,7 @@ def _scan_semgrep(
         if profiler := active_profiler():
             profiler.set_semgrep_registry_digest(ruleset.digest)
         warn_of_old_cache(DEFAULT_SEMGREP_CONFIG, ruleset, to_stderr=False)
-    sg = run_semgrep_scan(paths, reviewed_tree=tree, ruleset=ruleset)
+    sg = run_semgrep_scan(paths, reviewed_tree=tree, ruleset=ruleset, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Semgrep", sg)
     return _wrap_static_findings(sg, tool="semgrep")
 
@@ -1660,6 +1673,7 @@ def _run_scanners_for_buckets(
     observed_outcomes: dict[str, Any] | None = None,
     kubernetes_version: str | None = None,
     require_kubernetes_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Execute Bandit, Kube-linter/Pluto, Trivy, Gitleaks, and Semgrep scanners (#871)."""
     from devops_cli.security.bandit import run_bandit_scan
@@ -1667,7 +1681,9 @@ def _run_scanners_for_buckets(
     outcomes = observed_outcomes if observed_outcomes is not None else {}
     findings: list[SavedFinding] = []
     if buckets.python:
-        bandit_res = run_bandit_scan(buckets.python, isolated=True, tree=tree)
+        bandit_res = run_bandit_scan(
+            buckets.python, isolated=True, tree=tree, tool_executor=tool_executor
+        )
         if observed_outcomes is not None:
             _observe_outcome(outcomes, "Bandit", bandit_res)
         findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
@@ -1681,22 +1697,36 @@ def _run_scanners_for_buckets(
                 tree=tree,
                 kubernetes_version=kubernetes_version,
                 require_kubernetes_version=require_kubernetes_version,
+                tool_executor=tool_executor,
             )
         )
 
     if buckets.container:
         findings.extend(
-            _call_scanner_helper(_scan_container_and_lockfiles, buckets.container, outcomes)
+            _call_scanner_helper(
+                _scan_container_and_lockfiles,
+                buckets.container,
+                outcomes,
+                tool_executor=tool_executor,
+            )
         )
 
     if buckets.lockfiles or tree is not None:
-        findings.extend(_scan_lockfiles(buckets.lockfiles, outcomes, tree=tree))
+        findings.extend(
+            _scan_lockfiles(buckets.lockfiles, outcomes, tree=tree, tool_executor=tool_executor)
+        )
 
     if buckets.leak_targets:
-        findings.extend(_call_scanner_helper(_scan_secrets, buckets.leak_targets, outcomes))
+        findings.extend(
+            _call_scanner_helper(
+                _scan_secrets, buckets.leak_targets, outcomes, tool_executor=tool_executor
+            )
+        )
 
     if buckets.any_files and tree is not None:
-        findings.extend(_scan_semgrep(buckets.any_files, outcomes, tree=tree))
+        findings.extend(
+            _scan_semgrep(buckets.any_files, outcomes, tree=tree, tool_executor=tool_executor)
+        )
 
     return findings
 
@@ -1756,6 +1786,7 @@ def _collect_base_revision_fingerprints(
     secret_scan_files: Sequence[str],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     severity_caps: Mapping[str, str] | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> set[str]:
     """Scan base revision files to collect pre-existing finding fingerprints (#871)."""
     if base_revision is None or not getattr(base_revision, "read", None):
@@ -1775,7 +1806,9 @@ def _collect_base_revision_fingerprints(
         extra_leak_files = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
 
         buckets = _classify_scanner_files(base_resolved, extra_leak_files, path_classes)
-        base_findings = _run_scanners_for_buckets(buckets, tree=tmp_root)
+        base_findings = _run_scanners_for_buckets(
+            buckets, tree=tmp_root, tool_executor=tool_executor
+        )
 
         base_admitted, _ = _admit_scanner_findings(
             base_findings,
@@ -1918,7 +1951,16 @@ class ReviewPipelineOrchestrator:
         partial_context: bool = False,
         added_diff_lines: set[tuple[str, int]] | None = None,
         threat_intel: bool = False,
+        tool_executor: ToolExecutor | None = None,
     ) -> None:
+        if tool_executor is None:
+            # Imported here: the executor pulls in the sandbox, which a review that does not
+            # start a tool does not need.
+            from devops_cli.security.tool_executor import DirectToolExecutor
+
+            tool_executor = DirectToolExecutor()
+        # One executor for the whole review, so every analyzer starts its tool the same way.
+        self.tool_executor: ToolExecutor = tool_executor
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
@@ -2229,6 +2271,7 @@ class ReviewPipelineOrchestrator:
                         observed_outcomes=observed_outcomes,
                         kubernetes_version=self.kubernetes_version,
                         require_kubernetes_version=True,
+                        tool_executor=self.tool_executor,
                     )
                 )
 
@@ -2239,6 +2282,7 @@ class ReviewPipelineOrchestrator:
                         secret_scan_files=self.secret_scan_files,
                         path_classes=self.path_classes,
                         severity_caps=self.severity_caps,
+                        tool_executor=self.tool_executor,
                     )
 
                 eff_added = (
@@ -2342,6 +2386,7 @@ class ReviewPipelineOrchestrator:
                 isolated=True,
                 tree=rev_tree,
                 require_version=True,
+                tool_executor=self.tool_executor,
             )
             all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
 

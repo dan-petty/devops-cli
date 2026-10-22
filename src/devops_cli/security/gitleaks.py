@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
@@ -23,6 +23,9 @@ from devops_cli.security.base import (
     ScanOutcome,
     merge_outcomes,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,7 @@ def run_gitleaks_scan(
     ignore_tests: bool = False,
     *,
     isolated: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Gitleaks secret scanner subprocess or fallback pattern scan; `isolated` for a
     review (#972)."""
@@ -190,7 +194,7 @@ def run_gitleaks_scan(
     if isinstance(target, list) and ignore_tests:
         target = [p for p in target if not _is_test_file(p)]
 
-    outcome = GitleaksScanner().scan(target, isolated=isolated, no_git=no_git)
+    outcome = GitleaksScanner(tool_executor).scan(target, isolated=isolated, no_git=no_git)
     if ignore_tests and outcome.findings:
         filtered = [
             f for f in outcome.findings if not _is_test_file(_extract_location_path(f.location))

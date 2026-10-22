@@ -5,8 +5,11 @@ tree. Code that runs a tool builds a `ToolRequest` and calls `ToolExecutor.run`.
 `ToolResult`. It holds the output of the tool and a `ToolRun`, the record of what ran. A test
 installs `ToolExecutorFake` in its place (`tests/support/fakes/tool_executor.py`).
 
-`SandboxToolExecutor` is the real executor. It does not confine or limit a process itself. It
-builds one command from three programs that already do this work:
+`DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no
+limit but the wall clock. It is how every scanner ran before this seam, and it is the executor that
+a scanner gets when nobody gives it another. `SandboxToolExecutor` is the executor that confines.
+It does not confine or limit a process itself. It builds one command from three programs that
+already do this work:
 
 - bubblewrap, through `HostSandbox`. It gives no network, a cleared environment, a read-only tree,
   read-only inputs and a private temporary HOME. When the sandbox process ends, the process tree
@@ -38,7 +41,7 @@ import stat
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -60,7 +63,9 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import is_safe_subpath, nearest_checkout
 from devops_cli.exceptions.sandbox import SandboxError, SandboxValidationError
 from devops_cli.review.canary import resolve_tool_binary, resolve_tool_version_and_sha
-from devops_cli.sandbox.host import HostSandbox
+
+if TYPE_CHECKING:
+    from devops_cli.sandbox.host import HostSandbox
 
 
 class _Frozen(BaseModel):
@@ -91,11 +96,16 @@ class ToolRequest(_Frozen):
     names a ruleset, such as a rule pack or the metadata file of a database. The executor binds
     each of these files read-only and digests its content into the record. `read_only_binds` are
     the other paths that the tool needs read-only, such as its install directory and a database.
+
+    `workdir` is the tree. The tool starts in `cwd`, and in the tree when `cwd` is none. A scan that
+    must not read the config files of the tree starts in a scratch directory of its own. The
+    sandbox binds a `cwd` outside the tree read-only.
     """
 
     tool: str = Field(min_length=1)
     arguments: tuple[str, ...] = ()
     workdir: Path
+    cwd: Path | None = None
     targets: tuple[Path, ...] = Field(min_length=1)
     config_files: tuple[Path, ...] = ()
     ruleset_files: tuple[Path, ...] = ()
@@ -113,7 +123,9 @@ class ToolRun(_Frozen):
 
     `commit` is the commit of the checkout that holds the tree. It ends with `-dirty` when a target
     holds a change that the commit does not. A tree outside any git checkout has no commit, and
-    neither has a checkout that holds no commit yet.
+    neither has a checkout that holds no commit yet. The sandbox executor refuses a checkout that
+    git cannot read. The direct executor records no commit for it, because a scan must not fail
+    for a record that nothing reads yet.
     """
 
     tool: str
@@ -217,7 +229,7 @@ def _git(root: Path, *arguments: str, accepted: tuple[int, ...] = (0,)) -> str:
     return done.stdout.strip()
 
 
-def _tree_commit(root: Path, targets: Sequence[Path]) -> str | None:
+def _read_tree_commit(root: Path, targets: Sequence[Path]) -> str | None:
     """The commit of the checkout that holds `root`, with `-dirty` added when a target differs.
 
     A tree outside any checkout has no commit, and neither has a checkout that holds no commit
@@ -241,11 +253,25 @@ def _tree_commit(root: Path, targets: Sequence[Path]) -> str | None:
     return f"{commit}-dirty" if changes else commit
 
 
-def record_tool_run(request: ToolRequest, *, version: str, binary_sha256: str) -> ToolRun:
+def _tree_commit(root: Path, targets: Sequence[Path], *, required: bool) -> str | None:
+    """The commit of `root` (`_read_tree_commit`). A checkout that git cannot read raises
+    `SandboxError` when the commit is `required`, and has no commit when it is not."""
+    try:
+        return _read_tree_commit(root, targets)
+    except SandboxError:
+        if required:
+            raise
+        return None
+
+
+def record_tool_run(
+    request: ToolRequest, *, version: str, binary_sha256: str, require_commit: bool = True
+) -> ToolRun:
     """The record of running `request` with a tool at `version` whose binary is `binary_sha256`.
 
     Every executor builds its record here. So every executor refuses a request, and reads its
-    digests and its commit, in the same way.
+    digests and its commit, in the same way. A checkout that git cannot read raises `SandboxError`,
+    unless `require_commit` is false. Then the record holds no commit.
     """
     targets = _resolved_targets(request)
     root = request.workdir.resolve()
@@ -257,7 +283,7 @@ def record_tool_run(request: ToolRequest, *, version: str, binary_sha256: str) -
         ruleset_digest=_files_digest(request.ruleset_files),
         argv_template=(request.tool, *request.arguments),
         targets_digest=digest([str(target.relative_to(root)) for target in targets]),
-        commit=_tree_commit(root, targets),
+        commit=_tree_commit(root, targets, required=require_commit),
     )
 
 
@@ -276,10 +302,71 @@ def _partial_output(output: str | bytes | None) -> str:
     return output.decode(errors="replace") if isinstance(output, bytes) else output or ""
 
 
+def _start(
+    run: ToolRun,
+    command: list[str],
+    *,
+    cwd: Path,
+    wall_seconds: float,
+    env: dict[str, str] | None = None,
+) -> ToolResult:
+    """Start `command` through `run_subprocess` and answer how it ended.
+
+    The command gets an empty standard input, never the one of the caller. Under `devops mcp` that
+    is the request stream of the client (#1079).
+    """
+    try:
+        ended = run_subprocess(
+            command, cwd=cwd, env=env, timeout=wall_seconds, check=False, input=""
+        )
+    except subprocess.TimeoutExpired as expired:
+        return ToolResult(
+            run=run,
+            exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE,
+            stdout=_partial_output(expired.stdout),
+            stderr=_partial_output(expired.stderr),
+            timed_out=True,
+        )
+    return ToolResult(run=run, exit_code=ended.returncode, stdout=ended.stdout, stderr=ended.stderr)
+
+
+class DirectToolExecutor:
+    """Starts each tool as a child process of devops-cli, through `run_subprocess`.
+
+    There is no sandbox, and the only limit is the wall clock of the request. This is how a
+    scanner started its tool before the seam existed, and it is the executor of a scanner that
+    nobody gave another, until a later part of #772 switches the review to the sandbox. A scan
+    must end as it ended before, so a checkout that git cannot read does not stop it: the record
+    of the run holds no commit. Otherwise the record is built as the sandbox executor builds it.
+    """
+
+    def run(self, request: ToolRequest) -> ToolResult:
+        """Start the tool of `request` and answer how it ended and what ran.
+
+        A target outside the tree raises `SandboxError` before anything starts.
+        """
+        version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
+        run = record_tool_run(
+            request, version=version, binary_sha256=binary_sha256, require_commit=False
+        )
+        command = [request.tool, *_expand_targets(request.arguments, _resolved_targets(request))]
+        return _start(
+            run,
+            command,
+            cwd=request.cwd or request.workdir,
+            wall_seconds=request.limits.wall_seconds,
+            env=request.env or None,
+        )
+
+
 class SandboxToolExecutor:
     """Runs each tool in a bubblewrap sandbox, under `prlimit`, through `run_subprocess`."""
 
     def __init__(self, sandbox: HostSandbox | None = None) -> None:
+        # Imported here. The sandbox pulls in the container engine, which a scanner that runs
+        # directly never needs.
+        from devops_cli.sandbox.host import HostSandbox
+
         self._sandbox = sandbox or HostSandbox()
 
     def command(self, request: ToolRequest) -> list[str]:
@@ -309,7 +396,7 @@ class SandboxToolExecutor:
         ]
         return self._sandbox.build_bwrap_args(
             tool_command,
-            root,
+            request.cwd or root,
             repo_root=root,
             env={**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT},
             read_only_binds=list(outside),
@@ -330,24 +417,11 @@ class SandboxToolExecutor:
             )
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
         run = record_tool_run(request, version=version, binary_sha256=binary_sha256)
-        try:
-            ended = run_subprocess(
-                command, cwd=request.workdir, timeout=request.limits.wall_seconds
-            )
-        except subprocess.TimeoutExpired as expired:
-            return ToolResult(
-                run=run,
-                exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE,
-                stdout=_partial_output(expired.stdout),
-                stderr=_partial_output(expired.stderr),
-                timed_out=True,
-            )
-        return ToolResult(
-            run=run, exit_code=ended.returncode, stdout=ended.stdout, stderr=ended.stderr
-        )
+        return _start(run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds)
 
 
 __all__ = [
+    "DirectToolExecutor",
     "SandboxToolExecutor",
     "ToolExecutor",
     "ToolLimits",

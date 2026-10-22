@@ -7,6 +7,11 @@ both, with a stand-in for the tool on disk. The stand-in is a shell script named
 `tools.lock` pins, and a test puts it first on PATH. The real side carries the `bwrap` mark, so
 tests skip it where bubblewrap is missing.
 
+`DirectToolExecutor` starts the tool itself, as a review did before the sandbox. The floor of the
+suite allows git and no other program, so its cases start git as the tool, in a temporary
+repository. They check what the sandbox cases check of the start: the directory, the standard
+input, the arguments and the environment.
+
 The cases after the shared ones hold the real executor to what it promises. They check the
 confinement that it asks bubblewrap for, and the limits that the tool runs under. They also check
 that a tool which runs out of time leaves no process behind.
@@ -20,7 +25,7 @@ import re
 import resource
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +40,7 @@ from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 from devops_cli.exceptions.sandbox import SandboxError, SandboxValidationError
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.security.tool_executor import (
+    DirectToolExecutor,
     SandboxToolExecutor,
     ToolExecutor,
     ToolLimits,
@@ -81,6 +87,12 @@ hang)
   echo started
   sh -c 'sleep 4242' "$2" &
   wait
+  ;;
+where)
+  echo "CWD=$(pwd)"
+  ;;
+stdin)
+  echo "STDIN=[$(cat)]"
   ;;
 esac
 """
@@ -523,6 +535,148 @@ def test_a_result_that_timed_out_with_another_exit_code_is_refused(
 
     with pytest.raises(ValueError, match="exit code 124"):
         ToolResult(run=run, exit_code=0, timed_out=True)
+
+
+# The real executor: where the sandbox starts the tool and what it reads there.
+
+
+@pytest.fixture
+def caller_input() -> Iterator[None]:
+    """The standard input of the test process holds `caller input` until the test ends."""
+    read_end, write_end = os.pipe()
+    os.write(write_end, b"caller input")
+    os.close(write_end)
+    saved = os.dup(0)
+    os.dup2(read_end, 0)
+    os.close(read_end)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
+
+
+@pytest.mark.bwrap
+def test_the_sandbox_starts_the_tool_in_the_tree_or_in_the_directory_the_request_names(
+    scenario: Scenario, tmp_path: Path
+) -> None:
+    """A scan that must not read the files of the tree starts in a scratch directory of its own,
+    outside the tree. A request with no such directory starts the tool in the tree."""
+    scratch = (tmp_path / "scratch").resolve()
+    scratch.mkdir()
+    sandbox = SandboxToolExecutor()
+
+    in_scratch = sandbox.run(scenario.request("where").model_copy(update={"cwd": scratch}))
+    in_tree = sandbox.run(scenario.request("where"))
+
+    assert (in_scratch.stdout, in_tree.stdout) == (
+        f"CWD={scratch}\n",
+        f"CWD={scenario.tree.resolve()}\n",
+    )
+
+
+@pytest.mark.bwrap
+@pytest.mark.usefixtures("caller_input")
+def test_the_sandbox_gives_the_tool_an_empty_standard_input(scenario: Scenario) -> None:
+    """Under `devops mcp` the standard input of the caller is the request stream of the client.
+    A tool that read it would take the stream (#1079)."""
+    assert SandboxToolExecutor().run(scenario.request("stdin")).stdout == "STDIN=[]\n"
+
+
+# The direct executor: git is the one program that the floor of the suite lets a test start.
+
+
+def _git_request(scenario: Scenario, *arguments: str, **fields: object) -> ToolRequest:
+    """A request to run git over the tree of the scenario, as a review tool."""
+    return scenario.request().model_copy(update={"tool": "git", "arguments": arguments, **fields})
+
+
+def test_the_direct_executor_starts_the_tool_with_the_arguments_in_the_directory_of_the_request(
+    scenario: Scenario, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """The tool gets the request's arguments, `{targets}` replaced by the paths of the targets. It
+    starts in the directory the request names, and in the tree when there is none."""
+    elsewhere = (tmp_path / "elsewhere").resolve()
+    elsewhere.mkdir()
+    git(elsewhere, "init", "--quiet")
+    show_toplevel = ("rev-parse", "--show-toplevel")
+    direct = DirectToolExecutor()
+
+    in_elsewhere = direct.run(_git_request(scenario, *show_toplevel, cwd=elsewhere))
+    in_tree = direct.run(_git_request(scenario, *show_toplevel))
+    of_target = direct.run(_git_request(scenario, "-C", "{targets}", *show_toplevel))
+
+    assert (in_elsewhere.stdout, in_tree.stdout, of_target.stdout) == (
+        f"{elsewhere}\n",
+        f"{scenario.tree.resolve()}\n",
+        f"{scenario.tree.resolve()}\n",
+    )
+
+
+def test_the_direct_executor_gives_the_tool_the_environment_of_the_request(
+    scenario: Scenario,
+) -> None:
+    """The request's variables reach the tool."""
+    identity = {"GIT_AUTHOR_NAME": "Review Tool", "GIT_AUTHOR_EMAIL": "tool@example.com"}
+
+    result = DirectToolExecutor().run(
+        _git_request(scenario, "var", "GIT_AUTHOR_IDENT", env=identity)
+    )
+
+    assert result.stdout.startswith("Review Tool <tool@example.com> ")
+
+
+@pytest.mark.usefixtures("caller_input")
+def test_the_direct_executor_gives_the_tool_an_empty_standard_input(scenario: Scenario) -> None:
+    """The hash of the empty blob is the hash of an empty standard input (#1079)."""
+    empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n"
+
+    result = DirectToolExecutor().run(_git_request(scenario, "hash-object", "--stdin"))
+
+    assert result.stdout == empty_blob
+
+
+def test_the_direct_executor_answers_a_failure_of_the_tool_and_records_the_run(
+    scenario: Scenario,
+) -> None:
+    """A tool that fails ends in its exit code and its output, not in an error of the executor. The
+    record names the tool, the commit of the tree and the arguments."""
+    request = _git_request(scenario, "rev-parse", "--verify", "refs/heads/no-such-branch")
+
+    result = DirectToolExecutor().run(request)
+
+    assert (result.exit_code, result.timed_out, result.run.commit, result.run.argv_template) == (
+        128,
+        False,
+        scenario.commit,
+        ("git", "rev-parse", "--verify", "refs/heads/no-such-branch"),
+    )
+
+
+def test_the_direct_executor_records_no_commit_for_a_checkout_that_git_cannot_read(
+    scenario: Scenario, tmp_path: Path
+) -> None:
+    """A scan must end as it ended before the executor existed. The sandbox executor refuses a
+    checkout that git does not trust. The direct executor starts the tool and records no commit."""
+    broken = tmp_path / "broken"
+    (broken / "src").mkdir(parents=True)
+    (broken / ".git").mkdir()
+    request = _git_request(scenario, "--version", workdir=broken, targets=(broken / "src",))
+
+    result = DirectToolExecutor().run(request)
+
+    assert (result.exit_code, result.run.commit) == (0, None)
+
+
+def test_the_direct_executor_refuses_a_target_outside_the_tree_before_it_starts_the_tool(
+    scenario: Scenario, tmp_path: Path
+) -> None:
+    """The refusal of the sandbox executor holds for the direct one."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    with pytest.raises(SandboxValidationError, match="outside the tree"):
+        DirectToolExecutor().run(_git_request(scenario, "status", targets=(outside,)))
 
 
 # The real executor: what it asks bubblewrap for.
