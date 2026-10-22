@@ -43,6 +43,7 @@ from devops_cli.main import app
 from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.state import FindingState
 from tests.llm_stream_fakes import route_client
 
@@ -1390,10 +1391,6 @@ def test_review_path_without_model_stages_builds_no_llm_client(tmp_path: Path) -
     with (
         patch.object(LLMClient, "__init__", side_effect=_fail_on_client_init),
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
-        patch(
-            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
-            return_value=tmp_path / "reviews",
-        ),
     ):
         result = cli.invoke(
             app,
@@ -1409,7 +1406,7 @@ def test_review_path_without_model_stages_builds_no_llm_client(tmp_path: Path) -
 
 @pytest.mark.usefixtures("scanner_fake")
 def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_json(
-    tmp_path: Path,
+    tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """--no-group-analysis makes zero calls to a fake client and writes no analysis.json."""
     from unittest.mock import patch
@@ -1420,8 +1417,7 @@ def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_j
     test_file.write_text("print('hello')\n", encoding="utf-8")
     fake_client = _FakeAnalysisClient({})
 
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
+    reviews_dir = review_store.root()
 
     with (
         patch(
@@ -1429,11 +1425,6 @@ def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_j
             return_value=ReviewClients(analysis=fake_client),
         ),
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
-        patch("devops_cli.ai.review.pipeline._get_reviews_base_dir", return_value=reviews_dir),
-        patch(
-            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
-            return_value=reviews_dir,
-        ),
     ):
         result = cli.invoke(
             app,
@@ -1451,7 +1442,7 @@ def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_j
 
 
 def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
-    tmp_path: Path,
+    tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """A review whose every file is routed to secret scan alone, with 1 admitted Gitleaks finding, calls fake client once and writes analysis.json."""
     from unittest.mock import patch
@@ -1459,8 +1450,7 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
     from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
     from devops_cli.security.gitleaks import ScanOutcome
 
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir(parents=True, exist_ok=True)
+    reviews_dir = review_store.root()
 
     gl_finding = Finding(
         anchor=ToolAnchor(run_id="r1", result_index=0, rule_id="generic-api-key"),
@@ -1501,11 +1491,6 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
         ),
         patch(
             "devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("skipped", [])
-        ),
-        patch("devops_cli.ai.review.pipeline._get_reviews_base_dir", return_value=reviews_dir),
-        patch(
-            "devops_cli.ai.review.review_environment._get_reviews_base_dir",
-            return_value=reviews_dir,
         ),
     ):
         result = _execute_review_workflow(

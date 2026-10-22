@@ -44,7 +44,7 @@ from devops_cli.ai.review.path_classes import (
 )
 from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.protocol import ReviewLLMClient
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
+from devops_cli.ai.review.review_environment import reviewed_tree
 from devops_cli.ai.review.sanitization import (
     _sanitize_filename,
     balance_markdown_fences,
@@ -121,6 +121,7 @@ from devops_cli.output import (
     print_success,
     print_table,
 )
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
@@ -789,7 +790,7 @@ def _checked_session_dir(session_dir: Path) -> Path:
     if any(part == ".." for part in session_dir.parts):
         raise SecurityError(f"Path traversal detected in session_dir: {session_dir}")
     allowed = (
-        _get_reviews_base_dir().resolve(),
+        ReviewSessionStore.root(),
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     )
@@ -1890,7 +1891,7 @@ class ReviewPipelineOrchestrator:
         self.concurrency = concurrency
         self.parallel = parallel
         self.session_dir = _checked_session_dir(
-            session_dir or _get_reviews_base_dir().resolve() / self.session_id
+            session_dir or ReviewSessionStore.root() / self.session_id
         )
         self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
         from devops_cli.dry_run.state import is_dry_run

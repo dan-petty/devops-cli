@@ -38,6 +38,7 @@ import typer.rich_utils
 
 if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
+    from devops_cli.review.session import ReviewSessionStore
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.support.fakes.model import ModelFake
@@ -790,6 +791,17 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
     yield test_data_dir
     reset_settings_cache()
+
+
+@pytest.fixture
+def review_store(isolate_data_dir: Path) -> type[ReviewSessionStore]:
+    """The review session store, rooted in the test's own data directory with its root created
+    (#771). Naming `ReviewSessionStore.root()` creates nothing, as a review that has not yet
+    written a session finds it, so a test that lists or searches sessions asks for the store."""
+    from devops_cli.review.session import ReviewSessionStore
+
+    ReviewSessionStore.root().mkdir(parents=True)
+    return ReviewSessionStore
 
 
 @pytest.fixture(autouse=True)

@@ -19,7 +19,6 @@ from typer.testing import CliRunner
 
 from devops_cli.ai import run_store
 from devops_cli.ai.gateway_tune import DeploymentTune, GpuInfo, TuneReport
-from devops_cli.ai.review import runner
 from devops_cli.ai.review.profile import ReviewProfile, StageProfile, report_profile
 from devops_cli.ai.run_store import (
     INDEX_PREFIX,
@@ -287,7 +286,6 @@ def test_a_review_benchmark_is_kept_with_its_setup_and_corpus(
         )
 
     monkeypatch.setattr(review_commands, "path", fake_review)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
     result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "1"])
     (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
@@ -325,7 +323,6 @@ def test_a_review_benchmark_can_review_without_static_scanners(
         )
 
     monkeypatch.setattr(review_commands, "path", fake_review)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
     result = cli.invoke(review_commands.app, ["benchmark", str(corpus), "-n", "2", *flags])
     (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
@@ -364,7 +361,6 @@ def test_a_review_benchmark_records_the_concurrency_its_reviews_ran_at(
     reset_settings_cache()
     monkeypatch.setattr(run_store, "gateway_pool", lambda task: [])
     monkeypatch.setattr(review_commands, "path", fake_review)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
     result = cli.invoke(review_commands.app, ["benchmark", str(corpus), "-n", "1", "-c", "8"])
     (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)

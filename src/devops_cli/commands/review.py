@@ -46,7 +46,6 @@ __all__ = [
     "export_invalidated_feedback",
 ]
 
-from devops_cli.ai.review import runner
 from devops_cli.ai.review.adjudication import (
     Verdict,
     adjudicating,
@@ -138,6 +137,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.review.session import ReviewSessionStore
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -962,7 +962,7 @@ def list_findings(
     session_dir = _find_session_dir(target_session)
     if not session_dir:
         # A review's data directory may not be the repository's `.data` (#972), so say where.
-        reviews_dir = runner._get_reviews_base_dir()
+        reviews_dir = ReviewSessionStore.root()
         print_warning(
             MESSAGES.review.no_review_sessions_found.format(reviews_dir=reviews_dir), prefix=False
         )
@@ -1239,7 +1239,7 @@ def review_stats(
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
-    r_dir = reviews_dir or runner._get_reviews_base_dir()
+    r_dir = reviews_dir or ReviewSessionStore.root()
     if not r_dir.exists():
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
@@ -1406,7 +1406,7 @@ def benchmark(
         raise typer.Exit(1)
     summary = summarize_profiles(profiles)
     summary.corpus_digest = _corpus_digest(targets, pattern)
-    _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
+    _render_benchmark(summary, summary.write(ReviewSessionStore.root()))
     setup = review_setup(
         pre_analysis=not no_pre_analysis,
         static_scan=not no_static_scan,
@@ -1697,9 +1697,7 @@ def corpus_generate(
         print_error(str(exc))
         raise typer.Exit(1) from exc
     names = [source.resolve().name for source in sources]
-    corpus_dir = out or runner._get_reviews_base_dir() / CORPORA_DIRNAME / (
-        f"{'-'.join(names)}-{seed}"
-    )
+    corpus_dir = out or ReviewSessionStore.root() / CORPORA_DIRNAME / (f"{'-'.join(names)}-{seed}")
     if corpus_dir.exists() and any(corpus_dir.iterdir()):
         print_error(f"{corpus_dir} already exists; choose another --seed or --out.")
         raise typer.Exit(1)
@@ -1738,7 +1736,7 @@ def corpus_generate(
 
 def _corpus_session_dirs(files_dir: Path) -> list[Path]:
     """Every session whose profile shows it reviewed the corpus, oldest first."""
-    reviews_dir = runner._get_reviews_base_dir()
+    reviews_dir = ReviewSessionStore.root()
     if not reviews_dir.exists():
         return []
     target = str(files_dir.resolve())
@@ -2084,7 +2082,7 @@ def _by_category(samples: list[SampleRepository]) -> dict[str, list[SampleReposi
 
 
 def _scored_session(corpus: DefectCorpus, session_id: str) -> CorpusScore:
-    session_dir = runner._get_reviews_base_dir() / session_id
+    session_dir = ReviewSessionStore.root() / session_id
     reported = _session_findings(session_dir / "findings.json")
     candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
     candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
@@ -2190,7 +2188,7 @@ def samples_validate(
         )
         raise typer.Exit(1)
     run_dir = (
-        runner._get_reviews_base_dir()
+        ReviewSessionStore.root()
         / SAMPLE_VALIDATIONS_DIRNAME
         / datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     )
@@ -2458,7 +2456,7 @@ def export_feedback(
         reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
     )
     if count == 0:
-        target_dir = reviews_dir or runner._get_reviews_base_dir()
+        target_dir = reviews_dir or ReviewSessionStore.root()
         print_warning(
             MESSAGES.review.no_findings_to_export.format(
                 status=status, target=target_dir, path=out_path

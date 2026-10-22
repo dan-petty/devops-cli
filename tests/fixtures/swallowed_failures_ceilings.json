@@ -148,7 +148,7 @@
   "src/devops_cli/telemetry/tracer.py": 16,
   "src/devops_cli/tf/analysis.py": 1,
   "src/devops_cli/ui/dashboard.py": 1,
-  "src/devops_cli/ui/data_providers.py": 12,
+  "src/devops_cli/ui/data_providers.py": 11,
   "src/devops_cli/ui/pod_inspector.py": 1,
   "src/devops_cli/ui/refresh.py": 1,
   "src/devops_cli/ui/state.py": 2,

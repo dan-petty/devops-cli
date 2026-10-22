@@ -39,6 +39,7 @@ from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
 from devops_cli.lang import MESSAGES
 from devops_cli.main import app
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.tools_lock import tools_lock_digest
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -324,10 +325,10 @@ def test_benchmark_summary_is_saved_under_the_reviews_directory(tmp_path: Path) 
 
 
 def test_benchmark_command_reviews_each_run_without_the_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify the benchmark runs the review N times uncached and saves the median summary."""
-    corpus, reviews = tmp_path / "corpus", tmp_path / "reviews"
+    corpus, reviews = tmp_path / "corpus", review_store.root()
     corpus.mkdir()
     (corpus / "site.yaml").write_text("- hosts: all\n", encoding="utf-8")
     calls: list[dict[str, Any]] = []
@@ -337,7 +338,6 @@ def test_benchmark_command_reviews_each_run_without_the_cache(
         report_profile(_profile(100.0 * len(calls), 60, 10, 5))
 
     monkeypatch.setattr(review_commands, "path", fake_review)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
 
     result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "3"])
     saved = list((reviews / "benchmarks").glob("*.json"))
@@ -364,15 +364,14 @@ def test_corpus_digest_changes_only_with_the_reviewed_files(tmp_path: Path) -> N
 
 
 def test_benchmark_fails_when_no_review_was_profiled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify a benchmark whose runs reviewed nothing exits non-zero and saves nothing."""
     monkeypatch.setattr(review_commands, "path", lambda **kwargs: None)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path)
 
     result = cli.invoke(app, ["review", "benchmark", str(tmp_path), "-n", "2"])
 
-    assert (result.exit_code, (tmp_path / "benchmarks").exists()) == (1, False)
+    assert (result.exit_code, (review_store.root() / "benchmarks").exists()) == (1, False)
 
 
 def test_backend_labels_drop_the_cluster_dns_suffix() -> None:

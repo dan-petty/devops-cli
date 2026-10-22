@@ -35,6 +35,7 @@ from devops_cli.output import (
     render_review_raw,
     render_review_result,
 )
+from devops_cli.review.session import ReviewSessionStore
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -141,7 +142,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         assert (len(pr_pages) >= 1, "PR #123" in pr_title, pr_base is None) == (True, True, True)
 
 
-def test_review_runner_extended_branches(tmp_path: Path) -> None:
+def test_review_runner_extended_branches(review_store: type[ReviewSessionStore]) -> None:
     """Verify session lookup and markdown formatting."""
     from devops_cli.ai.review.runner import (
         _find_session_dir,
@@ -172,19 +173,18 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
     assert ("*(mitigated)*" in md, "*(unverified)*" in md) == (True, True)
 
     # 2. Session directory lookup
-    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
-        s1 = tmp_path / "20260826-120000-session1"
-        s1.mkdir()
-        (s1 / "findings.json").write_text("{}", encoding="utf-8")
-        found = _find_session_dir("session1")
-        assert found == s1
+    s1 = review_store.root() / "20260826-120000-session1"
+    s1.mkdir()
+    (s1 / "findings.json").write_text("{}", encoding="utf-8")
+    found = _find_session_dir("session1")
+    assert found == s1
 
 
-def test_review_cli_commands(tmp_path: Path) -> None:
+def test_review_cli_commands(tmp_path: Path, review_store: type[ReviewSessionStore]) -> None:
     """Verify review findings, verify, stats, and export-feedback commands."""
     runner = CliRunner()
-    session_dir = tmp_path / "20260826-000000-sample-session"
-    session_dir.mkdir(parents=True)
+    session_dir = review_store.root() / "20260826-000000-sample-session"
+    session_dir.mkdir()
 
     findings = [
         SavedFinding(
@@ -217,52 +217,51 @@ def test_review_cli_commands(tmp_path: Path) -> None:
     )
     (session_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
-        # 1. Findings table
-        res_find = runner.invoke(review_app, ["findings", "--session", "sample-session"])
-        assert res_find.exit_code == 0
-        assert "Insecure Port Binding" in res_find.output
+    # 1. Findings table
+    res_find = runner.invoke(review_app, ["findings", "--session", "sample-session"])
+    assert res_find.exit_code == 0
+    assert "Insecure Port Binding" in res_find.output
 
-        # 2. Findings filter
-        res_find_unver = runner.invoke(
-            review_app, ["findings", "--session", "sample-session", "--unverified"]
-        )
-        assert res_find_unver.exit_code == 0
+    # 2. Findings filter
+    res_find_unver = runner.invoke(
+        review_app, ["findings", "--session", "sample-session", "--unverified"]
+    )
+    assert res_find_unver.exit_code == 0
 
-        # 3. Verify finding by index
-        res_ver_idx = runner.invoke(
-            review_app,
-            [
-                "verify",
-                "sample-session",
-                "--index",
-                "1",
-                "--status",
-                "INVALIDATED",
-                "--reason",
-                "False positive",
-            ],
-        )
-        assert res_ver_idx.exit_code == 0
-        assert "Updated finding #1" in res_ver_idx.output
+    # 3. Verify finding by index
+    res_ver_idx = runner.invoke(
+        review_app,
+        [
+            "verify",
+            "sample-session",
+            "--index",
+            "1",
+            "--status",
+            "INVALIDATED",
+            "--reason",
+            "False positive",
+        ],
+    )
+    assert res_ver_idx.exit_code == 0
+    assert "Updated finding #1" in res_ver_idx.output
 
-        # 4. Verify finding by title
-        res_ver_title = runner.invoke(
-            review_app,
-            ["verify", "sample-session", "--title", "Missing Docstring", "--status", "MITIGATED"],
-        )
-        assert res_ver_title.exit_code == 0
+    # 4. Verify finding by title
+    res_ver_title = runner.invoke(
+        review_app,
+        ["verify", "sample-session", "--title", "Missing Docstring", "--status", "MITIGATED"],
+    )
+    assert res_ver_title.exit_code == 0
 
-        # 5. Review stats
-        res_stats = runner.invoke(review_app, ["stats"])
-        assert res_stats.exit_code == 0
-        assert "devsecops" in res_stats.output
+    # 5. Review stats
+    res_stats = runner.invoke(review_app, ["stats"])
+    assert res_stats.exit_code == 0
+    assert "devsecops" in res_stats.output
 
-        # 6. Export feedback
-        res_exp = runner.invoke(
-            review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
-        )
-        assert res_exp.exit_code == 0
+    # 6. Export feedback
+    res_exp = runner.invoke(
+        review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
+    )
+    assert res_exp.exit_code == 0
 
 
 def test_detect_base_branch(tmp_path: Path) -> None:

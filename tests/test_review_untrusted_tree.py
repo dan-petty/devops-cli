@@ -190,10 +190,10 @@ def test_a_reviews_data_lives_under_the_user_level_data_root(
     """Review history and baselines and the LLM response cache resolved under the repository the
     review started in. They follow the data directory to the user-level data root."""
     from devops_cli.ai.response_cache import LLMResponseCache
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
     def data_paths(_: Settings) -> list[Path]:
-        return [_get_reviews_base_dir(), LLMResponseCache()._resolve_cache_dir()]
+        return [ReviewSessionStore.root(), LLMResponseCache()._resolve_cache_dir()]
 
     exit_code, [paths] = _seen_by_a_review(hostile_repo, data_paths, monkeypatch)
 
@@ -210,12 +210,12 @@ def test_every_review_command_resolves_data_where_a_review_wrote_it(
 ) -> None:
     """`devops review findings` and the other commands that read what a review wrote resolve the
     data directory as the review does, or a session would land where they never look."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
     seen: list[Path] = []
 
     def record(*_: Any, **__: Any) -> None:
-        seen.append(_get_reviews_base_dir())
+        seen.append(ReviewSessionStore.root())
 
     monkeypatch.chdir(hostile_repo)
     with patch("devops_cli.commands.review._find_session_dir", side_effect=record):
@@ -228,14 +228,14 @@ def _review_data_locations() -> dict[str, Path]:
     """Where each kind of data a review keeps resolves, for whichever command asks."""
     from devops_cli.ai.rag.library_store import library_contracts_dir
     from devops_cli.ai.review.exporter import _resolve_output_path
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.ai.review.samples import samples_dir
     from devops_cli.ai.run_store import runs_dir
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.ai.spend.pricing import PricingRegistry
+    from devops_cli.review.session import ReviewSessionStore
 
     return {
-        "reviews": _get_reviews_base_dir(),
+        "reviews": ReviewSessionStore.root(),
         "feedback dataset": _resolve_output_path(None, None),
         "runs": runs_dir(),
         "samples": samples_dir(),
@@ -274,9 +274,9 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
 
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
     from devops_cli.ai.review.exporter import _resolve_output_path
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.ai.run_store import Mechanism, RunRecord, save_run
     from devops_cli.commands.ai import app as ai_app
+    from devops_cli.review.session import ReviewSessionStore
     from devops_cli.ui.data_providers import list_review_sessions
 
     verdict = {
@@ -295,8 +295,8 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
     )
 
     def keep_as_a_review_does(_: Settings) -> None:
-        session = _get_reviews_base_dir() / "20261003-120000"
-        session.mkdir()
+        session = ReviewSessionStore.root() / "20261003-120000"
+        session.mkdir(parents=True)
         findings = json.dumps({"findings": [verdict]})
         (session / "findings.json").write_text(findings, encoding="utf-8")
         dataset = _resolve_output_path(None, None)
@@ -723,8 +723,8 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     """Worktrees of one repository share its git directory, so each is devops-cli's own
     repository, whichever of them holds the running source, outside the checkout or nested in it.
     A review started in a linked worktree keeps its data under the main worktree's `.data`."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.core.repo import is_own_source_repository
+    from devops_cli.review.session import ReviewSessionStore
 
     linked = tmp_path / "worktrees" / "feature"
     git(own_repo, "worktree", "add", "--quiet", "-b", "feature", str(linked))
@@ -733,7 +733,7 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     checkouts = (own_repo, linked, nested / "src")
 
     run_from_main = [is_own_source_repository(checkout) for checkout in checkouts]
-    exit_code, reviews = _seen_by_a_review(linked, lambda _: _get_reviews_base_dir(), monkeypatch)
+    exit_code, reviews = _seen_by_a_review(linked, lambda _: ReviewSessionStore.root(), monkeypatch)
     monkeypatch.setattr(
         "devops_cli.core.repo._own_source_dir", lambda: (linked / "src" / "devops_cli").resolve()
     )
@@ -753,8 +753,8 @@ def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
     """A clone under the checkout's `repos/` or `.data/samples/` is another repository, with a git
     directory of its own, though the checkout is the top-most root around it. A review started in
     it reads none of the project config it commits and keeps its data under the user-level root."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.core.repo import is_own_source_repository
+    from devops_cli.review.session import ReviewSessionStore
 
     clone = own_repo / "repos" / "owner" / "tool"
     clone.mkdir(parents=True)
@@ -769,7 +769,7 @@ def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
         clone,
         lambda settings: (
             settings.ai.gateway_url,
-            _get_reviews_base_dir().is_relative_to(user_level),
+            ReviewSessionStore.root().is_relative_to(user_level),
         ),
         monkeypatch,
     )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -21,6 +21,7 @@ from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
+    ReviewSessionInfo,
     ReviewSummary,
     TelemetrySummary,
     ValkeySummary,
@@ -29,6 +30,7 @@ from devops_cli.ui.data_providers import (
     fetch_review_status,
     fetch_telemetry_status,
     fetch_valkey_status,
+    list_review_sessions,
 )
 from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
@@ -385,6 +387,44 @@ def test_fetch_review_status_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert isinstance(summary, ReviewSummary)
     assert summary.has_session is False
     assert summary.total_findings == 0
+
+
+def test_dashboard_lists_sessions_written_where_the_reviews_directory_setting_points(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """Verify the dashboard looks where a review writes, not under `data.dir` beside it.
+
+    With `data.reviews_dir` pointed away from `data.dir`, the dashboard read `data.dir/reviews`,
+    found nothing, and listed no session of a review that had just run (#771).
+    """
+    elsewhere = tmp_path / "elsewhere"
+    session_dir = elsewhere / "20261001-120000"
+    session_dir.mkdir(parents=True)
+    (session_dir / "findings.json").write_text('{"findings": [{}, {}]}', encoding="utf-8")
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_REVIEWS_DIR", str(elsewhere))
+    config(data={"dir": str(tmp_path / "data")})
+
+    assert list_review_sessions() == [
+        ReviewSessionInfo(name="20261001-120000", completed=True, finding_count=2)
+    ]
+
+
+def test_dashboard_lists_no_session_for_a_reviews_directory_setting_that_is_not_a_path(
+    monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """Verify a settings file the schema refuses leaves the review panel empty, not raising.
+
+    `data.reviews_dir: [1, 2]` fails the settings schema with a `ValidationError`, which is a
+    `ValueError` and not a `DevOpsCLIError` (#771).
+    """
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR")
+    config(data={"reviews_dir": [1, 2]})
+
+    assert (list_review_sessions(), fetch_review_status()) == (
+        [],
+        ReviewSummary(has_session=False),
+    )
 
 
 def test_fetch_valkey_status_success() -> None:

@@ -26,8 +26,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
-from devops_cli.core.repo import get_repo_origin_name, resolve_review_data_path
+from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
@@ -40,6 +39,7 @@ from devops_cli.github.pr_queue import (
 from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
@@ -519,26 +519,18 @@ def fetch_telemetry_status() -> TelemetrySummary:
         return fallback.model_copy(update={"error_message": f"{base_url}: {exc}"})
 
 
-def _reviews_root() -> Path | None:
-    """Resolve the directory holding review sessions: a relative data directory is under the
-    review data root, where a review writes them (`resolve_review_data_path`, #972)."""
-    raw_data_dir = os.getenv("DEVOPS_CLI_DATA_DIR")
-    if not raw_data_dir:
-        try:
-            raw_data_dir = str(load_settings().data.dir)
-        except Exception as exc:
-            logger.debug("Failed loading settings for data.dir: %s", exc)
-            raw_data_dir = "./.data"
+def _existing_reviews_dir() -> Path | None:
+    """The directory holding review sessions, or None when it is refused or not there yet.
+
+    A settings file the schema refuses raises a `ValidationError`, a `ValueError`, which is
+    answered as a refused directory is: no sessions.
+    """
     try:
-        validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
-        data_path = resolve_review_data_path(Path(raw_data_dir)).resolve()
-        if is_forbidden_system_path(data_path):
-            return None
+        reviews_dir = ReviewSessionStore.root()
     except (DevOpsCLIError, OSError, ValueError) as exc:
-        logger.warning("Invalid review data directory %s: %s", raw_data_dir, exc)
+        logger.warning("Invalid review data directory: %s", exc)
         return None
-    reviews_dir = data_path / "reviews"
-    return reviews_dir if reviews_dir.exists() and reviews_dir.is_dir() else None
+    return reviews_dir if reviews_dir.is_dir() else None
 
 
 def _count_findings(findings_file: Path) -> int:
@@ -557,7 +549,7 @@ def list_review_sessions() -> list[ReviewSessionInfo]:
 
     Session names are timestamps, so a reverse lexical sort is a reverse chronological one.
     """
-    reviews_dir = _reviews_root()
+    reviews_dir = _existing_reviews_dir()
     if reviews_dir is None:
         return []
 
@@ -585,7 +577,7 @@ def _get_latest_review_session_dir(session: str | None = None) -> Path | None:
     directory showed an empty in-flight session as the latest result and hid the last real
     one behind it.
     """
-    reviews_dir = _reviews_root()
+    reviews_dir = _existing_reviews_dir()
     if reviews_dir is None:
         return None
 

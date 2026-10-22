@@ -31,12 +31,12 @@ from devops_cli.ai.analyze.cache import (
 )
 from devops_cli.ai.model_bundler import bundle_ollama_models
 from devops_cli.ai.prompt_eval import evaluate_persona_prompts
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.core.cleanup import cleanup_data_tier
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions import SecurityError
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.server.routes.workspace import list_workspaces
 
 _A_FORTNIGHT_AGO = time.time() - 14 * 86400
@@ -261,7 +261,7 @@ def test_reviews_saved_from_a_worktree_outlive_it(
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(linked)
 
-    reviews = _get_reviews_base_dir()
+    reviews = ReviewSessionStore.root()
 
     assert reviews == (isolate_user_data_root / ".data" / "reviews").resolve()
 
@@ -855,7 +855,7 @@ def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
         summary.pruned_files,
         shared.exists(),
         clone_own.exists(),
-        _get_reviews_base_dir().is_relative_to(workspace),
+        ReviewSessionStore.root().is_relative_to(workspace),
         analysis_directory(clone),
     ) == (
         ["reviews/old.json"],
@@ -887,7 +887,7 @@ def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
         summary.pruned_files,
         own.exists(),
         home_own.exists(),
-        _get_reviews_base_dir().is_relative_to(home),
+        ReviewSessionStore.root().is_relative_to(home),
         analysis_directory(project),
     ) == (
         ["reviews/old.json"],
@@ -1031,7 +1031,7 @@ def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
         summary.pruned_files,
         shared.exists(),
         submodule_own.exists(),
-        _get_reviews_base_dir().is_relative_to(superproject),
+        ReviewSessionStore.root().is_relative_to(superproject),
         analysis_directory(submodule),
     ) == (
         superproject.resolve(),
@@ -1091,12 +1091,12 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     from devops_cli.ai.controller.manager import ConstellationManager
     from devops_cli.sandbox.logs import resolve_incident_dir
     from devops_cli.sandbox.registry import get_default_sandbox_registry_path
-    from devops_cli.ui.data_providers import _reviews_root
+    from devops_cli.ui.data_providers import list_review_sessions
 
     main, linked = repo_with_worktree
     data = main / (configured or ".data")
     reviews = (isolate_user_data_root / (configured or ".data") / "reviews").resolve()
-    reviews.mkdir(parents=True)
+    (reviews / "20261003-120000").mkdir(parents=True)
     if configured is None:
         monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     else:
@@ -1104,7 +1104,8 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     monkeypatch.chdir(linked)
 
     resolved = (
-        _reviews_root(),
+        ReviewSessionStore.root(),
+        [session.name for session in list_review_sessions()],
         ConstellationManager().data_dir,
         get_default_sandbox_registry_path(),
         resolve_incident_dir(),
@@ -1113,6 +1114,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     data = data.resolve()
     assert resolved == (
         reviews,
+        ["20261003-120000"],
         data,
         data / "sandbox" / "instances.json",
         data / "sandbox" / "incidents",

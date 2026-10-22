@@ -92,9 +92,9 @@ def collect_historical_category_metrics(
         (category_metrics, history)
     """
     from devops_cli.ai.review.history import load_review_history
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
-    history = load_review_history(reviews_dir or _get_reviews_base_dir(), exclude=exclude)
+    history = load_review_history(reviews_dir or ReviewSessionStore.root(), exclude=exclude)
     raised = [f for session in history.counted for f in session.raised]
     return compute_category_metrics(raised), history
 
