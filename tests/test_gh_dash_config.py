@@ -208,6 +208,19 @@ def test_every_key_binding_runs_a_devops_command_that_exists() -> None:
     assert [c for c in commands if resolve_devops_argv(_first_devops_argv(c)) is not None] == []
 
 
+def test_the_shipped_config_refreshes_hourly_and_starts_with_the_preview_closed() -> None:
+    """The two values keep gh-dash at about 7 GraphQL points at start and 5 points an hour (#1918).
+
+    The GitHub budget is 5,000 GraphQL points an hour for the token, and AI agents share it. A
+    refresh fetches every section of the view on screen: 5 points for the four PR sections. An
+    open preview adds 2 points for the selected row at start, at each refresh and at each row a
+    person selects. A refresh every 15 minutes with the preview open costs about 28 points an hour.
+    """
+    defaults = _shipped_config()["defaults"]
+
+    assert (defaults["refetchIntervalMinutes"], defaults["preview"]["open"]) == (60, False)
+
+
 def test_the_shipped_config_holds_only_ascii() -> None:
     """The file holds only ASCII and sets no glyph.
 
