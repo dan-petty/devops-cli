@@ -132,7 +132,7 @@ All work follows a test-first progressive verification strategy:
 | Operation | Command | Purpose |
 | :--- | :--- | :--- |
 | **Dependency Sync** | `uv sync` | Synchronize virtual environment with lockfile. |
-| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs, deps). |
+| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs, deps, openspec). |
 | **Targeted Test** | `uv run devops ci test tests/test_<feature>.py` | Fast, isolated unit test execution, serial for a few test files. |
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |

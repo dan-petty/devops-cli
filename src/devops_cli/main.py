@@ -43,6 +43,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "devcontainer": ("devops_cli.commands.devcontainer", HELP.devcontainer.app),
     "workspace": ("devops_cli.commands.workspace", HELP.workspace.app),
     "install-tools": ("devops_cli.commands.install_tools", HELP.install.app),
+    "openspec": ("devops_cli.commands.openspec", HELP.openspec.app),
     "k8s": ("devops_cli.commands.k8s", HELP.k8s.app),
     "kustomize": ("devops_cli.commands.kustomize", HELP.kustomize.app),
     "docker": ("devops_cli.commands.docker", HELP.docker.app),

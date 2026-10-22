@@ -212,3 +212,9 @@ def test_a_link_to_a_missing_file_or_heading_is_broken(tmp_path: Path) -> None:
     )
 
     assert _broken_links(document) == ["missing.md", "other.md#gone", "#nowhere"]
+
+
+def test_agents_md_lists_the_openspec_row_in_the_ci_suite() -> None:
+    """The one place AGENTS.md names the rows of the gate ends with the row this step adds."""
+    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "actionlint, docs, deps, openspec)." in agents

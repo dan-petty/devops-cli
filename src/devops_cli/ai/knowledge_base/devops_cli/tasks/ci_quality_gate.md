@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs every check `devops ci` reports (Python version, tests, coverage, ruff lint, ruff format, mypy --strict, uv audit and npm audit, bandit, actionlint, docs, devcontainer, uv check, uv lock --check, outdated deps). By executing these checks locally, developers guarantee release readiness before pushing commits.
+The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs every check `devops ci` reports (Python version, tests, coverage, ruff lint, ruff format, mypy --strict, uv audit and npm audit, bandit, actionlint, docs, devcontainer, openspec, uv check, uv lock --check, outdated deps). By executing these checks locally, developers guarantee release readiness before pushing commits.
 
 ---
 
@@ -20,6 +20,7 @@ graph TD
     A --> I[Security AST Scan bandit]
     A --> J[Workflow Linter actionlint]
     A --> K[Docs Sync docs generate --check]
+    A --> L[OpenSpec Gate openspec check]
 ```
 
 ---

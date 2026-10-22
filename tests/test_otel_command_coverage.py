@@ -224,6 +224,7 @@ def test_all_command_specs_registered() -> None:
         "devcontainer",
         "workspace",
         "install-tools",
+        "openspec",
         "k8s",
         "kustomize",
         "docker",

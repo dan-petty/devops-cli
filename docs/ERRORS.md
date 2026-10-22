@@ -86,6 +86,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ModelGatewayUnreachableError` | `MODEL_GATEWAY_UNREACHABLE` | `1` | Ai | Raised when a model call through the gateway fails, so the command decided and wrote nothing. |
 | `ModelNotAllowedError` | `MODEL_REQUESTS_DISABLED` | `1` | Devops_cli.ai.agents.testing | Raised when a non-test model request is attempted while ALLOW_MODEL_REQUESTS is False. |
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
+| `OpenSpecArchiveError` | `OPENSPEC_ARCHIVE_FAILED` | `1` | Tools | Raised when `openspec archive` refuses a change, which leaves the tree as it was. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `ReleaseBranchMissingError` | `RELEASE_BRANCH_MISSING` | `1` | Git | Raised when the remote release branch tracking ref does not exist. |

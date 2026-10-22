@@ -10,6 +10,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops devcontainer`](#devops-devcontainer) — Manage devcontainer configurations.
 - [`devops workspace`](#devops-workspace) — Manage multi-root VS Code workspace files (.code-workspace).
 - [`devops install-tools`](#devops-install-tools) — Install and manage DevOps tool binaries.
+- [`devops openspec`](#devops-openspec) — Check and regenerate the OpenSpec change folders and agent skills.
 - [`devops k8s`](#devops-k8s) — Manage Kubernetes clusters, pods, services, and workloads.
 - [`devops kustomize`](#devops-kustomize) — Kustomize build and apply operations.
 - [`devops docker`](#devops-docker) — Docker image management.
@@ -658,6 +659,34 @@ devops install-tools status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
+
+---
+
+## devops openspec
+
+Check and regenerate the OpenSpec change folders and agent skills.
+
+### `devops openspec check`
+
+**Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and rehearse the release cut's archive. Exits 1 on any problem.**
+
+```bash
+devops openspec check
+```
+
+### `devops openspec regenerate`
+
+**Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written.**
+
+```bash
+devops openspec regenerate [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

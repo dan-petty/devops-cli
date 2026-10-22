@@ -41,15 +41,29 @@ jobs:
       security-events: write
 
     steps:
+      # Full history: the OpenSpec row rehearses the release cut, which archives the change
+      # folders in the order the commits that added them merged (ADR 0010).
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: static
+
+      # The Node that `.node-version` names runs the pinned OpenSpec, which the openspec row needs.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install OpenSpec
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool openspec --only-missing
 
       - name: Static Analysis Quality Gate
         run: uv run devops ci --check --no-cache --skip test,outdated

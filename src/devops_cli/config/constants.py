@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
 from enum import StrEnum
 from pathlib import Path
@@ -624,6 +625,8 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("mcp", "export-schemas"),
         ("mcp", "serve"),
         ("mcp", "tools"),
+        ("openspec", "check"),
+        ("openspec", "regenerate"),
         ("pipeline",),
         ("pr", "copilot-pass"),
         ("pr", "create"),
@@ -735,6 +738,8 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 # - release artifact: written by the release cut, never by an item pull request.
 # - record: history, never rewritten to match later code, so no command name in it is checked.
 # - prompt: loaded by code at run time.
+# - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
+#   checked by regenerating them, never named-checked.
 # - hand-written: everything else, listed by path (README.md also holds a generated command matrix).
 # An entry with a glob wildcard is a pattern and may match no file (the release cut deletes every
 # `changelog.d/<issue>.md`); an entry without one names a document and must match its file.
@@ -742,6 +747,7 @@ CONST_DOCS_CLASS_GENERATED: Final[str] = "generated"
 CONST_DOCS_CLASS_RELEASE_ARTIFACT: Final[str] = "release artifact"
 CONST_DOCS_CLASS_RECORD: Final[str] = "record"
 CONST_DOCS_CLASS_PROMPT: Final[str] = "prompt"
+CONST_DOCS_CLASS_TOOL_GENERATED: Final[str] = "tool-generated"
 CONST_DOCS_CLASS_HAND_WRITTEN: Final[str] = "hand-written"
 CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_GENERATED: (
@@ -760,17 +766,23 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "CHANGELOG.md",
         "docs/ROADMAP.md",
         "docs/RELEASE_NOTES.md",
+        "openspec/specs/**/*.md",
     ),
     CONST_DOCS_CLASS_RECORD: (
         "changelog.d/[0-9]*.md",
         "docs/adr/*.md",
         "docs/agent/archive/**/*.md",
         "docs/agent/tasks/task-*.md",
+        "openspec/changes/**/*.md",
     ),
     CONST_DOCS_CLASS_PROMPT: (
         "src/devops_cli/ai/personas/**/*.md",
         "src/devops_cli/ai/prompts/**/*.md",
         "src/devops_cli/ai/tasks/**/*.md",
+    ),
+    CONST_DOCS_CLASS_TOOL_GENERATED: (
+        ".claude/skills/openspec-*/SKILL.md",
+        ".agents/skills/openspec-*/SKILL.md",
     ),
     CONST_DOCS_CLASS_HAND_WRITTEN: (
         ".github/pull_request_template.md",
@@ -4305,6 +4317,10 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "docs/adr/**",
     "docs/commands/*.md",
     "docs/CLI_REFERENCE.md",
+    "openspec/**",
+    ".claude/skills/openspec-*/**",
+    ".agents/skills/openspec-*/**",
+    ".agents/skills/.openspec-target",
 )
 # The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
 # Gitleaks reports nothing else, and Trivy's secret results carry the `SECRET` rule id its parser
@@ -5006,3 +5022,64 @@ CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
 CONST_KB_REFERENCE_PREFIX: Final[str] = "kb:"
 CONST_KB_DATE_FORMAT: Final[str] = "%Y-%m-%d"
 CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16
+
+# ── OpenSpec (ADR 0010) ──────────────────────────────────────────────────────
+# The folder the pinned OpenSpec plans into, from a checkout's root, and the file that carries the
+# planning conventions for every agent.
+CONST_OPENSPEC_DIR: Final[str] = "openspec"
+CONST_OPENSPEC_CONFIG_FILENAME: Final[str] = "config.yaml"
+CONST_OPENSPEC_CHANGES_DIR: Final[str] = "openspec/changes"
+# The closed grammar of an active change: the folder is named `<issue>-<slug>`, and a path under it
+# is `openspec/changes/<issue>-<slug>/<file>`. The issue is the only link from a folder to GitHub.
+CONST_OPENSPEC_CHANGE_NAME_RE: Final[str] = r"(?P<issue>\d+)-[^/]+"
+CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = (
+    rf"{CONST_OPENSPEC_CHANGES_DIR}/{CONST_OPENSPEC_CHANGE_NAME_RE}/.+"
+)
+# The one file every change folder holds, and the line OpenSpec's `list --json` gives a change whose
+# tasks are all ticked.
+CONST_OPENSPEC_CHANGE_METADATA_FILENAME: Final[str] = ".openspec.yaml"
+CONST_OPENSPEC_STATUS_COMPLETE: Final[str] = "complete"
+# What stops OpenSpec's telemetry and its check for a newer version, and its prompts. The sanitized
+# environment `run_subprocess` builds keeps none of them, so the tool's runner sets each.
+CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
+    "DO_NOT_TRACK": "1",
+    "OPENSPEC_TELEMETRY": "0",
+    "OPENSPEC_NO_UPDATE_CHECK": "1",
+    "OPEN_SPEC_INTERACTIVE": "0",
+}
+# Where OpenSpec reads its per-user configuration, which a run replaces with a directory of its own
+# so a developer's profile cannot decide what the tool writes.
+CONST_OPENSPEC_CONFIG_HOME_ENV: Final[str] = "XDG_CONFIG_HOME"
+# The workflows of the `custom` profile every agent shares: no archive and no sync, since those
+# write `openspec/specs/`, which only the release cut may.
+CONST_OPENSPEC_WORKFLOWS: Final[tuple[str, ...]] = ("propose", "explore", "apply", "update")
+# The settings an isolated configuration holds, in the order they are set: telemetry off, skills
+# only, and the custom profile with its four workflows.
+CONST_OPENSPEC_ISOLATED_SETTINGS: Final[tuple[tuple[str, str], ...]] = (
+    ("telemetry.enabled", "false"),
+    ("delivery", "skills"),
+    ("profile", "custom"),
+    ("workflows", json.dumps(list(CONST_OPENSPEC_WORKFLOWS))),
+)
+# The files `openspec update` writes for the agents the project supports, from a checkout's root.
+# Anything else under those directories is not OpenSpec's.
+CONST_OPENSPEC_GENERATED_GLOBS: Final[tuple[str, ...]] = (
+    ".claude/skills/openspec-*/**/*",
+    ".agents/skills/openspec-*/**/*",
+    ".agents/skills/.openspec-target",
+)
+# The artifacts whose instructions the gate renders for a probe change, and that change's name.
+CONST_OPENSPEC_INSTRUCTION_ARTIFACTS: Final[tuple[str, ...]] = (
+    "proposal",
+    "specs",
+    "design",
+    "tasks",
+    "apply",
+)
+CONST_OPENSPEC_PROBE_CHANGE: Final[str] = "gate-probe"
+# The delta operations that rewrite a requirement a spec already holds: of the four OpenSpec
+# defines, all but ADDED. Two active changes that apply one to one requirement overwrite each other
+# when both archive, and the tool says nothing.
+CONST_OPENSPEC_REWRITING_OPERATIONS: Final[frozenset[str]] = frozenset(
+    {"MODIFIED", "REMOVED", "RENAMED"}
+)
