@@ -1,10 +1,10 @@
-"""Unit tests for the Valkey connection pool and the tiered L1/L2 cache."""
+"""Unit tests for the tiered L1/L2 cache."""
 
 from __future__ import annotations
 
 import time
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -12,24 +12,10 @@ from devops_cli.cache.tiered import (
     LRUCache,
     TieredCache,
     build_cache_key,
-    cached,
     digest_key,
-    get_cache,
-    reset_cache,
 )
 from devops_cli.exceptions.valkey import ValkeyConnectionError
-from devops_cli.valkey.pool import ValkeyConnectionPool, get_pool, reset_pool
-
-
-@pytest.fixture(autouse=True)
-def _reset_singletons() -> Any:
-    """Keep the process-wide cache and pool from leaking between tests."""
-    reset_cache()
-    reset_pool()
-    yield
-    reset_cache()
-    reset_pool()
-
+from devops_cli.valkey.client import ValkeyClient
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Key namespacing
@@ -198,8 +184,7 @@ def test_batch_read_serves_known_keys_from_l1() -> None:
 def test_batch_read_without_a_backend_counts_misses() -> None:
     """With no L2 reachable, unmatched keys are misses rather than errors."""
     cache = TieredCache(backend=None)
-    with patch("devops_cli.valkey.pool.get_pool", side_effect=RuntimeError("no valkey")):
-        assert cache.get_many(["devops-cli:ns:a"]) == {}
+    assert cache.get_many(["devops-cli:ns:a"]) == {}
     assert cache.stats.misses == 1
 
 
@@ -228,161 +213,32 @@ def test_stats_report_hit_ratio_and_evictions() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. @cached decorator
+# 4. L2 over a Valkey server
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cached_decorator_memoizes_by_arguments(refusing_port: int) -> None:
-    """Repeat calls with the same arguments are served from cache, with Valkey down."""
-    get_pool(host="127.0.0.1", port=refusing_port)
-    calls: list[int] = []
+def test_a_second_cache_reads_what_the_first_wrote_through_valkey(
+    valkey_client: ValkeyClient,
+) -> None:
+    """L2 is shared: another process, with an empty L1, reads the value back."""
+    writer = TieredCache(backend=valkey_client)
+    writer.set("devops-cli:ns:a", {"v": 1}, ttl=60)
+    writer.set("devops-cli:ns:b", [2], ttl=60)
+    writer.set("devops-cli:other:c", 3, ttl=60)
 
-    @cached("test:double", tier="l1")
-    def double(value: int) -> int:
-        calls.append(value)
-        return value * 2
-
-    assert (double(2), double(2), double(3)) == (4, 4, 6)
-    assert calls == [2, 3]
-
-
-def test_cached_decorator_does_not_memoize_none(refusing_port: int) -> None:
-    """A None result is not cached, so a transient failure is retried."""
-    get_pool(host="127.0.0.1", port=refusing_port)
-    calls: list[int] = []
-
-    @cached("test:maybe", tier="l1")
-    def maybe(value: int) -> int | None:
-        calls.append(value)
-        return None
-
-    maybe(1)
-    maybe(1)
-    assert calls == [1, 1]
+    reader = TieredCache(backend=valkey_client)
+    assert reader.get_many(["devops-cli:ns:a", "devops-cli:ns:b", "devops-cli:ns:absent"]) == {
+        "devops-cli:ns:a": {"v": 1},
+        "devops-cli:ns:b": [2],
+    }
+    assert (reader.get("devops-cli:other:c"), reader.stats.l2_hits) == (3, 3)
 
 
-def test_cached_decorator_preserves_function_metadata() -> None:
-    """The wrapper keeps the wrapped function's identity for introspection."""
+def test_deleting_and_invalidating_reach_valkey(valkey_client: ValkeyClient) -> None:
+    """A removed key and an invalidated namespace are gone from L2, not only from L1."""
+    cache = TieredCache(backend=valkey_client)
+    for key in ("devops-cli:ns:a", "devops-cli:ns:b", "devops-cli:other:c"):
+        cache.set(key, 1, ttl=60)
 
-    @cached("test:named", tier="l1")
-    def documented(value: int) -> int:
-        """Return the value."""
-        return value
-
-    assert (documented.__name__, documented.__doc__) == ("documented", "Return the value.")
-
-
-def test_process_wide_cache_is_reused() -> None:
-    """The shared cache is a singleton, so tiers are not rebuilt per call site."""
-    assert get_cache() is get_cache()
-    reset_cache()
-    assert get_cache() is not None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. Connection pool
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _pool(**overrides: Any) -> ValkeyConnectionPool:
-    """Build a pool pointed at a documentation endpoint."""
-    return ValkeyConnectionPool(host="127.0.0.1", port=6379, **overrides)
-
-
-def test_pool_reuses_released_connections() -> None:
-    """A released connection is handed back out instead of dialling again."""
-    pool = _pool()
-    with patch.object(pool, "_build_client", side_effect=lambda: MagicMock()) as build:
-        first = pool.acquire()
-        pool.release(first)
-        second = pool.acquire()
-
-    assert (first is second, build.call_count) == (True, 1)
-    assert (pool.stats.created, pool.stats.reused) == (1, 1)
-
-
-def test_pool_discards_stale_connections() -> None:
-    """A connection idle past the eviction window is dropped, not handed out.
-
-    Serving a connection the server has already timed out would surface the failure
-    mid-operation, in the caller's code path rather than the pool's.
-    """
-    pool = _pool(idle_timeout=0.0)
-    with patch.object(pool, "_build_client", side_effect=lambda: MagicMock()) as build:
-        first = pool.acquire()
-        pool.release(first)
-        time.sleep(0.01)
-        second = pool.acquire()
-
-    assert (first is second, build.call_count) == (False, 2)
-    assert pool.stats.discarded == 1
-
-
-def test_pool_rejects_checkout_beyond_capacity() -> None:
-    """Exhaustion is reported rather than silently opening unbounded connections."""
-    pool = _pool(max_size=1)
-    with patch.object(pool, "_build_client", side_effect=lambda: MagicMock()):
-        pool.acquire()
-        with pytest.raises(ValkeyConnectionError, match="pool exhausted"):
-            pool.acquire()
-
-
-def test_failed_connect_does_not_leak_a_slot() -> None:
-    """A connection that fails to establish frees its slot for the next caller."""
-    pool = _pool(max_size=1)
-    failing = MagicMock()
-    failing.connect.side_effect = ValkeyConnectionError("refused")
-
-    with patch.object(pool, "_build_client", return_value=failing):
-        with pytest.raises(ValkeyConnectionError):
-            pool.acquire()
-
-    assert pool.get_stats().in_use == 0
-
-
-def test_connection_context_discards_on_connection_error() -> None:
-    """A connection whose socket state is unknown after a failure is not reused."""
-    pool = _pool()
-    client = MagicMock()
-
-    with patch.object(pool, "_build_client", return_value=client):
-        with pytest.raises(ValkeyConnectionError):
-            with pool.connection():
-                raise ValkeyConnectionError("dropped mid-command")
-
-    assert (pool.get_stats().idle, client.close.called) == (0, True)
-
-
-def test_connection_context_returns_healthy_connections() -> None:
-    """A clean block returns its connection to the idle set."""
-    pool = _pool()
-    with patch.object(pool, "_build_client", return_value=MagicMock()):
-        with pool.connection():
-            pass
-    assert pool.get_stats().idle == 1
-
-
-def test_pool_stats_track_reuse_ratio() -> None:
-    """The reuse ratio shows how much connection setup pooling is avoiding."""
-    pool = _pool()
-    with patch.object(pool, "_build_client", side_effect=lambda: MagicMock()):
-        for _ in range(4):
-            pool.release(pool.acquire())
-
-    assert (pool.stats.created, pool.stats.reused, pool.stats.reuse_ratio) == (1, 3, 0.75)
-
-
-def test_pool_close_releases_idle_connections() -> None:
-    """Closing the pool tears down every connection it still holds."""
-    pool = _pool()
-    client = MagicMock()
-    with patch.object(pool, "_build_client", return_value=client):
-        pool.release(pool.acquire())
-
-    pool.close()
-    assert (pool.get_stats().idle, client.close.called) == (0, True)
-
-
-def test_process_wide_pool_is_reused() -> None:
-    """The shared pool is a singleton so connections are genuinely pooled."""
-    assert get_pool(host="127.0.0.1") is get_pool()
+    assert (cache.delete("devops-cli:ns:a"), cache.invalidate_namespace("ns")) == (True, 2)
+    assert valkey_client.keys("*") == ["devops-cli:other:c"]

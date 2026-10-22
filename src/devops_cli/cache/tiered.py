@@ -6,21 +6,22 @@ write the same logical value under different keys, and nothing could invalidate 
 namespace as a whole.
 
 L1 is a bounded in-process LRU serving repeat reads within a command without touching the
-network; L2 is Valkey, shared across processes and machines.
+network. L2 is the backend a caller injects, anything exposing ``execute(*parts)`` such as a
+`ValkeyClient`, shared across processes and machines; without one the cache is L1-only.
+`ValkeyCacheProvider` (`ai/cache/valkey_cache.py`) builds one over its client.
 """
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import logging
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, ParamSpec, TypeVar
+from typing import Any
 
 from devops_cli.config.constants import (
     CONST_CACHE_KEY_SEPARATOR,
@@ -36,9 +37,6 @@ from devops_cli.config.defaults import (
 )
 
 logger = logging.getLogger(__name__)
-
-P = ParamSpec("P")
-R = TypeVar("R")
 
 
 # =============================================================================
@@ -178,30 +176,17 @@ class TieredCache:
     ) -> None:
         """Build a tiered cache.
 
-        `backend` is anything exposing ``execute(*parts)`` — a connection pool or a direct
-        client. When omitted, the shared process-wide pool is resolved on first use.
+        `backend` is anything exposing ``execute(*parts)``, such as a `ValkeyClient`. Without
+        one the cache is L1-only.
         """
         self.l1 = LRUCache(max_entries=l1_max_entries)
         self.default_ttl = default_ttl
         self.stats = CacheStats()
         self._backend = backend
 
-    def _resolve_backend(self) -> Any | None:
-        """Resolve the L2 backend lazily, tolerating an unconfigured environment."""
-        if self._backend is not None:
-            return self._backend
-        try:
-            from devops_cli.valkey.pool import get_pool
-
-            self._backend = get_pool()
-        except Exception as exc:
-            logger.debug("Valkey backend unavailable; operating L1-only: %s", exc)
-            return None
-        return self._backend
-
     def _l2_get(self, key: str) -> Any | None:
         """Read one key from Valkey, decoding the stored JSON envelope."""
-        backend = self._resolve_backend()
+        backend = self._backend
         if backend is None:
             return None
         try:
@@ -213,7 +198,7 @@ class TieredCache:
 
     def _l2_set(self, key: str, value: Any, ttl: float) -> None:
         """Write one key to Valkey with an expiry."""
-        backend = self._resolve_backend()
+        backend = self._backend
         if backend is None:
             return
         try:
@@ -274,7 +259,7 @@ class TieredCache:
         if not pending:
             return found
 
-        backend = self._resolve_backend()
+        backend = self._backend
         if backend is None:
             self.stats.misses += len(pending)
             return found
@@ -300,7 +285,7 @@ class TieredCache:
     def delete(self, key: str) -> bool:
         """Remove a key from both tiers."""
         removed = self.l1.delete(key)
-        backend = self._resolve_backend()
+        backend = self._backend
         if backend is not None:
             try:
                 removed = bool(backend.execute("DEL", key)) or removed
@@ -317,7 +302,7 @@ class TieredCache:
         prefix = build_cache_key(namespace)
         removed = self.l1.delete_namespace(prefix)
 
-        backend = self._resolve_backend()
+        backend = self._backend
         if backend is None:
             return removed
         try:
@@ -351,59 +336,10 @@ def _decode(raw: Any) -> Any | None:
         return text or None
 
 
-_DEFAULT_CACHE: TieredCache | None = None
-
-
-def get_cache() -> TieredCache:
-    """Return the process-wide tiered cache, constructing it on first use."""
-    global _DEFAULT_CACHE
-    if _DEFAULT_CACHE is None:
-        _DEFAULT_CACHE = TieredCache()
-    return _DEFAULT_CACHE
-
-
-def reset_cache() -> None:
-    """Drop the process-wide cache, for clean test isolation."""
-    global _DEFAULT_CACHE
-    _DEFAULT_CACHE = None
-
-
-def cached(
-    namespace: str,
-    ttl: float | None = None,
-    tier: str = CONST_CACHE_TIER_L1_L2,
-) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Memoise a function through the tiered cache under a shared namespace.
-
-    Replaces the hand-written get/compute/set trios that each module had grown, so every
-    cached value gets consistent key construction, TTL handling, and statistics.
-    """
-
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            key = digest_key(namespace, {"fn": func.__qualname__, "a": args, "k": kwargs})
-            cache = get_cache()
-            hit = cache.get(key)
-            if hit is not None:
-                return hit  # type: ignore[no-any-return]
-            result = func(*args, **kwargs)
-            if result is not None:
-                cache.set(key, result, ttl=ttl, tier=tier)
-            return result
-
-        return wrapper
-
-    return decorator
-
-
 __all__ = [
     "CacheStats",
     "LRUCache",
     "TieredCache",
     "build_cache_key",
-    "cached",
     "digest_key",
-    "get_cache",
-    "reset_cache",
 ]

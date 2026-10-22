@@ -149,7 +149,7 @@ class ValkeyCacheProvider:
     def flush_ai_cache(self) -> int:
         """Remove all AI cached items (embeddings, findings, LLM responses) using non-blocking SCAN."""
         try:
-            keys = self._client.scan_iter(match=PREFIX_ALL)
+            keys = list(self._client.scan_iter(match=PREFIX_ALL))
             if not keys:
                 return 0
             deleted = 0
@@ -164,8 +164,7 @@ class ValkeyCacheProvider:
         """Collect caching statistics and server diagnostics using non-blocking SCAN."""
         try:
             info = self._client.info("memory")
-            keys = self._client.scan_iter(match=PREFIX_ALL)
-            key_count = len(keys) if isinstance(keys, list) else sum(1 for _ in keys)
+            key_count = sum(1 for _ in self._client.scan_iter(match=PREFIX_ALL))
             return {
                 "available": True,
                 "ai_keys_count": key_count,

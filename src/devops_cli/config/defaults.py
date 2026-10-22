@@ -669,20 +669,9 @@ DEFAULT_VALKEY_HOST: str = "localhost"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
-DEFAULT_VALKEY_PATTERN: str = "*"
-DEFAULT_VALKEY_RATE_KEY_PREFIX: str = "rate:limiter"
-DEFAULT_VALKEY_RATE_PER_MINUTE: int = 60
-DEFAULT_VALKEY_BURST_CAPACITY: int = 60
-DEFAULT_VALKEY_TOKEN_COST: int = 1
-DEFAULT_VALKEY_KEY_SUFFIX: str = "default"
 DEFAULT_VALKEY_SCAN_COUNT: int = 100
 
-# ── Connection Pooling & Tiered Cache Defaults ───────────────────────────────
-# Upper bound on concurrent pooled connections to a single Valkey endpoint.
-DEFAULT_VALKEY_POOL_MAX_SIZE: int = 10
-# Connections idle beyond this window are discarded rather than handed out, since a
-# server-side timeout would otherwise surface as a mid-operation failure.
-DEFAULT_VALKEY_POOL_IDLE_TIMEOUT_SECONDS: float = 60.0
+# ── Tiered Cache Defaults ────────────────────────────────────────────────────
 # Entries retained by the in-process L1 cache before least-recently-used eviction.
 DEFAULT_CACHE_L1_MAX_ENTRIES: int = 2048
 # Lifetime applied to cached values when a call site does not specify one.
@@ -1003,10 +992,9 @@ DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
 
 # ── Valkey Pipeline Batching ────────────────────────────────────────────────
 # A pipeline is serialized into one buffer before it is written, so an unbounded batch
-# costs memory proportional to the batch. Both limits apply: many tiny commands and a few
-# very large values are different shapes of the same problem.
+# costs memory proportional to the batch; the client sends at most this many commands per
+# round trip.
 DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS: int = 1000
-DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES: int = 8 * 1024 * 1024
 # How long the log consumer waits for a line before re-checking whether it should stop.
 # Short enough that quitting feels immediate on a silent stream.
 DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1

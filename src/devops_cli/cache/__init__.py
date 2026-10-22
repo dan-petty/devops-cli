@@ -5,10 +5,7 @@ from devops_cli.cache.tiered import (
     LRUCache,
     TieredCache,
     build_cache_key,
-    cached,
     digest_key,
-    get_cache,
-    reset_cache,
 )
 
 __all__ = [
@@ -16,8 +13,5 @@ __all__ = [
     "LRUCache",
     "TieredCache",
     "build_cache_key",
-    "cached",
     "digest_key",
-    "get_cache",
-    "reset_cache",
 ]

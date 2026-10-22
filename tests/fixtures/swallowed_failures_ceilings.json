@@ -72,7 +72,7 @@
   "src/devops_cli/argo/crd.py": 1,
   "src/devops_cli/argo/fleet.py": 1,
   "src/devops_cli/argo/gitops.py": 4,
-  "src/devops_cli/cache/tiered.py": 6,
+  "src/devops_cli/cache/tiered.py": 5,
   "src/devops_cli/ci/cache.py": 4,
   "src/devops_cli/commands/ai.py": 6,
   "src/devops_cli/commands/ai_ingest.py": 2,
@@ -151,6 +151,5 @@
   "src/devops_cli/ui/pod_inspector.py": 1,
   "src/devops_cli/ui/refresh.py": 1,
   "src/devops_cli/ui/state.py": 2,
-  "src/devops_cli/ui/widgets.py": 2,
-  "src/devops_cli/valkey/pool.py": 1
+  "src/devops_cli/ui/widgets.py": 2
 }
