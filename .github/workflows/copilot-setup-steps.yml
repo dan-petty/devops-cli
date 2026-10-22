@@ -1,0 +1,54 @@
+name: Copilot Setup Steps
+
+# GitHub runs the job named `copilot-setup-steps` in the Copilot cloud agent's environment before
+# the agent starts, from the default branch only. It gives the agent the pinned OpenSpec, which the
+# skills committed in `.agents/skills` call. It is written by hand because `openspec init
+# --copilot-cloud` generates a workflow that runs an unpinned `actions/checkout@v4` and
+# `npm install -g @fission-ai/openspec` (ADR 0010).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+env:
+  # No tool the job runs reports usage; OpenSpec's own opt-outs are named so that a runner without
+  # `CI=true` stops them too.
+  DO_NOT_TRACK: "1"
+  OPENSPEC_TELEMETRY: "0"
+  OPENSPEC_NO_UPDATE_CHECK: "1"
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  copilot-setup-steps:
+    name: Copilot Setup Steps
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: copilot
+          save-uv-cache: "false"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install OpenSpec
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool openspec --only-missing

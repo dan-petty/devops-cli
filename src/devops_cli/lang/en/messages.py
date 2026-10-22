@@ -226,6 +226,50 @@ class InstallMessages:
 
 
 @dataclass(frozen=True)
+class OpenSpecMessages:
+    missing_hint: str = (
+        "OpenSpec is a pinned Node tool: install it with "
+        "`uv run devops install-tools --tool openspec --only-missing`."
+    )
+    command_timed_out: str = "{command} ran past its {timeout} timeout and was stopped."
+    command_failed: str = "{command} failed with exit code {code}: {reason}"
+    check_passed: str = "OpenSpec check passed."
+    check_failed: str = "OpenSpec check found {count} problem(s)."
+    finding_line: str = "{check}: {detail}"
+    skill_differs: str = (
+        "{path} is not what `openspec update` writes under the isolated custom profile: run "
+        "`uv run devops openspec regenerate` and commit the result."
+    )
+    skill_missing: str = (
+        "{path} is what `openspec update` writes under the isolated custom profile and is not in "
+        "the tree: run `uv run devops openspec regenerate` and commit the result."
+    )
+    skill_unexpected: str = (
+        "{path} is not written by `openspec update` under the isolated custom profile: delete it, "
+        "or run `uv run devops openspec regenerate` and commit the result."
+    )
+    skill_tree_missing: str = (
+        "No file matches {pattern}. `openspec update` writes a skill tree only where one exists, "
+        "so `uv run devops openspec regenerate` cannot write it back: restore it from git."
+    )
+    symlink_refused: str = (
+        "{paths}: a symbolic link under openspec/ would send the copy that plans the cut, and "
+        "the archive in it, outside the folder: replace it with the file or folder it points to."
+    )
+    archive_refused: str = "{change}: {reason}"
+    overlap: str = (
+        '{spec}: the requirement "{requirement}" is rewritten by {changes}: both would archive '
+        "and the later would overwrite the earlier with no signal, so fold the items into one "
+        "change or order them with a blocker so that the second waits for the cut."
+    )
+    config_missing: str = (
+        "{path} is missing: it carries the planning conventions every agent reads through "
+        "`openspec instructions`."
+    )
+    regenerated: str = "Regenerated the OpenSpec skills under the isolated custom profile."
+
+
+@dataclass(frozen=True)
 class GeneralMessages:
     goodbye: str = "Goodbye."
     llm_unavailable_template_fallback: str = "LLM unavailable ({exc}), falling back to template."
@@ -1106,6 +1150,7 @@ class CIMessages:
     )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
+    openspec_validation: str = "openspec validation"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"
@@ -2319,6 +2364,7 @@ class LanguageCatalog:
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
+    openspec: OpenSpecMessages = field(default_factory=OpenSpecMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)
     workspace: WorkspaceMessages = field(default_factory=WorkspaceMessages)
     repos: RepoMessages = field(default_factory=RepoMessages)

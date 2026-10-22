@@ -1007,6 +1007,11 @@
           },
           {
             "selected": false,
+            "text": "openspec",
+            "value": "openspec"
+          },
+          {
+            "selected": false,
             "text": "pipeline",
             "value": "pipeline"
           },
@@ -1111,7 +1116,7 @@
             "value": "workspace"
           }
         ],
-        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
+        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, openspec, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
         "type": "custom"
       }
     ]

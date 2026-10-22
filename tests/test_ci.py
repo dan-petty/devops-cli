@@ -2359,6 +2359,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Security Scan",
         ): "Runs devops scan report to generate SARIF findings for GitHub code scanning",
         (
+            "static",
+            "Install OpenSpec",
+        ): "Installs the pinned openspec the gate's openspec row runs, with the lock's installer",
+        (
             "rule-pack",
             "Detect Changed Rule Pack Files",
         ): "Git diff to check whether src/devops_cli/review/rules/** changed",

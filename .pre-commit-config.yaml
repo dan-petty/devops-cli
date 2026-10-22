@@ -90,6 +90,18 @@ repos:
         pass_filenames: false
         always_run: true
 
+      # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
+      # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
+      # only when a commit touches the files it checks, and `devops ci` runs it on every push.
+      - id: openspec-gate
+        name: openspec gate (change folders and generated skills)
+        entry: uv run devops ci --only openspec
+        language: system
+        stages: [pre-commit]
+        files: ^(openspec/|\.claude/skills/|\.agents/skills/)
+        pass_filenames: false
+        require_serial: true
+
       - id: devops-ci-pre-push
         name: devops ci (pre-push quality gate)
         entry: uv run devops ci

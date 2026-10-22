@@ -26,6 +26,10 @@
 # Then, in a scratch copy of `<name>/`, run `npm ci --ignore-scripts` and `npm audit signatures`,
 # which reads installed packages, and in `<name>/` run
 #   osv-scanner scan source --lockfile package-lock.json
+# OpenSpec's bump also rewrites the skills it generates, each of which embeds the version: install
+# the new pin, run `uv run devops openspec regenerate` and commit the skills, run
+# `uv run devops openspec check`, and record the tool again for the tests that replay it
+# (`tests/support/openspec_recording.py` says how).
 #
 # Then run `uv run pytest tests/test_tools_lock.py tests/test_install_tools.py
 # tests/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by

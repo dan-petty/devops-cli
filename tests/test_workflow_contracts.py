@@ -464,3 +464,81 @@ def test_workflow_contract_fail_to_pass() -> None:
         True,
         [None, None],
     )
+
+
+# ── The OpenSpec gate's workflows (#1844) ─────────────────────────────────────
+
+
+def _steps(workflow: Path, job: str) -> list[dict[str, Any]]:
+    """The steps of `job` in the workflow file `workflow`."""
+    loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    return list(loaded["jobs"][job]["steps"])
+
+
+SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
+
+
+def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() -> None:
+    """`setup-node` is pinned by the commit of v7.1.0 and reads `.node-version`, the install step
+    follows it, and both come before the gate that runs the openspec row; the checkout holds the
+    history the cut's order is read from."""
+    steps = _steps(WORKFLOWS_DIR / "ci.yml", "static")
+    names = [step.get("name") for step in steps]
+    node, install = (steps[names.index(name)] for name in ("Set up Node.js", "Install OpenSpec"))
+    checkout = steps[names.index("Check out repository")]
+    assert (
+        node["uses"].split(" ")[0],
+        node["with"],
+        install["run"].splitlines(),
+        names.index("Set up Node.js") < names.index("Install OpenSpec"),
+        names.index("Install OpenSpec") < names.index("Static Analysis Quality Gate"),
+        checkout["with"]["fetch-depth"],
+    ) == (
+        SETUP_NODE,
+        {"node-version-file": ".node-version"},
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool openspec --only-missing",
+        ],
+        True,
+        True,
+        0,
+    )
+
+
+def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() -> None:
+    """GitHub runs the `copilot-setup-steps` job from the default branch before the Copilot cloud
+    agent starts. The file is written by hand, since `openspec init --copilot-cloud` writes a
+    workflow that runs an unpinned checkout and `npm install -g`: here every action is pinned
+    (the workflow contract tests check each), nothing installs globally, and the job asks for
+    no more than to read the repository."""
+    path = WORKFLOWS_DIR / "copilot-setup-steps.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["copilot-setup-steps"]
+    scripts = [str(step["run"]) for step in job["steps"] if "run" in step]
+
+    assert (
+        workflow["env"],
+        job["permissions"],
+        [step.get("uses", "").split(" ")[0] for step in job["steps"]][2:3],
+        job["steps"][2]["with"],
+        [line for script in scripts for line in script.splitlines()],
+    ) == (
+        {
+            "DO_NOT_TRACK": "1",
+            "OPENSPEC_TELEMETRY": "0",
+            "OPENSPEC_NO_UPDATE_CHECK": "1",
+            "UV_MANAGED_PYTHON": "1",
+        },
+        {"contents": "read"},
+        [SETUP_NODE],
+        {"node-version-file": ".node-version"},
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool openspec --only-missing",
+        ],
+    )
+    code = "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")
+    )
+    assert ("npm install -g" in code, "--copilot-cloud" in code) == (False, False)

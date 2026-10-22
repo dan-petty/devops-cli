@@ -205,6 +205,7 @@ The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only
 11. `uv_check`: Verifies project dependencies and Python environment consistency via `uv check`.
 12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
+14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a rehearsal of the release cut's archive with its overlap check. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 
 ---
 

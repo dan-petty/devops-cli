@@ -1547,6 +1547,20 @@ class InstallCommandHelp:
 
 
 @dataclass(frozen=True)
+class OpenSpecCommandHelp:
+    app: str = "Check and regenerate the OpenSpec change folders and agent skills."
+    check: str = (
+        "Run the OpenSpec gate: validate every change and archived change, check the committed "
+        "skills against a regeneration, render the instructions every agent reads, and rehearse "
+        "the release cut's archive. Exits 1 on any problem."
+    )
+    regenerate: str = (
+        "Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated "
+        "configuration, so no developer's own profile decides what is written."
+    )
+
+
+@dataclass(frozen=True)
 class BenchmarkCommandHelp:
     app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     models: str = (
@@ -1771,6 +1785,7 @@ class HelpCatalog:
     tls: TLSCommandHelp = field(default_factory=TLSCommandHelp)
     config: ConfigCommandHelp = field(default_factory=ConfigCommandHelp)
     install: InstallCommandHelp = field(default_factory=InstallCommandHelp)
+    openspec: OpenSpecCommandHelp = field(default_factory=OpenSpecCommandHelp)
     benchmark: BenchmarkCommandHelp = field(default_factory=BenchmarkCommandHelp)
     analyze: AnalyzeCommandHelp = field(default_factory=AnalyzeCommandHelp)
     prometheus: PrometheusCommandHelp = field(default_factory=PrometheusCommandHelp)

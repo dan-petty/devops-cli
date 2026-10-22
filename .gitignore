@@ -71,9 +71,13 @@ secrets/
 .data/*
 !.data/.gitkeep
 
-# Claude: the shared project settings are committed; local settings, scratch and worktrees are not
+# Claude: the shared project settings and the skills OpenSpec generates are committed (ADR 0010);
+# local settings, scratch, worktrees and every other skill are not
 .claude/*
 !.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/openspec-*/
 
 # mutmut's copy of the tree, mutated by `devops ci mutate`; `rm -rf mutants` resets it
 /mutants/

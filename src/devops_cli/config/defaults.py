@@ -469,6 +469,10 @@ DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # select at most 12.
 DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
 DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
+# How long one `openspec` command may run before the gate stops it. Each ran in 0.3 to 1.5 s
+# against the pinned 1.14.3 on 2026-10-22 (ADR 0010); the bound is a hang bound, since an earlier
+# release of the tool hung `validate --all` under pre-commit.
+DEFAULT_OPENSPEC_COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"

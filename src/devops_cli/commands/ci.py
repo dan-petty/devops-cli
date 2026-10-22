@@ -766,6 +766,13 @@ def get_check_specs() -> list[CheckSpec]:
             span_name="ci.step.devcontainer",
             metric_step="devcontainer",
         ),
+        CheckSpec(
+            name="openspec",
+            display_title=MESSAGES.ci.openspec_validation,
+            cmd=["uv", "run", "devops", "openspec", "check"],
+            span_name="ci.step.openspec",
+            metric_step="openspec",
+        ),
     ]
 
 
