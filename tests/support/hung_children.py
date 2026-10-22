@@ -11,8 +11,9 @@ when the test looks is one the stop missed.
 exited, zombies counted as exited, and on the way out SIGKILLs through the pidfd whichever is
 still running: a pidfd names one process, never another that later reuses its pid. The watch
 fails the test when the child leads no session of its own or the grandchild is outside it,
-rather than read either as stopped. `default_signal_dispositions` gives a test the signal
-dispositions these children rely on.
+rather than read either as stopped. A test signals the child as soon as it reads the pids, so the
+child is ready for the signal before it writes them (#1913). `default_signal_dispositions` gives
+a test the signal dispositions these children rely on.
 """
 
 from __future__ import annotations
@@ -39,13 +40,17 @@ SECOND_SIGNAL: Final[str] = "second"
 """The record a test writes into the stop-signal log as it sends its second signal."""
 
 
-def hung_script(*, before: str = "", on_interrupt: str = "", after_start: str = "") -> str:
-    """A `sh -c` script, its pid file as `$0`: run `before`, start the sleeping grandchild, write
-    both pids, run `after_start` and wait. `on_interrupt` is run on SIGINT; in it and in
-    `after_start`, `$c` is the grandchild's pid."""
+def hung_script(
+    *, before: str = "", on_interrupt: str = "", after_spawn: str = "", after_start: str = ""
+) -> str:
+    """A `sh -c` script, its pid file as `$0`: run `before`, start the sleeping grandchild, run
+    `after_spawn`, write both pids, run `after_start` and wait. A test acts on the child as soon
+    as it reads the pids. Put what that action needs, such as the traps that record a signal, in
+    `before` or `after_spawn`, never in `after_start`. `on_interrupt` is run on SIGINT; in it and
+    in `after_spawn` and `after_start`, `$c` is the grandchild's pid."""
     trap = f"trap '{on_interrupt}' INT; " if on_interrupt else ""
     return (
-        f'{before}{trap}sleep {GRANDCHILD_HOLD_SECONDS} & c=$!; echo "$$ $c" > "$0"; '
+        f'{before}{trap}sleep {GRANDCHILD_HOLD_SECONDS} & c=$!; {after_spawn}echo "$$ $c" > "$0"; '
         f'{after_start}while kill -0 "$c" 2>/dev/null; do wait "$c"; done'
     )
 
@@ -63,10 +68,12 @@ def interrupted_like_pytest(marker: Path) -> str:
 
 def records_stop_signals(log: Path) -> str:
     """A script whose child and grandchild ignore SIGINT and SIGTERM, so only SIGKILL stops them;
-    the child records each SIGINT it gets as `int` and each SIGTERM as `term` in `log`."""
+    the child records each SIGINT it gets as `int` and each SIGTERM as `term` in `log`, from
+    before its pids are written. It sets the traps after it starts the grandchild, because a
+    grandchild that starts after the child sets a trap does not ignore SIGTERM."""
     return hung_script(
         before='trap "" INT TERM; ',
-        after_start=f"trap 'echo int >> \"{log}\"' INT; trap 'echo term >> \"{log}\"' TERM; ",
+        after_spawn=f"trap 'echo int >> \"{log}\"' INT; trap 'echo term >> \"{log}\"' TERM; ",
     )
 
 
