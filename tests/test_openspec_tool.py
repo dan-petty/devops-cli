@@ -6,10 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from devops_cli.exceptions import OpenSpecArchiveError, ToolExecutionError
-from devops_cli.openspec.archive import archive_sequence
+from devops_cli.exceptions import ToolExecutionError
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
-from devops_cli.openspec.tool import isolated_openspec
 from tests.support.fakes.openspec import OpenSpecFake
 
 
@@ -58,24 +56,6 @@ def test_a_listing_that_is_not_json_is_reported_with_what_was_printed(
 
     assert unreadable.value.message == (
         "openspec list --json failed with exit code 0: not JSON: Segmentation fault"
-    )
-
-
-def test_an_archive_that_dies_without_json_is_refused_with_what_it_printed(
-    openspec_fake: OpenSpecFake,
-) -> None:
-    """A tool that crashes prints no JSON status, so the refusal is its own output."""
-    tree = openspec_fake.tree("modified-spec-absent")
-    openspec_fake.script(
-        ("archive", "1911-export-json", "--yes", "--json"), 134, stderr="node: out of memory\n"
-    )
-
-    with isolated_openspec() as tool, pytest.raises(OpenSpecArchiveError) as refused:
-        archive_sequence(tool, tree, ["1911-export-json"])
-
-    assert (refused.value.change, refused.value.reason) == (
-        "1911-export-json",
-        "node: out of memory",
     )
 
 

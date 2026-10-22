@@ -734,7 +734,8 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 # exactly one class, so a new document is classified in the pull request that adds it. The classes
 # differ in how a document stays true:
 # - generated: written by `DocGenerator` or the instruction generator and checked against them.
-# - release artifact: written by the release cut, never by an item pull request.
+# - release artifact: written by the release cut, or for the specs by `openspec archive` in the
+#   pull request that closes a change, and by no other item pull request.
 # - record: history, never rewritten to match later code, so no command name in it is checked.
 # - prompt: loaded by code at run time.
 # - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
@@ -4951,10 +4952,6 @@ CONST_OPENSPEC_CHANGE_NAME_RE: Final[str] = r"(?P<issue>\d+)-[^/]+"
 CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = (
     rf"{CONST_OPENSPEC_CHANGES_DIR}/{CONST_OPENSPEC_CHANGE_NAME_RE}/.+"
 )
-# The one file every change folder holds, and the line OpenSpec's `list --json` gives a change whose
-# tasks are all ticked.
-CONST_OPENSPEC_CHANGE_METADATA_FILENAME: Final[str] = ".openspec.yaml"
-CONST_OPENSPEC_STATUS_COMPLETE: Final[str] = "complete"
 # What stops OpenSpec's telemetry and its check for a newer version, and its prompts. The sanitized
 # environment `run_subprocess` builds keeps none of them, so the tool's runner sets each.
 CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
@@ -4967,7 +4964,7 @@ CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
 # so a developer's profile cannot decide what the tool writes.
 CONST_OPENSPEC_CONFIG_HOME_ENV: Final[str] = "XDG_CONFIG_HOME"
 # The workflows of the `custom` profile every agent shares: no archive and no sync, since those
-# write `openspec/specs/`, which only the release cut may.
+# write `openspec/specs/`, which only the pull request that closes a change may.
 CONST_OPENSPEC_WORKFLOWS: Final[tuple[str, ...]] = ("propose", "explore", "apply", "update")
 # The settings an isolated configuration holds, in the order they are set: telemetry off, skills
 # only, and the custom profile with its four workflows.

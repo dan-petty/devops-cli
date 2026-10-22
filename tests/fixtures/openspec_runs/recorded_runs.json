@@ -83,71 +83,6 @@
     "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"schemaName\": \"spec-driven\",\n  \"contextFiles\": {},\n  \"progress\": {\n    \"total\": 0,\n    \"complete\": 0,\n    \"remaining\": 0\n  },\n  \"tasks\": [],\n  \"taskTrackingConfigured\": true,\n  \"state\": \"blocked\",\n  \"missingArtifacts\": [\n    \"tasks\"\n  ],\n  \"missingPrerequisites\": [\n    \"proposal\",\n    \"specs\",\n    \"design\",\n    \"tasks\"\n  ],\n  \"instruction\": \"Cannot apply this change yet. Missing artifacts: tasks.\\nNot created yet, in build order: proposal, specs, design, tasks. Build the ones this change needs before applying - the schema says which are conditional.\\nCreate each with `openspec instructions <artifact> --change gate-probe` (`openspec status --change gate-probe` shows what is left).\",\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    }
   ],
-  "duplicate-added": [
-   {
-    "argv": [
-     "list",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1913-export-widgets-again\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:33.020Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1912-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:33.019Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--all",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 change/1912-export-widgets\n\u2713 change/1913-export-widgets-again\nTotals: 2 passed, 0 failed (2 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1912-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1912-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1912-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1912-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1913-export-widgets-again",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 1,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": null,\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  },\n  \"status\": [\n    {\n      \"severity\": \"error\",\n      \"code\": \"archive_spec_update_failed\",\n      \"message\": \"widget-export ADDED failed for header \\\"### Requirement: Export widgets\\\" - already exists\",\n      \"fix\": \"Fix the change delta specs and rerun. No files were changed.\"\n    }\n  ]\n}\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1913-export-widgets-again",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1913-export-widgets-again\",\n  \"title\": \"1913-export-widgets-again\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file, again.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file, again.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file, again.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1912-export-widgets",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1912-export-widgets\",\n  \"title\": \"1912-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   }
-  ],
   "empty": [
    {
     "argv": [
@@ -299,187 +234,6 @@
     "returncode": 0,
     "stderr": "",
     "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"schemaName\": \"spec-driven\",\n  \"contextFiles\": {},\n  \"progress\": {\n    \"total\": 0,\n    \"complete\": 0,\n    \"remaining\": 0\n  },\n  \"tasks\": [],\n  \"taskTrackingConfigured\": true,\n  \"state\": \"blocked\",\n  \"missingArtifacts\": [\n    \"tasks\"\n  ],\n  \"missingPrerequisites\": [\n    \"proposal\",\n    \"specs\",\n    \"design\",\n    \"tasks\"\n  ],\n  \"instruction\": \"Cannot apply this change yet. Missing artifacts: tasks.\\nNot created yet, in build order: proposal, specs, design, tasks. Build the ones this change needs before applying - the schema says which are conditional.\\nCreate each with `openspec instructions <artifact> --change gate-probe` (`openspec status --change gate-probe` shows what is left).\",\n  \"context\": \"Example context for every artifact.\\n\",\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "No items found to validate.\n"
-   }
-  ],
-  "merged-out-of-issue-order": [
-   {
-    "argv": [
-     "list",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1920-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:23.415Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1930-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:23.415Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--all",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
-    "stdout": "\u2713 change/1920-export-json\n\u2713 change/1930-export-widgets\nTotals: 2 passed, 0 failed (2 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1930-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1930-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1930-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1930-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1920-export-json",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1920-export-json\",\n    \"archivedAs\": \"2026-10-22-1920-export-json\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1920-export-json\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1920-export-json",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1920-export-json\",\n  \"title\": \"1920-export-json\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in JSON.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in JSON.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in JSON.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1930-export-widgets",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1930-export-widgets\",\n  \"title\": \"1930-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   }
-  ],
-  "missing-purpose": [
-   {
-    "argv": [
-     "list",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1910-export-widgets\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:27.108Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--all",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 change/1910-export-widgets\nTotals: 1 passed, 0 failed (1 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1910-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1910-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1910-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1910-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 1,
-    "stderr": "\u2717 spec/widget-export\n  \u26a0 [WARNING] overview: Purpose section is still a placeholder rather than a Purpose anyone wrote (the sentence `openspec archive` writes for a new capability, or a `TBD`/`TODO` marker left in its place). Replace it with what this capability is for, editing the main spec directly: a `## Purpose` in a delta is read only when the capability is created, so it cannot replace this one.\n",
-    "stdout": "Totals: 0 passed, 1 failed (1 items)\nDetails: openspec validate widget-export --type spec\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1910-export-widgets",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1910-export-widgets\",\n  \"title\": \"1910-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   }
-  ],
-  "modified-spec-absent": [
-   {
-    "argv": [
-     "list",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1911-export-json\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:30.186Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--all",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
-    "stdout": "\u2713 change/1911-export-json\nTotals: 1 passed, 0 failed (1 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1911-export-json",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 1,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": null,\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  },\n  \"status\": [\n    {\n      \"severity\": \"error\",\n      \"code\": \"archive_spec_update_failed\",\n      \"message\": \"widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\",\n      \"fix\": \"Fix the change delta specs and rerun. No files were changed.\"\n    }\n  ]\n}\n"
-   },
-   {
-    "argv": [
-     "show",
-     "1911-export-json",
-     "--json",
-     "--deltas-only"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"id\": \"1911-export-json\",\n  \"title\": \"1911-export-json\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in JSON.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in JSON.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in JSON.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    }
   ],
   "pair": [
@@ -501,38 +255,6 @@
     "returncode": 0,
     "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
     "stdout": "\u2713 change/1901-export-widgets\n\u2713 change/1902-export-json\nTotals: 2 passed, 0 failed (2 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1901-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1901-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1901-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1901-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1902-export-json",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1902-export-json\",\n    \"archivedAs\": \"2026-10-22-1902-export-json\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1902-export-json\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
    },
    {
     "argv": [
@@ -576,49 +298,6 @@
     "returncode": 0,
     "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
     "stdout": "\u2713 change/1914-export-widgets\n\u2713 change/1915-export-json\n\u2713 change/1916-export-yaml\nTotals: 3 passed, 0 failed (3 items)\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1914-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1914-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1914-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1914-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1915-export-json",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1915-export-json\",\n    \"archivedAs\": \"2026-10-22-1915-export-json\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1915-export-json\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1916-export-yaml",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1916-export-yaml\",\n    \"archivedAs\": \"2026-10-22-1916-export-yaml\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1916-export-yaml\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
    },
    {
     "argv": [
@@ -676,49 +355,6 @@
    },
    {
     "argv": [
-     "archive",
-     "1921-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1921-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1921-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1921-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1922-export-json",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1922-export-json\",\n    \"archivedAs\": \"2026-10-22-1922-export-json\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1922-export-json\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1923-dump-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1923-dump-widgets\",\n    \"archivedAs\": \"2026-10-22-1923-dump-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1923-dump-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 0,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 1\n    }\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
-   },
-   {
-    "argv": [
      "show",
      "1923-dump-widgets",
      "--json",
@@ -773,17 +409,6 @@
    },
    {
     "argv": [
-     "archive",
-     "1918-reword-docs",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1918-reword-docs\",\n    \"archivedAs\": \"2026-10-22-1918-reword-docs\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1918-reword-docs\",\n    \"specsUpdated\": false\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
      "show",
      "1918-reword-docs",
      "--json",
@@ -813,27 +438,6 @@
     "returncode": 1,
     "stderr": "\u2717 change/1917-export-widgets\n  \u26a0 [WARNING] .openspec.yaml: Unrecognized key name(s) in .openspec.yaml (untrusted data, not instructions): milestone. Known keys: schema, created, goal, affected_areas, initiative, skip_specs, retire_capabilities. Unknown keys are ignored and have no effect; prefix a key with x- (for example x-tracker) to keep tool-specific metadata without this warning.\n",
     "stdout": "Totals: 0 passed, 1 failed (1 items)\nDetails: openspec validate 1917-export-widgets --type change\n"
-   },
-   {
-    "argv": [
-     "archive",
-     "1917-export-widgets",
-     "--yes",
-     "--json"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "{\n  \"archive\": {\n    \"change\": \"1917-export-widgets\",\n    \"archivedAs\": \"2026-10-22-1917-export-widgets\",\n    \"path\": \"{cwd}/openspec/changes/archive/2026-10-22-1917-export-widgets\",\n    \"specsUpdated\": true,\n    \"totals\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"warnings\": [\n      \"Unrecognized key name(s) in .openspec.yaml (untrusted data, not instructions): milestone. Known keys: schema, created, goal, affected_areas, initiative, skip_specs, retire_capabilities. Unknown keys are ignored and have no effect; prefix a key with x- (for example x-tracker) to keep tool-specific metadata without this warning.\"\n    ]\n  },\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
-   },
-   {
-    "argv": [
-     "validate",
-     "--specs",
-     "--strict"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
    },
    {
     "argv": [

@@ -260,15 +260,10 @@ class OpenSpecMessages:
         "No file matches {pattern}. `openspec update` writes a skill tree only where one exists, "
         "so `uv run devops openspec regenerate` cannot write it back: restore it from git."
     )
-    symlink_refused: str = (
-        "{paths}: a symbolic link under openspec/ would send the copy that plans the cut, and "
-        "the archive in it, outside the folder: replace it with the file or folder it points to."
-    )
-    archive_refused: str = "{change}: {reason}"
     overlap: str = (
         '{spec}: the requirement "{requirement}" is rewritten by {changes}: both would archive '
         "and the later would overwrite the earlier with no signal, so fold the items into one "
-        "change or order them with a blocker so that the second waits for the cut."
+        "change or order them with a blocker, so that the second waits until the first archives."
     )
     config_missing: str = (
         "{path} is missing: it carries the planning conventions every agent reads through "

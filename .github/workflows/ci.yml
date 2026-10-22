@@ -41,13 +41,10 @@ jobs:
       security-events: write
 
     steps:
-      # Full history: the OpenSpec row rehearses the release cut, which archives the change
-      # folders in the order the commits that added them merged (ADR 0010).
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          fetch-depth: 0
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain

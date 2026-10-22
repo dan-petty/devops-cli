@@ -15,7 +15,7 @@ from tests.support.fakes.openspec import OpenSpecFake
 INSTALL_COMMAND = "uv run devops install-tools --tool openspec --only-missing"
 # The commands the gate runs over a tree with no change and no spec, in order: the isolated
 # configuration, the change list, the two validations, the regeneration of the skills, the probe
-# change and the instructions of each artifact, and the rehearsal's validation of the specs.
+# change and the instructions of each artifact.
 EMPTY_TREE_COMMANDS = [
     ("config", "set", "telemetry.enabled", "false"),
     ("config", "set", "delivery", "skills"),
@@ -31,7 +31,6 @@ EMPTY_TREE_COMMANDS = [
     ("instructions", "design", "--change", "gate-probe", "--json"),
     ("instructions", "tasks", "--change", "gate-probe", "--json"),
     ("instructions", "apply", "--change", "gate-probe", "--json"),
-    ("validate", "--specs", "--strict"),
 ]
 
 
@@ -143,44 +142,6 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
             ],
         ),
         (
-            "missing-purpose",
-            [
-                GateFinding(
-                    GateCheck.REHEARSAL,
-                    "Totals: 0 passed, 1 failed (1 items)\n"
-                    "Details: openspec validate widget-export --type spec\n"
-                    "✗ spec/widget-export\n"
-                    "  ⚠ [WARNING] overview: Purpose section is still a placeholder rather than "
-                    "a Purpose anyone wrote (the sentence `openspec archive` writes for a new "
-                    "capability, or a `TBD`/`TODO` marker left in its place). Replace it with "
-                    "what this capability is for, editing the main spec directly: a `## Purpose` "
-                    "in a delta is read only when the capability is created, so it cannot "
-                    "replace this one.",
-                )
-            ],
-        ),
-        (
-            "modified-spec-absent",
-            [
-                GateFinding(
-                    GateCheck.REHEARSAL,
-                    "1911-export-json: widget-export: target spec does not exist; only ADDED "
-                    "requirements are allowed for new specs. MODIFIED and RENAMED operations "
-                    "require an existing spec.",
-                )
-            ],
-        ),
-        (
-            "duplicate-added",
-            [
-                GateFinding(
-                    GateCheck.REHEARSAL,
-                    "1913-export-widgets-again: widget-export ADDED failed for header "
-                    '"### Requirement: Export widgets" - already exists',
-                )
-            ],
-        ),
-        (
             "requirement-modified-twice",
             [
                 GateFinding(
@@ -188,8 +149,8 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
                     'widget-export: the requirement "Export widgets" is rewritten by '
                     "1915-export-json (MODIFIED), 1916-export-yaml (MODIFIED): both would "
                     "archive and the later would overwrite the earlier with no signal, so fold "
-                    "the items into one change or order them with a blocker so that the second "
-                    "waits for the cut.",
+                    "the items into one change or order them with a blocker, so that the "
+                    "second waits until the first archives.",
                 )
             ],
         ),
@@ -201,8 +162,8 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
                     'widget-export: the requirement "Export widgets" is rewritten by '
                     "1922-export-json (MODIFIED), 1923-dump-widgets (RENAMED): both would "
                     "archive and the later would overwrite the earlier with no signal, so fold "
-                    "the items into one change or order them with a blocker so that the second "
-                    "waits for the cut.",
+                    "the items into one change or order them with a blocker, so that the "
+                    "second waits until the first archives.",
                 )
             ],
         ),
@@ -211,53 +172,23 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
 def test_the_gate_reports_what_the_tool_refuses_ignores_or_passes_without_a_signal(
     openspec_fake: OpenSpecFake, scenario: str, expected: list[GateFinding]
 ) -> None:
-    """The tool's `validate` passes a delta that `archive` refuses, a Purpose that archive
-    replaces with a placeholder, and two changes that rewrite one requirement; it warns about a
-    configuration it ignores with exit 0. Each of the recorded runs is reported by the check
+    """The tool's `validate` passes two changes that rewrite one requirement, and it warns about
+    a configuration it ignores with exit 0. Each of the recorded runs is reported by the check
     that finds it, and by that one alone."""
     assert check_openspec(openspec_fake.tree(scenario)) == expected
 
 
 @pytest.mark.parametrize("scenario", ["pair", "skip-specs-change"])
-def test_the_gate_passes_changes_that_archive_into_valid_specs(
+def test_the_gate_passes_changes_and_archives_none_of_them(
     openspec_fake: OpenSpecFake, scenario: str
 ) -> None:
-    """A change that modifies a requirement an earlier change adds, and a change that declares
-    `skip_specs`, both pass, though `validate` says the first would not archive on its own."""
-    assert check_openspec(openspec_fake.tree(scenario)) == []
+    """The pull request that closes a change archives it, so the gate archives nothing: a change
+    that modifies a requirement another active change adds passes, as does a change that
+    declares `skip_specs`, and no run of the gate is an `archive`. The scenario tree holds no
+    commit, so a gate that read the git history would fail here."""
+    findings = check_openspec(openspec_fake.tree(scenario))
 
-
-def test_changes_are_rehearsed_in_the_order_they_merged_not_the_order_of_their_issues(
-    openspec_fake: OpenSpecFake,
-) -> None:
-    """Issue 1920 modifies a requirement that issue 1930 adds, and 1930 merged first: archived by
-    issue number, 1920 would abort, writing nothing."""
-    findings = check_openspec(openspec_fake.tree("merged-out-of-issue-order"))
-
-    assert (findings, _archives(openspec_fake)) == ([], ["1930-export-widgets", "1920-export-json"])
-
-
-def test_a_symlink_under_openspec_fails_the_rehearsal_before_anything_is_copied(
-    openspec_fake: OpenSpecFake, tmp_path: Path
-) -> None:
-    """The rehearsal copies `openspec/`, and a copy that follows a link would carry a folder
-    outside it: the gate reports the link instead of rehearsing, and archives nothing."""
-    tree = openspec_fake.tree("pair")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (tree / "openspec/specs/linked").symlink_to(outside, target_is_directory=True)
-
-    assert (check_openspec(tree), _archives(openspec_fake)) == (
-        [
-            GateFinding(
-                GateCheck.REHEARSAL,
-                "openspec/specs/linked: a symbolic link under openspec/ would send the copy "
-                "that plans the cut, and the archive in it, outside the folder: replace it with "
-                "the file or folder it points to.",
-            )
-        ],
-        [],
-    )
+    assert (findings, _archives(openspec_fake)) == ([], [])
 
 
 def _write_skill(tree: Path, path: str, text: str) -> None:
@@ -287,7 +218,8 @@ def test_a_hand_edited_skill_fails_the_gate(openspec_fake: OpenSpecFake) -> None
 
 def test_skills_of_a_wider_profile_fail_the_gate(openspec_fake: OpenSpecFake) -> None:
     """A developer's global profile once added the archive skill, which writes the living spec
-    that only the release cut may: the regeneration removes it, and the tree still holds it."""
+    that only the pull request that closes a change may: the regeneration removes it, and the
+    tree still holds it."""
     tree = openspec_fake.tree("empty")
     _write_skill(tree, ".agents/skills/openspec-archive-change/SKILL.md", "Archive.\n")
 

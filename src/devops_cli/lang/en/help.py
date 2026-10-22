@@ -1554,8 +1554,8 @@ class OpenSpecCommandHelp:
     app: str = "Check and regenerate the OpenSpec change folders and agent skills."
     check: str = (
         "Run the OpenSpec gate: validate every change and archived change, check the committed "
-        "skills against a regeneration, render the instructions every agent reads, and rehearse "
-        "the release cut's archive. Exits 1 on any problem."
+        "skills against a regeneration, render the instructions every agent reads, and find a "
+        "requirement that two changes rewrite. Exits 1 on any problem."
     )
     regenerate: str = (
         "Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated "

@@ -1,7 +1,8 @@
 """The OpenSpec gate: what keeps a change folder valid and its tooling as committed (ADR 0010).
 
-OpenSpec's own `validate` passes what `archive` refuses, and its configuration fails quietly, so
-`devops openspec check` runs the pinned tool five ways and reports every problem it finds:
+OpenSpec's own `validate` passes two changes that rewrite one requirement. Its configuration fails
+quietly. So `devops openspec check` runs the pinned tool five ways and reports every problem it
+finds:
 
 1. `openspec validate --all --strict`, which fails an unknown key in a change's `.openspec.yaml`.
 2. `openspec validate --archived`, a separate run because `--archived` replaces `--all`, which
@@ -9,12 +10,12 @@ OpenSpec's own `validate` passes what `archive` refuses, and its configuration f
 3. A regeneration of the skills under the isolated profile, compared with the tree.
 4. `openspec instructions` for a probe change, failing on any output to standard error, where the
    tool warns with exit 0 about a rule it ignores or a context it drops.
-5. A rehearsal of the release cut: every active change, complete or not, archived in the cut's
-   order into a scratch copy, then `validate --specs --strict`, which catches a missing Purpose, a
-   `MODIFIED` of a spec that does not exist yet, a duplicate `ADDED`, and a change that archives
-   before the change whose requirement it modifies; and the overlap check.
+5. The overlap check: no requirement is rewritten by two active changes.
 
-A tree with no change and no spec passes every check vacuously.
+The gate archives nothing and reads no git history. The pull request that closes a change archives
+it. The tool refuses a delta it cannot apply. Checks 1 and 2 fail what the archive leaves wrong,
+such as a placeholder Purpose or an unticked task. A tree with no change and no spec passes every
+check vacuously.
 """
 
 from __future__ import annotations
@@ -31,18 +32,11 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_INSTRUCTION_ARTIFACTS,
     CONST_OPENSPEC_PROBE_CHANGE,
 )
-from devops_cli.exceptions import OpenSpecArchiveError, ToolExecutionError
+from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
-from devops_cli.openspec.archive import (
-    active_changes,
-    archive_sequence,
-    merge_order,
-    scratch_copy,
-    symlink_refusal,
-)
 from devops_cli.openspec.overlap import overlapping_requirements
 from devops_cli.openspec.skills import skill_drift
-from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec, output_of
+from devops_cli.openspec.tool import OpenSpecTool, active_changes, isolated_openspec, output_of
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
 
@@ -55,7 +49,6 @@ class GateCheck(StrEnum):
     VALIDATE_ARCHIVED = "validate --archived"
     SKILLS = "skills"
     INSTRUCTIONS = "instructions"
-    REHEARSAL = "archive rehearsal"
     OVERLAP = "overlap"
 
 
@@ -113,25 +106,8 @@ def _instruction_findings(tool: OpenSpecTool, root: Path) -> list[GateFinding]:
     return [GateFinding(GateCheck.INSTRUCTIONS, "\n".join(reports))] if reports else []
 
 
-def _rehearsal_findings(tool: OpenSpecTool, root: Path, changes: list[str]) -> list[GateFinding]:
-    """Check 5: the cut would archive every active change, in its order, into valid specs. A
-    tree the cut cannot copy, for a symbolic link in `openspec/`, is the one finding."""
-    if refusal := symlink_refusal(root):
-        return [GateFinding(GateCheck.REHEARSAL, refusal)]
-    with scratch_copy(root) as rehearsal:
-        try:
-            archive_sequence(tool, rehearsal, merge_order(root, changes))
-        except OpenSpecArchiveError as refused:
-            detail = MESSAGES.openspec.archive_refused.format(
-                change=refused.change, reason=refused.reason
-            )
-            return [GateFinding(GateCheck.REHEARSAL, detail)]
-        specs = tool.run(["validate", "--specs", "--strict"], rehearsal)
-    return [GateFinding(GateCheck.REHEARSAL, output_of(specs))] if specs.returncode else []
-
-
 def _overlap_findings(tool: OpenSpecTool, root: Path, changes: list[str]) -> list[GateFinding]:
-    """The end of check 5: no requirement is rewritten by two active changes."""
+    """Check 5: no requirement is rewritten by two active changes."""
     try:
         overlaps = overlapping_requirements(tool, root, changes)
     except ToolExecutionError as unreadable:
@@ -161,11 +137,10 @@ def check_openspec(root: Path) -> list[GateFinding]:
         missing = MESSAGES.openspec.config_missing.format(path=CONFIG_PATH.as_posix())
         return [GateFinding(GateCheck.CONFIGURATION, missing)]
     with isolated_openspec() as tool:
-        changes = list(active_changes(tool, root))
+        changes = active_changes(tool, root)
         return [
             *_validation_findings(tool, root),
             *_skill_findings(tool, root),
             *_instruction_findings(tool, root),
-            *_rehearsal_findings(tool, root, changes),
             *_overlap_findings(tool, root, changes),
         ]

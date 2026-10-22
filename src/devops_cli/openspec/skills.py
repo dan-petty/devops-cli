@@ -3,8 +3,9 @@
 The skills are committed, because a cloud agent or a fresh clone never runs an install but reads
 the checkout. `openspec update` has no project-level profile pin, so a developer's wider global
 profile once rewrote six of the eight files and added the archive and sync skills, which write
-`openspec/specs/`, and which only the release cut may. A regeneration under the isolated
-configuration (`isolated_openspec`) is the only one that leaves the tree as the project commits it.
+`openspec/specs/`, and which only the pull request that closes a change may. A regeneration under
+the isolated configuration (`isolated_openspec`) is the only one that leaves the tree as the
+project commits it.
 """
 
 from __future__ import annotations

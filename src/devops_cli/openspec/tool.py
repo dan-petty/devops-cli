@@ -100,6 +100,12 @@ class OpenSpecTool:
             ) from exc
 
 
+def active_changes(tool: OpenSpecTool, directory: Path) -> list[str]:
+    """The name of each active change under `directory`, in the order OpenSpec lists them."""
+    listing = tool.read_json(["list", "--json"], directory)
+    return [change["name"] for change in listing["changes"]]
+
+
 @contextmanager
 def isolated_openspec() -> Iterator[OpenSpecTool]:
     """The pinned OpenSpec under a configuration of its own, held in a scratch directory that goes

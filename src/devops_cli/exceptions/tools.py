@@ -123,27 +123,3 @@ class DependencyError(ToolExecutionError):
             error_code="DEPENDENCY_MISSING",
             details=err_details,
         )
-
-
-class OpenSpecArchiveError(ToolExecutionError):
-    """Raised when `openspec archive` refuses a change, which leaves the tree as it was."""
-
-    def __init__(
-        self,
-        change: str,
-        reason: str,
-        *,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"change": change[:256], "reason": reason[:256]}
-        if details:
-            err_details.update(details)
-        super().__init__(
-            f"openspec could not archive {change}: {reason}",
-            tool_name="openspec",
-            exit_code=1,
-            error_code="OPENSPEC_ARCHIVE_FAILED",
-            details=err_details,
-        )
-        self.change = change
-        self.reason = reason
