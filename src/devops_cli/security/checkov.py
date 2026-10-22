@@ -35,16 +35,11 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
+from devops_cli.core.serialization import YAML_SAFE_LOADER
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
-
-# libyaml's loader composes several times faster than the pure-Python one, with the same nodes
-# and line marks; PyYAML built without libyaml has only the latter.
-_YAML_LOADER: type[yaml.SafeLoader] | type[yaml.CSafeLoader] = getattr(
-    yaml, "CSafeLoader", yaml.SafeLoader
-)
 
 
 def _build_latest_tag_finding(rel_str: str, idx: int) -> Finding:
@@ -276,7 +271,7 @@ def _check_k8s_fallback(f: Path, rel_str: str) -> list[Finding]:
         logger.debug("Failed reading %s during k8s fallback: %s", f, exc)
         return []
     try:
-        documents = list(yaml.compose_all(content, Loader=_YAML_LOADER))
+        documents = list(yaml.compose_all(content, Loader=YAML_SAFE_LOADER))
         lines = sorted({line for doc in documents for line in _privileged_container_lines(doc)})
     except yaml.YAMLError, RecursionError:
         lines = [
