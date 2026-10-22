@@ -47,6 +47,7 @@ _REQUIRED_TOOLS = {
     "openspec",
     "devcontainers-cli",
     "gh-dash",
+    "tuicr",
 }
 
 

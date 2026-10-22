@@ -1,0 +1,18 @@
+# Template for ~/.config/tuicr/config.toml. tuicr reads no project config, so a person copies this
+# file once: `mkdir -p ~/.config/tuicr && cp .devops/tuicr.config.toml ~/.config/tuicr/config.toml`.
+# If that file exists, make a backup first with the suffix `.bak-<YYYYMMDD-HHMMSS>`.
+# tuicr ignores a key that it does not know, and it prints a warning at start.
+
+# tuicr calls crates.io at start to look for a new version. Updates come from the tools lock.
+no_update_check = true
+
+# The type sets the tag in the export (`[ISSUE]`) and the legend that tells the agent what each tag
+# means. A person can add a comment with no type.
+comment_types = [
+  { id = "issue", definition = "a defect or a broken rule: the agent changes the code" },
+  { id = "question", definition = "the agent answers in chat and does not change the code" },
+  { id = "nit", label = "nitpick", definition = "a small change that is optional" },
+]
+
+[export]
+intro = "A person reviewed this diff. Fix the code for each issue and answer each question. Reply by comment number."

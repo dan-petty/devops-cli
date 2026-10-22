@@ -36,7 +36,7 @@ rules:
     - >-
       Every group regenerates the documentation its code changes with `devops docs generate --sync-readme`. Only the closing group adds changelog.d/<issue>.md.
     - >-
-      Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:".
+      Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:". A change that alters code may end with the plain bullet "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
 
 operations:
   apply:
