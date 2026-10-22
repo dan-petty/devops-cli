@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from devops_cli.security.popeye import PopeyeScanner, run_popeye_scan
     from devops_cli.security.reference_extractor import (
         deduplicate_network_references,
-        extract_dependencies_from_text,
         extract_network_references,
         is_example_ip,
         is_example_or_invalid_domain,
@@ -79,10 +78,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "deduplicate_network_references": (
         "devops_cli.security.reference_extractor",
         "deduplicate_network_references",
-    ),
-    "extract_dependencies_from_text": (
-        "devops_cli.security.reference_extractor",
-        "extract_dependencies_from_text",
     ),
     "extract_network_references": (
         "devops_cli.security.reference_extractor",
@@ -171,7 +166,6 @@ __all__ = [
     "TflintScanner",
     "TrivyScanner",
     "deduplicate_network_references",
-    "extract_dependencies_from_text",
     "extract_network_references",
     "global_scanner_registry",
     "is_example_ip",

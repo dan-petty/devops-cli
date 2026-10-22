@@ -19,7 +19,6 @@ from devops_cli.exceptions.vault import (
 )
 from devops_cli.models.vault import VaultAuthResult, VaultLease
 from devops_cli.security.secrets import (
-    CallableProvider,
     EnvironmentProvider,
     KeyringProvider,
     SecretAuditLog,
@@ -38,8 +37,6 @@ from devops_cli.security.vault_lease import (
     login_approle,
     login_kubernetes,
     read_service_account_token,
-    transit_decrypt,
-    transit_encrypt,
 )
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -295,16 +292,6 @@ def test_provider_failures_are_contained() -> None:
         assert KeyringProvider().get(_ref()) is None
 
 
-def test_callable_provider_wraps_bespoke_lookups() -> None:
-    """A bespoke lookup integrates into the chain and contains its own failures."""
-    assert CallableProvider("tool", lambda ref: "tool-value").get(_ref()) == "tool-value"
-
-    def _explode(ref: SecretRef) -> str | None:
-        raise RuntimeError("cli not installed")
-
-    assert CallableProvider("tool", _explode).get(_ref()) is None
-
-
 def test_providers_satisfy_the_protocol() -> None:
     """Every built-in provider conforms to the SecretProvider protocol."""
     assert all(
@@ -314,7 +301,6 @@ def test_providers_satisfy_the_protocol() -> None:
             EnvironmentProvider(),
             SettingsProvider(),
             VaultProvider(),
-            CallableProvider("tool", lambda ref: None),
         )
     )
 
@@ -677,47 +663,7 @@ def test_renew_token_returns_new_lifetime() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. Transit envelope encryption
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_transit_encrypt_sends_base64_and_returns_ciphertext() -> None:
-    """Plaintext is base64 encoded for Transit, which returns opaque ciphertext."""
-    with patch(
-        "devops_cli.security.vault_lease._post",
-        return_value={"data": {"ciphertext": "vault:v1:abcd"}},
-    ) as mock_post:
-        ciphertext = transit_encrypt(
-            "http://example.com:8200", "devops", "secret-value", token="s.token"
-        )
-
-    assert ciphertext == "vault:v1:abcd"
-    assert mock_post.call_args[0][2]["plaintext"] == "c2VjcmV0LXZhbHVl"
-    assert mock_post.call_args[0][3]["X-Vault-Token"] == "s.token"
-
-
-def test_transit_decrypt_returns_plaintext() -> None:
-    """Ciphertext round-trips back to the original plaintext."""
-    with patch(
-        "devops_cli.security.vault_lease._post",
-        return_value={"data": {"plaintext": "c2VjcmV0LXZhbHVl"}},
-    ):
-        assert transit_decrypt(
-            "http://example.com:8200", "devops", "vault:v1:abcd", token="s.token"
-        ) == ("secret-value")
-
-
-def test_transit_failures_are_typed() -> None:
-    """A Transit response missing its payload is an error, not a silent empty value."""
-    with patch("devops_cli.security.vault_lease._post", return_value={"data": {}}):
-        with pytest.raises(VaultLeaseError, match="no ciphertext"):
-            transit_encrypt("http://example.com:8200", "devops", "value", token="s.token")
-        with pytest.raises(VaultLeaseError, match="no plaintext"):
-            transit_decrypt("http://example.com:8200", "devops", "vault:v1:abcd", token="s.token")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. Vault HTTP boundary
+# 7. Vault HTTP boundary
 # ─────────────────────────────────────────────────────────────────────────────
 
 

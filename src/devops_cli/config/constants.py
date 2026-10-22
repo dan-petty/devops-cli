@@ -2289,7 +2289,6 @@ CONST_SECRET_PROVIDER_KEYRING: Final[str] = "keyring"
 CONST_SECRET_PROVIDER_VAULT: Final[str] = "vault"
 CONST_SECRET_PROVIDER_ENVIRONMENT: Final[str] = "environment"
 CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
-CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
 
 # Upper bound on retained credential access records, preventing unbounded growth in
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
@@ -2323,8 +2322,6 @@ CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
 CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
 CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
 CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
-CONST_VAULT_PATH_TRANSIT_ENCRYPT: Final[str] = "transit/encrypt"
-CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 
 # The keyring entry `devops vault login` writes: one record holding the token and the address
 # and namespace that issued it. It keeps the name a bare token was stored under before the

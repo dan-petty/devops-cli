@@ -1,4 +1,4 @@
-"""Unit tests for dependency and network reference extractors."""
+"""Unit tests for network reference extractors."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pytest
 from devops_cli.models.vulnerability import NetworkReference
 from devops_cli.security.reference_extractor import (
     deduplicate_network_references,
-    extract_dependencies_from_text,
     extract_network_references,
     is_example_ip,
     is_private_or_local_ip,
@@ -174,58 +173,6 @@ def test_a_report_tags_documentation_space_as_an_example_and_reserved_space_as_l
         "192.88.99.1": ("local", "✓ Safe (Local)"),
         "8.8.8.8": ("external", "✓ Safe"),
     }
-
-
-def test_extract_dependencies_requirements_txt() -> None:
-    content = """
-    # Comments
-    pydantic>=2.10.0
-    httpx==0.28.1
-    typer~=0.15.0
-    pytest
-    """
-    deps = extract_dependencies_from_text(content, "requirements.txt")
-    assert len(deps) == 4
-    names = {d.name: d.version_range for d in deps}
-    assert names["pydantic"] == ">=2.10.0"
-    assert names["httpx"] == "==0.28.1"
-    assert names["typer"] == "~=0.15.0"
-    assert names["pytest"] == "*"
-
-
-def test_extract_dependencies_package_json() -> None:
-    content = """{
-        "dependencies": {
-            "react": "^18.2.0",
-            "next": "14.1.0"
-        },
-        "devDependencies": {
-            "typescript": "^5.0.0"
-        }
-    }"""
-    deps = extract_dependencies_from_text(content, "package.json")
-    assert len(deps) == 3
-    assert all(d.ecosystem == "npm" for d in deps)
-
-
-def test_extract_dependencies_cargo_and_go() -> None:
-    cargo_content = """[dependencies]
-    serde = "1.0"
-    tokio = "1.35"
-    """
-    cargo_deps = extract_dependencies_from_text(cargo_content, "Cargo.toml")
-    assert len(cargo_deps) == 2
-    assert cargo_deps[0].ecosystem == "crates.io"
-
-    go_content = """module example.com/foo
-    go 1.22
-    require (
-        github.com/gin-gonic/gin v1.9.1
-    )
-    """
-    go_deps = extract_dependencies_from_text(go_content, "go.mod")
-    assert len(go_deps) == 1
-    assert go_deps[0].ecosystem == "Go"
 
 
 def test_extract_network_references() -> None:
@@ -451,50 +398,6 @@ def test_extract_network_references_tf_and_python_imports() -> None:
     assert "collections.abc" not in targets_py
     assert "models.ai" not in targets_py
     assert "httpx.client.post" not in targets_py
-
-
-def test_extract_dependencies_pep621_and_extras() -> None:
-    """Test standard PEP 621 pyproject dependencies, optional groups, and PEP 508 extras."""
-    req_txt = """
-    # Comments and blank lines
-    pydantic[email]>=2.10.0
-    uvicorn[standard]==0.30.0; python_version >= '3.10'
-    """
-    deps_req = extract_dependencies_from_text(req_txt, "requirements.txt")
-    assert len(deps_req) == 2
-    assert deps_req[0].name == "pydantic"
-    assert deps_req[0].version_range == ">=2.10.0"
-
-    pyproject_toml = """
-    [project]
-    name = "my-service"
-    dependencies = [
-        "fastapi>=0.110.0",
-        "httpx~=0.28.0",
-    ]
-
-    [project.optional-dependencies]
-    test = [
-        "pytest>=8.0.0",
-        "pytest-asyncio",
-    ]
-
-    [dependency-groups]
-    dev = [
-        "ruff>=0.9.0",
-        "mypy>=1.14.0",
-    ]
-    """
-    deps_toml = extract_dependencies_from_text(pyproject_toml, "pyproject.toml")
-    names = {d.name: d.version_range for d in deps_toml}
-    assert "fastapi" in names
-    assert names["fastapi"] == ">=0.110.0"
-    assert "pytest" in names
-    assert names["pytest"] == ">=8.0.0"
-    assert "pytest-asyncio" in names
-    assert names["pytest-asyncio"] == "*"
-    assert "ruff" in names
-    assert names["ruff"] == ">=0.9.0"
 
 
 def test_extract_network_references_json_and_yaml_scalars() -> None:
@@ -741,28 +644,6 @@ def test_extract_network_references_file_extensions_and_code_properties() -> Non
     assert "concurrency.group" not in targets
 
 
-def test_extract_dependencies_various_ecosystems() -> None:
-    """Verify requirements-dev.txt, requirements.in, invalid json/toml error fallbacks, and unsupported manifests."""
-    # requirements-dev.txt
-    req_dev = "ruff>=0.9.0\nmypy>=1.14.0\n"
-    dev_deps = extract_dependencies_from_text(req_dev, "requirements-dev.txt")
-    assert len(dev_deps) == 2
-
-    # requirements.in
-    req_in = "fastapi\nuvicorn\n"
-    in_deps = extract_dependencies_from_text(req_in, "requirements.in")
-    assert len(in_deps) == 2
-
-    # Invalid package.json
-    assert extract_dependencies_from_text("{invalid json", "package.json") == []
-
-    # Invalid Cargo.toml
-    assert extract_dependencies_from_text("invalid [toml", "Cargo.toml") == []
-
-    # Unsupported manifest
-    assert extract_dependencies_from_text("some content", "unknown.manifest") == []
-
-
 def test_token_string_parsing() -> None:
     """Verify safe literal string token parsing."""
     from devops_cli.security.reference_extractor import _parse_python_token_string
@@ -885,84 +766,6 @@ def test_extract_network_references_from_various_files() -> None:
     )
     docker_refs = extract_network_references(docker_content, "Dockerfile", include_local=True)
     assert any(r.target == "https://app.datadoghq.com/agent" for r in docker_refs)
-
-
-def test_dependency_extractors_cargo_go_and_package_assets() -> None:
-    """Verify Cargo.toml, go.mod, and package asset parsers."""
-    from devops_cli.security.reference_extractor import (
-        _extract_cargo_dependencies,
-        _extract_go_mod_dependencies,
-        is_trusted_registry_host,
-    )
-
-    # Cargo dependencies
-    cargo_toml = (
-        '[dependencies]\nserde = "1.0"\ntokio = { version = "1.28", features = ["full"] }\n'
-    )
-    cargo_lines = cargo_toml.splitlines()
-    cargo_deps = _extract_cargo_dependencies(cargo_toml, cargo_lines, "Cargo.toml")
-    assert len(cargo_deps) == 2
-    assert any(d.name == "serde" for d in cargo_deps)
-    assert any(d.name == "tokio" for d in cargo_deps)
-
-    # Go mod dependencies
-    go_mod = """module example.com/app
-
-go 1.22
-
-require (
-\tgithub.com/gin-gonic/gin v1.9.1
-\tgithub.com/google/uuid v1.6.0
-)
-
-require golang.org/x/crypto v0.21.0
-"""
-    go_lines = go_mod.splitlines()
-    go_deps = _extract_go_mod_dependencies(go_lines, "go.mod")
-    assert len(go_deps) == 3
-    assert any("gin" in d.name for d in go_deps)
-
-    # Package repository asset checks
-    assert is_trusted_registry_host("files.pythonhosted.org") is True
-    assert is_trusted_registry_host("crates.io") is True
-    assert is_trusted_registry_host("pypi.org") is True
-    assert is_trusted_registry_host("api.github.com") is True
-    assert is_trusted_registry_host("example.com") is False
-
-
-def test_extract_package_json_and_manifest_dispatch() -> None:
-    """Verify package.json parsing and general manifest dispatcher."""
-    import json
-
-    from devops_cli.security.reference_extractor import (
-        _extract_cargo_dependencies,
-        _extract_package_json_dependencies,
-        extract_dependencies_from_text,
-    )
-
-    pkg_json = json.dumps(
-        {
-            "dependencies": {"react": "^18.2.0"},
-            "devDependencies": {"typescript": "^5.0.0"},
-            "peerDependencies": {"react-dom": "^18.2.0"},
-            "optionalDependencies": {"fsevents": "^2.3.2"},
-        }
-    )
-    deps = _extract_package_json_dependencies(pkg_json, pkg_json.splitlines(), "package.json")
-    assert len(deps) == 4
-    assert any(d.name == "react" for d in deps)
-    assert any(d.name == "typescript" for d in deps)
-
-    # Invalid JSON
-    assert _extract_package_json_dependencies("invalid json", [], "package.json") == []
-
-    # Invalid Cargo TOML
-    assert _extract_cargo_dependencies("invalid = [toml", [], "Cargo.toml") == []
-
-    # Dispatcher
-    pypi_deps = extract_dependencies_from_text("typer>=0.9.0\npydantic\n", "requirements.txt")
-    assert len(pypi_deps) == 2
-    assert extract_dependencies_from_text("foo", "unknown.manifest") == []
 
 
 def test_extract_network_references_edge_cases() -> None:
