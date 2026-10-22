@@ -441,12 +441,3 @@ def sanitize_prompt_boundary_tags(text: str) -> str:
         sanitized = sanitized.replace(f"<{tag} ", f"&lt;{tag} ")
         sanitized = sanitized.replace(f"</{tag}>", f"&lt;/{tag}&gt;")
     return sanitized
-
-
-def sanitize_prompt_injection(text: str) -> str:
-    """Scrub prompt injection tags from dynamically interpolated templates or prompt inputs."""
-    if not text:
-        return ""
-    from devops_cli.config.constants import CONST_PROMPT_INJECTION_TAGS_RE
-
-    return CONST_PROMPT_INJECTION_TAGS_RE.sub("", text)

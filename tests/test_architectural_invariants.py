@@ -254,7 +254,6 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
         Path("src/devops_cli/commands/vault.py"),
         Path("src/devops_cli/security/vault_broker.py"),
         Path("src/devops_cli/ai/model_bundler.py"),
-        Path("src/devops_cli/ai/durable.py"),
         Path("src/devops_cli/ai/harness/skills.py"),
         Path("src/devops_cli/ai/harness/slots.py"),
     ]

@@ -39,10 +39,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
-    DEFAULT_AI_DURABLE_ENGINE,
-    DEFAULT_AI_DURABLE_STORE_PATH,
-    DEFAULT_AI_DURABLE_TASK_QUEUE,
-    DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_GATEWAY_URL,
@@ -416,15 +412,6 @@ class AICacheConfig(BaseModel):
     append_cache: bool = False
 
 
-class AIDurableConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    engine: str = DEFAULT_AI_DURABLE_ENGINE
-    store_path: Path = Field(default_factory=lambda: DEFAULT_AI_DURABLE_STORE_PATH)
-    task_queue: str = DEFAULT_AI_DURABLE_TASK_QUEUE
-    workflow_id_prefix: str = DEFAULT_AI_DURABLE_WORKFLOW_PREFIX
-
-
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
@@ -497,7 +484,6 @@ class AIConfig(BaseModel):
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
-    durable: AIDurableConfig = AIDurableConfig()
     task_name: str | None = None
 
     @model_validator(mode="before")

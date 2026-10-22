@@ -9,7 +9,7 @@ from datetime import date
 import pydantic_ai.format_prompt as p_fp
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.format_prompt import format_as_xml, format_prompt_data
+from devops_cli.ai.format_prompt import format_as_xml
 
 
 class SampleFinding(BaseModel):
@@ -95,45 +95,3 @@ def test_format_as_xml_list_once_field_info() -> None:
     assert '<id description="Unique finding identifier">1</id>' in xml_out
     # Finding 2 does not repeat the description attribute
     assert "<id>2</id>" in xml_out
-
-
-def test_format_prompt_data_wrapper() -> None:
-    """Verify format_prompt_data wraps objects with default and custom tags."""
-    data = {"project": "devops-cli", "version": "0.2.10"}
-    xml_out = format_prompt_data(data, root_tag="metadata")
-    assert "<metadata>" in xml_out
-    assert "<project>devops-cli</project>" in xml_out
-    assert "<version>0.2.10</version>" in xml_out
-    assert "</metadata>" in xml_out
-
-    # Rootless formatting
-    rootless = format_prompt_data(data, root_tag=None)
-    assert "<project>devops-cli</project>" in rootless
-    assert "<metadata>" not in rootless
-
-
-def test_managed_prompt_xml_formatting() -> None:
-    """Verify ManagedPrompt renders XML-formatted variables into templates."""
-    from devops_cli.ai.agents.prompt import ManagedPrompt
-
-    mp = ManagedPrompt(
-        name="test_prompt",
-        fallback_template="Review instructions:\n{context_block}\nBegin analysis.",
-    )
-
-    finding = SampleFinding(
-        id="CVE-2026-9999",
-        title="RCE in parser",
-        severity="CRITICAL",
-        file_path="src/parser.py",
-        line=10,
-    )
-    rendered = mp.render(
-        extra_vars={"context_block": mp.format_xml_variable("finding_context", finding)}
-    )
-
-    assert "Review instructions:" in rendered
-    assert "<finding_context>" in rendered
-    assert "<id>CVE-2026-9999</id>" in rendered
-    assert "</finding_context>" in rendered
-    assert "Begin analysis." in rendered
