@@ -3315,7 +3315,7 @@ devops ai prewarm [OPTIONS]
 
 ### `devops ai agents`
 
-**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md).**
+**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md).**
 
 ```bash
 devops ai agents [OPTIONS]

@@ -751,6 +751,7 @@ CONST_DOCS_CLASS_HAND_WRITTEN: Final[str] = "hand-written"
 CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_GENERATED: (
         "CLAUDE.md",
+        "GEMINI.md",
         ".github/copilot-instructions.md",
         "docs/CLI_REFERENCE.md",
         "docs/CONFIGURATION.md",

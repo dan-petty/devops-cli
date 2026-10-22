@@ -247,6 +247,7 @@ also_copy = [
     ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
     "CONTRIBUTING.md", "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md",
     "changelog.d", "config.example.yaml", "docs", "k8s", "tf",
+    "GEMINI.md",
 ]
 
 [tool.uv]

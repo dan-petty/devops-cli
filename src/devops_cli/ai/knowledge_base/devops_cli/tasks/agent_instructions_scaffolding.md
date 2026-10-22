@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The AI Agent Instructions Scaffolding subsystem (`devops ai agents`, `devops devcontainer init`, and `src/devops_cli/ai/instruction_generator.py`) generates and synchronizes canonical engineering guidelines (`AGENTS.md`) and tool pointer stubs (`CLAUDE.md`, `.github/copilot-instructions.md`) across repositories. This ensures AI coding assistants (Claude, Copilot, Cursor, Codex) strictly follow the project's engineering philosophy, testing workflows, and architectural rules.
+The AI Agent Instructions Scaffolding subsystem (`devops ai agents`, `devops devcontainer init`, and `src/devops_cli/ai/instruction_generator.py`) generates and synchronizes canonical engineering guidelines (`AGENTS.md`) and tool pointer stubs (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`) across repositories. This ensures AI coding assistants (Claude, Gemini, Copilot, Cursor, Codex) strictly follow the project's engineering philosophy, testing workflows, and architectural rules.
 
 ---
 
@@ -13,14 +13,16 @@ graph TD
     A[pyproject.toml + Directory Metadata] --> B[parse_project_metadata tomllib]
     B --> C[generate_agents_md Canonical Source]
     B --> D[generate_pointer_stub CLAUDE.md]
+    B --> I[generate_pointer_stub GEMINI.md]
     B --> E[generate_pointer_stub Copilot Stub]
     C --> F[Target Repo: AGENTS.md]
     D --> G[Target Repo: CLAUDE.md]
+    I --> J[Target Repo: GEMINI.md]
     E --> H[Target Repo: .github/copilot-instructions.md]
 ```
 
 - **Single Source of Truth**: `AGENTS.md` is the canonical instruction manual containing full architecture guidelines, build/lint/test commands, git hygiene, and security policies.
-- **Thin Redirection Pointers**: Tool-specific instruction files (`CLAUDE.md` and `.github/copilot-instructions.md`) are lightweight pointer stubs that direct tools to `AGENTS.md`, avoiding duplicated or out-of-sync documentation.
+- **Thin Redirection Pointers**: Tool-specific instruction files (`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`) are lightweight pointer stubs that direct tools to `AGENTS.md`, avoiding duplicated or out-of-sync documentation. One table, `POINTER_STUBS`, holds what differs between the stubs. It holds the tool name, the title and the link to `AGENTS.md`. It also holds the import line of a tool that expands one, in the form that the documentation of the tool shows: `@AGENTS.md` for Claude Code and `@./AGENTS.md` for Gemini CLI.
 - **Dynamic Metadata Extraction**: Uses Python's standard `tomllib` to inspect `pyproject.toml` dynamically for project name, description, Python runtime requirements, entry points, and dependencies.
 
 ---
@@ -47,7 +49,7 @@ devops devcontainer post-create
 ## 4. Best Practice Guidance
 
 1. **Keep `AGENTS.md` Updated**: Whenever new testing commands, linters, or architectural conventions are introduced, update `AGENTS.md`.
-2. **Never Duplicate Content in Stubs**: Always keep `CLAUDE.md` and `.github/copilot-instructions.md` as thin pointers redirecting to `AGENTS.md`.
+2. **Never Duplicate Content in Stubs**: Always keep `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` as thin pointers redirecting to `AGENTS.md`.
 3. **Idempotent Scaffolding**: `scaffold_agent_instructions` checks for existing files and skips generation unless `--force` is specified.
 4. **Target Path Safety**: Always validate file paths to prevent directory traversal outside the target repository root.
 
@@ -64,6 +66,7 @@ devops devcontainer post-create
 
 - **Canonical File**: `AGENTS.md` at target repository root.
 - **Claude Pointer**: `CLAUDE.md` at target repository root (`./AGENTS.md`).
+- **Gemini Pointer**: `GEMINI.md` at target repository root (`./AGENTS.md`).
 - **Copilot Pointer**: `.github/copilot-instructions.md` (`../AGENTS.md`).
 
 ---
