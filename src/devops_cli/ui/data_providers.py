@@ -17,7 +17,6 @@ from devops_cli.config.constants import (
     CONST_TELEMETRY_PANEL_MAX_SERIES,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_DASHBOARD_GITHUB_PR_LIMIT,
     DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_K8S_POD_EVENT_LIMIT,
     DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
@@ -26,17 +25,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.github.pr_monitor import sort_prs_oldest_first
-from devops_cli.github.pr_queue import (
-    GitHubPRSummary,
-    GitHubQuotaSummary,
-    check_pacing_guard,
-    fetch_pr_queue,
-)
-from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
 from devops_cli.review.session import ReviewSessionStore
@@ -145,20 +134,6 @@ class ValkeySummary(BaseModel):
     # identical to one that is deployed and refusing connections.
     endpoint: str = ""
     error_message: str = ""
-
-
-class GitHubSummary(BaseModel):
-    """GitHub open pull requests and rate limit quota summary."""
-
-    total_count: int = 0
-    prs: list[GitHubPRSummary] = Field(default_factory=list)
-    quota: GitHubQuotaSummary | None = None
-    error_message: str = ""
-
-    @property
-    def failing_prs(self) -> int:
-        """Count PRs in the queue that have failing checks."""
-        return sum(1 for pr in self.prs if pr.has_failing_checks)
 
 
 # =============================================================================
@@ -687,53 +662,3 @@ def fetch_valkey_status() -> ValkeySummary:
         return ValkeySummary(
             connected=False, version="Offline", endpoint=endpoint, error_message=str(exc)
         )
-
-
-def _read_github_quota() -> GitHubQuotaSummary | None:
-    """Read core and GraphQL rate limits via `gh api rate_limit` without sleeping."""
-    try:
-        proc = run_gh(["api", "rate_limit"], quiet=True, check=False)
-        if proc.returncode != 0:
-            return None
-        quotas = get_github_rate_limiter().get_all_quotas()
-        core_q = quotas.get("core")
-        gql_q = quotas.get("graphql")
-        if core_q and gql_q:
-            return GitHubQuotaSummary(
-                core_limit=core_q.limit or 0,
-                core_remaining=core_q.remaining or 0,
-                core_reset_epoch=core_q.reset_epoch,
-                graphql_limit=gql_q.limit or 0,
-                graphql_remaining=gql_q.remaining or 0,
-                graphql_reset_epoch=gql_q.reset_epoch,
-            )
-    except (
-        GitHubRateLimitError,
-        GitHubOperationError,
-        json.JSONDecodeError,
-        OSError,
-        ValueError,
-        KeyError,
-    ) as exc:
-        logger.debug("Rate limit read failed: %s", exc)
-    return None
-
-
-def fetch_github_status() -> GitHubSummary:
-    """Fetch GitHub pull request queue and rate limits for dashboard."""
-    repo_name = get_repo_origin_name()
-    if not repo_name:
-        raise GitHubOperationError("not a GitHub checkout")
-
-    quota_summary = _read_github_quota()
-    check_pacing_guard("graphql")
-
-    parts = repo_name.split("/", 1)
-    owner, repo = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
-    res = fetch_pr_queue(owner, repo, limit=DEFAULT_DASHBOARD_GITHUB_PR_LIMIT)
-    sorted_prs = sort_prs_oldest_first(res.prs)
-    return GitHubSummary(
-        total_count=res.total_count,
-        prs=sorted_prs,
-        quota=quota_summary,
-    )

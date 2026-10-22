@@ -80,14 +80,7 @@ from devops_cli.ui.refresh import (
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import (
-    DockerPanel,
-    DomainPanel,
-    GitHubPanel,
-    K8sPanel,
-    LogPane,
-    ReviewPanel,
-)
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
 from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
 from tests.k8s_fakes import status as container_status
 from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
@@ -198,43 +191,12 @@ def _valkey() -> ValkeySummary:
     )
 
 
-def _github() -> Any:
-    from devops_cli.github.check_verdict import CheckBucket, PRCheckItem
-    from devops_cli.github.pr_queue import (
-        GitHubPRSummary,
-        GitHubQuotaSummary,
-        PRChecksSummary,
-    )
-    from devops_cli.ui.data_providers import GitHubSummary
-
-    check = PRCheckItem(name="ci", state="success", bucket=CheckBucket.PASS)
-    checks = PRChecksSummary(has_rollup=True, pass_count=1, items=[check])
-    pr = GitHubPRSummary(
-        number=1,
-        title="feat: initial pr",
-        url="https://example.com/pr/1",
-        created_at="2026-10-01T12:00:00Z",
-        base_ref_name="main",
-        checks=checks,
-    )
-    quota = GitHubQuotaSummary(
-        core_limit=5000,
-        core_remaining=4999,
-        core_reset_epoch=1800000000.0,
-        graphql_limit=5000,
-        graphql_remaining=4995,
-        graphql_reset_epoch=1800000000.0,
-    )
-    return GitHubSummary(total_count=1, prs=[pr], quota=quota)
-
-
 SAMPLES: dict[str, Any] = {
     "k8s": _k8s,
     "docker": _docker,
     "telemetry": _telemetry,
     "ai": _review,
     "valkey": _valkey,
-    "github": _github,
 }
 
 
@@ -1284,7 +1246,6 @@ async def test_the_dashboard_mounts_one_panel_per_configured_domain(
         panels |= {panel.domain for panel in app.query(DockerPanel).results(DockerPanel)}
         panels |= {panel.domain for panel in app.query(ReviewPanel).results(ReviewPanel)}
         panels |= {panel.domain for panel in app.query(K8sPanel).results(K8sPanel)}
-        panels |= {panel.domain for panel in app.query(GitHubPanel).results(GitHubPanel)}
         assert panels == set(CONST_DASHBOARD_DOMAINS)
 
 
@@ -1301,7 +1262,6 @@ async def test_every_panel_declares_the_columns_its_domain_projects(
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
         widths["k8s"] = len(app.query_one("#k8s-table", DataTable).columns)
-        widths["github"] = len(app.query_one("#github-queue-table", DataTable).columns)
         # Docker and AI Review compose nested tabs, so they are not plain DomainPanels.
         assert widths == {
             domain: len(DOMAIN_COLUMNS[domain])
@@ -1331,15 +1291,7 @@ async def test_the_initial_refresh_populates_every_panel(
         counts["k8s"] = app.query_one("#k8s-table", DataTable).row_count
         counts["docker"] = app.query_one("#docker-table", DataTable).row_count
         counts["ai"] = app.query_one("#ai-table", DataTable).row_count
-        counts["github"] = app.query_one("#github-queue-table", DataTable).row_count
-        assert counts == {
-            "k8s": 1,
-            "docker": 1,
-            "telemetry": 3,
-            "ai": 1,
-            "valkey": 7,
-            "github": 1,
-        }
+        assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "ai": 1, "valkey": 7}
 
 
 @pytest.mark.asyncio
@@ -2728,13 +2680,22 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
     A followed log never ends, and the read blocks until the next line arrives -- which
     for a quiet pod may be never. Textual waits for its thread workers on shutdown, so
     reading inside the worker meant quitting hung until the process was killed.
+
+    The stream stays silent until the test releases it, after the application has shut down.
+    A quit that does not wait for the stream ends with the stream still held: `release` is
+    unset and the hold did not run out. A quit that waits ends only when the hold runs out,
+    which the check reads. No clock decides the verdict: a slow host delays the quit and
+    nothing more.
     """
     producing = threading.Event()
     release = threading.Event()
+    hold_ran_out = threading.Event()
 
     def silent() -> Any:
         producing.set()
-        release.wait(timeout=30)
+        # The hold outlives every wait that observes it, and records that it ran out by itself.
+        if not release.wait(timeout=2 * THREAD_HANDOFF_BOUND_SECONDS):
+            hold_ran_out.set()
         yield "eventually"
 
     patched_fetchers()
@@ -2743,15 +2704,14 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
         async with app.run_test() as pilot:
             pane = app.query_one("#log-pane", LogPane)
             pane.start_stream(silent)
-            assert producing.wait(timeout=10)
-            started = time.monotonic()
+            assert producing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             await pilot.press("q")
             assert await _settle(pilot, lambda: not app.is_running), "q did not stop the app"
-        elapsed = time.monotonic() - started
+        held = (release.is_set(), hold_ran_out.is_set())
     finally:
         release.set()
 
-    assert elapsed < 5.0, f"quitting took {elapsed:.1f}s while a stream was open"
+    assert held == (False, False), "the application shut down only after the stream was released"
 
 
 @pytest.mark.asyncio

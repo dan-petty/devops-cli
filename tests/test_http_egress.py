@@ -19,7 +19,7 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.common_tools import duckduckgo_search_tool, tavily_search, web_fetch_tool
+from devops_cli.ai.common_tools import tavily_search
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
@@ -651,7 +651,6 @@ def _ai_shared_call(flag: bool) -> Callable[[], Any]:
 def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
     """Each caller #898 moves, invoked against example.com or its fixed API host."""
     return {
-        "web_fetch": lambda: web_fetch_tool().execute(url="https://example.com/"),
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
         "vault lease": lambda: _post("http://example.com:8200", "sys/leases/renew", {}, {}),
@@ -661,7 +660,6 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
         "k8s direct": lambda: service_http.get_json("http://example.com:9090", "api/v1/query"),
         "k8s proxy": _k8s_proxy_call,
         "ai shared client": _ai_shared_call(flag),
-        "duckduckgo": lambda: duckduckgo_search_tool().execute(query="devops"),
         "tavily": lambda: tavily_search("devops", api_key="tvly-test"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
     }
@@ -670,7 +668,6 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
     """The level table of #898, for the callers this change moves."""
     return {
-        "web_fetch": PUBLIC,
         "tool download": PUBLIC,
         "vault": PRIVATE,
         "vault lease": PRIVATE,
@@ -680,13 +677,12 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "k8s direct": PRIVATE,
         "k8s proxy": PRIVATE,
         "ai shared client": PRIVATE if flag else LOOPBACK,
-        "duckduckgo": PUBLIC,
         "tavily": PUBLIC,
         "statuspage": PUBLIC,
     }
 
 
-_CALLER_HOSTS = ("example.com", "html.duckduckgo.com", "api.tavily.com")
+_CALLER_HOSTS = ("example.com", "api.tavily.com")
 
 _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True): PRIVATE}
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""
@@ -702,8 +698,8 @@ def test_each_caller_dials_at_its_level(
     The caller runs twice, its host answering 127.0.0.1 and then 10.0.0.1: a public-level client
     dials neither, a loopback-level one only the first, a private-level one both. Only the AI
     client's URL comes from configuration, so only its level follows the flag; the tool downloads
-    no longer widen with it, and web_fetch never did. Only dials to the answer count: the test
-    configuration's telemetry exporter may dial its collector from a background thread meanwhile.
+    no longer widen with it. Only dials to the answer count: the test configuration's telemetry
+    exporter may dial its collector from a background thread meanwhile.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
     call = _caller_calls(flag)[caller]

@@ -46,6 +46,7 @@ _REQUIRED_TOOLS = {
     "bandit",
     "openspec",
     "devcontainers-cli",
+    "gh-dash",
 }
 
 

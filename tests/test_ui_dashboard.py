@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from textual.widgets import TabbedContent
@@ -50,18 +50,6 @@ def empty_docker_engine(docker_engine: Any) -> Iterator[Any]:
     client.info.return_value = {}
     with docker_engine(client) as engine:
         yield engine
-
-
-@pytest.fixture(autouse=True)
-def empty_github_domain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fake GitHub domain so dashboard tests do not invoke real gh commands."""
-    import devops_cli.ui.refresh as refresh_module
-    from devops_cli.config.constants import CONST_DASHBOARD_DOMAIN_GITHUB
-    from devops_cli.ui.data_providers import GitHubSummary
-
-    fake_fetchers = dict(refresh_module.DOMAIN_FETCHERS)
-    fake_fetchers[CONST_DASHBOARD_DOMAIN_GITHUB] = lambda: GitHubSummary(total_count=0, prs=[])
-    monkeypatch.setattr(refresh_module, "DOMAIN_FETCHERS", fake_fetchers)
 
 
 # =============================================================================
@@ -504,11 +492,6 @@ async def test_textual_dashboard_app_lifecycle() -> None:
         await pilot.pause()
         assert tabs.active == "tab-valkey"
 
-        # Switch to GitHub tab via key '6'
-        await pilot.press("6")
-        await pilot.pause()
-        assert tabs.active == "tab-github"
-
         # Switch back to K8s tab via key '1'
         await pilot.press("1")
         await pilot.pause()
@@ -571,10 +554,25 @@ async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
 # =============================================================================
 
 
-def test_dashboard_app_disable_auto_refresh() -> None:
-    """DashboardApp handles refresh_interval=0 without scheduling timer."""
-    tui = DashboardApp(refresh_interval=0)
-    assert tui._refresh_interval == 0
+@pytest.mark.parametrize(
+    ("refresh_interval", "timer_started"),
+    [pytest.param(5, True, id="positive-interval"), pytest.param(0, False, id="zero-interval")],
+)
+def test_the_dashboard_starts_its_refresh_timer_only_for_a_positive_interval(
+    refresh_interval: int, timer_started: bool
+) -> None:
+    """Mounting refreshes every domain once. A positive interval also starts one timer that
+    repeats the refresh, and an interval of 0 starts none (#1883)."""
+    tui = DashboardApp(refresh_interval=refresh_interval)
+    with (
+        patch.object(tui, "action_refresh_data") as refresh,
+        patch.object(tui, "set_interval") as set_interval,
+    ):
+        tui.on_mount()
+    assert refresh.call_args_list == [call()]
+    assert set_interval.call_args_list == (
+        [call(refresh_interval, refresh)] if timer_started else []
+    )
 
 
 @pytest.mark.usefixtures("empty_docker_engine")

@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/opentelemetry-api@1.44.*"
+  - "pkg:pypi/opentelemetry-api@1.45.*"
 sources:
   - "https://opentelemetry.io/"
   - "https://www.jaegertracing.io/"

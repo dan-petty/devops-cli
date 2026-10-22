@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/opentelemetry-api@1.44.*"
+  - "pkg:pypi/opentelemetry-api@1.45.*"
 sources:
   - "https://opentelemetry.io/docs/languages/python/"
   - "https://grafana.com/docs/tempo/latest/"
@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [grafana.com/docs/tempo/latest/](https://grafana.com/docs/tempo/latest/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
-| **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.44.0`) |
+| **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.45.1`) |
 | **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
 
 ---

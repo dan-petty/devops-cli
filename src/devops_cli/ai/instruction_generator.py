@@ -224,7 +224,7 @@ devops --help                        # Access global DevOps automation CLI
         "      - Inspect liveness via `kubectl -n devops get deployment roadmap-service` or HTTP probe `GET /readyz` on port 8000; fall back to manual execution only if confirmed offline.\n"
         "    - **Feasibility Check & Stop Rather Than Add Compensating Code ([#1348](https://github.com/dan-petty/devops-cli/issues/1348))**:\n"
         "      - Before authoring code or tests, perform a feasibility check confirming the premise against the real system (upstream docs, library source, cluster state, CLI runtime) and record how in the task file's `**Feasibility**` field.\n"
-        '      - When an item cannot be built as specified, or requires an architectural refactor beyond its scope, write no compensating code. Comment on the issue with the evidence and proposed re-scope/refactor, return the item to `New` (`devops roadmap return <number> --comment "<evidence>" --confirm`, which supports `--dry-run`), and stop.\n'
+        '      - When an item cannot be built as specified, or requires an architectural refactor beyond its scope, write no compensating code. Comment on the issue with the evidence and proposed re-scope/refactor, ask a person to return the item to `New` (`devops roadmap return <number> --comment "<evidence>" --confirm`), and stop.\n'
         "      - Signals to stop rather than add code: swallowing an error; product code that detects tests; a second fix on top of a fix in the same area within one release; a review loop that keeps finding new defects in the same feature.\n"
         if meta.is_devops_cli
         else ""
@@ -322,13 +322,8 @@ codebase or reviewing target repositories.
   guides (`src/devops_cli/ai/knowledge_base/` or `docs/`) before designing, implementing, or
   modifying system components.
 - **Never Lower Security Standards or Quality Thresholds**: AI agents and assistants must never
-  lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum
-  code coverage requirements like 90%, strict static type checks, or lint rules), or compliance
-  validations unless explicitly instructed to do so by the user.
-- **Continuous Standards Compliance & Solution Refinement**: AI agents and assistants must always check
-  that any proposed solution, design, code change, or architecture meets all project standards and
-  conventions, updating and refining the solution whenever necessary until every project standard
-  is met or exceeded.
+  lower, relax, disable or bypass a security standard or quality threshold unless the user says so.
+  Replacing a check with a standard tool that enforces at least the same property is not lowering it.
 - **Mandatory Documentation Synchronization After Every Change**: AI agents and assistants must always
   update project documents, architecture references, command documentation, and README files
   (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals)
@@ -355,9 +350,9 @@ codebase or reviewing target repositories.
   replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
   and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
   Never leave remnants or vestigial fallback paths.
-- **Mandatory Root-Cause Remediation & Instruction Hardening (Fix Underlying Cause / Prevent Recurrence)**:
-  - Whenever encountering any problem, bug, defect, failure, runtime exception, or unexpected error, AI agents and automated workflows **MUST ALWAYS INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE** directly at its source. Applying superficial workarounds, bypassing assertions, suppressing warnings, or masking symptoms without remediating the root cause is strictly prohibited.
-  - If the underlying issue cannot be fixed immediately (such as an external dependency bug, upstream platform constraint, environment limitation, or fundamental architectural blocker), the agent **MUST PROMPTLY UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)** with defensive guardrails, pre-flight checks, avoidance patterns, or operational guidelines to prevent the issue from re-occurring in future sessions.
+- **Mandatory Root-Cause Remediation**: Investigate and fix the cause at the source. If an external
+  constraint blocks the fix, add a check that fails when the problem returns, and link the incident.
+  Add prose here only when no check is possible.
 {devops_roadmap_governance_block}- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
   - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
 
@@ -414,7 +409,7 @@ codebase or reviewing target repositories.
       6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
     - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled (on PRs into `main`), and 0 unresolved review discussion threads remain.
 - **GitHub Projects, Issues & Views Governance**:
-  - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
+  - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and reconcile custom fields on the cards already on the board via `devops gh project sync` (sets Status only on a card that has none, from its `status/*` label or else `New`, sets `Done` when the issue closes, and forces `In Review` once any open PR, draft included, links the issue). Sync adds no card: `devops roadmap intake` places issues, and a pull request gets no card.
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
   - Respect GitHub API rate limits: monitor `devops gh rate-limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.

@@ -1,16 +1,13 @@
-"""Unit tests for agent runtime security: URI traversal, SSRF, secret masking, injection guards."""
+"""Unit tests for agent runtime security: URI traversal, secret masking, and injection guards."""
 
 from __future__ import annotations
 
 import pytest
 
-from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
-from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import parse_vault_uri
-from tests.web_fakes import StubWeb
 
 # ── 1. Vault URI Percent-Encoded Traversal Validation ────────────────────────
 
@@ -29,31 +26,7 @@ def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
     assert key == "password"
 
 
-# ── 2. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
-
-
-def test_web_fetch_tool_case_insensitive_domains(stub_web: StubWeb) -> None:
-    """Verify that web_fetch_tool performs case-insensitive domain matching."""
-    tool = web_fetch_tool(allowed_domains=["example.com"], blocked_domains=["evil.com"])
-    stub_web.page("https://example.com/page", "<html><body><h1>Hello</h1></body></html>")
-
-    # Uppercase domain should match allowed_domains
-    res = tool.execute(url="https://EXAMPLE.COM/page")
-    assert "# Hello" in res
-
-    # Uppercase blocked domain should be blocked
-    with pytest.raises(ValueError, match="blocked_domains"):
-        tool.execute(url="https://EVIL.COM/page")
-
-
-def test_web_fetch_tool_reraises_ssrf_blocked_error() -> None:
-    """Verify that SSRFBlockedError is raised directly and not swallowed into a success string."""
-    tool = web_fetch_tool()
-    with pytest.raises(SSRFBlockedError):
-        tool.execute(url="http://127.0.0.1:8080/admin")
-
-
-# ── 3. Secret Sanitizer Regex Identifier Protection ──────────────────────────
+# ── 2. Secret Sanitizer Regex Identifier Protection ──────────────────────────
 
 
 def test_secret_sanitizer_does_not_mask_variable_identifiers() -> None:
@@ -76,7 +49,7 @@ def test_secret_sanitizer_masks_actual_secret_assignments() -> None:
     assert "<masked-secret>" in sanitized or "<masked-token>" in sanitized
 
 
-# ── 4. ChaosFaultRunner Argument Injection Guards ────────────────────────────
+# ── 3. ChaosFaultRunner Argument Injection Guards ────────────────────────────
 
 
 def test_chaos_fault_runner_rejects_argument_injection() -> None:
@@ -97,7 +70,7 @@ def test_chaos_fault_runner_rejects_argument_injection() -> None:
     )
 
 
-# ── 5. Structural Diff Ref Injection Guards ──────────────────────────────────
+# ── 4. Structural Diff Ref Injection Guards ──────────────────────────────────
 
 
 def test_structural_diff_rejects_flag_injection_refs() -> None:

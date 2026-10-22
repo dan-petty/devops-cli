@@ -67,6 +67,27 @@ def test_pydantic_agent_execution_and_tools() -> None:
     assert "".join(tokens) == "The sum is 5"
 
 
+def test_run_context_instance_functionality() -> None:
+    """RunContext instances properly initialize attributes and support model_copy."""
+    ctx = RunContext(
+        deps={"key": "val"},
+        session_id="sess-123",
+        retry=2,
+        loaded_capability_ids={"cap1"},
+        tool_call_approved=True,
+        tool_call_metadata={"source": "test"},
+    )
+    assert ctx.session_id == "sess-123"
+    assert ctx.retry == 2
+    assert "cap1" in ctx.loaded_capability_ids
+    assert ctx.tool_call_approved is True
+    assert ctx.tool_call_metadata == {"source": "test"}
+
+    copied = ctx.model_copy(update={"retry": 3})
+    assert copied.retry == 3
+    assert copied.session_id == "sess-123"
+
+
 def test_pydantic_agent_advanced_dispatch_and_schema() -> None:
     """Verify tool execution loop, memory serialization, output schema parsing, and fallback resolution."""
     from devops_cli.ai.agents.memory import AgentMemory

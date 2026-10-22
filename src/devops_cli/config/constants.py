@@ -877,10 +877,6 @@ CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
 # log keeps CONST_REDACTED_LOG_VALUE in their place (#899).
 CONST_FASTMCP_OPERATIONS_LOGGER: Final[str] = "fastmcp.server.mixins.mcp_operations"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
-# HTML chrome and non-content tags decomposed during untrusted page rendering (#896).
-CONST_WEB_FETCH_CHROME_TAGS: Final[frozenset[str]] = frozenset(
-    {"header", "nav", "footer", "aside", "dialog", "script", "style", "noscript"}
-)
 # Root commands whose module app takes the command's own name as its first argument:
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 # The command words that run a `devops review` command, which reads a tree devops-cli does not
@@ -3547,14 +3543,12 @@ CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
 CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
 CONST_DASHBOARD_DOMAIN_AI: Final[str] = "ai"
 CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
-CONST_DASHBOARD_DOMAIN_GITHUB: Final[str] = "github"
 CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_VALKEY,
-    CONST_DASHBOARD_DOMAIN_GITHUB,
 )
 # Human-readable labels used for tab titles and status banners.
 CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
@@ -3563,7 +3557,6 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
     CONST_DASHBOARD_DOMAIN_AI: "AI Review",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
-    CONST_DASHBOARD_DOMAIN_GITHUB: "GitHub",
 }
 
 # ── Docker Resource Sub-Tabs ─────────────────────────────────────────────────
@@ -3597,7 +3590,6 @@ CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
 # A tab not listed here focuses the first widget in it that can take focus.
 CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
     f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
-    f"tab-{CONST_DASHBOARD_DOMAIN_GITHUB}": "#github-queue-table",
     CONST_LOGS_TAB_ID: "#log-pane",
 }
 

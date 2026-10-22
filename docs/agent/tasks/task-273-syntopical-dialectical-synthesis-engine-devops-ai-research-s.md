@@ -16,7 +16,7 @@ This deliverable removes the dead and duplicate research settings, ensuring that
 
 - [x] Every unread research setting referenced at `config/defaults.py` (`DEFAULT_RESEARCH_DIR`, `DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS`, `DEFAULT_SYNTOPICAL_MAX_SOURCES`) and `config/constants.py` (`CONST_RESEARCH_DIR_NAME`, `CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES`, `CONST_SYNTOPICAL_MIN_RELEVANCE`, `CONST_SYNTOPICAL_MAX_EXCERPT_CHARS`) is removed.
 - [x] No two setting names map to the same underlying value; no dead or unread research setting names remain.
-- [x] Test coverage in `tests/test_codebase_hygiene_and_shims.py` asserts that the deleted settings and names are absent from both modules.
+- [x] A test in `tests/test_codebase_hygiene_and_shims.py` asserted that the deleted settings and names were absent from both modules. #1871 deleted it later.
 - [x] Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
 - [x] 100% passing across Gated CI validation suite (`uv run devops ci`).
 

@@ -31,6 +31,10 @@ pytestmark = [
 # host sufficient headroom before the run's process group is stopped (#1748).
 HUNG_RUN_TIMEOUT_SECONDS = 1.0
 
+# A run's timeout counts from when it starts waiting for its child. A test that returns the spawn
+# only once the child has written its pids needs a short one: the child hangs, so it always fires.
+STARTED_RUN_TIMEOUT_SECONDS = 0.2
+
 
 def _raise_file_not_found(*_args: Any, **_kwargs: Any) -> None:
     raise FileNotFoundError(2, "No such file or directory")
@@ -186,35 +190,30 @@ async def test_run_subprocess_async_telemetry_sanitizes_secrets() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_subprocess_async_timeout_kills_process_group(tmp_path: Path) -> None:
-    """Verify run_subprocess_async timeout kills entire process group including grandchildren."""
-    import os
-    import subprocess
-    import sys
+async def test_run_subprocess_async_timeout_kills_process_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify run_subprocess_async timeout kills entire process group including grandchildren.
 
-    pid_file = tmp_path / "grandchild.pid"
-    script = (
-        "import sys, time, subprocess\n"
-        f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
-        f"with open({str(pid_file)!r}, 'w') as f:\n"
-        "    f.write(str(child.pid))\n"
-        "time.sleep(30)\n"
-    )
-    cmd = [sys.executable, "-c", script]
+    A run's timeout counts from when it starts waiting for its child. The spawn here returns only
+    once the child has written its pids, so the timeout fires after the child and its grandchild
+    exist, however busy the host is, and no wall-clock deadline for them to start remains. The
+    child hangs, so the timeout always fires, and a short one is enough (#1888)."""
+    real_spawn = asyncio.create_subprocess_exec
+    with watching(tmp_path / "pids") as watch:
 
-    with pytest.raises(subprocess.TimeoutExpired):
-        await run_subprocess_async(cmd, timeout=0.6)
+        async def spawn_once_started(*argv: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+            process = await real_spawn(*argv, **kwargs)
+            assert await _until(watch.started), "the child wrote no pids"
+            return process
 
-    assert pid_file.exists()
-    grandchild_pid = int(pid_file.read_text().strip())
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_once_started)
+        with pytest.raises(subprocess.TimeoutExpired):
+            await run_subprocess_async(
+                hung_with_grandchild(watch.pid_file), timeout=STARTED_RUN_TIMEOUT_SECONDS
+            )
 
-    is_alive = True
-    try:
-        os.kill(grandchild_pid, 0)
-    except ProcessLookupError:
-        is_alive = False
-
-    assert is_alive is False
+        assert await _until(watch.stopped)
 
 
 def test_process_group_guard_helpers() -> None:

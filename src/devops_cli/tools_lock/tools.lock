@@ -15,6 +15,11 @@
 # `aquasecurity/trivy-action` step in `.github/workflows/`.
 # cloudflared's release notes give each macOS checksum for the binary inside the `.tgz`, not
 # the archive: check the archive's digest by unpacking it and hashing `cloudflared`.
+# gh-dash publishes `checksums.txt`, but it comes from the same release as the asset `digest`, so
+# the two do not check each other. It signs nothing. Never install it with `gh extension install`,
+# `go install` or `brew`: each one skips this pin. A bump of gh-dash also replaces
+# `tests/fixtures/gh_dash_schema/` with the schema of the new version, which
+# `tests/test_gh_dash_config.py` checks against this `version`.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
@@ -340,6 +345,29 @@ member = "k9s"
 url = "https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_Darwin_arm64.tar.gz"
 sha256 = "9b8c0e8f461e5d33aeee43a67f5ef4aff646a008a786887b8266cbb153c610cc"
 member = "k9s"
+
+[binary.gh-dash]
+version = "4.26.2"
+description = "GitHub pull request and issue dashboard"
+source = "https://github.com/dlvhdr/gh-dash"
+bin = "gh-dash"
+format = "binary"
+
+[binary.gh-dash.platforms.linux-amd64]
+url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_linux-amd64"
+sha256 = "565d7dbfafc568c06441ab49d31c7059b7ade7cbba12490fa7f12f9bb71dc1b5"
+
+[binary.gh-dash.platforms.linux-arm64]
+url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_linux-arm64"
+sha256 = "67e55fe550e86dc7555979f8e0d05b88e1ba086b022a6e19e071dfc67369ec50"
+
+[binary.gh-dash.platforms.darwin-amd64]
+url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_darwin-amd64"
+sha256 = "6b8d26b4d01d7b9f96930b7aaafd145a91a9af94332199c44e20b5a3e8e5f1dc"
+
+[binary.gh-dash.platforms.darwin-arm64]
+url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_darwin-arm64"
+sha256 = "591cfe85838c3459b56b4a08bcdf0ce11a5c59a92d466ab312cca0c4ad0d163f"
 
 [binary.gitleaks]
 version = "8.30.1"
