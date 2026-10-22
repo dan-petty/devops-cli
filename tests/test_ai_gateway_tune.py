@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tomllib
 from pathlib import Path
@@ -373,7 +374,12 @@ class TestTune:
         monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
 
         result = measure_in_gateway_pod(
-            {"deployments": []}, namespace="llm", deployment="llm-gateway", context="lab"
+            {"deployments": []},
+            namespace="llm",
+            deployment="llm-gateway",
+            context="lab",
+            container="gateway-tune-0a1b2c",
+            lifetime_seconds=90.5,
         )
 
         debug = kubectl.called("debug")
@@ -396,10 +402,10 @@ class TestTune:
                 "llm",
                 "--profile=restricted",
                 "--image=python:3.14-slim",
-                f"--container={kubectl.container}",
+                "--container=gateway-tune-0a1b2c",
                 "--",
             ],
-            ["sleep", "3600"],
+            ["sleep", "91"],
             ["kubectl", "--context", "lab", "exec", "-i", "llm-gateway-abc"],
             ["--", "python", "-"],
             True,
@@ -423,7 +429,11 @@ class TestTune:
         monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
 
         result = measure_in_gateway_pod(
-            spec, namespace="llm", deployment="llm-gateway", context=None
+            spec,
+            namespace="llm",
+            deployment="llm-gateway",
+            container="gateway-tune-0a1b2c",
+            lifetime_seconds=600.0,
         )
 
         exec_call = kubectl.called("exec")
@@ -550,7 +560,13 @@ class TestTune:
         )
 
         with pytest.raises(GatewayTuneError, match="llm-gateway"):
-            measure_in_gateway_pod({"deployments": []}, namespace="llm", deployment="llm-gateway")
+            measure_in_gateway_pod(
+                {"deployments": []},
+                namespace="llm",
+                deployment="llm-gateway",
+                container="gateway-tune-0a1b2c",
+                lifetime_seconds=600.0,
+            )
 
     def test_failed_sweep_reports_the_container_logs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify a non-zero exit raises with the sweep container's output."""
@@ -559,22 +575,85 @@ class TestTune:
         monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
 
         with pytest.raises(GatewayTuneError, match="SyntaxError"):
-            measure_in_gateway_pod({"deployments": []}, namespace="llm", deployment="llm-gateway")
+            measure_in_gateway_pod(
+                {"deployments": []},
+                namespace="llm",
+                deployment="llm-gateway",
+                container="gateway-tune-0a1b2c",
+                lifetime_seconds=600.0,
+            )
+
+    def test_a_run_attaches_one_sweep_container_that_outlives_every_deployment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify every deployment of a run is swept in one container that lasts the run.
+
+        A container an earlier run left running has an unknown remaining life, so the run
+        attaches its own, and the one sleep covers the exec budget of both deployments.
+        """
+        kubectl = _FakeKubectl(
+            exit_code=0, logs=_SWEEP_REPLY, containers={"gateway-tune-0a1b2c": {"running": {}}}
+        )
+
+        _tune_both_deployments(monkeypatch, kubectl, request_timeout=10.2)
+
+        debugs = kubectl.all_called("debug")
+        (run_container,) = kubectl.containers.keys() - {"gateway-tune-0a1b2c"}
+        assert re.fullmatch(r"gateway-tune-[0-9a-f]{6}", run_container)
+        # (10.2 s * 1 round * (1 level + 1 cost pass) + 60 s) * 2 deployments = 160.8 s.
+        assert (
+            [c[-3:] for c in debugs],
+            [c[c.index("-c") + 1] for c in kubectl.all_called("exec")],
+        ) == (
+            [["--", "sleep", "161"]],
+            [run_container, run_container],
+        )
+
+    def test_a_sweep_container_that_exits_mid_run_stops_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify a run whose container exited fails naming it, rather than attaching another."""
+        kubectl = _FakeKubectl(exit_code=0, logs=_SWEEP_REPLY, expire_after_execs=1)
+
+        with pytest.raises(GatewayTuneError, match="exited before the run finished") as raised:
+            _tune_both_deployments(monkeypatch, kubectl, request_timeout=10.0)
+
+        (run_container,) = kubectl.containers
+        assert (
+            run_container in str(raised.value),
+            len(kubectl.all_called("debug")),
+            len(kubectl.all_called("exec")),
+        ) == (True, 1, 1)
 
 
 class _FakeKubectl:
-    """Answer the kubectl calls of one sweep: deployment, pods, container state, debug, exec."""
+    """Answer the kubectl calls of one sweep: deployment, pods, container state, debug, exec.
 
-    def __init__(self, *, exit_code: int, logs: str) -> None:
+    ``containers`` holds the state of each ephemeral container already on the pod, and
+    ``expire_after_execs`` ends every container once that many sweeps have run on the pod.
+    """
+
+    def __init__(
+        self,
+        *,
+        exit_code: int,
+        logs: str,
+        containers: dict[str, dict[str, Any]] | None = None,
+        expire_after_execs: int | None = None,
+    ) -> None:
         self.exit_code = exit_code
         self.logs = logs
+        self.containers = dict(containers or {})
+        self.expire_after_execs = expire_after_execs
         self.calls: list[list[str]] = []
         self.inputs: list[str | None] = []
-        self.container = ""
-        self.polls = 0
+        self.execs = 0
 
     def called(self, verb: str) -> list[str]:
         return next(c for c in self.calls if verb in c)
+
+    def all_called(self, verb: str) -> list[list[str]]:
+        return [c for c in self.calls if verb in c]
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append(cmd)
@@ -586,19 +665,22 @@ class _FakeKubectl:
             out = "llm-gateway-abc"
             return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
         if "debug" in cmd:
-            self.container = next(a for a in cmd if a.startswith("--container=")).split("=", 1)[1]
+            name = next(a for a in cmd if a.startswith("--container=")).split("=", 1)[1]
+            self.containers[name] = {"running": {}}
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if "exec" in cmd:
-            if self.exit_code != 0:
-                return subprocess.CompletedProcess(cmd, self.exit_code, stdout="", stderr=self.logs)
-            return subprocess.CompletedProcess(cmd, 0, stdout=self.logs, stderr="")
-        self.polls += 1
-        state: dict[str, Any] = {"running": {}} if (self.polls > 1 or self.container) else {}
-        container_name = self.container or "gateway-tune-runner"
-        out = json.dumps(
-            {"status": {"ephemeralContainerStatuses": [{"name": container_name, "state": state}]}}
-        )
+            return self._exec(cmd)
+        statuses = [{"name": name, "state": state} for name, state in self.containers.items()]
+        out = json.dumps({"status": {"ephemeralContainerStatuses": statuses}})
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    def _exec(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        self.execs += 1
+        if self.execs == self.expire_after_execs:
+            self.containers = {name: {"terminated": {"exitCode": 0}} for name in self.containers}
+        if self.exit_code != 0:
+            return subprocess.CompletedProcess(cmd, self.exit_code, stdout="", stderr=self.logs)
+        return subprocess.CompletedProcess(cmd, 0, stdout=self.logs, stderr="")
 
 
 def _level(concurrency: int, tokens: int, wall: float = 1.0) -> dict[str, Any]:
@@ -611,6 +693,40 @@ def _level(concurrency: int, tokens: int, wall: float = 1.0) -> dict[str, Any]:
         "p50_latency_seconds": wall,
         "completion_tokens": tokens,
     }
+
+
+_SWEEP_REPLY = json.dumps(
+    [{"engine": {"engine": "vllm"}, "capacity": [_level(1, 100)], "cost": _level(1, 100)}]
+)
+
+
+def _tune_both_deployments(
+    monkeypatch: pytest.MonkeyPatch, kubectl: _FakeKubectl, *, request_timeout: float
+) -> None:
+    """Run `tune_pool` over the two `devops-review` deployments with only kubectl faked."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info", lambda url, allow, key: MODEL_INFO
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [GpuInfo(name="RTX 3090", memory_mib=24576)],
+    )
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.subprocess.run", kubectl)
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
+
+    tune_pool(
+        gateway_url=REMOTE_OPENAI,
+        allow_private=True,
+        api_key=None,
+        model_group="devops-review",
+        levels=[1],
+        rounds=1,
+        prompt_tokens=100,
+        max_tokens=50,
+        request_timeout=request_timeout,
+        namespace="llm",
+        deployment="llm-gateway",
+    )
 
 
 def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPatch) -> None:
