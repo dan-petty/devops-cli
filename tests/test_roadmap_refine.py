@@ -1036,7 +1036,7 @@ def test_a_research_plan_that_never_fits_its_schema_refines_without_search_resul
     )
 
 
-@pytest.mark.parametrize("mode", ["--confirm", "--dry-run", None])
+@pytest.mark.parametrize("mode", ["--confirm", None])
 def test_the_cli_exits_1_after_reporting_a_failed_item(
     git_repo: Path,
     cli_store: InMemoryRoadmapStore,

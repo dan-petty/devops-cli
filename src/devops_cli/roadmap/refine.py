@@ -70,6 +70,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
@@ -168,12 +169,15 @@ class RefineFailure:
 @dataclass(frozen=True)
 class RefinePlan:
     repo: str
-    sha: str
-    branch: str
+    sha: str = ""
+    branch: str = ""
     refined_items: list[RefinedItem] = field(default_factory=list)
     skipped_items: list[tuple[Item, str]] = field(default_factory=list)
     has_writes: bool = False
     failed_items: list[RefineFailure] = field(default_factory=list)
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+    write_requests: tuple[PlannedRequest, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1016,6 +1020,28 @@ def plan_refine(
     )
 
 
+def dry_run_refine(
+    repo: str,
+    *,
+    ref: str | None = None,
+    item: int | None = None,
+    limit: int | None = None,
+) -> RefinePlan:
+    """The plan a dry run returns, having made no external request."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, writes = refine_requests(repo, ref, item=item, limit=limit)
+    return RefinePlan(
+        repo=repo,
+        sha="",
+        branch="",
+        dry_run=True,
+        requests=reads,
+        write_requests=writes,
+        has_writes=bool(writes),
+    )
+
+
 def _failed_item(item: Item, exc: AIClientError) -> RefineFailure:
     """Record `item` as skipped for its failed model call, logging no model text: the error's
     message can quote the reply."""
@@ -1239,6 +1265,7 @@ __all__ = [
     "check_person_edits",
     "check_ready",
     "collect_context",
+    "dry_run_refine",
     "extract_section_and_outside",
     "hash_text",
     "inspect_checkout",
