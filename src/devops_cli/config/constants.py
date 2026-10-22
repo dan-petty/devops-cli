@@ -2746,6 +2746,15 @@ CONST_RAG_SKIPPED_LOCKFILES: Final[frozenset[str]] = frozenset(
 # Safety limit for maximum chunk size in estimated tokens sent to embedding models
 CONST_RAG_MAX_CHUNK_TOKENS: Final[int] = 8192
 
+# How many of a file's symbol names follow its path in a lookup in the code index: the context
+# `ai/analyze/outlines.py` asks the index for and the query the embedding benchmark makes of a
+# code chunk.
+CONST_INDEX_LOOKUP_SYMBOLS: Final[int] = 5
+
+# The only symbol of the chunk holding a Python file's imports and docstring, ahead of its first
+# definition: a marker the chunker puts there, not a name the file defines.
+CONST_CHUNK_MODULE_PREAMBLE_SYMBOL: Final[str] = "<module>"
+
 # Consecutive transient embedding failures before pausing RAG lookups
 CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
 

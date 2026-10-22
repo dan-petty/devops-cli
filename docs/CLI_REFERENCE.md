@@ -4407,7 +4407,8 @@ devops ai benchmark [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation. |
+| `--code` | `path` | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
+| `--samples` | `integer` | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ### `devops ai cache`
 

@@ -14,6 +14,13 @@ class AIErrorMessages:
     provider_connection_error: str = "Could not connect to AI provider at {url}: {exc}"
     unsupported_provider: str = "Unsupported AI provider '{provider}'."
     unknown_benchmark_type: str = "Unknown benchmark type '{value}': use one of {choices}."
+    benchmark_corpus_conflict: str = (
+        "--document and --code each choose the corpus the embedding benchmark ranks: pass one."
+    )
+    benchmark_no_code_queries: str = (
+        "No code chunk under '{path}' has a symbol name to query by, so the benchmark has "
+        "nothing to retrieve: point --code at a directory of source files."
+    )
 
 
 @dataclass(frozen=True)

@@ -25,6 +25,7 @@ from devops_cli.ai.personas import (
     ANALYZE_PSEUDOCODE_TASK_PROMPT,
 )
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import CONST_INDEX_LOOKUP_SYMBOLS
 from devops_cli.models.ai import FileAnalysisMeta
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,8 @@ def _enhance_file_metadata_with_ai(
             investigate_rag_context,
         )
 
-        ctx = investigate_rag_context(f"{rel_path} {' '.join(static_symbols[:5])}", top_k=2)
+        lookup = f"{rel_path} {' '.join(static_symbols[:CONST_INDEX_LOOKUP_SYMBOLS])}"
+        ctx = investigate_rag_context(lookup, top_k=2)
         rag_context = format_rag_investigation_for_prompt(ctx, "Related Architectural Context")
     except Exception as exc:
         logger.debug("RAG investigation failed for metadata enhancement: %s", exc)

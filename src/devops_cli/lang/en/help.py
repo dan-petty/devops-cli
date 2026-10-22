@@ -1558,7 +1558,13 @@ class BenchmarkCommandHelp:
     tasks: str = "Filter specific task categories or IDs (e.g. 'security,kubernetes')."
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
-    samples: str = "Number of random sections to sample for retrieval evaluation."
+    code_dir: str = (
+        "Path to a source directory whose code chunks are the embedding corpus, each queried by "
+        "its path (relative to the directory) and its symbol names, in place of --document."
+    )
+    samples: str = (
+        "Number of document sections, or code chunks with --code, to run retrieval queries for."
+    )
     mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
 
