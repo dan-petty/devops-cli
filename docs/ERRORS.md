@@ -148,7 +148,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `VaultConfigurationError` | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VaultError` | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VaultKeyError` | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |
-| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status. |
+| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login or token call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
 | `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |
 | `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |

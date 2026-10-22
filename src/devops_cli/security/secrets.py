@@ -23,7 +23,6 @@ from devops_cli.config.constants import (
     CONST_SECRET_PROVIDER_ENVIRONMENT,
     CONST_SECRET_PROVIDER_KEYRING,
     CONST_SECRET_PROVIDER_SETTINGS,
-    CONST_SECRET_PROVIDER_TOOL,
     CONST_SECRET_PROVIDER_VAULT,
     CONST_VAULT_SECRET_MOUNT,
 )
@@ -261,27 +260,6 @@ class VaultProvider:
         return text or None
 
 
-class CallableProvider:
-    """Adapts a bespoke lookup, such as delegating to an authenticated external CLI."""
-
-    def __init__(self, name: str, lookup: Callable[[SecretRef], str | None]) -> None:
-        self._name = name
-        self._lookup = lookup
-
-    @property
-    def name(self) -> str:
-        """Provider identifier."""
-        return self._name
-
-    def get(self, ref: SecretRef) -> str | None:
-        """Invoke the wrapped lookup, treating any failure as "cannot supply"."""
-        try:
-            return self._lookup(ref)
-        except Exception as exc:
-            logger.debug("Provider %s failed for %s: %s", self._name, ref.name, exc)
-            return None
-
-
 # =============================================================================
 # Resolver
 # =============================================================================
@@ -382,8 +360,6 @@ def iter_provider_names(providers: Iterable[SecretProvider]) -> list[str]:
 
 
 __all__ = [
-    "CONST_SECRET_PROVIDER_TOOL",
-    "CallableProvider",
     "EnvironmentProvider",
     "KeyringProvider",
     "SecretAccess",
