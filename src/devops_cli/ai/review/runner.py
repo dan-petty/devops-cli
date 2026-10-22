@@ -27,9 +27,6 @@ from devops_cli.ai.review.profile import (
     review_stage,
 )
 from devops_cli.ai.review.protocol import ReviewLLMClient
-from devops_cli.ai.review.review_environment import (
-    _get_reviews_base_dir as _get_reviews_base_dir,
-)
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
@@ -65,6 +62,7 @@ from devops_cli.review.diff import (
     diff_file_names,
     number_source_lines,
 )
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.suppression import (
     covering_suppressions,
     format_covering_suppressions,
@@ -102,13 +100,13 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:
-    reviews_dir = _get_reviews_base_dir()
+    reviews_dir = ReviewSessionStore.root()
     if not reviews_dir.exists():
         return None
     if session_arg:
         safe_arg = Path(session_arg).name
         target = (reviews_dir / safe_arg).resolve()
-        if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir.resolve()):
+        if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir):
             return target
         matches = [d for d in reviews_dir.iterdir() if d.is_dir() and safe_arg in d.name]
         if matches:

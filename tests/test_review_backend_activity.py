@@ -17,7 +17,6 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.direct import direct_model_request_sync
 from devops_cli.ai.review import profile as profile_module
-from devops_cli.ai.review import runner
 from devops_cli.ai.review.profile import (
     BackendActivity,
     ReviewProfile,
@@ -124,7 +123,6 @@ def test_benchmark_table_shows_busy_share_and_peak(
         report_profile(next(runs))
 
     monkeypatch.setattr(review_commands, "path", fake_review)
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
 
     result = cli.invoke(app, ["review", "benchmark", str(corpus), "-n", "2"])
 

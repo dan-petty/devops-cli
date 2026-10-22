@@ -761,7 +761,8 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
 
 def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
     """Verify session_dir resolution uses central data directory and does not contaminate subdirectories."""
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, _get_reviews_base_dir
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.review.session import ReviewSessionStore
 
     sub_target = tmp_path / "src" / "exceptions"
     sub_target.mkdir(parents=True, exist_ok=True)
@@ -771,8 +772,7 @@ def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
         target_dir=sub_target,
     )
 
-    reviews_base = _get_reviews_base_dir().resolve()
-    assert orch.session_dir.parent == reviews_base
+    assert orch.session_dir.parent == ReviewSessionStore.root()
     assert not (sub_target / ".data").exists()
 
 

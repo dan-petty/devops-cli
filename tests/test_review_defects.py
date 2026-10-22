@@ -14,7 +14,6 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai import run_store
-from devops_cli.ai.review import runner
 from devops_cli.ai.review.defects import (
     CORPUS_FILES_DIR,
     CORPUS_MANIFEST,
@@ -36,6 +35,7 @@ from devops_cli.ai.run_store import Mechanism, load_runs
 from devops_cli.commands import review as review_commands
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.main import app
+from devops_cli.review.session import ReviewSessionStore
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -453,8 +453,8 @@ def test_a_corpus_inside_a_repository_reads_none_of_its_conventions(
     corpus with none; one with its own gives the corpus a copy.
     """
     repo = _repository_with_conventions(tmp_path / "repo")
-    reviews = repo / ".data" / "reviews"
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(repo / ".data"))
+    reviews = ReviewSessionStore.root()
     source = _source_tree(tmp_path)
 
     generated = cli.invoke(review_commands.corpus_app, ["generate", str(source), "--seed", "7"])
@@ -525,11 +525,10 @@ def test_a_manifest_that_is_no_regular_file_is_never_opened(tmp_path: Path) -> N
 
 
 def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify generate writes a corpus, and score reads the latest session that reviewed it."""
-    reviews = tmp_path / "reviews"
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    reviews = review_store.root()
     source = _source_tree(tmp_path)
 
     generated = cli.invoke(app, ["review", "corpus", "generate", str(source), "--seed", "7"])
@@ -561,14 +560,13 @@ def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
 
 
 def test_a_corpus_score_is_kept_with_each_injections_outcome(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify a score is kept in the run store, its subject the corpus's injections, so scores
     of the same corpus under different setups can be compared (#554)."""
     from devops_cli.ai.run_store import Mechanism, load_runs
 
-    reviews = tmp_path / "reviews"
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    reviews = review_store.root()
     source = _source_tree(tmp_path)
     corpus_dir = tmp_path / "corpus"
     generate_corpus(_sources(source), corpus_dir, sources=[str(source)], seed=1)
@@ -586,11 +584,10 @@ def test_a_corpus_score_is_kept_with_each_injections_outcome(
 
 
 def test_score_without_a_review_of_the_corpus_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify scoring refuses a session that did not review the corpus, rather than guessing."""
-    reviews = tmp_path / "reviews"
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    reviews = review_store.root()
     source = _source_tree(tmp_path)
     corpus_dir = tmp_path / "corpus"
     generate_corpus(_sources(source), corpus_dir, sources=[str(source)], seed=1)
@@ -605,8 +602,7 @@ def test_score_without_a_review_of_the_corpus_fails(
 # above drive it through `devops`, and these through it, which builds two commands, not all.
 def _reviewed_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """A corpus and the reviews directory its sessions are written to."""
-    reviews = tmp_path / "reviews"
-    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    reviews = ReviewSessionStore.root()
     # A kept run is stamped with the checkout's commit, which runs git three times; not tested here.
     monkeypatch.setattr(run_store, "source_commit", lambda: None)
     source = _source_tree(tmp_path)

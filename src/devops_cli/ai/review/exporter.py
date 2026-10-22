@@ -17,7 +17,6 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
@@ -25,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.exceptions import SecurityError
+from devops_cli.review.session import ReviewSessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +168,12 @@ def _recorded_fingerprints(path: Path) -> set[str]:
 def _resolve_reviews_dir(reviews_dir: Path | None) -> Path:
     """The reviews directory to read, refused when it escapes the allowed roots."""
     if reviews_dir is None:
-        return _get_reviews_base_dir()
+        return ReviewSessionStore.root()
     import tempfile
 
     resolved_r_dir = reviews_dir.resolve()
     workspace_root = Path.cwd().resolve()
-    data_root = _get_reviews_base_dir().resolve().parent
+    data_root = ReviewSessionStore.root().parent
     allowed_review_roots = [workspace_root, data_root, Path(tempfile.gettempdir()).resolve()]
     if not any(
         resolved_r_dir == root or resolved_r_dir.is_relative_to(root)
@@ -195,7 +195,7 @@ def _resolve_output_path(output_file: Path | None, reviews_dir: Path | None) -> 
     import tempfile
 
     resolved_out = output_file.resolve()
-    allowed_roots = [Path.cwd().resolve(), _get_reviews_base_dir().resolve().parent]
+    allowed_roots = [Path.cwd().resolve(), ReviewSessionStore.root().parent]
     if reviews_dir is not None:
         allowed_roots.append(reviews_dir.resolve().parent)
     allowed_roots.append(Path(tempfile.gettempdir()).resolve())
