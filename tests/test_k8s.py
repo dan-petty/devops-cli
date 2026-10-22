@@ -434,6 +434,7 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
         True,
         [
             ("infra", "argocd"),
+            ("infra", "argo-workflows"),
             ("infra", "pyroscope"),
             ("llm", "qdrant"),
         ],
@@ -2266,6 +2267,87 @@ def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
         )
     commands = [tuple(call.args[0]) for call in mock_run.call_args_list]
     assert (res.exit_code, (*removal, *_CONTEXT) in commands) == (0, True)
+
+
+_ARGO_WORKFLOWS_POLICY = str(Path("k8s", "argo-workflows", "networkpolicy.yaml"))
+_ARGO_WORKFLOWS_TEMPLATE = str(Path("k8s", "argo-workflows", "workflowtemplate-version.yaml"))
+
+
+def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template() -> None:
+    """Both dry runs name the chart, the perimeter and the WorkflowTemplate. A dry run makes no
+    request, which the hermetic floor enforces (#1535)."""
+    deploy = runner.invoke(
+        app, ["deploy-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run"]
+    )
+    teardown = runner.invoke(
+        app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run"]
+    )
+    deployed, torn_down = _dry_run_details(deploy.output), _dry_run_details(teardown.output)
+    assert (
+        deploy.exit_code,
+        "argo-workflows" in deployed["helm_releases"],
+        _ARGO_WORKFLOWS_POLICY in deployed["manifests"],
+        deployed["post_helm"],
+        teardown.exit_code,
+        "argo-workflows" in torn_down["helm_uninstalls"],
+        _ARGO_WORKFLOWS_POLICY in torn_down["manifest_deletes"],
+        torn_down["post_helm_deletes"],
+    ) == (
+        0,
+        True,
+        True,
+        [_ARGO_WORKFLOWS_TEMPLATE],
+        0,
+        True,
+        True,
+        [_ARGO_WORKFLOWS_TEMPLATE],
+    )
+
+
+def test_infra_stack_applies_the_perimeter_before_and_the_template_after_every_chart(
+    applications_repo: Path,
+) -> None:
+    """The WorkflowTemplate needs the CRD its chart installs, so it applies after every Helm
+    release; the perimeter applies before them. The stack restarts no service: the `devops` stack
+    owns the restart of `roadmap-service`, which #1562 holds at no replicas (#1535)."""
+    cluster = _Cluster(applications_repo, argo=False)
+    with patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}):
+        res = _deploy(cluster, "--stack", "infra", "--k8s-dir", "k8s")
+    commands = [cmd for cmd, _ in cluster.calls]
+    upgrades = [i for i, cmd in enumerate(commands) if cmd[:3] == ["helm", "upgrade", "--install"]]
+    policy = commands.index(["kubectl", "apply", "-f", _ARGO_WORKFLOWS_POLICY, *_CONTEXT])
+    template = commands.index(["kubectl", "apply", "-f", _ARGO_WORKFLOWS_TEMPLATE, *_CONTEXT])
+    assert (
+        res.exit_code,
+        policy < min(upgrades),
+        template > max(upgrades),
+        [cmd for cmd in commands if "restart" in cmd or any("roadmap-service" in a for a in cmd)],
+    ) == (0, True, True, [])
+
+
+def test_infra_teardown_deletes_the_template_before_the_uninstalls_and_the_namespace_after(
+    applications_repo: Path,
+) -> None:
+    """The template is deleted while the chart's CRD still serves it, and the namespace goes after
+    the releases that live in it (#1535)."""
+    cluster = _Cluster(applications_repo, argo=False)
+    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+        res = runner.invoke(
+            app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT]
+        )
+    commands = [cmd for cmd, _ in cluster.calls]
+    uninstalls = [i for i, cmd in enumerate(commands) if cmd[:2] == ["helm", "uninstall"]]
+    template = commands.index(
+        ["kubectl", "delete", "-f", _ARGO_WORKFLOWS_TEMPLATE, "--ignore-not-found", *_CONTEXT]
+    )
+    namespace = commands.index(
+        ["kubectl", "delete", "namespace", "argo-workflows", "--ignore-not-found", *_CONTEXT]
+    )
+    assert (res.exit_code, template < min(uninstalls), namespace > max(uninstalls)) == (
+        0,
+        True,
+        True,
+    )
 
 
 def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_uninstall() -> None:

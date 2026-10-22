@@ -76,6 +76,59 @@ def test_application_projects_and_destinations() -> None:
             assert dest_ns not in ("kube-system", "default")
 
 
+def _destinations_outside_their_project(
+    applications: dict[str, dict[str, Any]], projects: dict[str, dict[str, Any]]
+) -> list[tuple[str, str, str]]:
+    """(Application, server, namespace) of each destination its AppProject does not allow.
+
+    Argo CD matches a project's `server` and `namespace` as glob patterns, and its built-in
+    `default` project allows every destination.
+    """
+    outside: list[tuple[str, str, str]] = []
+    for name, application in applications.items():
+        spec = application["spec"]
+        server, namespace = spec["destination"]["server"], spec["destination"]["namespace"]
+        allowed = projects.get(spec["project"], {}).get("spec", {}).get("destinations", [])
+        if spec["project"] != "default" and not any(
+            fnmatch.fnmatchcase(server, destination["server"])
+            and fnmatch.fnmatchcase(namespace, destination["namespace"])
+            for destination in allowed
+        ):
+            outside.append((name, server, namespace))
+    return outside
+
+
+def test_every_application_destination_is_one_its_project_allows() -> None:
+    projects = {
+        doc["metadata"]["name"]: doc
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc.get("kind") == "AppProject"
+    }
+    assert _destinations_outside_their_project(_all_applications(), projects) == []
+
+
+def test_an_application_destination_outside_its_project_is_reported() -> None:
+    """Pin the check on a project that allows one server and the namespaces `a*`."""
+    project = {"spec": {"destinations": [{"server": "https://example.com", "namespace": "a*"}]}}
+    applications = {
+        name: {
+            "spec": {"project": project_name, "destination": {"server": server, "namespace": ns}}
+        }
+        for name, project_name, server, ns in (
+            ("allowed", "team", "https://example.com", "api"),
+            ("other-namespace", "team", "https://example.com", "web"),
+            ("other-server", "team", "https://kubernetes.default.svc", "api"),
+            ("unknown-project", "missing", "https://example.com", "api"),
+            ("built-in-project", "default", "https://kubernetes.default.svc", "web"),
+        )
+    }
+    assert _destinations_outside_their_project(applications, {"team": project}) == [
+        ("other-namespace", "https://example.com", "web"),
+        ("other-server", "https://kubernetes.default.svc", "api"),
+        ("unknown-project", "https://example.com", "api"),
+    ]
+
+
 def test_automated_sync_policies() -> None:
     apps = _all_applications()
     for name, app in apps.items():
@@ -313,6 +366,7 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
         ("", "Secret", "agent-grant-*"),
         ("", "PersistentVolumeClaim", ""),
         ("batch", "Job", "devops-cli-*"),
+        ("argoproj.io", "Workflow", "devops-cli-version-*"),
         ("argoproj.io", "AppProject", "default"),
     }
     assert expected_ignored.issubset(ignored_tuples)
@@ -320,7 +374,10 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     destinations = {
         (d.get("server", ""), d.get("namespace", "")) for d in homelab.get("destinations", [])
     }
-    assert ("https://kubernetes.default.svc", "agents") in destinations
+    assert {
+        ("https://kubernetes.default.svc", "agents"),
+        ("https://kubernetes.default.svc", "argo-workflows"),
+    } <= destinations
 
 
 # ── Ownership & No Duplicates ────────────────────────────────────────────────
@@ -704,3 +761,68 @@ def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it
         0,
         "",
     )
+
+
+# ── Argo Workflows (#1535) ───────────────────────────────────────────────────
+
+
+def test_argo_workflows_application_pins_the_argo_helm_chart_the_infra_stack_installs() -> None:
+    """Its project admits the chart repository and namespace, and deploy-stack installs the chart
+    after the CRDs of the ServiceMonitor it renders."""
+    spec = _all_applications()["argo-workflows"]["spec"]
+    projects = {
+        doc["metadata"]["name"]: doc["spec"] for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+    }
+    releases = _HELM_RELEASES_BY_STACK["infra"]
+    names = [release["name"] for release in releases]
+    release = releases[names.index("argo-workflows")]
+    chart = spec["sources"][0]
+    assert (
+        spec["project"],
+        spec["sources"],
+        spec["destination"],
+        chart["repoURL"] in projects[spec["project"]]["sourceRepos"],
+        (release["chart"], release["namespace"], release["version"]),
+        names.index("prometheus-operator-crds") < names.index("argo-workflows"),
+    ) == (
+        "homelab",
+        [
+            {
+                "repoURL": "https://argoproj.github.io/argo-helm",
+                "chart": "argo-workflows",
+                "targetRevision": "2.0.13",
+                "helm": {"valueFiles": ["$values/k8s/argo-workflows/values.yaml"]},
+            },
+            {"repoURL": REPO_URL, "targetRevision": "main", "ref": "values"},
+        ],
+        {"server": "https://kubernetes.default.svc", "namespace": "argo-workflows"},
+        True,
+        ("argo/argo-workflows", "argo-workflows", "2.0.13"),
+        True,
+    )
+
+
+def test_the_template_application_skips_the_dry_run_until_the_chart_installs_its_crds() -> None:
+    """The WorkflowTemplate is a plain manifest, so Argo CD's dry run fails on a first sync, before
+    the chart has installed the CRD, unless the Application skips it, as `ingress` does."""
+    spec = _all_applications()["argo-workflows-manifests"]["spec"]
+    assert (
+        spec["project"],
+        spec["source"],
+        spec["destination"],
+        spec["syncPolicy"]["syncOptions"],
+    ) == (
+        "homelab",
+        {"repoURL": REPO_URL, "targetRevision": "main", "path": "k8s/argo-workflows"},
+        {"server": "https://kubernetes.default.svc", "namespace": "argo-workflows"},
+        ["SkipDryRunOnMissingResource=true"],
+    )
+
+
+def test_the_template_application_syncs_after_the_chart_that_brings_its_crds() -> None:
+    waves = {
+        name: int(app["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-wave", "0"))
+        for name, app in _all_applications().items()
+        if name in {"argo-workflows", "argo-workflows-manifests"}
+    }
+    assert waves["argo-workflows"] < waves["argo-workflows-manifests"]

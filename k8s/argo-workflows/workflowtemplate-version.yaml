@@ -1,0 +1,66 @@
+# One `devops --version` run of the Service image: the unit step 1 measures (#1535). It mounts no
+# Secret and makes no GitHub request, and the perimeter allows neither public HTTPS nor OTLP.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: devops-cli-version
+  namespace: argo-workflows
+  labels:
+    app.kubernetes.io/name: devops-cli-version
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  entrypoint: version
+  serviceAccountName: argo-workflows-executor
+  activeDeadlineSeconds: 300
+  # The Workflow, and with it every pod, is deleted an hour after it finishes. A pod of a
+  # succeeded Workflow goes at once, and a failed Workflow keeps its pods for inspection until then.
+  ttlStrategy:
+    secondsAfterCompletion: 3600
+  podGC:
+    strategy: OnWorkflowSuccess
+  # Every container of the pod shares this user, so none meets a file it cannot write on a shared
+  # volume.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  templates:
+    - name: version
+      container:
+        image: ghcr.io/dan-petty/devops-cli/service
+        imagePullPolicy: IfNotPresent
+        # Without a command the controller looks the image's entrypoint up in the registry over
+        # HTTPS, which the perimeter blocks.
+        command: [devops]
+        args: ["--version"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        env:
+          - name: DEVOPS_CLI_TELEMETRY_ENABLED
+            value: "false"
+          - name: DEVOPS_CLI_DATA_DIR
+            value: /home/devops/.data
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: home
+            mountPath: /home/devops
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
