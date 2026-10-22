@@ -11,14 +11,15 @@ directory it was started from.
 
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
-that finds nothing. They are kept in `tests/fixtures/scanner_runs/recorded_runs.json`, each with
-its command, in which `{tree}` stands for the scanned tree, `{workdir}` for the directory the
-scanner ran in and `{rule_pack}` for devops-cli's Semgrep rule pack. The contract suite,
-`tests/test_scanner_contract.py`, starts each adapter that way over the fake and checks that it
-still makes the recorded command and reads the run as it read the real one, and that each
-recording is of the locked version. When either changes, record the run again: start the
-adapter as the contract suite does, with the real tool at its locked version on PATH, and keep
-the command, exit code, stdout and stderr it ran with.
+that finds nothing. Semgrep's was recorded again on 2026-10-22, offline, with a rule file in
+place of the registry's `p/default`, which a recording cannot fetch. They are kept in
+`tests/fixtures/scanner_runs/recorded_runs.json`, each with its command, in which `{tree}` stands
+for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for
+devops-cli's Semgrep rule pack. The contract suite, `tests/test_scanner_contract.py`, starts each
+adapter that way over the fake and checks that it still makes the recorded command and reads the
+run as it read the real one, and that each recording is of the locked version. When either
+changes, record the run again: start the adapter as the contract suite does, with the real tool
+at its locked version on PATH, and keep the command, exit code, stdout and stderr it ran with.
 """
 
 from __future__ import annotations

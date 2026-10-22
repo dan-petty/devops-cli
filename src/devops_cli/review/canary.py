@@ -27,6 +27,7 @@ from devops_cli.config.commands import (
     BIN_PLUTO,
     BIN_RUFF,
     BIN_SEMGREP,
+    build_semgrep_cmd,
 )
 from devops_cli.config.constants import (
     CONST_CANARY_DOCKERFILE_SOURCE,
@@ -415,16 +416,7 @@ def _default_ruleset_digest(tool: str) -> str:
 
 
 def _build_semgrep_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
-    return [
-        BIN_SEMGREP,
-        "scan",
-        "--json",
-        "--quiet",
-        "--metrics=off",
-        "--config",
-        "semgrep_probes.yaml",
-        "canary.py",
-    ]
+    return build_semgrep_cmd(["canary.py"], ["semgrep_probes.yaml"])
 
 
 def _build_ruff_canary_cmd(_workdir: Path, lang_ver: str) -> list[str]:

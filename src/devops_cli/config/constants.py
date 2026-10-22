@@ -3152,6 +3152,17 @@ CONST_SEMGREP_EXCLUDED_EXTENSIONS: Final[frozenset[str]] = (
     CONST_DOC_EXTENSIONS | CONST_BINARY_EXTENSIONS | CONST_LOCKFILE_EXTENSIONS
 )
 
+# Directories of a checkout that hold dependencies, devops-cli's own data or cloned repositories,
+# not the code Semgrep scans.
+CONST_SEMGREP_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
+    ".venv",
+    "venv",
+    "node_modules",
+    ".data",
+    "repos",
+    ".git",
+)
+
 
 CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
     {

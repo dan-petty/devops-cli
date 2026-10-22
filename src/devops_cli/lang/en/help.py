@@ -1416,7 +1416,10 @@ class ScanCommandHelp:
     target_checkov: str = "Target directory or file to scan with Checkov IaC rules."
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."
     severity: str = "Comma-separated severity levels to include."
-    semgrep_config: str = "Semgrep ruleset config (e.g. p/default, p/security-audit)."
+    semgrep_config: str = (
+        "Semgrep ruleset config (e.g. p/default, p/security-audit). devops-cli's own rule pack "
+        "runs with it."
+    )
     complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
     sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."
     target_complexity: str = "Target directory or Python file to analyze for complexity."
