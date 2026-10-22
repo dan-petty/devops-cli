@@ -575,6 +575,11 @@ shows a coverage gap that names `devops review rules fetch`. `devops review scor
 of the sessions it scores. `code_changed_during_run` is true, with a warning printed, when the
 checkout of devops-cli got a commit or an edit while the review ran.
 
+Semgrep names the files that it scanned in `paths.scanned`. A file of the review that is not in this
+list is a file that Semgrep did not scan. Review.md shows such a file as `not scanned(...)` in its
+Coverage table. The profile shows it in `coverage`. The Static Analyzers table shows a coverage gap
+and the count of such files. The profile holds the same text in `static_analyzer_reasons`.
+
 Each stage also counts its replies by the reason the provider gave for their end
 (`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by
 the backend that served them (`truncated`). When any reply hit the cap, the profile's summary line

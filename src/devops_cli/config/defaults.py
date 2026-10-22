@@ -235,9 +235,9 @@ DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_SEMGREP_TIMEOUT_SECONDS: float = 300.0
 # The most files one Semgrep run of a review names; each batch has its own timeout, so one that
-# runs out of time loses only its files (#1079). With p/default, 328 files took 285 s of the
-# 300 s timeout at a one-minute load average of 33, about 0.87 s a file: 100 files take about
-# 87 s at that rate, under half the timeout.
+# runs out of time loses only its files (#1079). Offline with the cached p/default, one run of 300
+# files took 81 to 93 s and three batches of 100 took 88 to 94 s in all (#1144): 100 files take
+# about 30 s, a tenth of the timeout.
 DEFAULT_SEMGREP_REVIEW_BATCH_FILES: int = 100
 # The most bytes a registry ruleset download may hold; p/default is 2.5 MB.
 DEFAULT_SEMGREP_REGISTRY_MAX_BYTES: int = 32 * 1024 * 1024

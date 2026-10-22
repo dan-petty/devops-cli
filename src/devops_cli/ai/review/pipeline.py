@@ -100,6 +100,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.exceptions import SecurityError
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
 from devops_cli.models.vulnerability import (
@@ -1045,12 +1046,43 @@ def _static_analyzer_reasons(
     return reasons
 
 
-def _resolve_single_tool_state(state: str, reason: str | None) -> str:
-    """Map single analyzer state and reason to tool-level outcome."""
+def _static_analyzer_unscanned(
+    observed_outcomes: dict[str, Any] | None = None,
+) -> dict[str, dict[str, str]]:
+    """The files each analyzer's scan left out, with the reason, for the coverage matrix (#1144)."""
+    return {
+        name: dict(unscanned)
+        for name, outcome in (observed_outcomes or {}).items()
+        if (unscanned := getattr(outcome, "unscanned", None))
+    }
+
+
+def _reasons_with_files_not_scanned(
+    reasons: Mapping[str, str], unscanned: Mapping[str, Mapping[str, str]]
+) -> dict[str, str]:
+    """Each analyzer's reason for the report, with a count of the files it left out added."""
+    notes = {
+        name: MESSAGES.review.files_not_scanned.format(count=len(files))
+        for name, files in unscanned.items()
+    }
+    return {
+        name: "; ".join(part for part in (reasons.get(name), notes.get(name)) if part)
+        for name in {**reasons, **notes}
+    }
+
+
+def _resolve_single_tool_state(state: str, reason: str | None, files_left_out: bool = False) -> str:
+    """Map single analyzer state and reason to tool-level outcome.
+
+    A coverage gap with no reason of its own and files left out is a scan that ran: it is a gap of
+    those files, which the matrix names (#1144).
+    """
     if reason and "timed out after" in reason:
         return reason
     if reason == "canary failed":
         return "canary failed"
+    if state == "coverage_gap" and files_left_out and not reason:
+        return "ran"
     if state == "coverage_gap" or (reason and "uv.lock hash does not match" in str(reason)):
         return f"coverage gap ({reason})" if reason else "coverage gap"
     if state == ANALYZER_FAILED:
@@ -1063,11 +1095,15 @@ def _resolve_single_tool_state(state: str, reason: str | None) -> str:
 
 
 def _resolve_effective_tool_states(
-    states: dict[str, str], reasons: dict[str, str]
+    states: dict[str, str],
+    reasons: dict[str, str],
+    unscanned: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, str]:
     """Map analyzer states and reasons to tool-level outcomes for coverage calculation."""
+    left_out = unscanned or {}
     return {
-        tool: _resolve_single_tool_state(state, reasons.get(tool)) for tool, state in states.items()
+        tool: _resolve_single_tool_state(state, reasons.get(tool), bool(left_out.get(tool)))
+        for tool, state in states.items()
     }
 
 
@@ -1089,8 +1125,10 @@ def _resolve_tool_file_status(
     resolved_path: Path,
     tool_state: str | None,
     path_classes: Mapping[str, Sequence[str]],
+    not_scanned: str | None = None,
 ) -> str:
-    """Resolve status of a single (tool, file) pairing."""
+    """Resolve status of a single (tool, file) pairing; `not_scanned` is the reason the tool left
+    the file out of a scan that ran (#1144)."""
     if tool != "Gitleaks" and is_fixture_path(resolved_path, path_classes):
         return "skipped(fixture)"
 
@@ -1102,6 +1140,9 @@ def _resolve_tool_file_status(
 
     if tool == "Trivy" and not _is_tool_container_or_lockfile_match(resolved_path):
         return "skipped(not container or lockfile)"
+
+    if not_scanned is not None:
+        return f"not scanned({not_scanned})"
 
     if tool_state == "ran":
         return "scanned"
@@ -1115,13 +1156,19 @@ def _compute_coverage_matrix(
     resolve_fn: Callable[[str], Path],
     tool_states: dict[str, str],
     path_classes: Mapping[str, Sequence[str]],
+    unscanned: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Compute (tool, file) coverage matrix recording scanned, skipped, failed, etc."""
+    """Compute (tool, file) coverage matrix recording scanned, skipped, failed, not scanned, etc.
+
+    `unscanned` maps a tool to the files its scan left out and why (#1144)."""
     matrix: dict[str, dict[str, str]] = {}
     for tool in tools:
         tool_state = tool_states.get(tool)
+        left_out = (unscanned or {}).get(tool, {})
         matrix[tool] = {
-            f: _resolve_tool_file_status(tool, resolve_fn(f), tool_state, path_classes)
+            f: _resolve_tool_file_status(
+                tool, resolve_fn(f), tool_state, path_classes, left_out.get(f)
+            )
             for f in files
         }
     return matrix
@@ -1136,6 +1183,7 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     ]
     missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
     failed = [name for name, state in states.items() if state == ANALYZER_FAILED]
+    gapped = [name for name, state in states.items() if state == "coverage_gap"]
     lines = (
         [f"    [dim]✓ Static analyzers found {findings} finding(s): {', '.join(ran)} ran[/dim]"]
         if ran
@@ -1148,12 +1196,18 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
             f"    [yellow]! Failed during execution: {', '.join(failed)} "
             "(the report's Static Analyzers table says why)[/yellow]"
         )
+    if gapped:
+        lines.append(
+            f"    [yellow]! Coverage gap: {', '.join(gapped)} "
+            "(the report's Static Analyzers table says why)[/yellow]"
+        )
     return lines
 
 
 # The analyzer line's lists after those that ran, in order.
 _ANALYZER_LINE_LISTS: tuple[tuple[str, str], ...] = (
     (ANALYZER_BUILTIN_PATTERNS, "Built-in patterns only"),
+    ("coverage_gap", "Coverage gap"),
     (ANALYZER_FAILED, "Failed"),
     (ANALYZER_NOT_INSTALLED, "Not installed"),
 )
@@ -1908,6 +1962,8 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
+        # The files each analyzer's scan left out, with the reason (#1144).
+        self.static_analyzer_unscanned: dict[str, dict[str, str]] = {}
         # The static analyzers' findings by severity, for the report's analyzer line.
         self.static_severities: Counter[str] = Counter()
         self.admitted_scanner_findings: list[Any] = []
@@ -2216,7 +2272,9 @@ class ReviewPipelineOrchestrator:
                 tools = [name for name, _, _ in _STATIC_ANALYZERS]
                 all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
                 tool_effective_states = _resolve_effective_tool_states(
-                    self.static_analyzers, self.static_analyzer_reasons
+                    self.static_analyzers,
+                    self.static_analyzer_reasons,
+                    self.static_analyzer_unscanned,
                 )
                 self.coverage = _compute_coverage_matrix(
                     tools,
@@ -2224,6 +2282,7 @@ class ReviewPipelineOrchestrator:
                     self._resolve_file_path,
                     tool_effective_states,
                     self.path_classes,
+                    self.static_analyzer_unscanned,
                 )
                 active_prof = active_profiler()
                 if active_prof:
@@ -2340,6 +2399,7 @@ class ReviewPipelineOrchestrator:
         self.static_analyzer_reasons = _static_analyzer_reasons(
             self.static_analyzers, observed_outcomes
         )
+        self.static_analyzer_unscanned = _static_analyzer_unscanned(observed_outcomes)
         for tool_key, analyzer_name in CONST_CANARY_TOOL_TO_ANALYZER.items():
             if self.canary_results.get(tool_key) is False and self.static_analyzers.get(
                 analyzer_name
@@ -2347,7 +2407,7 @@ class ReviewPipelineOrchestrator:
                 self.static_analyzers[analyzer_name] = ANALYZER_FAILED
                 self.static_analyzer_reasons[analyzer_name] = "canary failed"
         if profiler := active_profiler():
-            profiler.set_static_analyzers(self.static_analyzers, self.static_analyzer_reasons)
+            profiler.set_static_analyzers(self.static_analyzers, self._static_analyzer_notes())
 
     def _fetch_threat_intel(
         self, file_paths: list[str]
@@ -3084,13 +3144,20 @@ class ReviewPipelineOrchestrator:
         self.analysis_report = report
         return report
 
+    def _static_analyzer_notes(self) -> dict[str, str]:
+        """Each analyzer's reason as the report says it, with the files it left out counted."""
+        return _reasons_with_files_not_scanned(
+            self.static_analyzer_reasons, self.static_analyzer_unscanned
+        )
+
     def _build_static_analyzers_section(self) -> list[str]:
         """Which static analyzers ran, so a scan with no findings is not read as clean."""
         if not self.static_analyzers:
             return []
         rows = []
+        notes = self._static_analyzer_notes()
         for name, state in self.static_analyzers.items():
-            reason = self.static_analyzer_reasons.get(name)
+            reason = notes.get(name)
             result = f"{state}: {reason}" if reason else state
             cell = " ".join(result.split()).replace("|", "\\|")
             rows.append(f"| {name} | {cell} |")

@@ -16,12 +16,14 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.profile import profiling
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.review.rules_pack import RULE_PACK_DIR
-from devops_cli.security.base import ScanOutcome
+from devops_cli.security.base import MaterializedTargets, ScanOutcome
 from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.semgrep import (
+    SemgrepScanner,
     parse_semgrep_json,
     run_semgrep_scan,
 )
@@ -302,10 +304,9 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
 def test_a_semgrep_timeout_loses_only_its_batch(
     reviewed_checkout: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At p/default's measured rate a review's targets took more than half Semgrep's 300 s
-    timeout in one run, so a review scans them in batches, each with its own timeout. A batch
-    that runs out of time loses its own files and says which batch it was; the other batches'
-    findings stay. Ten files in batches of four make three batches."""
+    """A review scans its targets in batches, each with its own timeout. A batch that runs out of
+    time loses its own files and says which batch it was; the other batches' findings stay. Ten
+    files in batches of four make three batches."""
     monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 4)
     batch_sizes: list[int] = []
 
@@ -756,3 +757,153 @@ def test_scan_sast_warns_of_nothing_when_the_cached_ruleset_is_current(
     result = cli("scan", "sast", str(tmp_path), "--json")
 
     assert (result.exit_code, result.stderr) == (0, "")
+
+
+# =============================================================================
+# The files Semgrep did not scan (#1144)
+# =============================================================================
+
+# What a review says of a file its Semgrep command named and its report left out of
+# `paths.scanned`. The recorded run lists `app.py` and no other file.
+NOT_LISTED = "Semgrep did not list the file as scanned"
+
+
+def _write_files(tree: Path, *names: str) -> list[Path]:
+    """Files with some content, one for each of `names`, in `tree`."""
+    paths = [tree / name for name in names]
+    for path in paths:
+        path.write_text("body\n", encoding="utf-8")
+    return paths
+
+
+def test_a_review_lists_the_files_semgrep_does_not_list_as_scanned_and_reports_a_coverage_gap(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    """Semgrep scans a file it is named only when a rule applies to its language, and reports the
+    files it scanned in `paths.scanned`. The recorded run lists `app.py`; the review also named
+    `style.css`, so that file is left out and the outcome is a coverage gap."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheet = _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan(
+        [target, *stylesheet], reviewed_tree=tree, ruleset=cached_ruleset("p/default")
+    )
+
+    assert [run.argv[-2:] for run in scanner_fake.runs] == [["./app.py", "./style.css"]]
+    assert (outcome.status, outcome.reason, outcome.unscanned) == (
+        "coverage_gap",
+        "",
+        {"style.css": NOT_LISTED},
+    )
+
+
+def test_a_review_whose_files_semgrep_lists_as_scanned_has_no_coverage_gap(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+
+    outcome = run_semgrep_scan([target], reviewed_tree=tree, ruleset=cached_ruleset("p/default"))
+
+    assert (outcome.status, outcome.unscanned) == ("ran", {})
+
+
+def test_the_files_each_batch_of_a_review_leaves_out_are_all_listed(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recorded run lists `app.py` for each batch. With one file in each batch the first
+    batch is complete and the other two each leave out their file; the merged outcome lists both."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheets = _write_files(tree, "first.css", "second.css")
+    monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 1)
+
+    outcome = run_semgrep_scan(
+        [target, *stylesheets], reviewed_tree=tree, ruleset=cached_ruleset("p/default")
+    )
+
+    assert (len(scanner_fake.runs), outcome.status, outcome.unscanned) == (
+        3,
+        "coverage_gap",
+        {"first.css": NOT_LISTED, "second.css": NOT_LISTED},
+    )
+
+
+def test_a_review_without_the_cached_ruleset_still_lists_the_files_semgrep_left_out(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The missing ruleset is the scan's own gap and keeps its reason; the files stay listed."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheet = _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan([target, *stylesheet], reviewed_tree=tree)
+
+    assert (outcome.status, outcome.reason, outcome.unscanned) == (
+        "coverage_gap",
+        NOT_CACHED,
+        {"style.css": NOT_LISTED},
+    )
+
+
+def test_a_scan_of_a_directory_names_no_files_and_so_leaves_none_out(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Semgrep walks a directory and reports what it found there; no named file is missing."""
+    tree, _ = _review_inputs(tmp_path)
+    _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan(tree, config="./local-rules")
+
+    assert (outcome.status, outcome.unscanned) == ("ran", {})
+
+
+def test_a_report_without_a_list_of_scanned_paths_leaves_no_file_unscanned() -> None:
+    """Only the list of scanned paths can show a file missing. A report with no such list says
+    nothing of the files, and an empty list says that Semgrep scanned none of them."""
+    staged = MaterializedTargets({"app.py": Path("/tree/app.py")})
+    scanner = SemgrepScanner()
+
+    assert (
+        scanner.unscanned_files({"results": []}, staged),
+        scanner.unscanned_files({"results": [], "paths": {"scanned": []}}, staged),
+        scanner.unscanned_files({"paths": {"scanned": ["./app.py"]}}, staged),
+    ) == ({}, {"app.py": NOT_LISTED}, {})
+
+
+def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_sections(
+    reviewed_checkout: Path, cached_default_ruleset: Path
+) -> None:
+    """Semgrep scanned two of the four files. The coverage matrix names the two files it left
+    out, and the other files stay scanned. Review.md and the profile give the count of two in the
+    Static Analyzers section, and review.md lists the files in the Coverage section."""
+    files = _REVIEWED_FILES[:4]
+    left_out = {"pkg2/mod_2.py", "pkg3/mod_3.py"}
+    count_text = "Files not scanned: 2. The Coverage section lists them."
+
+    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
+        scanned = [os.path.normpath(name) for name in _named_targets(cmd)]
+        report = {"results": [], "paths": {"scanned": [n for n in scanned if n not in left_out]}}
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(report), "")
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="semgrep", target_dir=reviewed_checkout)
+    with (
+        profiling() as profiler,
+        patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)),
+    ):
+        orchestrator._run_static_scanners(files)
+    profile = profiler.build(session_id="semgrep", target=str(reviewed_checkout))
+    coverage = "\n".join(orchestrator._build_coverage_section())
+    analyzers = "\n".join(orchestrator._build_static_analyzers_section())
+
+    assert orchestrator.static_analyzers["Semgrep"] == "coverage_gap"
+    assert orchestrator.coverage["Semgrep"] == {
+        "pkg0/mod_0.py": "scanned",
+        "pkg1/mod_1.py": "scanned",
+        "pkg2/mod_2.py": f"not scanned({NOT_LISTED})",
+        "pkg3/mod_3.py": f"not scanned({NOT_LISTED})",
+    }
+    assert f"| Semgrep | `pkg2/mod_2.py` | not scanned({NOT_LISTED}) |" in coverage
+    assert f"| Semgrep | `pkg3/mod_3.py` | not scanned({NOT_LISTED}) |" in coverage
+    assert f"| Semgrep | coverage_gap: {count_text} |" in analyzers
+    assert profile.static_analyzer_reasons == {"Semgrep": count_text}

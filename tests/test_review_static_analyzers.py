@@ -83,6 +83,17 @@ def test_the_summary_names_what_ran_and_what_was_not_installed() -> None:
     ]
 
 
+def test_the_summary_names_an_analyzer_with_a_coverage_gap_apart_from_those_that_ran() -> None:
+    """Verify Semgrep is named when its scan ran and left files out (#1144). The console line
+    did not name it, so the analyzer was missing from the line."""
+    lines = _static_analyzer_summary({"Bandit": "ran", "Semgrep": "coverage_gap"}, findings=0)
+
+    assert lines == [
+        "    [dim]✓ Static analyzers found 0 finding(s): Bandit ran[/dim]",
+        "    [yellow]! Coverage gap: Semgrep (the report's Static Analyzers table says why)[/yellow]",
+    ]
+
+
 def test_the_summary_says_when_no_analyzer_ran() -> None:
     """Verify a scan where nothing ran is not reported as completed."""
     lines = _static_analyzer_summary({"Bandit": "not installed", "Pluto": "no files"}, 0)
