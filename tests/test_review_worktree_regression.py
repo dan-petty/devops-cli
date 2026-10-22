@@ -16,6 +16,7 @@ from devops_cli.ai.review.path_classes import (
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
     _compute_coverage_matrix,
+    _resolve_effective_tool_states,
     _try_reuse_cached_analysis_meta,
 )
 from devops_cli.ai.review.profile import ReviewProfiler
@@ -249,6 +250,53 @@ def test_coverage_matrix_and_markdown_section(tmp_path: Path) -> None:
     assert "| Bandit | `src/app.py` | scanned |" in section
     assert "| Bandit | `tests/fixtures/creds.env` | skipped(fixture) |" in section
     assert "| Gitleaks | `tests/fixtures/creds.env` | scanned |" in section
+
+
+def test_coverage_matrix_names_each_file_a_tool_left_out(tmp_path: Path) -> None:
+    """A file a tool did not scan shows its reason, whatever else the tool did; a fixture stays
+    skipped, since no tool is expected to scan it (#1144)."""
+    files = ["src/app.py", "style.css", "tests/fixtures/data.css"]
+    left_out = {"Semgrep": {"style.css": "not listed", "tests/fixtures/data.css": "not listed"}}
+
+    matrix = _compute_coverage_matrix(
+        ["Semgrep", "Gitleaks"],
+        files,
+        lambda f: tmp_path / f,
+        {"Semgrep": "ran", "Gitleaks": "ran"},
+        {"fixture": ["tests/fixtures/**"]},
+        left_out,
+    )
+
+    assert matrix == {
+        "Semgrep": {
+            "src/app.py": "scanned",
+            "style.css": "not scanned(not listed)",
+            "tests/fixtures/data.css": "skipped(fixture)",
+        },
+        "Gitleaks": {
+            "src/app.py": "scanned",
+            "style.css": "scanned",
+            "tests/fixtures/data.css": "scanned",
+        },
+    }
+
+
+def test_a_gap_made_only_of_files_left_out_leaves_the_other_files_scanned() -> None:
+    """A scan that ran and left some files out is a coverage gap of those files. A scan with a
+    gap of its own, such as a missing ruleset, stays a gap for every file."""
+    left_out = {"Semgrep": {"style.css": "not listed"}}
+
+    assert (
+        _resolve_effective_tool_states({"Semgrep": "coverage_gap"}, {}, left_out),
+        _resolve_effective_tool_states(
+            {"Semgrep": "coverage_gap"}, {"Semgrep": "rules not cached"}, left_out
+        ),
+        _resolve_effective_tool_states({"Semgrep": "coverage_gap"}, {}, {}),
+    ) == (
+        {"Semgrep": "ran"},
+        {"Semgrep": "coverage gap (rules not cached)"},
+        {"Semgrep": "coverage gap"},
+    )
 
 
 def test_review_profile_coverage_and_partial_context() -> None:

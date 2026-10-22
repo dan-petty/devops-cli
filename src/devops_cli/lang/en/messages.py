@@ -151,6 +151,7 @@ class ReviewMessages:
         "The cached registry rules {ruleset} are {hours} hours old, and the scan uses them. "
         "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
     )
+    files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
 
 
 @dataclass(frozen=True)
@@ -981,6 +982,7 @@ class ScanMessages:
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
     semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
     semgrep_batch_failed: str = "batch {batch} of {batches}, {files} files: {reason}"
+    semgrep_file_not_scanned: str = "Semgrep did not list the file as scanned"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
 

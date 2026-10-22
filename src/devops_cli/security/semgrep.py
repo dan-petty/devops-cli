@@ -197,12 +197,15 @@ def _build_dry_run_finding(target_str: str) -> Finding:
 
 def _registry_rules_missing(outcome: ScanOutcome, config: str) -> ScanOutcome:
     """The outcome of a scan that ran on the rule pack alone for want of the cached registry
-    ruleset `config`: a coverage gap that names the fetch command. A scan that did not run, as in
-    a dry run, keeps its outcome."""
-    if outcome.status != "ran":
+    ruleset `config`: a coverage gap that names the fetch command and keeps the files the scan
+    left out. A scan that did not run, as in a dry run, keeps its outcome."""
+    if outcome.status not in ("ran", "coverage_gap"):
         return outcome
     gap = ScanOutcome(
-        "coverage_gap", outcome.findings, MESSAGES.review.registry_not_cached.format(ruleset=config)
+        "coverage_gap",
+        outcome.findings,
+        MESSAGES.review.registry_not_cached.format(ruleset=config),
+        outcome.unscanned,
     )
     gap.started_utc, gap.ended_utc = outcome.started_utc, outcome.ended_utc
     return gap
@@ -298,6 +301,24 @@ class SemgrepScanner(BaseSecurityScanner):
         if ruleset is not None:
             (workdir / ruleset.workdir_name).write_bytes(ruleset.body)
         return materialize_targets(_scannable_files(target_path), tree, workdir)
+
+    def unscanned_files(self, data: Any, target_path: Any) -> dict[str, str]:
+        """The files of a review that Semgrep's report does not list under `paths.scanned`.
+
+        Semgrep scans a file it is named only when a loaded rule applies to its language, and
+        lists the files it scanned. A report with no such list says nothing of the files. A scan
+        of a directory names no file, so it can leave none out (#1144).
+        """
+        paths = data.get("paths") if isinstance(data, dict) else None
+        scanned = paths.get("scanned") if isinstance(paths, dict) else None
+        if not isinstance(target_path, MaterializedTargets) or not isinstance(scanned, list):
+            return {}
+        listed = {target_path.tree_path(str(path)) for path in scanned}
+        return {
+            name: MESSAGES.scan.semgrep_file_not_scanned
+            for name in target_path.origins
+            if name not in listed
+        }
 
     def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
         """Return simulated Semgrep findings for dry-run simulation."""

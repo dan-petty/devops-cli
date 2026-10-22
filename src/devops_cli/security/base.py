@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
@@ -82,6 +82,9 @@ class ScanOutcome(list[Finding]):
 
     The reason reaches SARIF notifications, the CLI and review.md, and often quotes a scanner's
     output or an exception, so `masked_reason` masks and bounds it here, for every producer.
+
+    The reason says why the scan as a whole fell short. `unscanned` says which files a scan that
+    ran left out, each with its reason (#1144); a scan that left files out is a `coverage_gap`.
     """
 
     def __init__(
@@ -89,32 +92,38 @@ class ScanOutcome(list[Finding]):
         status: str,
         findings: list[Finding] | None = None,
         reason: str = "",
+        unscanned: Mapping[str, str] | None = None,
     ) -> None:
         items = list(findings) if findings is not None else []
         super().__init__(items)
         self.status: str = status
         self.findings: list[Finding] = items
         self.reason: str = masked_reason(reason)
+        self.unscanned: dict[str, str] = dict(unscanned or {})
         # When the scanner started and finished, in UTC; set by `BaseSecurityScanner.scan`.
         self.started_utc: str | None = None
         self.ended_utc: str | None = None
 
     def __repr__(self) -> str:
-        return f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, reason={self.reason!r})"
+        return (
+            f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, "
+            f"reason={self.reason!r}, unscanned={self.unscanned!r})"
+        )
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, ScanOutcome):
-            return (self.status, self.findings, self.reason) == (
+            return (self.status, self.findings, self.reason, self.unscanned) == (
                 other.status,
                 other.findings,
                 other.reason,
+                other.unscanned,
             )
         return super().__eq__(other)
 
 
 def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
-    """Combine the outcomes of one scanner's runs, keeping every finding, the worst status and
-    each distinct reason, from the first run's start to the last run's end."""
+    """Combine the outcomes of one scanner's runs, keeping every finding, the worst status, each
+    distinct reason and every file left out, from the first run's start to the last run's end."""
     status = min(
         (o.status for o in outcomes),
         key=lambda s: (
@@ -123,7 +132,8 @@ def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
     )
     findings = [f for o in outcomes for f in o.findings]
     reasons = dict.fromkeys(o.reason for o in outcomes if o.reason)
-    merged = ScanOutcome(status, findings, "; ".join(reasons))
+    unscanned = {path: why for o in outcomes for path, why in o.unscanned.items()}
+    merged = ScanOutcome(status, findings, "; ".join(reasons), unscanned)
     starts = [o.started_utc for o in outcomes if o.started_utc]
     ends = [o.ended_utc for o in outcomes if o.ended_utc]
     merged.started_utc, merged.ended_utc = min(starts, default=None), max(ends, default=None)
@@ -385,7 +395,8 @@ def _handle_json_output(
                     f"Scanner exited with code {returncode}; used built-in patterns",
                 )
         return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {stderr.strip()}")
-    return ScanOutcome("ran", findings)
+    unscanned = scanner.unscanned_files(data, target_path)
+    return ScanOutcome("coverage_gap" if unscanned else "ran", findings, unscanned=unscanned)
 
 
 def _utc_now() -> str:
@@ -430,6 +441,14 @@ class BaseSecurityScanner(ABC):
     @abstractmethod
     def parse_output(self, data: Any, target_path: Any) -> list[Finding]:
         """Parse raw scanner JSON/structure payload into Finding models."""
+
+    def unscanned_files(self, data: Any, target_path: Any) -> dict[str, str]:
+        """The targets the scanner's own report leaves out, each with its reason: none by default.
+
+        A scanner that lists the files it scanned opts in here, as Semgrep does (#1144). The
+        outcome of a run that leaves files out is a coverage gap.
+        """
+        return {}
 
     def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
         """Determine if scanner applies to the given target and kwargs.

@@ -213,6 +213,25 @@ def test_static_analyzers_line_counts_only_the_analyzers_that_ran(tmp_path: Path
     ) == (False, True)
 
 
+def test_static_analyzers_line_names_an_analyzer_with_a_coverage_gap(tmp_path: Path) -> None:
+    """A Semgrep scan that ran and left files out has the state `coverage_gap`. The analyzer line
+    names it apart from the analyzers that ran, so the line does not hide the scan (#1144)."""
+    pipeline = _make_dummy_pipeline(tmp_path)
+    pipeline.static_analyzers = {"Gitleaks": "ran", "Semgrep": "coverage_gap"}
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-gap-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[],
+        all_deps=[],
+        all_nets=[],
+    )
+
+    assert (
+        "**Static Security Analysis**: 1 analyzer(s) ran (Gitleaks). Static analyzers reported "
+        "0 critical finding(s). Coverage gap: Semgrep." in report_md
+    )
+
+
 def test_network_references_states_counts(tmp_path: Path) -> None:
     """Network references in review scope state local and external counts."""
     from devops_cli.models.vulnerability import NetworkReference
