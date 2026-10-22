@@ -18,6 +18,7 @@ from devops_cli.ai.client.models import (
     genai_provider_name,
 )
 from devops_cli.ai.client.network import ReplySchema, constrain_reply
+from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.response_repair import repair_json
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
@@ -145,10 +146,13 @@ def _validation_failure(
 
 
 def _with_reply_schema(system: str, json_schema: dict[str, Any]) -> str:
-    """The caller's system prompt, then the instruction to answer with one JSON object that
-    validates against `json_schema`, then that schema."""
+    """The system prompt of a structured call, built from four parts.
+
+    The parts are the caller's system prompt, the style request, the instruction to answer with
+    one JSON object, and the schema of that object. The schema ends the text.
+    """
     instruction = load_task_prompt("structured_output_schema.md")
-    parts = (system, instruction, json.dumps(json_schema, ensure_ascii=False))
+    parts = (with_style_request(system), instruction, json.dumps(json_schema, ensure_ascii=False))
     return "\n\n".join(part for part in parts if part)
 
 

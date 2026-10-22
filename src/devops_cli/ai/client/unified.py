@@ -27,6 +27,7 @@ from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.openai import OpenAICompatProviderMixin
 from devops_cli.ai.client.structured import StructuredOutputMixin
+from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
@@ -708,9 +709,13 @@ class LLMClient(
         priority: RequestPriority | str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Send a multi-turn chat request with response validation, caching, and retries."""
+        """Send a multi-turn chat request with response validation, caching, and retries.
+
+        The style request joins `system` first, so the cache key holds the system prompt as sent.
+        """
         if system_prompt and not system:
             system = system_prompt
+        system = with_style_request(system)
         eff_messages = list(messages) if messages is not None else []
         eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
@@ -845,10 +850,11 @@ class LLMClient(
     ) -> Generator[str]:
         """Send a multi-turn conversation and yield streaming tokens as they arrive.
 
-        A stream that fails after yielding output records its spend with finish reason `error`
-        and re-raises; one that fails before its first chunk records nothing, as a failed
-        non-streamed call records nothing.
+        The style request joins `system` first. A stream that fails after yielding output records
+        its spend with finish reason `error` and re-raises; one that fails before its first chunk
+        records nothing, as a failed non-streamed call records nothing.
         """
+        system = with_style_request(system)
         p = self._config.provider
         t_start = time.perf_counter()
         first_token_time: float | None = None
