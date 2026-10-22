@@ -12,6 +12,7 @@ from devops_cli.review.admission import admit
 from devops_cli.review.anchors import AdvisoryAnchor, Anchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.fingerprint import compute_fingerprint_v2
+from devops_cli.review.session import ReviewSession
 from devops_cli.review.severity import derive_severity
 from devops_cli.review.state import (
     FindingState,
@@ -565,7 +566,9 @@ def test_profile_and_findings_counts_agree(tmp_path: Path) -> None:
     profiler.set_findings(candidates=1, verified=1, reported=1)
 
     profile = profiler.build(session_id="sess-1", target="test-target", files=1)
-    profile_path = profile.write(tmp_path)
+    session = ReviewSession(tmp_path / "session")
+    profile_path = session.write_profile(profile)
+    session.publish()
     loaded_profile = json.loads(profile_path.read_text(encoding="utf-8"))
 
     assert (

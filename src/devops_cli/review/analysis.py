@@ -19,7 +19,6 @@ import os
 import re
 import shutil
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any, Final, Literal
 
 import yaml
@@ -51,7 +50,6 @@ from devops_cli.config.constants import (
     CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED,
     CONST_FINISH_REASON_LENGTH,
     CONST_KB_REFERENCE_PREFIX,
-    CONST_REVIEW_ANALYSIS_FILENAME,
     CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
@@ -1410,13 +1408,12 @@ def run_group_analysis(
     neighbours_by_group: Mapping[str, Sequence[SymbolNeighbour]] | None = None,
     environment: EnvironmentFacts | None = None,
     sampling: SamplingRecord | None = None,
-    session_dir: Path | None = None,
     concurrency: int | None = None,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
     plan_client: Any | None = None,
     drift_manuals: Sequence[DriftManual] | None = None,
 ) -> AnalysisReport:
-    """Group admitted findings, run model jobs, compute cross-group correlations, plan review, and save `analysis.json`."""
+    """Group admitted findings, run model jobs, compute cross-group correlations and plan the review."""
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
     eff_sampling = sampling or SamplingRecord()
@@ -1554,12 +1551,6 @@ def run_group_analysis(
         drift_manuals=eff_drift_kb,
         injected_manuals=injected_keys,
     )
-    if session_dir is not None:
-        session_dir.mkdir(parents=True, exist_ok=True)
-        (session_dir / CONST_REVIEW_ANALYSIS_FILENAME).write_text(
-            report.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
     return report
 
 

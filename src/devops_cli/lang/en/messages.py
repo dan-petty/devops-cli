@@ -44,6 +44,10 @@ class ReviewMessages:
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"
+    session_not_kept: str = (
+        "No review session is kept: the reporting stage is off, and it is the one that writes "
+        "the findings a session is listed by."
+    )
     code_changed_during_run: str = (
         "devops-cli's own source changed while this review ran, by a commit or an edit to its "
         "checkout, so its later stages may have run different code than its earlier ones. "

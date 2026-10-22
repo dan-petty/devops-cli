@@ -254,9 +254,10 @@ def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
         )
     ]
     orchestrator.generate_consolidated_report(payloads)
+    orchestrator.session.publish()
 
-    findings_json = (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
-    review_md = (orchestrator.session_dir / "review.md").read_text(encoding="utf-8")
+    findings_json = (orchestrator.session.directory / "findings.json").read_text(encoding="utf-8")
+    review_md = (orchestrator.session.directory / "review.md").read_text(encoding="utf-8")
 
     assert (
         locations,

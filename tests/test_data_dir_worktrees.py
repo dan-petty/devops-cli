@@ -1097,6 +1097,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     data = main / (configured or ".data")
     reviews = (isolate_user_data_root / (configured or ".data") / "reviews").resolve()
     (reviews / "20261003-120000").mkdir(parents=True)
+    (reviews / "20261003-120000" / "findings.json").write_text("{}", encoding="utf-8")
     if configured is None:
         monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     else:

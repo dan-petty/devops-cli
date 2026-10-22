@@ -35,7 +35,7 @@ from devops_cli.ai.run_store import Mechanism, load_runs
 from devops_cli.commands import review as review_commands
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.main import app
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -426,12 +426,10 @@ def test_an_arm_refuses_sessions_that_ran_different_prompts() -> None:
 def _session(
     reviews: Path, name: str, target: Path, findings: list[SavedFinding], **profile: Any
 ) -> None:
-    session = reviews / name
-    session.mkdir(parents=True)
-    (session / "findings.json").write_text(
-        ReviewSessionPayload(findings=findings).model_dump_json(), encoding="utf-8"
-    )
-    ReviewProfile(session_id=name, target=str(target.resolve()), **profile).write(session)
+    session = ReviewSession(reviews / name)
+    session.write_findings(ReviewSessionPayload(findings=findings))
+    session.write_profile(ReviewProfile(session_id=name, target=str(target.resolve()), **profile))
+    session.publish()
 
 
 def _repository_with_conventions(root: Path) -> Path:

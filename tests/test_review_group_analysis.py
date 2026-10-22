@@ -43,7 +43,7 @@ from devops_cli.main import app
 from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.state import FindingState
 from tests.llm_stream_fakes import route_client
 
@@ -499,6 +499,13 @@ def test_g10_checks_drop_and_count_failures_by_reason() -> None:
     )
 
 
+def _persisted_analysis(directory: Path, report: Any) -> dict[str, Any]:
+    """The `analysis.json` a session writes for `report`, read back once the session is published."""
+    session = ReviewSession(directory / "analysis-session")
+    session.write_analysis(report)
+    return json.loads((session.publish() / CONST_REVIEW_ANALYSIS_FILENAME).read_text("utf-8"))
+
+
 def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sampling(
     tmp_path: Path,
 ) -> None:
@@ -535,11 +542,10 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
         file_contents={"src/app.py": source},
         rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
         environment=EnvironmentFacts(language_floor="py314", python_pin="3.14"),
-        session_dir=tmp_path,
         concurrency=99,
         python_block_checker=lambda code, floor: [],
     )
-    persisted = json.loads((tmp_path / CONST_REVIEW_ANALYSIS_FILENAME).read_text(encoding="utf-8"))
+    persisted = _persisted_analysis(tmp_path, report)
 
     assert (
         DEFAULT_GATEWAY_REVIEW_CONCURRENCY == sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values()),
@@ -622,7 +628,7 @@ def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis
             [payload],
             stage_flags=ReviewStageFlags(group_analysis=enable_analysis),
         )
-        return session_dir
+        return orch.session.publish()
 
     dir_on = _run_report("with_analysis", enable_analysis=True)
     dir_off = _run_report("without_analysis", enable_analysis=False)
@@ -790,11 +796,8 @@ def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: P
         llm_client=client_cut,
         file_contents={"src/app.py": source},
         rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
-        session_dir=tmp_path / "cut",
     )
-    persisted_cut = json.loads(
-        (tmp_path / "cut" / CONST_REVIEW_ANALYSIS_FILENAME).read_text(encoding="utf-8")
-    )
+    persisted_cut = _persisted_analysis(tmp_path, report_cut)
     md_cut = "\n".join(render_model_analysis_markdown(report_cut))
 
     assert (
@@ -837,7 +840,6 @@ def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: P
         llm_client=client_stop,
         file_contents={"src/app.py": source},
         rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
-        session_dir=tmp_path / "stop",
     )
     md_stop = "\n".join(render_model_analysis_markdown(report_stop))
 
@@ -904,7 +906,6 @@ def test_group_analysis_multi_group_handles_truncated_and_normal_replies(
         llm_client=client,
         file_contents={"src/app.py": source},
         rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
-        session_dir=tmp_path,
     )
     md = "\n".join(render_model_analysis_markdown(report))
 
@@ -1254,8 +1255,8 @@ def test_correlation_table_and_review_plan_rendered_in_analysis_json_and_review_
         fingerprint="fp-2",
     )
 
-    report = run_group_analysis([f1, f2], llm_client=None, session_dir=tmp_path)
-    persisted = json.loads((tmp_path / CONST_REVIEW_ANALYSIS_FILENAME).read_text(encoding="utf-8"))
+    report = run_group_analysis([f1, f2], llm_client=None)
+    persisted = _persisted_analysis(tmp_path, report)
     md = "\n".join(render_model_analysis_markdown(report))
 
     assert "correlation_table" in persisted
@@ -1301,13 +1302,10 @@ def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> No
     test_findings = [f1, f2, f3]
     baseline_copies = [deepcopy(f) for f in test_findings]
 
-    # Run analysis stage with output to session_dir
-    session_on = tmp_path / "stage_on"
     report_on = run_group_analysis(
         test_findings,
         llm_client=None,
         file_contents={"src/app.py": "def func_prop(): pass\n"},
-        session_dir=session_on,
     )
     assert report_on.plan is not None
 
@@ -1353,7 +1351,7 @@ def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> No
             [payload],
             stage_flags=ReviewStageFlags(group_analysis=enable_stage),
         )
-        return s_dir
+        return orch.session.publish()
 
     dir_stage_on = _run_pipeline("pipe_on", enable_stage=True)
     dir_stage_off = _run_pipeline("pipe_off", enable_stage=False)
@@ -1554,7 +1552,7 @@ def _group_client(
     return client, route_client(client, monkeypatch, answer)
 
 
-def _analyze_group(client: LLMClient, tmp_path: Path, name: str = "session") -> Any:
+def _analyze_group(client: LLMClient) -> Any:
     """Run group analysis over the one finding group through `client`."""
     from devops_cli.review.analysis import run_group_analysis
 
@@ -1563,7 +1561,6 @@ def _analyze_group(client: LLMClient, tmp_path: Path, name: str = "session") -> 
         llm_client=client,
         file_contents={"src/app.py": _GROUP_SOURCE},
         rule_docs=_GROUP_DOCS,
-        session_dir=tmp_path / name,
     )
 
 
@@ -1580,10 +1577,10 @@ def test_a_group_reply_that_is_not_json_is_rejected_after_one_call_and_never_cac
     is not cached, so the next run asks the model again (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply("not json")])
 
-    first = _analyze_group(client, tmp_path, "first")
+    first = _analyze_group(client)
     calls_after_first = len(sent)
     cached_after_first = _cache_entries(tmp_path)
-    _analyze_group(client, tmp_path, "second")
+    _analyze_group(client)
 
     assert (
         calls_after_first,
@@ -1602,7 +1599,7 @@ def test_a_group_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_
     (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply(_group_payload("fp-unknown"))])
 
-    report = _analyze_group(client, tmp_path)
+    report = _analyze_group(client)
 
     assert (
         len(sent),
@@ -1619,8 +1616,8 @@ def test_a_verified_group_reply_is_cached_and_answers_the_next_run(
     without a model call (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply(_group_payload())])
 
-    first = _analyze_group(client, tmp_path, "first")
-    second = _analyze_group(client, tmp_path, "second")
+    first = _analyze_group(client)
+    second = _analyze_group(client)
 
     assert (
         len(sent),
@@ -1637,7 +1634,7 @@ def test_a_cut_group_reply_that_is_not_json_is_rejected_as_truncated_after_one_c
     `schema-validation-failed`: the rejection keeps the reply's finish reason (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply("not json", finish_reason="length")])
 
-    report = _analyze_group(client, tmp_path)
+    report = _analyze_group(client)
 
     assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
         1,
@@ -1652,7 +1649,7 @@ def test_an_empty_group_reply_is_one_model_call_and_a_model_call_error(
     """An empty reply is not resent: one model call, recorded as `model-call-error` (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply("")])
 
-    report = _analyze_group(client, tmp_path)
+    report = _analyze_group(client)
 
     assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
         1,
@@ -1668,7 +1665,7 @@ def test_an_empty_group_reply_with_reasoning_is_rejected_after_one_call_and_neve
     cached or resent (#1013)."""
     client, sent = _group_client(monkeypatch, [_group_reply("", reasoning="thinking it over")])
 
-    report = _analyze_group(client, tmp_path)
+    report = _analyze_group(client)
 
     assert (len(sent), report.groups[0].rejected_reasons, _cache_entries(tmp_path)) == (
         1,
@@ -1684,7 +1681,7 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
     verified, and the entry then holds the new reply (#1013)."""
     replies = [_group_reply("not json")]
     client, sent = _group_client(monkeypatch, replies)
-    _analyze_group(client, tmp_path, "probe")
+    _analyze_group(client)
     request = json.loads(sent[0].content)
     system, user = (message["content"] for message in request["messages"])
     client.chat(system, user)
@@ -1692,7 +1689,7 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
     calls_before = len(sent)
     replies[:] = [_group_reply(_group_payload())]
 
-    report = _analyze_group(client, tmp_path, "run")
+    report = _analyze_group(client)
 
     assert (
         seeded,

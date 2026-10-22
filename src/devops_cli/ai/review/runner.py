@@ -108,13 +108,11 @@ def _find_session_dir(session_arg: str | None) -> Path | None:
         target = (reviews_dir / safe_arg).resolve()
         if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir):
             return target
-        matches = [d for d in reviews_dir.iterdir() if d.is_dir() and safe_arg in d.name]
-        if matches:
-            return sorted(matches)[-1]
-        return None
+        matches = [s.directory for s in ReviewSessionStore.sessions() if safe_arg in s.name]
+        return matches[0] if matches else None
 
-    sessions = [d for d in reviews_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    return max(sessions, key=lambda p: p.stat().st_mtime) if sessions else None
+    latest = ReviewSessionStore.latest()
+    return latest.directory if latest else None
 
 
 def _format_finding_markdown(f: Finding) -> list[str]:
@@ -913,14 +911,42 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
     )
 
 
+def _reports(stage_flags: ReviewStageFlags | None) -> bool:
+    """Whether the review runs its reporting stage, the one that writes findings.json."""
+    return stage_flags is None or stage_flags.reporting
+
+
+def _close_session(
+    orchestrator: ReviewPipelineOrchestrator, stage_flags: ReviewStageFlags | None
+) -> None:
+    """Publish the session a review wrote, or discard it when the review did not report.
+
+    A session is listed by its findings.json, which every reader of one needs, and only the
+    reporting stage writes it: a review run without that stage has no session to keep.
+    """
+    if _reports(stage_flags):
+        orchestrator.session.publish()
+        return
+    from devops_cli.lang import MESSAGES
+
+    orchestrator.session.discard()
+    print_info(MESSAGES.review.session_not_kept, prefix=False)
+
+
 def _write_review_profile(
-    profiler: ReviewProfiler, orchestrator: ReviewPipelineOrchestrator, target: str, files: int
+    profiler: ReviewProfiler,
+    orchestrator: ReviewPipelineOrchestrator,
+    target: str,
+    files: int,
+    *,
+    kept: bool = True,
 ) -> ReviewProfile:
-    """Write the session's profile.json and summarise where the time went."""
+    """Summarise where the time went, and write it to the session's profile.json when the
+    review keeps a session."""
     profiler.set_coverage(getattr(orchestrator, "coverage", {}))
     profiler.set_partial_context(getattr(orchestrator, "partial_context", False))
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
-    path = profile.write(orchestrator.session_dir)
+    where = f" -> {orchestrator.session.write_profile(profile)}" if kept else ""
     report_profile(profile)
     if profile.code_changed_during_run:
         from devops_cli.lang import MESSAGES
@@ -935,7 +961,7 @@ def _write_review_profile(
     capped_note = f", {capped} hit the reply cap" if capped else ""
     print_info(
         f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
-        f"{profile.llm_calls} LLM calls{capped_note}; {stages} -> {path}[/dim]",
+        f"{profile.llm_calls} LLM calls{capped_note}; {stages}{where}[/dim]",
         prefix=False,
     )
     return profile
@@ -1003,7 +1029,10 @@ def _run_profiled_session(
             stage_flags=stage_flags,
         )
         if not is_dry_run():
-            profile = _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+            profile = _write_review_profile(
+                profiler, orchestrator, target_ref, len(all_files), kept=_reports(stage_flags)
+            )
+            _close_session(orchestrator, stage_flags)
             _record_review_metrics(results, profile.total_wall_seconds, target_type)
         return results
 
@@ -1129,7 +1158,10 @@ def _review_routed_files_only(
     )
     print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
     payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
-    return _report_review(orchestrator, payloads, stage_flags)
+    results = _report_review(orchestrator, payloads, stage_flags)
+    if not is_dry_run():
+        _close_session(orchestrator, stage_flags)
+    return results
 
 
 def _check_and_warn_perimeter_changes(

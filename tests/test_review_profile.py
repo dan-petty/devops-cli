@@ -39,7 +39,7 @@ from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
 from devops_cli.lang import MESSAGES
 from devops_cli.main import app
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.tools_lock import tools_lock_digest
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -138,15 +138,16 @@ def test_profile_counts_replies_by_finish_reason_and_cut_replies_by_backend(
     tmp_path: Path,
 ) -> None:
     """Verify each stage counts replies per reason, and `length` replies per serving backend."""
+    session = ReviewSession(tmp_path / "session")
     with profiling() as profiler:
         with review_stage("persona_review"):
             for reason in ("stop", "stop", "length"):
                 _observed(profiler, "b1", reason)
         with review_stage("reranking"):
             _observed(profiler, None, None)
-        profiler.build(session_id="s", target="t").write(tmp_path)
+        session.write_profile(profiler.build(session_id="s", target="t"))
 
-    loaded = ReviewProfile.load(tmp_path)
+    loaded = ReviewProfile.load(session.publish())
     stages = loaded.stages if loaded else []
     assert [(s.name, s.finish_reasons, s.truncated) for s in stages] == [
         ("persona_review", {"stop": 2, "length": 1}, {"b1": 1}),
@@ -170,7 +171,7 @@ def test_the_profile_summary_says_how_many_replies_hit_the_cap(
     lines: list[str] = []
     monkeypatch.setattr(runner, "print_info", lambda message, **kwargs: lines.append(message))
     monkeypatch.setattr(runner, "format_duration", lambda seconds: "1s")
-    orchestrator = MagicMock(session_id="s1", session_dir=tmp_path)
+    orchestrator = MagicMock(session_id="s1", session=ReviewSession(tmp_path / "session"))
 
     with profiling() as profiler:
         with review_stage("persona_review"):
@@ -178,7 +179,9 @@ def test_the_profile_summary_says_how_many_replies_hit_the_cap(
                 _observed(profiler, REMOTE, reason)
         _write_review_profile(profiler, orchestrator, "playbooks", 2)
 
-    assert lines == [f"[dim]Profile: 1s, {summary} -> {tmp_path / 'profile.json'}[/dim]"]
+    assert lines == [
+        f"[dim]Profile: 1s, {summary} -> {tmp_path / 'session' / 'profile.json'}[/dim]"
+    ]
 
 
 def test_stage_is_a_no_op_without_a_profiler() -> None:
@@ -239,7 +242,9 @@ def test_orchestrated_review_profiles_each_stage_and_its_findings() -> None:
 def test_profile_is_written_as_json(tmp_path: Path) -> None:
     """Verify a profile round-trips through the session's profile.json."""
     profile = _profile(120, 90, 12, 8)
-    path = profile.write(tmp_path)
+    session = ReviewSession(tmp_path / "session")
+    path = session.write_profile(profile)
+    session.publish()
 
     assert (path.name, ReviewProfile(**json.loads(path.read_text())).llm_calls) == (
         "profile.json",
@@ -259,7 +264,8 @@ def test_profiler_is_isolated_per_block() -> None:
 
 def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None:
     """Verify a review's profile is written to its session and handed to a collecting benchmark."""
-    orchestrator = MagicMock(session_id="20260924-120000", session_dir=tmp_path)
+    session = ReviewSession(tmp_path / "20260924-120000")
+    orchestrator = MagicMock(session_id="20260924-120000", session=session)
 
     with collect_profiles() as profiles:
         with profiling() as profiler:
@@ -268,7 +274,7 @@ def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None
 
     assert (
         [(p.session_id, p.target, p.files) for p in profiles],
-        (tmp_path / "profile.json").exists(),
+        (session.publish() / "profile.json").exists(),
     ) == ([("20260924-120000", "playbooks", 15)], True)
 
 
@@ -300,7 +306,7 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
             if conventions:
                 profiler.set_conventions(conventions)
             _write_review_profile(profiler, orchestrator, str(project), 1)
-        saved = ReviewProfile.load(orchestrator.session_dir)
+        saved = ReviewProfile.load(orchestrator.session.publish())
         recorded.append((saved.conventions_digest if saved else None, conventions))
     digests = [kept for kept, _ in recorded]
     used = [conventions for _, conventions in recorded]
@@ -493,11 +499,12 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
     monkeypatch.setattr(profile_module, "own_source_state", lambda: next(states))
     warnings: list[str] = []
     monkeypatch.setattr(runner, "print_warning", lambda message, **kwargs: warnings.append(message))
-    orchestrator = MagicMock(session_id="s1", session_dir=tmp_path)
+    session = ReviewSession(tmp_path / "session")
+    orchestrator = MagicMock(session_id="s1", session=session)
 
     with profiling() as profiler:
         profile = _write_review_profile(profiler, orchestrator, "playbooks", 1)
-    saved = ReviewProfile.load(tmp_path)
+    saved = ReviewProfile.load(session.publish())
 
     assert (
         profile.code_changed_during_run,

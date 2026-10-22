@@ -29,6 +29,7 @@ from devops_cli.ai.review_schema import (
 from devops_cli.config.constants import CONST_REVIEW_CONFIG_FILE
 from devops_cli.review.anchors import ToolAnchor
 from devops_cli.review.finding import Finding as AdmittedFinding
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.state import FindingState
 
 _RUNNER = """import textwrap
@@ -212,6 +213,115 @@ def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> N
         mock_client.chat.called,
         mock_client.chat_messages.called,
     ) == (True, False, False)
+
+
+@pytest.mark.usefixtures("scanner_fake")
+def test_a_routed_files_only_review_publishes_its_session_without_a_profile(
+    tmp_path: Path, review_store: type[ReviewSessionStore]
+) -> None:
+    """Verify a review that writes a report but no profile still publishes its session, whole
+    and with the files it wrote (#771)."""
+    target = _checkout(tmp_path / "target", {"uv.lock": "version = 1\n"})
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+
+    _execute_review_workflow(
+        [],
+        "Branch `feature` vs `main`",
+        False,
+        ReviewClients(analysis=mock_client),
+        target_type="branch",
+        target_ref="feature",
+        target_dir=target,
+        routed_files=["uv.lock"],
+        session_id="20261001-120000",
+    )
+
+    latest = review_store.latest()
+    assert latest is not None
+    assert (
+        latest.name,
+        sorted(path.name for path in latest.directory.iterdir()),
+        review_store.in_flight(),
+    ) == (
+        "20261001-120000",
+        ["candidates.json", "files", "findings.json", "findings.sarif", "review.md"],
+        [],
+    )
+
+
+@pytest.mark.usefixtures("scanner_fake")
+def test_a_review_publishes_its_session_after_it_writes_the_profile(
+    tmp_path: Path, review_store: type[ReviewSessionStore]
+) -> None:
+    """Verify the session is published last: it holds profile.json, which is written after the
+    report, and no staging directory is left (#771)."""
+    target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+
+    _execute_review_workflow(
+        [f"### File: runner.py\n{_RUNNER}"],
+        "Path review",
+        False,
+        ReviewClients(analysis=mock_client),
+        target_type="path",
+        target_ref=str(target),
+        target_dir=target,
+        session_id="20261001-120000",
+    )
+
+    latest = review_store.latest()
+    assert latest is not None
+    assert (
+        latest.name,
+        "profile.json" in {path.name for path in latest.directory.iterdir()},
+        review_store.in_flight(),
+    ) == ("20261001-120000", True, [])
+
+
+@pytest.mark.usefixtures("scanner_fake")
+@pytest.mark.parametrize(
+    ("files", "pages", "routed_files"),
+    [
+        pytest.param(
+            {"runner.py": _RUNNER}, [f"### File: runner.py\n{_RUNNER}"], [], id="profiled"
+        ),
+        pytest.param({"uv.lock": "version = 1\n"}, [], ["uv.lock"], id="routed-files-only"),
+    ],
+)
+def test_a_review_without_a_report_keeps_no_session(
+    tmp_path: Path,
+    review_store: type[ReviewSessionStore],
+    files: dict[str, str],
+    pages: list[str],
+    routed_files: list[str],
+) -> None:
+    """Verify a review run with `--no-reporting` keeps no session: it writes no findings.json,
+    which every reader of a session needs, so nothing is published and no staging directory is
+    left for the dashboard to show as unfinished (#771)."""
+    target = _checkout(tmp_path / "target", files)
+    mock_client = MagicMock(spec=ReviewLLMClient)
+    mock_client.backend_info = "mock-llm"
+
+    _execute_review_workflow(
+        pages,
+        "Path review",
+        False,
+        ReviewClients(analysis=mock_client),
+        target_type="path",
+        target_ref=str(target),
+        target_dir=target,
+        stage_flags=resolve_stage_flags(no_reporting=True),
+        routed_files=routed_files,
+        session_id="20261001-120000",
+    )
+
+    assert (
+        review_store.sessions(),
+        review_store.in_flight(),
+        [entry.name for entry in review_store.root().iterdir()],
+    ) == ([], [], [".staging"])
 
 
 def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: Path) -> None:

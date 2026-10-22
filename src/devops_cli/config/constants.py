@@ -1481,6 +1481,12 @@ CONST_REVIEW_VERDICT_LOCK_FILENAME = ".verify.lock"
 CONST_REVIEW_SARIF_FILENAME = "findings.sarif"
 # A review session's per-page records: the file each page read and the findings it raised there.
 CONST_REVIEW_PAGES_DIRNAME = "files"
+# A review session's Markdown report, and where its time went (#771).
+CONST_REVIEW_REPORT_FILENAME = "review.md"
+CONST_REVIEW_PROFILE_FILENAME = "profile.json"
+# Where a review writes its session until it is whole: inside the sessions directory, so that
+# publishing it is one rename, and a dot-directory, so that it is not a session (#771).
+CONST_REVIEW_STAGING_DIRNAME = ".staging"
 # `devops review score` (#1138): the labels a person gives a distinct finding, the two that count
 # as valid, the producer of a model's finding, and the severities its HIGH/CRITICAL figure reads.
 CONST_REVIEW_LABEL_VALID_STRICT = "valid-strict"
@@ -1828,6 +1834,7 @@ CONST_ERROR_CODE_CONSTELLATION_QUIESCE = "CONSTELLATION_QUIESCE_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_FAILOVER = "CONSTELLATION_FAILOVER_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_RESUME = "CONSTELLATION_RESUME_ERROR"
 CONST_ERROR_CODE_REVIEW_POOL = "REVIEW_POOL_ERROR"
+CONST_ERROR_CODE_REVIEW_SESSION_EXISTS = "REVIEW_SESSION_EXISTS"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
 CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"

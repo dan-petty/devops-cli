@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -262,6 +265,35 @@ def test_review_cli_commands(tmp_path: Path, review_store: type[ReviewSessionSto
         review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
     )
     assert res_exp.exit_code == 0
+
+
+def test_review_findings_without_a_session_reads_the_latest_published_one(
+    cli: Callable[..., Any], review_store: type[ReviewSessionStore]
+) -> None:
+    """Verify the default session is the newest one whose review finished, not a review still
+    running, nor the one modified last (#771)."""
+    for name, title, published in (
+        ("20261001-120000", "Older review", True),
+        ("20261002-120000", "Newest finished review", True),
+        ("20261003-120000", "Review still running", False),
+    ):
+        session = review_store.session(name)
+        finding = SavedFinding(
+            title=title, severity="HIGH", location="src/app.py:10", description="d"
+        )
+        session.write_findings(ReviewSessionPayload(findings=[finding]))
+        if published:
+            session.publish()
+    os.utime(review_store.root() / "20261001-120000", (4_000_000_000, 4_000_000_000))
+
+    result = cli("review", "findings")
+
+    assert (
+        result.exit_code,
+        "Newest finished review" in result.output,
+        "Review still running" in result.output,
+        "Older review" in result.output,
+    ) == (0, True, False, False)
 
 
 def test_detect_base_branch(tmp_path: Path) -> None:

@@ -117,9 +117,8 @@ class ReviewSummary(BaseModel):
 
     # Sessions newest first, so the panel can offer selection without re-sorting.
     sessions: list[ReviewSessionInfo] = Field(default_factory=list)
-    # Sessions that created a directory but never wrote findings.json. A session writes
-    # no running-marker, so one that is still in progress is indistinguishable on disk from
-    # one that was abandoned; calling them "incomplete" claims only what can be observed.
+    # Sessions still in staging, never published. A review writing one is indistinguishable on
+    # disk from one that died part-way; calling them "incomplete" claims only what can be observed.
     incomplete: list[str] = Field(default_factory=list)
     has_session: bool = False
     session_name: str = ""
@@ -519,20 +518,6 @@ def fetch_telemetry_status() -> TelemetrySummary:
         return fallback.model_copy(update={"error_message": f"{base_url}: {exc}"})
 
 
-def _existing_reviews_dir() -> Path | None:
-    """The directory holding review sessions, or None when it is refused or not there yet.
-
-    A settings file the schema refuses raises a `ValidationError`, a `ValueError`, which is
-    answered as a refused directory is: no sessions.
-    """
-    try:
-        reviews_dir = ReviewSessionStore.root()
-    except (DevOpsCLIError, OSError, ValueError) as exc:
-        logger.warning("Invalid review data directory: %s", exc)
-        return None
-    return reviews_dir if reviews_dir.is_dir() else None
-
-
 def _count_findings(findings_file: Path) -> int:
     """Count findings in a session file without raising on a malformed one."""
     try:
@@ -544,56 +529,63 @@ def _count_findings(findings_file: Path) -> int:
     return len(findings) if isinstance(findings, list) else 0
 
 
+def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
+    """Each review session, newest first, with the directory it is read from.
+
+    The published sessions are read from their own, the ones a review is still writing from
+    staging. A refused or missing directory lists none: a settings file the schema refuses raises
+    a `ValidationError`, a `ValueError`, which is answered as a refused directory is.
+    """
+    try:
+        published = [
+            (
+                ReviewSessionInfo(
+                    name=session.name,
+                    completed=True,
+                    finding_count=_count_findings(session.findings_path),
+                ),
+                session.directory,
+            )
+            for session in ReviewSessionStore.sessions()
+        ]
+        running = [
+            (ReviewSessionInfo(name=session.name), session.staging)
+            for session in ReviewSessionStore.in_flight()
+        ]
+    except (DevOpsCLIError, OSError, ValueError) as exc:
+        logger.warning("Invalid review data directory: %s", exc)
+        return []
+    return sorted(published + running, key=lambda listed: listed[0].name, reverse=True)
+
+
 def list_review_sessions() -> list[ReviewSessionInfo]:
     """List review sessions newest first, recording which ones actually completed.
 
     Session names are timestamps, so a reverse lexical sort is a reverse chronological one.
     """
-    reviews_dir = _existing_reviews_dir()
-    if reviews_dir is None:
-        return []
-
-    sessions: list[ReviewSessionInfo] = []
-    for directory in sorted(reviews_dir.iterdir(), key=lambda d: d.name, reverse=True):
-        if not directory.is_dir():
-            continue
-        findings_file = directory / "findings.json"
-        completed = findings_file.is_file()
-        sessions.append(
-            ReviewSessionInfo(
-                name=directory.name,
-                completed=completed,
-                finding_count=_count_findings(findings_file) if completed else 0,
-            )
-        )
-    return sessions
+    return [info for info, _ in _listed_sessions()]
 
 
 def _get_latest_review_session_dir(session: str | None = None) -> Path | None:
     """Resolve the session directory to display.
 
-    Defaults to the newest **completed** session. A review that is still running creates its
-    directory immediately but writes findings.json only at the end, so taking the newest
-    directory showed an empty in-flight session as the latest result and hid the last real
-    one behind it.
+    Defaults to the newest **completed** session. A review that is still running writes into
+    staging and is published only at the end, so taking the newest session showed an empty
+    in-flight one as the latest result and hid the last real one behind it.
     """
-    reviews_dir = _existing_reviews_dir()
-    if reviews_dir is None:
-        return None
-
+    listed = _listed_sessions()
     if session:
         # A name chosen from the session list, so it is matched as a name rather than
         # interpreted as a path.
-        candidate = reviews_dir / Path(session).name
-        return candidate if candidate.is_dir() else None
+        name = Path(session).name
+        return next((directory for info, directory in listed if info.name == name), None)
 
-    sessions = list_review_sessions()
-    completed = [info for info in sessions if info.completed]
-    if completed:
-        return reviews_dir / completed[0].name
-    # Nothing has completed yet. Showing the in-flight session beats showing nothing, and
+    # With nothing completed yet, showing the in-flight session beats showing nothing, and
     # the summary reports that it is still running.
-    return reviews_dir / sessions[0].name if sessions else None
+    return next(
+        (directory for info, directory in listed if info.completed),
+        listed[0][1] if listed else None,
+    )
 
 
 def fetch_review_status(session: str | None = None) -> ReviewSummary:

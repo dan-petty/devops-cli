@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
+from devops_cli.review.session import ReviewSession
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -2100,13 +2101,15 @@ def test_the_review_banner_omits_the_note_when_every_session_completed() -> None
 
 
 def _make_sessions(tmp_path: Path, spec: dict[str, int | None]) -> Path:
-    """Create review session directories; a None count writes no findings.json."""
+    """Create review sessions; a None count leaves the session in staging, still being written."""
     reviews = tmp_path / "reviews"
     reviews.mkdir(parents=True, exist_ok=True)
     for name, count in spec.items():
         directory = reviews / name
-        directory.mkdir()
-        if count is not None:
+        if count is None:
+            ReviewSession(directory).create()
+        else:
+            directory.mkdir()
             payload = {"findings": [{"severity": "LOW", "title": f"f{i}"} for i in range(count)]}
             (directory / "findings.json").write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
@@ -2115,10 +2118,10 @@ def _make_sessions(tmp_path: Path, spec: dict[str, int | None]) -> Path:
 def test_an_in_progress_review_does_not_displace_the_last_completed_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A running review creates its directory before it writes any findings.
+    """A running review writes into staging before it publishes anything.
 
-    Taking the newest directory therefore presented an empty session as the latest result
-    and hid the last real review behind it.
+    Taking the newest session therefore presented an empty one as the latest result and hid
+    the last real review behind it.
     """
     root = _make_sessions(
         tmp_path, {"20260921-212653": None, "20260920-124350": 55, "20260919-145233": 286}

@@ -106,6 +106,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
+| `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
 | `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
 | `RoadmapIntakeError` | `ROADMAP_INTAKE_FAILED` | `1` | Roadmap | Raised after an intake round in which the writes failed for one or more candidates. |
