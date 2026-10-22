@@ -2136,7 +2136,6 @@ def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
         columns=[
             ("Category", "cyan"),
             ("Files", "right"),
-            ("Parsers", ""),
             ("Symbols", "right"),
             ("Repomap files", "right"),
             ("Review found/reported/injected", ""),
@@ -2146,7 +2145,6 @@ def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
             [
                 report.category,
                 str(len(report.files)),
-                ", ".join(f"{name} {count}" for name, count in sorted(report.parsers.items())),
                 str(sum(result.symbols for result in report.files)),
                 str(sum(repomap.files_mapped for repomap in report.repomaps)),
                 _review_cell(report),

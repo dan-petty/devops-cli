@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.ast.engine import TreeSitterEngine, detect_language
-from devops_cli.ai.ast.fallback import FallbackASTParser
 
 CSHARP = """\
 using System;
@@ -138,7 +137,6 @@ make build
 
 def _symbols(code: str, language: str) -> list[tuple[str, str, str | None]]:
     parsed = TreeSitterEngine().parse_code(code, language)
-    assert parsed.parse_engine == "tree-sitter"
     return [(s.kind.value, s.name, s.parent_scope) for s in parsed.symbols]
 
 
@@ -256,57 +254,6 @@ def test_a_header_is_parsed_as_the_language_it_is_written_in(tmp_path: Path) -> 
         cpp_header.language if cpp_header else None,
         "basic_appender" in {s.name for s in (cpp_header.symbols if cpp_header else [])},
     ) == ("c", "cpp", True)
-
-
-@pytest.mark.parametrize(
-    ("code", "language", "expected"),
-    [
-        (
-            CSHARP,
-            "csharp",
-            [
-                ("module", "Serilog"),
-                ("class", "LoggerConfiguration"),
-                ("method", "LoggerConfiguration"),
-                ("method", "CreateLogger"),
-                ("interface", "ILogEventSink"),
-                ("struct", "Token"),
-                ("class", "Property"),
-                ("type", "LogEventLevel"),
-            ],
-        ),
-        (
-            C_SOURCE,
-            "c",
-            [("function", "print_number"), ("function", "cJSON_Delete"), ("type", "parse_state")],
-        ),
-        (
-            "namespace fmt {\nclass writer {\n};\nint format(const char* s)\n{\n  if (s) return 1;\n}\n"
-            "int answer() { return 42; }\n}\n",
-            "cpp",
-            [
-                ("module", "fmt"),
-                ("class", "writer"),
-                ("function", "format"),
-                ("function", "answer"),
-            ],
-        ),
-        (SHELL, "bash", [("function", "nvm_echo"), ("function", "nvm_cd")]),
-        (
-            MARKDOWN,
-            "markdown",
-            [("heading", "Installation"), ("heading", "Creating a Cluster")],
-        ),
-    ],
-)
-def test_the_fallback_finds_functions_types_and_headings(
-    code: str, language: str, expected: list[tuple[str, str]]
-) -> None:
-    """Verify the regex fallback, used without a grammar, finds declarations and ATX headings,
-    and skips control statements, calls, front matter and fenced code."""
-    parsed = FallbackASTParser().parse("snippet", code, language)
-
-    assert [(s.kind.value, s.name) for s in parsed.symbols] == expected
 
 
 @pytest.mark.parametrize(

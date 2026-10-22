@@ -532,9 +532,8 @@ def _build_focal_window(
 
 
 def _parse_polyglot(path: Path, content: str) -> PolyglotFileMap:
-    """A non-Python file's symbols, as tree-sitter parses it; the engine falls back to the regex
-    parser itself when its grammar finds nothing. A .h header is read as C++ or C by its
-    content, as `devops ai ast parse` reads it."""
+    """A non-Python file's symbols, as tree-sitter parses it. A .h header is read as C++ or C by
+    its content, as `devops ai ast parse` reads it."""
     lang = detect_language(path, content) or "text"
     return TreeSitterEngine().parse_code(content, lang, str(path))
 
@@ -564,7 +563,6 @@ def _build_polyglot_topology(file_map: PolyglotFileMap) -> TopologyOutline:
                 ClassTopology(
                     name=sym.name,
                     methods=class_methods.get(sym.name, []),
-                    docstring=sym.docstring,
                     line_start=sym.span.line_start,
                     line_end=sym.span.line_end,
                 )
@@ -576,7 +574,6 @@ def _build_polyglot_topology(file_map: PolyglotFileMap) -> TopologyOutline:
             functions.append(
                 FunctionTopology(
                     name=listed,
-                    docstring=sym.docstring,
                     line_number=sym.span.line_start,
                     end_line_number=sym.span.line_end,
                 )
@@ -607,7 +604,6 @@ def _build_polyglot_structural(file_map: PolyglotFileMap) -> StructuralOutline:
             classes.append(
                 ClassStructural(
                     name=sym.name,
-                    docstring=sym.docstring,
                     line_start=sym.span.line_start,
                     line_end=sym.span.line_end,
                 )
@@ -619,7 +615,6 @@ def _build_polyglot_structural(file_map: PolyglotFileMap) -> StructuralOutline:
                 FunctionStructural(
                     name=sym.name,
                     signature=sig,
-                    docstring=sym.docstring,
                     line_start=sym.span.line_start,
                     line_end=sym.span.line_end,
                     parent_class=sym.parent_scope,

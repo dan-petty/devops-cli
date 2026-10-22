@@ -1,6 +1,6 @@
 """The AST engine parses with tree-sitter and names each language's declarations (#538).
 
-tree-sitter was never a dependency, so every file went to the regex fallback: 16 of 31
+tree-sitter was never a dependency, so every file went to a regex parser: 16 of 31
 TypeScript and 10 of 37 Rust files in the pinned samples yielded no symbols. The grammars are
 now installed, TypeScript's two grammars load by their own entry points, and declarations the
 native walk missed are named: arrow functions, Go types, Rust enums and macros, Java enums,
@@ -129,7 +129,6 @@ def test_each_language_is_parsed_natively_with_its_declarations(
     """Verify tree-sitter parses the file and names every declaration kind."""
     file_map = TreeSitterEngine().parse_code(code, language)
 
-    assert file_map.parse_engine == "tree-sitter"
     assert {(s.name, s.kind.value) for s in file_map.symbols} == expected
 
 
@@ -142,8 +141,8 @@ def test_nested_terraform_blocks_are_not_symbols() -> None:
     assert [s.name for s in symbols] == ['resource "aws_security_group" "web"']
 
 
-def test_a_file_declaring_nothing_is_still_parsed_by_tree_sitter() -> None:
-    """Verify a `package-info.java` is reported as parsed, not as a regex fallback."""
+def test_a_file_declaring_nothing_is_parsed_without_symbols() -> None:
+    """Verify a `package-info.java` is a parsed Java file with no symbols."""
     file_map = TreeSitterEngine().parse_code("/** Docs. */\npackage com.google.gson;\n", "java")
 
-    assert (file_map.parse_engine, file_map.symbols) == ("tree-sitter", [])
+    assert (file_map.language, file_map.symbols) == ("java", [])

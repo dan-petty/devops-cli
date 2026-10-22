@@ -3,7 +3,7 @@
 devops ai is meant for any technical project, but nothing showed whether its tooling works on
 projects that are not Python. For each category of sample (#502), a report records:
 
-- which parser read each file and the symbols it found;
+- the language tree-sitter parsed each file as, if it has a grammar for it, and its symbols;
 - what file analysis made of each file: its language, symbols and dependencies;
 - what the repository map shows of each sample;
 - optionally, how a review scored on the category's synthetic defect corpus (#503, #504).
@@ -25,10 +25,6 @@ from devops_cli.ai.review.defects import CorpusScore
 from devops_cli.ai.review.samples import SampleRepository
 from devops_cli.review.targets import find_repo_files
 
-TREE_SITTER = "tree-sitter"
-NO_AST = "none"
-# Python's fallback is the standard library's own parser, as exact as tree-sitter.
-_EXACT_FALLBACKS = frozenset({"python"})
 # The file types the sample categories are about; licences and ignore files are not expected
 # to parse.
 _CODE_SUFFIXES = frozenset(
@@ -44,7 +40,6 @@ class FileResult(BaseModel):
 
     path: str
     ast_language: str | None = None
-    parser: str = NO_AST
     symbols: int = 0
     analysis_language: str = ""
     analysis_symbols: int = 0
@@ -77,7 +72,6 @@ class CategoryReport(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
     samples: dict[str, str] = Field(default_factory=dict)
     files: list[FileResult] = Field(default_factory=list)
-    parsers: dict[str, int] = Field(default_factory=dict)
     repomaps: list[RepoMapResult] = Field(default_factory=list)
     review: CorpusReview | None = None
     problems: list[str] = Field(default_factory=list)
@@ -113,7 +107,6 @@ def inspect_file(path: Path, checkout: Path, sample: str, engine: TreeSitterEngi
     return FileResult(
         path=f"{sample}/{rel}",
         ast_language=parsed.language if parsed else None,
-        parser=parsed.parse_engine if parsed else NO_AST,
         symbols=len(parsed.symbols) if parsed else 0,
         analysis_language=meta.language,
         analysis_symbols=len(meta.key_symbols),
@@ -140,19 +133,13 @@ def _suffix(path: str) -> str:
 
 
 def _parser_problems(files: Sequence[FileResult]) -> list[str]:
-    """Languages the AST engine claims but read with its regex fallback, or found nothing in."""
+    """Languages the AST engine claims but found no symbols in some of their files."""
     problems: list[str] = []
     by_language: dict[str, list[FileResult]] = {}
     for result in files:
         if result.ast_language:
             by_language.setdefault(result.ast_language, []).append(result)
     for language, results in sorted(by_language.items()):
-        fallback = sum(r.parser != TREE_SITTER for r in results)
-        if fallback and language not in _EXACT_FALLBACKS:
-            problems.append(
-                f"{language}: {fallback} of {len(results)} files read by the regex fallback, "
-                "not tree-sitter"
-            )
         if empty := sum(r.symbols == 0 for r in results):
             problems.append(f"{language}: {empty} of {len(results)} files yielded no symbols")
     return problems
@@ -161,7 +148,7 @@ def _parser_problems(files: Sequence[FileResult]) -> list[str]:
 def _coverage_problems(files: Sequence[FileResult]) -> list[str]:
     """Code types with no AST support, and code the file analysis cannot name or names wrong."""
     code = [(r, _suffix(r.path)) for r in files if _suffix(r.path) in _CODE_SUFFIXES]
-    unsupported = Counter(suffix for r, suffix in code if r.parser == NO_AST)
+    unsupported = Counter(suffix for r, suffix in code if r.ast_language is None)
     plain = Counter(suffix for r, suffix in code if r.analysis_language in ("plaintext", "text"))
     not_cpp = Counter(
         suffix for r, suffix in code if suffix in _CPP_SUFFIXES and r.analysis_language != "cpp"
@@ -200,10 +187,9 @@ def validate_category(
     category: str,
     samples: Sequence[SampleRepository],
     root: Path,
-    engine: TreeSitterEngine | None = None,
 ) -> CategoryReport:
     """Run AST parsing, file analysis and repository maps over a category's fetched samples."""
-    engine = engine or TreeSitterEngine()
+    engine = TreeSitterEngine()
     report = CategoryReport(category=category)
     for sample in samples:
         checkout = root / sample.name
@@ -213,7 +199,6 @@ def validate_category(
             for path in sample_files(sample, checkout)
         )
         report.repomaps.append(repomap_result(sample, checkout))
-    report.parsers = dict(Counter(result.parser for result in report.files))
     report.problems = [
         *_parser_problems(report.files),
         *_coverage_problems(report.files),

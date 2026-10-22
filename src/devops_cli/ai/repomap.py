@@ -234,7 +234,6 @@ def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | 
             kind=s.kind.value,
             line_number=s.span.line_start,
             signature=s.signature,
-            docstring=s.docstring,
         )
         for s in poly_map.symbols
     ]
