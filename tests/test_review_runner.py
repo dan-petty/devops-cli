@@ -6,7 +6,7 @@ import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -39,6 +39,10 @@ from devops_cli.output import (
     render_review_result,
 )
 from devops_cli.review.session import ReviewSessionStore
+from tests.support.fakes.github import pull_request_payload, route_pull_request
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -113,7 +117,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     assert len(blocks) >= 1
 
 
-def test_prepare_content_helpers(tmp_path: Path) -> None:
+def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
@@ -137,12 +141,21 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         b_pages, b_title, b_target, _ = _prepare_branch_content("feat/test", "main", Path("."))
         assert (len(b_pages) >= 1, "feat/test" in b_title, b_target) == (True, True, "feat/test")
 
-    with patch("devops_cli.github.client.GitHubClient") as mock_gh_cls:
-        mock_gh = mock_gh_cls.return_value
-        mock_gh.get_pull.return_value = MagicMock(title="Mock PR Title")
-        mock_gh.get_pr_diff.return_value = "diff --git a/test.py b/test.py\n+content\n"
-        pr_pages, pr_title, _pull, _repo, pr_base = _prepare_pr_content(123, repo_arg="owner/repo")
-        assert (len(pr_pages) >= 1, "PR #123" in pr_title, pr_base is None) == (True, True, True)
+    route_pull_request(
+        github_api,
+        "owner/repo",
+        123,
+        pull_request_payload(title="Mock PR Title"),
+        diff="diff --git a/test.py b/test.py\n+content\n",
+    )
+    pr_pages, pr_title, pull, repo, pr_base = _prepare_pr_content(123, repo_arg="owner/repo")
+    assert (len(pr_pages) >= 1, pr_title, pull.title, repo, pr_base is None) == (
+        True,
+        "PR #123: Mock PR Title",
+        "Mock PR Title",
+        "owner/repo",
+        True,
+    )
 
 
 def test_review_runner_extended_branches(review_store: type[ReviewSessionStore]) -> None:

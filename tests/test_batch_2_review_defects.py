@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,13 @@ from devops_cli.ai.review_schema import (
     reset_verification_state,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.github.client import CommitRef, PullRequest, PullRequestFile
+from devops_cli.github.session import get_github_session
 from devops_cli.models.ai import ChatMessage
+from tests.support.fakes.github import route_file
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 # =============================================================================
 # Issue #656 Tests: AI Response Repair & Plaintext Agent Outputs
@@ -157,32 +164,29 @@ def test_format_pr_review_comment_no_static_scanners_empty() -> None:
 # =============================================================================
 
 
-def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
+def test_pr_review_conventions_loaded_from_base_ref(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
     """Base branch conventions take precedence over PR head convention files."""
-    mock_gh = MagicMock()
-    mock_gh.get_file_at.side_effect = lambda repo, path, ref: (
-        "BASE CONVENTIONS" if path == "AGENTS.md" else None
+    route_file(github_api, "org/repo", "AGENTS.md", "base123", "BASE CONVENTIONS")
+    pull = PullRequest(
+        title="Change the conventions",
+        head=CommitRef(sha="head123", ref="feature", repository="fork/repo"),
+        base=CommitRef(sha="base123", ref="main", repository="org/repo"),
     )
-
-    pull_mock = MagicMock()
-    pull_mock.head.repo.full_name = "fork/repo"
-    pull_mock.head.ref = "feature"
-    pull_mock.base.repo.full_name = "org/repo"
-    pull_mock.base.ref = "main"
-    pull_mock.base.sha = "base123"
     pr_files = [
-        MagicMock(filename="AGENTS.md", status="modified"),
-        MagicMock(filename=".devops/review.md", status="added"),
-        MagicMock(filename="src/foo.py", status="modified"),
+        PullRequestFile(filename=name, status=status, additions=1, changes=1)
+        for name, status in (
+            ("AGENTS.md", "modified"),
+            (".devops/review.md", "added"),
+            ("src/foo.py", "modified"),
+        )
     ]
 
     dest_dir = tmp_path / "target"
     dest_dir.mkdir()
-    empty_cwd = tmp_path / "empty_cwd"
-    empty_cwd.mkdir()
 
-    with patch("pathlib.Path.cwd", return_value=empty_cwd):
-        _materialize_pr_head(mock_gh, "org/repo", pull_mock, dest_dir, pr_files)
+    _materialize_pr_head(get_github_session().client, "org/repo", pull, dest_dir, pr_files)
 
     assert (
         (dest_dir / "AGENTS.md").read_text(encoding="utf-8"),

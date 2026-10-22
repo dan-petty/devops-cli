@@ -4,8 +4,8 @@ The identity is whatever `gh auth token` prints, looked up once on the first Git
 command applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login. The lookup and the pin that
 gives every gh and git child that token live in `core.process`, which does not import `github/`;
 the session reads its token from there. Its quota ledger and response cache are the identity's
-directory under the cache dir, and PyGithub is built here, from the session's token, and nowhere
-else.
+directory under the cache dir, and the typed client of its calls is built here, from the session,
+and nowhere else.
 
 `rest()` sends a REST request as the identity through gidgethub (#983, ADR 0006), paced and
 charged on the same ledger as `run_gh`, and `paginate()` reads a REST listing page by page; a GET
@@ -62,10 +62,10 @@ class GitHubSession:
 
     @cached_property
     def client(self) -> GitHubClient:
-        """PyGithub with the session's token, until #891 removes it."""
+        """The typed pull request, file, repository and comment calls, made through this session."""
         from devops_cli.github.client import GitHubClient
 
-        return GitHubClient(self._token)
+        return GitHubClient(self)
 
     def rest(self, method: str, path: str, *, accept: str | None = None, body: Any = None) -> Any:
         """Send one request to GitHub's REST API as the session's identity; return its answer.

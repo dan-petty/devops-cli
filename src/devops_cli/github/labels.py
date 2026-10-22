@@ -110,7 +110,7 @@ def diff_labels(
 
 
 class LabelClient(Protocol):
-    """The label calls sync makes; `GitHubClient` and `GhCliClient` both provide them."""
+    """The label calls sync makes; `GhCliClient` provides them."""
 
     def get_labels(self, repo: str) -> list[dict[str, Any]]: ...
 

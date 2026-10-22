@@ -61,10 +61,7 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> No
     labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
     failed = MagicMock(returncode=1, stdout="", stderr="gh auth login required")
 
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
-        patch("devops_cli.github.client.run_gh", return_value=failed),
-    ):
+    with patch("devops_cli.github.client.run_gh", return_value=failed):
         result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
 
     assert (

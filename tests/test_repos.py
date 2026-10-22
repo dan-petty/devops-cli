@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,11 @@ from devops_cli.core.repo import (
     read_gitignore_patterns,
 )
 from devops_cli.main import app
+from tests.support.fakes.github import github_json
+from tests.support.paths import FIXTURES
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 runner = CliRunner()
 
@@ -84,13 +90,27 @@ def test_repos_clone_requires_a_gh_login(tmp_path: Path, no_github_identity: Non
     assert (result.exit_code != 0, "gh auth login" in result.output) == (True, True)
 
 
-def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
+_ORG_REPOS = "/orgs/example-org/repos?type=all&per_page=100"
+
+
+def _recorded_repositories() -> list[dict[str, Any]]:
+    """The repositories GitHub listed for octocat, as recorded: Hello-World, linguist (a fork)
+    and Spoon-Knife."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "hello_world_repositories.json").read_text(encoding="utf-8")
+    )
+    return list(recorded["repositories"])
+
+
+def test_repos_clone_org_uses_default_org(
+    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route("GET", _ORG_REPOS, github_json([]))
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -98,49 +118,28 @@ def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-        mock_client.get_org_repos.return_value = []
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
-    mock_client.get_org_repos.assert_called_once_with(
-        "example-org",
-        include_private=True,
-        include_forks=False,
-        include_archived=False,
+    assert (github_api.requested, {r.headers["authorization"] for r in github_api.sent}) == (
+        [f"GET https://api.github.com{_ORG_REPOS}"],
+        {f"token {pin_github_session}"},
     )
     mock_clone_repo.assert_not_called()
     mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
     mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
-    archived_repo = MagicMock()
-    archived_repo.name = "archived-repo"
-    archived_repo.full_name = "example/archived-repo"
-    archived_repo.clone_url = "git@github.com:example/archived-repo.git"
-    archived_repo.ssh_url = "git@github.com:example/archived-repo.git"
-    archived_repo.archived = True
-    archived_repo.fork = False
-    archived_repo.private = False
-
-    active_repo = MagicMock()
-    active_repo.name = "active-repo"
-    active_repo.full_name = "example/active-repo"
-    active_repo.clone_url = "git@github.com:example/active-repo.git"
-    active_repo.ssh_url = "git@github.com:example/active-repo.git"
-    active_repo.archived = False
-    active_repo.fork = False
-    active_repo.private = False
+def test_repos_clone_org_skips_archived_repos(tmp_path: Path, github_api: GitHubApiFake) -> None:
+    active_repo, _fork, archived_repo = _recorded_repositories()
+    archived_repo = {**archived_repo, "archived": True}
+    github_api.route("GET", _ORG_REPOS, github_json([archived_repo, active_repo]))
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -148,35 +147,29 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-
-        mock_client.get_org_repos.return_value = [active_repo]
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
     mock_clone_repo.assert_called_once_with(
-        "https://github.com/example/active-repo.git",
-        settings.repos.base_dir / "example-org" / "active-repo",
+        "https://github.com/octocat/Hello-World.git",
+        settings.repos.base_dir / "example-org" / "Hello-World",
     )
     mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
     mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
+def test_repos_clone_org_skips_path_traversal_repo(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
     """Verify clone-org skips repositories with path traversal attempts."""
-    bad_repo = MagicMock()
-    bad_repo.name = "../escape"
-    bad_repo.full_name = "example/escape"
-    bad_repo.archived = False
+    bad_repo = {**_recorded_repositories()[0], "name": "../escape"}
+    github_api.route("GET", _ORG_REPOS, github_json([bad_repo]))
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos"),
         patch("devops_cli.commands.repos._reload_workspace"),
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -184,21 +177,18 @@ def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-        mock_client.get_org_repos.return_value = [bad_repo]
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert (result.exit_code, mock_clone_repo.called) == (0, False)
 
 
-def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
+def test_repos_clone_org_rejects_path_traversal_org(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
     """Verify clone-org aborts when organization name attempts path traversal."""
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -208,7 +198,25 @@ def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
 
         result = runner.invoke(app, ["repos", "clone-org", "../escaped-org"])
 
-    assert (result.exit_code, mock_clone_repo.called, mock_client_cls.called) == (1, False, False)
+    assert (result.exit_code, mock_clone_repo.called, github_api.requested) == (1, False, [])
+
+
+def test_repos_clone_org_names_the_missing_organization(
+    tmp_path: Path, cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """A name that is no organization and not the session's login is reported by GitHub's own
+    error, without a traceback, and nothing is created for it."""
+    github_api.route("GET", "/user", github_json({"login": "somebody-else"}))
+    destination = tmp_path / "repos"
+
+    result = cli("repos", "clone-org", "no-such-org", "--base-dir", str(destination))
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        "HTTP 404" in result.output,
+        destination.exists(),
+    ) == (1, True, True, False)
 
 
 def test_repos_clone_rejects_path_traversal_destination(tmp_path: Path) -> None:

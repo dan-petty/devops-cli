@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.personas import PersonaDefinition
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
+    from devops_cli.github.client import PullRequest
     from devops_cli.review.score import Agreement, ScoreReport
 
 import typer
@@ -545,31 +546,31 @@ def branch(
 # =============================================================================
 
 
-def _resolve_pr_files(pages: list[str], pull: Any) -> list[str]:
-    """Extract changed file paths from PR pages or pull object."""
+def _resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]:
+    """Extract changed file paths from PR pages, or from the pull request's files when the diff
+    holds none."""
+    from devops_cli.github.session import get_github_session
     from devops_cli.review.diff import diff_file_names
 
     all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
-    if not all_files and pull:
-        try:
-            return [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]
-        except Exception:
-            return []
-    return all_files
+    if all_files:
+        return all_files
+    files = get_github_session().client.get_pull_files(repo_name, number)
+    return [f.filename for f in files if f.status != "removed"]
 
 
 def _post_pr_review_comment(
     reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
     pages: list[str],
     head_dir: Path,
-    pull: Any,
     repo_name: str,
     number: int,
 ) -> None:
     """Post formatted review comment to GitHub PR."""
     from devops_cli.ai.review.runner import format_pr_review_comment
+    from devops_cli.github.session import get_github_session
 
-    all_files = _resolve_pr_files(pages, pull)
+    all_files = _resolve_pr_files(pages, repo_name, number)
     comment_body = format_pr_review_comment(
         reviews=reviews,
         files=all_files,
@@ -584,14 +585,14 @@ def _post_pr_review_comment(
         )
         print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
         return
-    pull.create_issue_comment(comment_body)
+    get_github_session().client.create_issue_comment(repo_name, number, comment_body)
     print_success(f"Review posted as comment on PR #{number}")
 
 
 def _run_pr_review_workflow(
     pages: list[str],
     title: str,
-    pull: Any,
+    pull: PullRequest,
     number: int,
     head_dir: Path,
     base_revision: BaseRevision | None,
@@ -608,7 +609,7 @@ def _run_pr_review_workflow(
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
 
-    base_sha = getattr(getattr(pull, "base", None), "sha", None)
+    base_sha = pull.base.sha
     local_repo = get_repo_origin_name(Path.cwd())
     if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
         pr_commit = None
@@ -776,35 +777,37 @@ def pr(
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
-            number, repo, head_dir=head_dir
-        )
-        reviews = _run_pr_review_workflow(
-            pages,
-            title,
-            pull,
-            number,
-            head_dir,
-            base_revision,
-            summary,
-            clients,
-            stage_flags,
-            concurrency,
-            parallel,
-            full,
-            session_id,
-            repo_arg=repo,
-        )
+        with exit_on_error(GitHubOperationError):
+            pages, title, pull, repo_name, base_revision = _prepare_pr_content(
+                number, repo, head_dir=head_dir
+            )
+        with exit_on_error(GitHubOperationError):
+            reviews = _run_pr_review_workflow(
+                pages,
+                title,
+                pull,
+                number,
+                head_dir,
+                base_revision,
+                summary,
+                clients,
+                stage_flags,
+                concurrency,
+                parallel,
+                full,
+                session_id,
+                repo_arg=repo,
+            )
 
     if post_comment and reviews:
-        _post_pr_review_comment(
-            reviews=reviews,
-            pages=pages,
-            head_dir=head_dir,
-            pull=pull,
-            repo_name=repo_name,
-            number=number,
-        )
+        with exit_on_error(GitHubOperationError):
+            _post_pr_review_comment(
+                reviews=reviews,
+                pages=pages,
+                head_dir=head_dir,
+                repo_name=repo_name,
+                number=number,
+            )
 
 
 # =============================================================================

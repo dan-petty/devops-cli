@@ -11,8 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,6 +31,16 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.review import app as review_app
 from devops_cli.review.diff import diff_blocks, diff_file_names
 from devops_cli.security.base import ScanOutcome
+from tests.support.fakes.github import (
+    pull_request_file_payload,
+    pull_request_payload,
+    route_file,
+    route_merge_base,
+    route_pull_request,
+)
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 _ROUTED = (
     "changelog.d/1.md",
@@ -109,38 +118,27 @@ def test_a_branch_review_reaches_the_personas_with_only_reviewable_files(
     assert _page_files(pages) == ["src/app.py"]
 
 
-class _FakeGitHub:
-    """A GitHub client serving one pull request that adds the six files."""
-
-    def __init__(self, _token: str) -> None:
-        self.pull = SimpleNamespace(
-            title="Add the app and its paperwork",
-            head=SimpleNamespace(sha="head", repo=SimpleNamespace(full_name="o/r")),
-            base=SimpleNamespace(sha="base", ref="main", repo=SimpleNamespace(full_name="o/r")),
-            get_files=lambda: [
-                SimpleNamespace(filename=rel, status="added", previous_filename=None)
-                for rel in _TEXT
-            ],
-        )
-
-    def get_pull(self, _repo: str, _number: int) -> Any:
-        return self.pull
-
-    def get_pr_diff(self, _repo: str, _number: int) -> str:
-        return _diff(tuple(_TEXT))
-
-    def get_file_at(self, _repo: str, path: str, ref: str) -> str | None:
-        return _TEXT.get(path) if ref == "head" else None
-
-    def get_merge_base(self, _repo: str, _base: str, _head: str) -> str:
-        return "base"
-
-
 def test_a_pr_review_reaches_the_personas_with_only_reviewable_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, github_api: GitHubApiFake
 ) -> None:
-    """Verify `devops review pr` pages hold only `src/app.py`, offline against a fake client."""
-    monkeypatch.setattr("devops_cli.github.client.GitHubClient", _FakeGitHub)
+    """Verify `devops review pr` pages hold only `src/app.py`, offline against the GitHub API fake."""
+    route_pull_request(
+        github_api,
+        "o/r",
+        1,
+        pull_request_payload(
+            title="Add the app and its paperwork",
+            head_sha="head",
+            head_repo="o/r",
+            base_sha="base",
+            base_repo="o/r",
+        ),
+        files=[pull_request_file_payload(rel, "added") for rel in _TEXT],
+        diff=_diff(tuple(_TEXT)),
+    )
+    route_merge_base(github_api, "o/r", "base", "head", "base")
+    for rel, text in _TEXT.items():
+        route_file(github_api, "o/r", rel, "head", text)
 
     pages, *_ = _prepare_pr_content(1, "o/r", head_dir=tmp_path)
 

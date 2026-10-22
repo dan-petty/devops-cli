@@ -24,7 +24,10 @@ SymbolDelta = tuple[list[str], list[str], list[str]]
 @dataclass(frozen=True)
 class BaseRevision:
     """The revision a reviewed diff starts from: the files the diff changed, and `read`, which
-    returns a file's text there by its path at that revision, or None when it cannot.
+    returns a file's text there by its path at that revision, or None when there is none.
+
+    A revision read from GitHub raises the error of the GitHub session when GitHub cannot answer,
+    so a failed read is never taken for a file that is not there.
 
     `read_head` does the same where the diff ends, when that is a commit rather than the files
     on disk: a branch that is not checked out, or one whose checkout has uncommitted edits the

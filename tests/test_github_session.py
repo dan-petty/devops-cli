@@ -12,16 +12,12 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import anyio
 import httpx2
 import pytest
 
-from devops_cli.ai.review import runner
-from devops_cli.commands import analyze
-from devops_cli.commands.gh import _get_github_client
-from devops_cli.commands.repos import _require_client
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_GITHUB_API_VERSION,
@@ -30,7 +26,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core import process
 from devops_cli.exceptions.git import (
-    GitHubOperationError,
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
@@ -58,13 +53,6 @@ _SRC = REPO_ROOT / "src" / "devops_cli"
 def _gh_answers(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
     """A finished child, as `subprocess.run` returns it."""
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
-
-
-class _RecordedGithub:
-    """Stands in for PyGithub's `Github`, keeping the token it was built with."""
-
-    def __init__(self, *, auth: Any) -> None:
-        self.token = auth.token
 
 
 def test_the_session_carries_the_pinned_token(pin_github_session: str) -> None:
@@ -145,79 +133,12 @@ def _github_client_calls(path: Path) -> list[str]:
     ]
 
 
-def test_pygithub_is_built_only_by_the_session() -> None:
+def test_the_client_is_built_only_by_the_session() -> None:
     """`GitHubClient(...)` is called in one place in src: the session module."""
     constructions = [
         call for path in sorted(_SRC.rglob("*.py")) for call in _github_client_calls(path)
     ]
     assert constructions == ["github/session.py"]
-
-
-def _repos_client() -> Any:
-    return _require_client()
-
-
-def _gh_command_client() -> Any:
-    return _get_github_client()
-
-
-def _review_client() -> Any:
-    """The client `_prepare_pr_content`, which `devops review pr` runs, fetches the PR with."""
-    used: list[Any] = []
-
-    def record(client: Any, *_: Any) -> None:
-        used.append(client)
-        raise RuntimeError("stop")
-
-    with (
-        patch("devops_cli.github.client.GitHubClient.get_pull", autospec=True, side_effect=record),
-        pytest.raises(RuntimeError, match="stop"),
-    ):
-        runner._prepare_pr_content(7, "octo/repo")
-    return used[0]
-
-
-def _analyze_client() -> Any:
-    """The client `devops analyze pr` reads the pull request with."""
-    used: list[Any] = []
-
-    def record(client: Any, *_: Any) -> None:
-        used.append(client)
-        raise RuntimeError("stop")
-
-    with (
-        patch.object(analyze, "find_repo_root", return_value=Path.cwd()),
-        patch.object(analyze, "get_repo_origin_name", return_value="octo/repo"),
-        patch("devops_cli.github.client.GitHubClient.get_pull", autospec=True, side_effect=record),
-        pytest.raises(RuntimeError, match="stop"),
-    ):
-        analyze.analyze_pr(pr_number=7, enhanced=False, update_all=False, explain=False)
-    return used[0]
-
-
-@pytest.mark.parametrize(
-    "client_of",
-    [_repos_client, _gh_command_client, _review_client, _analyze_client],
-    ids=["repos", "gh", "review", "analyze"],
-)
-def test_every_pygithub_caller_uses_the_session_client(
-    client_of: Any, pin_github_session: str
-) -> None:
-    """repos, review, analyze and `devops gh` use the session's client and its token."""
-    with patch("github.Github", _RecordedGithub):
-        client = client_of()
-        session_client = get_github_session().client
-    assert (client is session_client, client._gh.token) == (True, pin_github_session)
-
-
-def test_a_failed_lookup_stops_a_pygithub_caller_with_the_unauthenticated_error(
-    no_github_identity: None,
-) -> None:
-    """No client is built without the session's token, and nothing falls back to another one."""
-    built = MagicMock()
-    with patch("github.Github", built), pytest.raises(GitHubOperationError):
-        _ = get_github_session().client
-    assert built.call_count == 0
 
 
 # ── REST transport (#983) ────────────────────────────────────────────────────────────────────────

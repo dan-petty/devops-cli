@@ -75,7 +75,7 @@ def test_cli_labels_list() -> None:
 
 
 def test_cli_labels_sync(tmp_path: Path) -> None:
-    """devops gh labels sync reconciles labels with dry-run and shim support."""
+    """devops gh labels sync reconciles labels through the gh label client; a dry run creates none."""
     from unittest.mock import MagicMock, patch
 
     from typer.testing import CliRunner
@@ -88,15 +88,14 @@ def test_cli_labels_sync(tmp_path: Path) -> None:
     )
 
     runner = CliRunner()
-    mock_client = MagicMock()
-    mock_client.get_labels.return_value = []
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=mock_client),
-        patch("devops_cli.commands.gh._get_repo_labels", return_value=[]),
-    ):
-        res = runner.invoke(app, ["labels", "sync", "--file", str(labels_file), "--dry-run"])
-        assert res.exit_code == 0
-        assert "DRY RUN" in res.output
+    listed = MagicMock(returncode=0, stdout="[]", stderr="")
+    with patch("devops_cli.github.client.run_gh", return_value=listed) as run_gh:
+        res = runner.invoke(
+            app, ["labels", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
+        )
+    assert (res.exit_code, "DRY RUN" in res.output, "1 to create" in res.output) == (0, True, True)
+    # A dry run lists the labels and creates none.
+    assert [call.args[0][:3] for call in run_gh.call_args_list] == [["gh", "label", "list"]]
 
 
 def test_cli_labels_audit() -> None:

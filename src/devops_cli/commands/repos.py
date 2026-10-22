@@ -57,7 +57,7 @@ def _github_https_url(full_name: str) -> str:
 
 
 def _require_client() -> GitHubClient:
-    """The session's PyGithub client, exiting with the unauthenticated error when gh has no token."""
+    """The session's client, exiting with the unauthenticated error when gh has no token."""
     from devops_cli.github.session import get_github_session
 
     with exit_on_error(GitHubOperationError):
@@ -180,12 +180,13 @@ def clone_org(
     org_dir = _resolve_safe_org_dir(root, org_name)
     client = _require_client()
 
-    repos = client.get_org_repos(
-        org_name,
-        include_private=private,
-        include_forks=forks,
-        include_archived=False,
-    )
+    with exit_on_error(GitHubOperationError):
+        repos = client.get_org_repos(
+            org_name,
+            include_private=private,
+            include_forks=forks,
+            include_archived=False,
+        )
     org_dir.mkdir(parents=True, exist_ok=True)
 
     print_info(
