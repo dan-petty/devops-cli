@@ -636,6 +636,47 @@ class TestDevcontainerCli:
             "Warning: Failed to install standalone claude CLI" in result.output,
         ) == (0, True)
 
+    def test_post_create_warns_and_succeeds_when_a_node_tool_has_no_npm_to_install_with(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Post-create installs every tool in the lock, and a Node tool needs npm, which the
+        installer does not provision: without it the tool is one warning and post-create still
+        succeeds."""
+        import subprocess
+
+        from devops_cli.commands import install_tools
+        from devops_cli.tools_lock import ToolsLock, load_tools_lock
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.delenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: (
+                "/usr/local/bin/" + prog if prog in ("uv", "pre-commit", "claude") else None
+            ),
+        )
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer.run_subprocess",
+            lambda cmd, **_: subprocess.CompletedProcess(cmd, 0, "", ""),
+        )
+        lock = ToolsLock(
+            python_version="3.14",
+            binary={},
+            python={},
+            npm={"openspec": load_tools_lock().npm["openspec"]},
+        )
+        monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+
+        assert (
+            result.exit_code,
+            "Warning: Failed to install openspec (Required dependency 'npm' is not installed"
+            in " ".join(result.output.split()),
+        ) == (0, True)
+
     def test_init_scaffolds_claude_extension_and_feature(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
@@ -2379,4 +2420,42 @@ def test_devcontainer_validate_cli_dry_run_with_oci(runner: CliRunner) -> None:
         "validate_devcontainer_manifest",
         True,
         "https://github.com/dan-petty/devops-cli",
+    )
+
+
+def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() -> None:
+    """The tool OpenSpec needs Node 20.19 or later and the feature floated to whatever the current
+    LTS was: `.node-version`, this repository's devcontainer, the template and the feature's entry
+    in the devcontainer lock name one Node."""
+    from devops_cli.core.templating import render_json_template
+
+    pinned = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip()
+    repository = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8"))
+    scaffolded = json.loads(
+        render_json_template(
+            "devcontainer.json.j2",
+            project_name="demo",
+            python_version="3.14",
+            image=None,
+            published=False,
+            home_volume=None,
+            minikube=False,
+        )
+    )
+    lock = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8"))
+
+    feature = "ghcr.io/devcontainers/features/node"
+    versions = {
+        name: next(
+            options["version"] for ref, options in features.items() if ref.startswith(feature)
+        )
+        for name, features in (
+            ("repository", repository["features"]),
+            ("template", scaffolded["features"]),
+        )
+    }
+    assert (pinned, versions, any(ref.startswith(feature) for ref in lock["features"])) == (
+        "24",
+        {"repository": "24", "template": "24"},
+        True,
     )

@@ -2657,7 +2657,7 @@ devops ci typecheck [OPTIONS]
 
 ### `devops ci audit`
 
-**Run uv audit to check for known package vulnerabilities.**
+**Run uv audit and npm audit to check for known package vulnerabilities.**
 
 ```bash
 devops ci audit [OPTIONS]

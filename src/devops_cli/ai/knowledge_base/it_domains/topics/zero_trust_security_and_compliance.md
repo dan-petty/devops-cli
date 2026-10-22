@@ -22,7 +22,7 @@ graph TD
     A[Workstation / DevContainer] --> B[OS Keyring Secret Isolation]
     A --> C[SSH Key Hardening & Commit Signing]
     A --> D[AST Code Analysis: Bandit]
-    A --> E[Dependency CVEs: uv audit]
+    A --> E[Dependency CVEs: uv audit, npm audit]
     A --> F[Container & Filesystem CVEs: Trivy]
     A --> G[SSRF Egress Validation & Subprocess Bounds]
 ```
@@ -48,6 +48,7 @@ graph TD
 - `devops scan trivy <image> --type image`: Scans container images with Trivy for CVEs.
 - `bandit -r src/`: Analyzes Python AST nodes for common security antipatterns.
 - `uv audit`: Verifies third-party Python dependencies against known CVE databases.
+- `npm audit`: Verifies the packages in the lockfile of a Node tool against npm's advisory database.
 
 ### Common Commands
 ```bash

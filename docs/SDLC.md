@@ -22,7 +22,7 @@ flowchart LR
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
 2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
-4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit` in every `devops ci` run, hash-pinned tool downloads (`tools.lock`), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
+4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
 6. **Branch Isolation & Human-in-the-Loop Governance**: Strict Git hierarchy isolating features to topic branches targeting active release branches (`release/vX.Y.Z`). AI agents cannot merge code autonomously; maintainers approve and squash-merge.
 7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and review stage.
@@ -167,7 +167,7 @@ flowchart TD
         G4[ruff check]
         G5[ruff format]
         G6[mypy --strict]
-        G7[uv audit]
+        G7[uv audit and npm audit]
         G8[bandit SAST security]
         G9[actionlint workflow check]
         G9b[zizmor workflow security]
@@ -198,7 +198,7 @@ The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only
 4. `lint`: Executes `ruff check` across the entire codebase.
 5. `format`: Verifies formatting compliance with `ruff format --check`.
 6. `typecheck`: Enforces strict static type analysis with `mypy --strict`.
-7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`.
+7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`, and the lockfile of each Node tool in `tools.lock` via `npm audit --package-lock-only --json`, which needs no install. Both commands run on every `devops ci audit`, and a vulnerable pin fails the row. Each is read by its own signal, so a finding is told from an audit that could not run, such as an unreachable registry: uv exits 1 for a finding and 2 for a failure to run, while npm exits 1 for both and its JSON report tells them apart, `metadata.vulnerabilities` counts against an `error` object.
 8. `security`: Scans `src/` and `tests/`, the targets `.bandit` names, for security antipatterns using `bandit`, at medium severity and above. Bandit starts under `nice` (`DEFAULT_CI_BANDIT_NICENESS`), so in the full gate it takes the CPU the test row, the gate's critical path, leaves idle.
 9. `actionlint`: Validates `.github/workflows/` against GitHub Actions schema.
 10. `docs`: Regenerates docs (`devops docs generate --sync-readme`) by default; `devops ci --check` verifies freshness with `devops docs check` without changing files.

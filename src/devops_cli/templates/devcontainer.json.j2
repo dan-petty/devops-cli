@@ -30,7 +30,9 @@
     }{% endif %},
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   {% endif %}
@@ -54,6 +56,8 @@
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
     "UV_MALWARE_CHECK": "1",
     "DO_NOT_TRACK": "1",
+    "OPENSPEC_TELEMETRY": "0",
+    "OPENSPEC_NO_UPDATE_CHECK": "1",
     "HF_HUB_DISABLE_TELEMETRY": "1",
     "SCARF_NO_ANALYTICS": "true",
     "NEXT_TELEMETRY_DISABLED": "1",

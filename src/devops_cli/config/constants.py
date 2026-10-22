@@ -149,6 +149,11 @@ CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 CONST_AGENTS_MD_MAX_CHARS: Final[int] = 40_000
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
 CONST_UV_LOCK_FILENAME = "uv.lock"
+# The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
+# exact version, and the lockfile that records the sha512 of every package that version needs.
+CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", "package-lock.json")
+# Where the tools lock and its Node tools' directories sit in a checkout, from its root.
+CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"

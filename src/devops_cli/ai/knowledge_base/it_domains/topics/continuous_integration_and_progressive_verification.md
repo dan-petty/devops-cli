@@ -41,7 +41,7 @@ graph TD
   4. Fast Code Linting (`ruff check`).
   5. Fast Code Formatting (`ruff format --check`).
   6. Strict Static Type Checking (`mypy --strict`).
-  7. Dependency CVE Audit (`uv audit`).
+  7. Dependency CVE Audit (`uv audit`, `npm audit`).
   8. Static Security AST Scan (`bandit`).
   9. GitHub Actions Workflow Linter (`actionlint`).
   10. Documentation Freshness (`devops docs generate --check`).
