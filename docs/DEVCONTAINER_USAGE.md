@@ -6,8 +6,10 @@
 
 ## 1. Published Container Images & Tags
 
-The official `linux/amd64` image is hosted on GHCR at:
+The official image, for `linux/amd64` and `linux/arm64`, is hosted on GHCR at:
 `ghcr.io/dan-petty/devops-cli/devcontainer`
+
+The release builds the image from `.devcontainer/devcontainer.json` with the Dev Containers CLI. So the image holds the Dev Container Features of that file and the user `vscode` (uid 1000, gid 1000). When a repository names only the image, the `devcontainer.metadata` label of the image sets the remote user to `vscode`. The release starts each image as `vscode` before it tags the image. Images `v0.2.35` to `v0.2.38` have no features and no user `vscode`, and neither had `latest` while one of them was current. A configuration with `"remoteUser": "vscode"` cannot open them ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)). Use `v0.2.34`, or a release after `v0.2.38`. `v0.2.34` and earlier releases have only `linux/amd64`.
 
 | Tag Pattern | Example | Description | Best For |
 | :--- | :--- | :--- | :--- |

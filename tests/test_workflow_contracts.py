@@ -542,3 +542,145 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         line for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")
     )
     assert ("npm install -g" in code, "--copilot-cloud" in code) == (False, False)
+
+
+# ── The devcontainer image build (#1895) ─────────────────────────────────────
+
+DEVCONTAINER_ACTIONS_DIR = GITHUB_DIR / "actions"
+
+
+def _composite_steps(name: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """A composite action of this repository, and each of its steps as the fields it sets."""
+    action = _load_workflow(DEVCONTAINER_ACTIONS_DIR / name / "action.yml")
+    fields = ("name", "uses", "with", "env", "run")
+    return action, [
+        {field: step[field] for field in fields if field in step}
+        for step in action["runs"]["steps"]
+    ]
+
+
+def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli() -> None:
+    """The action builds .devcontainer/devcontainer.json with the Dev Containers CLI that the tools
+    lock pins, so the Dev Container Features and the user vscode are in the image, for both
+    platforms, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
+    holds the digest reach buildx through `build.options`, which the CLI passes on for a
+    Dockerfile configuration where `--label` does nothing (devcontainers/cli#930). The action
+    writes no GITHUB_PATH, so it changes nothing for its caller's later steps."""
+    action, steps = _composite_steps("devcontainer-image")
+    cli = load_tools_lock().npm["devcontainers-cli"]
+
+    assert ((cli.version, cli.bin), action["outputs"], steps) == (
+        ("0.89.0", "devcontainer"),
+        {
+            "digest": {
+                "description": "Digest of the pushed image index.",
+                "value": "${{ steps.build.outputs.digest }}",
+            }
+        },
+        [
+            {
+                "name": "Set up QEMU",
+                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
+            },
+            {
+                "name": "Set up Docker Buildx",
+                "uses": "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069",
+                "with": {"driver-opts": "network=host"},
+            },
+            {
+                "name": "Set up Node.js",
+                "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "with": {"node-version-file": ".node-version"},
+            },
+            {
+                "name": "Install the Dev Containers CLI",
+                "run": "uv run devops install-tools --tool devcontainers-cli --only-missing",
+            },
+            {
+                "name": "Write the build configuration",
+                "env": {"LABELS": "${{ inputs.labels }}"},
+                "run": "set -euo pipefail\n"
+                'jq --arg labels "$LABELS" --arg metadata '
+                '"$RUNNER_TEMP/devcontainer-build-metadata.json" \'\n'
+                "  .build.options = (.build.options // [])\n"
+                '    + [$labels | split("\\n")[] | select(length > 0) | ("--label", .)]\n'
+                '    + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]\n'
+                "' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json\n",
+            },
+            {
+                "name": "Build the image with its features and push it by digest",
+                "env": {
+                    "IMAGE": "${{ inputs.image }}",
+                    "CACHE_FROM": "${{ inputs.cache-from }}",
+                    "CACHE_TO": "${{ inputs.cache-to }}",
+                },
+                "run": "set -euo pipefail\n"
+                'export PATH="$HOME/.local/bin:$PATH"\n'
+                "CACHE_ARGS=()\n"
+                'if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi\n'
+                'if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi\n'
+                "devcontainer build \\\n"
+                "  --workspace-folder . \\\n"
+                "  --config .devcontainer/devcontainer.build.json \\\n"
+                "  --frozen-lockfile \\\n"
+                '  --image-name "$IMAGE" \\\n'
+                "  --platform linux/amd64,linux/arm64 \\\n"
+                "  --output type=image,push-by-digest=true,name-canonical=true,push=true \\\n"
+                '  "${CACHE_ARGS[@]}"\n'
+                'echo "digest=$(jq -er \'."containerimage.digest"\' '
+                '"$RUNNER_TEMP/devcontainer-build-metadata.json")" >> "$GITHUB_OUTPUT"\n',
+            },
+            {"name": "Free the builder's disk space", "run": "docker buildx prune --all --force"},
+        ],
+    )
+
+
+def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> None:
+    """A child repository that names only the image must open as vscode through the image's
+    devcontainer.metadata label, and each platform must run as vscode, uid and gid 1000, with a
+    command from each Dev Container Feature on its path (#1895)."""
+    action, steps = _composite_steps("devcontainer-smoke")
+
+    assert (action["inputs"], steps) == (
+        {
+            "image-ref": {
+                "description": "The image to start, as repository@digest.",
+                "required": True,
+            }
+        },
+        [
+            {
+                "name": "Set up QEMU",
+                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
+            },
+            {
+                "name": "Set up Node.js",
+                "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "with": {"node-version-file": ".node-version"},
+            },
+            {
+                "name": "Install the Dev Containers CLI",
+                "run": "uv run devops install-tools --tool devcontainers-cli --only-missing",
+            },
+            {
+                "name": "Start the image as its remote user",
+                "env": {"REF": "${{ inputs.image-ref }}"},
+                "run": "set -euo pipefail\n"
+                'export PATH="$HOME/.local/bin:$PATH"\n'
+                'CHILD="$RUNNER_TEMP/devcontainer-child"\n'
+                'mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"\n'
+                "jq -n --arg image \"$REF\" '{image: $image, updateRemoteUserUID: false}' > "
+                '"$CHILD/.devcontainer/devcontainer.json"\n'
+                'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
+                'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
+                "for PLATFORM in linux/amd64 linux/arm64; do\n"
+                '  docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec \'\n'
+                '    test "$(id -u):$(id -g)" = 1000:1000\n'
+                "    for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
+                '      command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
+                "    done\n"
+                "    devops --version > /dev/null'\n"
+                "done\n",
+            },
+        ],
+    )

@@ -46,7 +46,7 @@ def test_ci_maintain_dry_run() -> None:
     assert "DRY_RUN" in result.stdout
 
 
-def test_maintain_runs_both_audits_of_the_audit_check_and_passes_when_both_are_clean(
+def test_maintain_runs_every_audit_of_the_audit_check_and_passes_when_all_are_clean(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The audit runs through the audit check's own commands, never a real `uv audit` (#1697)."""
@@ -59,7 +59,7 @@ def test_maintain_runs_both_audits_of_the_audit_check_and_passes_when_both_are_c
         0,
         [
             ["uv", "--preview-features", "malware-check,check-command", "audit"],
-            get_check_spec("audit").commands[1],
+            *get_check_spec("audit").commands[1:],
         ],
     )
 

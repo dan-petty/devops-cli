@@ -246,10 +246,12 @@ Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/r
 3. Cuts and pushes the annotated git tag `vX.Y.Z`.
 4. Extracts release notes using `devops release notes` and creates the official GitHub Release.
 5. Builds, smoke-tests and scans the Service image from the merged tree, pushes it by digest, attests its build provenance, then tags it `vX.Y.Z` and `latest`. Within one poll, Argo CD Image Updater moves Application `devops` to the new digest, and nothing is committed ([#1486](https://github.com/dan-petty/devops-cli/issues/1486)). Every run on `main`, such as a push that recovers a failed release run, rebuilds the image and moves both tags.
+6. Builds the DevContainer image from `.devcontainer/devcontainer.json` with the Dev Containers CLI, for `linux/amd64` and `linux/arm64`. So the features of that file and the user `vscode` are in the image. The `devcontainer-image` job pushes the image by digest. The `devcontainer-smoke` job starts that digest as `vscode`. Then the `devcontainer` job attests the digest and tags it `vX.Y.Z` and `latest` ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)).
 
 ### Step 6: Post-Release DevContainer Validation
-Verify DevContainer lifecycle operations:
+The `devcontainer-smoke` job of release.yml starts the pushed digest as `vscode` before the `devcontainer` job tags it. To do this check again on a workstation, run the first command below. Then verify the DevContainer lifecycle operations with the second command:
 ```bash
+docker run --rm --user vscode ghcr.io/dan-petty/devops-cli/devcontainer:vX.Y.Z id -u   # prints 1000
 uv run devops devcontainer run-lifecycle --all
 ```
 
