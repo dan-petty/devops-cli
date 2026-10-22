@@ -201,6 +201,29 @@ def test_backlog_is_the_open_items_in_no_release(store: InMemoryRoadmapStore) ->
     assert [item.number for item in store.backlog()] == [backlog_item]
 
 
+def test_an_item_carries_the_body_of_the_issue_listing_it_was_read_from(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A job judges an Item by its text without a read per Item (#1539): every read of Items
+    returns each issue's body, and a body written since is the next read's."""
+    planned = store.seed_issue("planned", body="Planned text", release="v0.2.25", on_board=True)
+    unplanned = store.seed_issue("backlog", body="Backlog text", on_board=True)
+    store.write_issue_body(unplanned, "Backlog text, edited")
+
+    found = store.item(planned)
+    assert (
+        [(item.number, item.body) for item in store.items()],
+        [(item.number, item.body) for item in store.items(release="v0.2.25")],
+        [(item.number, item.body) for item in store.backlog()],
+        found.body if found else None,
+    ) == (
+        [(planned, "Planned text"), (unplanned, "Backlog text, edited")],
+        [(planned, "Planned text")],
+        [(unplanned, "Backlog text, edited")],
+        "Planned text",
+    )
+
+
 def test_candidates_are_open_issues_not_on_the_board(store: InMemoryRoadmapStore) -> None:
     candidate = store.seed_issue("intake me", labels=("type/bug",))
     store.seed_issue("closed", state=GitHubState.CLOSED)

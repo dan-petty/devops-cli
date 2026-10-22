@@ -434,6 +434,36 @@ def test_backlog_reads_the_open_issues_in_no_milestone() -> None:
     )
 
 
+def test_items_carry_the_body_of_the_listing_they_were_read_from_with_no_request_per_issue() -> (
+    None
+):
+    """The recorded listings hold no body, so one is put into a copy of each (#1539)."""
+    in_release = {**ISSUES_IN_RELEASE[2], "body": "Shipped text"}
+    in_backlog = {**ISSUES_IN_RELEASE[1], "milestone": None, "body": "Backlog text"}
+    store, runner = board_store(
+        {
+            "milestones?state=all": MILESTONES,
+            BOARD_READ: BoardServer(on_board(739)),
+            "issues?milestone=43": [in_release],
+            "issues?milestone=none": [in_backlog],
+        }
+    )
+    released, backlog = store.items(release="v0.2.25"), store.backlog()
+    assert (
+        [(item.number, item.body) for item in released],
+        [(item.number, item.body) for item in backlog],
+        [args[0] for args, _ in runner.calls if args[0].startswith(API)],
+    ) == (
+        [(737, "Shipped text")],
+        [(739, "Backlog text")],
+        [
+            f"{API}/{LISTING_MILESTONES}",
+            f"{API}/{LISTING_IN_RELEASE}",
+            f"{API}/repos/{REPO}/issues?milestone=none&state=open&per_page=100",
+        ],
+    )
+
+
 def test_candidates_drop_a_pull_request_and_an_issue_already_on_the_board() -> None:
     # The recorded pull request #918 had merged; it is reopened here, so only its
     # `pull_request` key can keep it out.
