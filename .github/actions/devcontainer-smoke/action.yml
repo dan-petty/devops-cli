@@ -1,0 +1,50 @@
+name: Start the DevContainer image as its remote user
+description: >-
+  Start a pushed devcontainer image as a child repository does, before anything attests or tags
+  it (#1895). `devcontainer up` on a configuration that names only the image proves that the
+  image's devcontainer.metadata label gives the remote user vscode, and each platform then runs as
+  vscode, uid and gid 1000, with a command from each Dev Container Feature on its path. The
+  docker-in-docker feature makes the container privileged, so the caller's job holds no write
+  scope and no OIDC token. The caller checks out the repository, installs uv with the project
+  synchronized, and logs in to the registry that holds the image.
+
+inputs:
+  image-ref:
+    description: The image to start, as repository@digest.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .node-version
+
+    - name: Install the Dev Containers CLI
+      shell: bash
+      run: uv run devops install-tools --tool devcontainers-cli --only-missing
+
+    - name: Start the image as its remote user
+      shell: bash
+      env:
+        REF: ${{ inputs.image-ref }}
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+        CHILD="$RUNNER_TEMP/devcontainer-child"
+        mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"
+        jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
+        devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
+        test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
+        for PLATFORM in linux/amd64 linux/arm64; do
+          docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec '
+            test "$(id -u):$(id -g)" = 1000:1000
+            for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do
+              command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
+            done
+            devops --version > /dev/null'
+        done

@@ -125,9 +125,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Builds the devcontainer image of every pull request into main, release pull requests
-  # included, with the action release.yml publishes it with (#1895): it pushes the image by
-  # digest to a registry on the runner and starts it as its remote user, and publishes nothing.
-  # It runs only when the change alters image content.
+  # included, and of every workflow_dispatch run, with the actions release.yml uses (#1895). It
+  # pushes the image by digest to a registry on the runner, starts it as its remote user, and
+  # publishes nothing. On a pull request it runs only when the change alters image content; a
+  # dispatch always builds.
   devcontainer:
     name: DevContainer Image
     if: >-
@@ -151,13 +152,13 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      # IMAGE_CONTENT_PATHS mirrors everything that determines the published image: the
+      # IMAGE_CONTENT_PATHS lists every input of the image this check builds: the
       # .devcontainer build definition (Dockerfile, devcontainer.json and its lockfile),
       # the build context consumed by the Dockerfile's COPY directives (pyproject.toml,
       # uv.lock, README.md and the devops-cli source tree, which holds the CLI's pin in
-      # tools.lock), the action that builds it, and this workflow itself.
+      # tools.lock), the actions that build and start it, and this workflow.
       # tests/test_architectural_invariants.py asserts this list stays in sync with the
-      # Dockerfile, so a new COPY cannot silently start publishing a stale image.
+      # Dockerfile, so a new COPY cannot silently skip the image check.
       - name: Detect Image Content Changes
         id: image_changes
         env:
@@ -171,6 +172,7 @@ jobs:
             README.md
             .dockerignore
             .github/actions/devcontainer-image
+            .github/actions/devcontainer-smoke
             .github/workflows/ci.yml
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -211,7 +213,7 @@ jobs:
       - name: Extract Metadata for DevContainer Image
         if: steps.image_changes.outputs.changed == 'true'
         id: meta
-        uses: docker/metadata-action@8e671d84a3bd81afdfc4fdbb96a42b07c2a80934 # v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: localhost:5000/devcontainer
           labels: |
@@ -222,13 +224,20 @@ jobs:
             org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
             org.opencontainers.image.version=ci-${{ github.run_id }}
 
-      - name: Build, Push by Digest and Smoke-Test DevContainer Image
+      - name: Build and Push DevContainer Image by Digest
         if: steps.image_changes.outputs.changed == 'true'
+        id: image
         uses: ./.github/actions/devcontainer-image
         with:
           image: localhost:5000/devcontainer
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/devcontainer:buildcache
+
+      - name: Start the DevContainer Image as Its Remote User
+        if: steps.image_changes.outputs.changed == 'true'
+        uses: ./.github/actions/devcontainer-smoke
+        with:
+          image-ref: localhost:5000/devcontainer@${{ steps.image.outputs.digest }}
 
   # Builds, smoke-tests and scans the Service image of every pull request into main, release
   # pull requests included, without pushing it; release.yml publishes it after the merge (#1486).

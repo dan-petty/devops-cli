@@ -2,10 +2,11 @@ name: Build the DevContainer image with its features
 description: >-
   Build .devcontainer/devcontainer.json with the Dev Containers CLI that tools.lock pins, so the
   image holds the Dev Container Features, the user vscode and the devcontainer.metadata label a
-  child repository reads. Push it by digest, then start it as its remote user before anything
-  attests or tags it. The pull request job and the release job both call this action, so the
-  pull request check builds what the release publishes (#1895). The caller checks out the
-  repository, installs uv with the project synchronized, and logs in to every registry it names.
+  child repository reads, and push it by digest (#1895). The pull request job and the release job
+  both call this action, so the pull request check builds what the release publishes; each then
+  starts the digest with .github/actions/devcontainer-smoke before anything attests or tags it.
+  The caller checks out the repository, installs uv with the project synchronized, and logs in to
+  every registry it names.
 
 inputs:
   image:
@@ -25,14 +26,14 @@ inputs:
 
 outputs:
   digest:
-    description: Digest of the pushed image index that passed the smoke test.
+    description: Digest of the pushed image index.
     value: ${{ steps.build.outputs.digest }}
 
 runs:
   using: composite
   steps:
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
     # The host network lets the builder push to a registry on the runner's localhost.
     - name: Set up Docker Buildx
@@ -47,9 +48,7 @@ runs:
 
     - name: Install the Dev Containers CLI
       shell: bash
-      run: |
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        uv run devops install-tools --tool devcontainers-cli --only-missing
+      run: uv run devops install-tools --tool devcontainers-cli --only-missing
 
     # `devcontainer build --label` adds nothing to a Dockerfile configuration
     # (devcontainers/cli#930), so the labels, the SBOM, the provenance and the metadata file that
@@ -76,6 +75,7 @@ runs:
         CACHE_TO: ${{ inputs.cache-to }}
       run: |
         set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
         CACHE_ARGS=()
         if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi
         if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi
@@ -89,25 +89,8 @@ runs:
           "${CACHE_ARGS[@]}"
         echo "digest=$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/devcontainer-build-metadata.json")" >> "$GITHUB_OUTPUT"
 
-    # A child repository that names only the image gets its remote user from the image's
-    # devcontainer.metadata label, so `devcontainer up` on such a child proves the label and the
-    # user together. Each platform then runs as vscode with one command from each feature.
-    - name: Start the image as its remote user
+    # The push and the cache export are done, so the builder's state only takes disk space that
+    # the smoke test's pulls need on the same runner.
+    - name: Free the builder's disk space
       shell: bash
-      env:
-        REF: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
-      run: |
-        set -euo pipefail
-        CHILD="$RUNNER_TEMP/devcontainer-child"
-        mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"
-        jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
-        devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
-        test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
-        for PLATFORM in linux/amd64 linux/arm64; do
-          docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec '
-            test "$(id -u):$(id -g)" = 1000:1000
-            for TOOL in zsh git gh node npm docker kubectl helm minikube claude; do
-              command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
-            done
-            devops --version > /dev/null'
-        done
+      run: docker buildx prune --all --force

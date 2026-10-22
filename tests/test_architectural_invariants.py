@@ -843,9 +843,9 @@ def _ci_image_content_paths(workflow: Path, job_name: str = "devcontainer") -> s
 def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_rel: str) -> None:
     """The CI image-change filter must cover every path baked into the container image.
 
-    The published container image packages devops-cli itself. If a new `COPY` starts
-    pulling a path the workflow's change detection does not watch, CI would skip the
-    rebuild and publish a stale image while still reporting success.
+    The container image packages devops-cli itself. If a new `COPY` starts pulling a path
+    the workflow's change detection does not watch, CI would skip the image check while
+    still reporting success.
     """
     watched = _ci_image_content_paths(
         REPO_ROOT / ".github" / "workflows" / "ci.yml", job_name=job_name
@@ -859,7 +859,7 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     assert not uncovered, (
         f"The Dockerfile copies {uncovered} into the image, but the CI 'Detect Image "
         f"Content Changes' filter for {job_name} watches only {sorted(watched)}. Changes to those paths "
-        f"would skip the rebuild and publish a stale image."
+        f"would skip the image check."
     )
 
     # The build definition itself must be watched, not just the copied build context.
@@ -869,11 +869,11 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     )
 
     # The workflow fixes the image name, tags, cache source, and builder action version,
-    # so a change to it alters what gets published even with identical build inputs.
+    # so a change to it alters the image the check builds even with identical build inputs.
     assert _covered(".github/workflows/ci.yml"), (
         "The CI image-change filter must watch the workflow that performs the build; "
         "changing the image name, tag, cache source, or builder version alters the "
-        "published image without touching any build input."
+        "image without touching any build input."
     )
 
     # Each filter must also watch .dockerignore
@@ -881,12 +881,14 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
         f"The CI image-change filter for {job_name} must watch .dockerignore."
     )
 
-    # The devcontainer image is built by a shared action, whose steps alter the image as much
-    # as the workflow that calls it (#1895).
+    # Shared actions build and start the devcontainer image, and their steps alter the check
+    # as much as the workflow that calls them (#1895).
     if job_name == "devcontainer":
-        assert _covered(".github/actions/devcontainer-image/action.yml"), (
-            "The CI image-change filter for devcontainer must watch the action that builds it."
-        )
+        assert [
+            action
+            for action in ("devcontainer-image", "devcontainer-smoke")
+            if not _covered(f".github/actions/{action}/action.yml")
+        ] == [], "The CI image-change filter for devcontainer must watch the actions it runs."
 
 
 def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:

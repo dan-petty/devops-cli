@@ -1184,47 +1184,85 @@ def test_service_image_release_job_invariants() -> None:
     )
 
 
-def _devcontainer_image_build_step(job: dict[str, Any]) -> dict[str, Any]:
-    """The job's step that runs the shared action building the devcontainer image."""
-    step: dict[str, Any] = next(
-        s for s in job["steps"] if s.get("uses") == "./.github/actions/devcontainer-image"
+_BUILD_ACTION = "./.github/actions/devcontainer-image"
+_SMOKE_ACTION = "./.github/actions/devcontainer-smoke"
+
+
+def _workflow(name: str) -> dict[str, Any]:
+    """A workflow of this repository, parsed."""
+    import yaml
+
+    parsed: dict[str, Any] = (
+        yaml.safe_load((REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
+        or {}
     )
+    return parsed
+
+
+def _step_using(job: dict[str, Any], action: str) -> dict[str, Any]:
+    """The job's step that runs `action`."""
+    step: dict[str, Any] = next(s for s in job["steps"] if s.get("uses") == action)
     return step
 
 
-def test_the_release_publishes_the_devcontainer_image_digest_the_shared_action_smoke_tested() -> (
-    None
-):
-    """release.yml publishes the DevContainer image only from main, after the release job.
+_RELEASE_TAG_SCRIPT = """set -euo pipefail
+TAG_ARGS=()
+while read -r TAG; do
+  if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
+done <<< "$TAGS"
+docker buildx imagetools create "${TAG_ARGS[@]}" "${DEVCONTAINER_IMAGE}@${DIGEST}"
+while read -r TAG; do
+  if [ -n "$TAG" ]; then
+    test "$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r .digest)" = "$DIGEST"
+  fi
+done <<< "$TAGS"
+"""
 
-    It validates the OCI labels, then the shared action builds the image with the Dev Containers
-    CLI, so the features and the user vscode are in it, pushes it by digest and starts it as
-    vscode (#1895). Only then does the job attest that digest and tag it vX.Y.Z and latest.
-    """
-    import yaml
 
-    release_wf = (
-        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_test_started() -> None:
+    """release.yml publishes the DevContainer image only from main, after the release job, in
+    three jobs (#1895). The first validates the OCI labels and builds the image with the Dev
+    Containers CLI, so the features and the user vscode are in it, and pushes it by digest. The
+    second starts that digest as vscode in a privileged container, so it holds no write scope and
+    no OIDC token. The third attests the digest, tags it vX.Y.Z and latest, and checks that each
+    tag resolves to it."""
+    jobs = _workflow("release.yml")["jobs"]
+    build, smoke, publish = (
+        jobs["devcontainer-image"],
+        jobs["devcontainer-smoke"],
+        jobs["devcontainer"],
     )
-    job = release_wf["jobs"]["devcontainer"]
-    steps = {s.get("name", ""): s for s in job["steps"]}
+    build_steps = {s.get("name", ""): s for s in build["steps"]}
+    publish_steps = {s.get("name", ""): s for s in publish["steps"]}
 
     assert (
-        job["if"],
-        job.get("needs"),
-        job.get("permissions"),
-        job.get("env", {}).get("DEVCONTAINER_IMAGE"),
-        list(steps),
+        [(job["needs"], job["if"], job["permissions"]) for job in (build, smoke, publish)],
+        list(build_steps),
+        [s.get("name") for s in smoke["steps"]],
+        list(publish_steps),
     ) == (
-        "github.ref == 'refs/heads/main'",
-        "release",
-        {
-            "contents": "read",
-            "packages": "write",
-            "id-token": "write",
-            "attestations": "write",
-        },
-        "ghcr.io/${{ github.repository }}/devcontainer",
+        [
+            (
+                "release",
+                "github.ref == 'refs/heads/main'",
+                {"contents": "read", "packages": "write"},
+            ),
+            (
+                ["release", "devcontainer-image"],
+                "github.ref == 'refs/heads/main'",
+                {"contents": "read", "packages": "read"},
+            ),
+            (
+                ["release", "devcontainer-image", "devcontainer-smoke"],
+                "github.ref == 'refs/heads/main'",
+                {
+                    "contents": "read",
+                    "packages": "write",
+                    "id-token": "write",
+                    "attestations": "write",
+                },
+            ),
+        ],
         [
             "Check out repository",
             "Install uv and Python",
@@ -1232,20 +1270,32 @@ def test_the_release_publishes_the_devcontainer_image_digest_the_shared_action_s
             "Log in to GitHub Container Registry (GHCR)",
             "Extract Metadata for DevContainer Image",
             "Validate OCI Image Metadata Pre-Publish",
-            "Build, Push by Digest and Smoke-Test DevContainer Image",
+            "Build and Push DevContainer Image by Digest",
+        ],
+        [
+            "Check out repository",
+            "Install uv and Python",
+            "Synchronize dependencies",
+            "Log in to GitHub Container Registry (GHCR)",
+            "Start the DevContainer Image as Its Remote User",
+        ],
+        [
+            "Log in to GitHub Container Registry (GHCR)",
+            "Set up Docker Buildx",
             "Attest Build Provenance",
             "Tag the Attested DevContainer Image",
         ],
     )
 
-    build = _devcontainer_image_build_step(job)
+    tag = publish_steps["Tag the Attested DevContainer Image"]
     assert (
-        build["id"],
-        build["with"],
-        steps["Attest Build Provenance"]["with"]["subject-digest"],
-        steps["Tag the Attested DevContainer Image"]["env"],
+        build["outputs"],
+        _step_using(build, _BUILD_ACTION)["with"],
+        _step_using(smoke, _SMOKE_ACTION)["with"],
+        publish_steps["Attest Build Provenance"]["with"]["subject-digest"],
+        (tag["shell"], tag["env"], tag["run"]),
     ) == (
-        "image",
+        {"digest": "${{ steps.image.outputs.digest }}", "tags": "${{ steps.meta.outputs.tags }}"},
         {
             "image": "${{ env.DEVCONTAINER_IMAGE }}",
             "labels": "${{ steps.meta.outputs.labels }}",
@@ -1256,11 +1306,24 @@ def test_the_release_publishes_the_devcontainer_image_digest_the_shared_action_s
                 "type=registry,ref=ghcr.io/${{ github.repository }}/devcontainer:buildcache,mode=max"
             ),
         },
-        "${{ steps.image.outputs.digest }}",
-        {"DIGEST": "${{ steps.image.outputs.digest }}", "TAGS": "${{ steps.meta.outputs.tags }}"},
+        {
+            "image-ref": (
+                "ghcr.io/${{ github.repository }}/devcontainer@"
+                "${{ needs.devcontainer-image.outputs.digest }}"
+            )
+        },
+        "${{ needs.devcontainer-image.outputs.digest }}",
+        (
+            "bash",
+            {
+                "DIGEST": "${{ needs.devcontainer-image.outputs.digest }}",
+                "TAGS": "${{ needs.devcontainer-image.outputs.tags }}",
+            },
+            _RELEASE_TAG_SCRIPT,
+        ),
     )
 
-    labels_text = steps["Extract Metadata for DevContainer Image"]["with"]["labels"]
+    labels_text = build_steps["Extract Metadata for DevContainer Image"]["with"]["labels"]
     assert {line.split("=", 1)[0] for line in labels_text.splitlines() if line} == {
         "org.opencontainers.image.title",
         "org.opencontainers.image.description",
@@ -1270,27 +1333,24 @@ def test_the_release_publishes_the_devcontainer_image_digest_the_shared_action_s
         "org.opencontainers.image.version",
     }
 
-    interpolated_runs = [name for name, s in steps.items() if "${{" in s.get("run", "")]
-    assert interpolated_runs == []
 
-
-def test_the_pull_request_builds_the_devcontainer_image_the_way_the_release_does() -> None:
-    """The pull request job runs the action the release publishes with, so its check builds and
-    starts what the release publishes (#1895). It pushes to a registry on the runner and only
-    reads the cache the release writes, so it holds no write scope."""
-    import yaml
-
-    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    release_wf = (
-        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_release_does() -> (
+    None
+):
+    """The pull request job runs the two actions the release runs, so its check builds and starts
+    what the release publishes (#1895). It pushes to a registry on the runner and only reads the
+    cache the release writes, so it holds no write scope."""
+    job = _workflow("ci.yml")["jobs"]["devcontainer"]
+    release_build = _step_using(
+        _workflow("release.yml")["jobs"]["devcontainer-image"], _BUILD_ACTION
     )
-    job = ci["jobs"]["devcontainer"]
-    release_build = _devcontainer_image_build_step(release_wf["jobs"]["devcontainer"])
 
     assert (
         job["permissions"],
         job["services"],
-        _devcontainer_image_build_step(job)["with"],
+        [s.get("name") for s in job["steps"]],
+        _step_using(job, _BUILD_ACTION)["with"],
+        _step_using(job, _SMOKE_ACTION)["with"],
     ) == (
         {"contents": "read", "packages": "read"},
         {
@@ -1302,11 +1362,21 @@ def test_the_pull_request_builds_the_devcontainer_image_the_way_the_release_does
                 "ports": ["5000:5000"],
             }
         },
+        [
+            "Check out repository",
+            "Detect Image Content Changes",
+            "Set up uv toolchain",
+            "Log in to GitHub Container Registry (GHCR)",
+            "Extract Metadata for DevContainer Image",
+            "Build and Push DevContainer Image by Digest",
+            "Start the DevContainer Image as Its Remote User",
+        ],
         {
             "image": "localhost:5000/devcontainer",
             "labels": "${{ steps.meta.outputs.labels }}",
             "cache-from": release_build["with"]["cache-from"],
         },
+        {"image-ref": "localhost:5000/devcontainer@${{ steps.image.outputs.digest }}"},
     )
 
 
@@ -1321,17 +1391,19 @@ def _automation_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any
     ]
 
 
-def test_only_the_shared_action_builds_the_devcontainer_image() -> None:
+def test_only_the_shared_actions_build_and_start_the_devcontainer_image() -> None:
     """A build of .devcontainer/Dockerfile that bypasses the Dev Containers CLI publishes an image
-    without the Dev Container Features and the user vscode, as v0.2.35 to v0.2.38 did (#1895).
-    So no step builds it another way, and only the two image jobs run the shared action."""
+    without the Dev Container Features and the user vscode, as v0.2.35 to v0.2.38 did (#1895). So
+    no step uses devcontainers/ci or names .devcontainer/Dockerfile in its `file` or its script,
+    and only the image jobs run the two actions."""
     import yaml
 
+    github = REPO_ROOT / ".github"
     automation = sorted(
-        [*Path(".github/workflows").glob("*.yml"), *Path(".github/actions").glob("*/action.yml")]
+        [*(github / "workflows").glob("*.y*ml"), *(github / "actions").glob("*/action.y*ml")]
     )
     steps = [
-        (path.as_posix(), job_id, step)
+        (path.relative_to(REPO_ROOT).as_posix(), job_id, step)
         for path in automation
         for job_id, step in _automation_steps(
             yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -1345,16 +1417,18 @@ def test_only_the_shared_action_builds_the_devcontainer_image() -> None:
         or ".devcontainer/Dockerfile" in str(step.get("run", ""))
     ]
     callers = [
-        (path, job_id)
+        (path, job_id, step["uses"])
         for path, job_id, step in steps
-        if step.get("uses") == "./.github/actions/devcontainer-image"
+        if step.get("uses") in (_BUILD_ACTION, _SMOKE_ACTION)
     ]
 
     assert (other_builders, callers) == (
         [],
         [
-            (".github/workflows/ci.yml", "devcontainer"),
-            (".github/workflows/release.yml", "devcontainer"),
+            (".github/workflows/ci.yml", "devcontainer", _BUILD_ACTION),
+            (".github/workflows/ci.yml", "devcontainer", _SMOKE_ACTION),
+            (".github/workflows/release.yml", "devcontainer-image", _BUILD_ACTION),
+            (".github/workflows/release.yml", "devcontainer-smoke", _SMOKE_ACTION),
         ],
     )
 
