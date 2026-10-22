@@ -242,11 +242,11 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/test_host_sandbox.py::test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts",
 ]
 also_copy = [
-    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gitattributes", ".github",
-    ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version", ".trivyignore",
-    "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md", "CONTRIBUTING.md",
-    "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md", "changelog.d",
-    "config.example.yaml", "docs", "k8s", "tf",
+    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gh-dash.yml", ".gitattributes",
+    ".github", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version",
+    ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
+    "CONTRIBUTING.md", "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md",
+    "changelog.d", "config.example.yaml", "docs", "k8s", "tf",
 ]
 
 [tool.uv]
