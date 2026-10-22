@@ -121,7 +121,6 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
-    "devops_cli.ai.agents.spend",
     "devops_cli.ai.agents.testing",
     "devops_cli.ai.client.models",
     "devops_cli.ai.gateway_tune",
@@ -1418,13 +1417,6 @@ CONST_DOCKERFILE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(r"\$(?:\{[^}]*
 CONST_DOCKERFILE_SCRATCH_IMAGE: Final[str] = "scratch"
 # The tag a registry serves for an image reference that names none.
 CONST_DOCKER_DEFAULT_TAG: Final[str] = "latest"
-
-# ── AI Prompt & Injection Mitigation ──────────────────────────────────────────
-CONST_PROMPT_INJECTION_TAGS_RE: re.Pattern[str] = re.compile(
-    r"<\/?(?:system|instructions?|prompt|untrusted)[^>]*>",
-    re.IGNORECASE,
-)
-CONST_PROMPT_INJECTION_TAGS_REGEX = CONST_PROMPT_INJECTION_TAGS_RE
 
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -255,6 +256,64 @@ async def test_embedder_and_embedding_result() -> None:
     assert len(res_test) == 1
     assert len(res_test[0]) > 0
     assert res_test["Test query"] == res_test[0]
+
+
+def test_embedding_cost_of_an_unpriced_local_model_follows_the_pricing_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A local embedding model costs nothing until an override prices it (provider and timestamp reach the registry)."""
+    from datetime import UTC, datetime
+
+    from pydantic_ai.usage import RequestUsage
+
+    from devops_cli.ai.agents.embeddings import EmbeddingCost, EmbeddingResult
+    from devops_cli.ai.spend.pricing import PricingRegistry
+
+    pricing = PricingRegistry(data_dir=tmp_path)
+    priced_requests: list[dict[str, Any]] = []
+    price_request = pricing.calculate_request_cost
+
+    def record_request(
+        model: str, prompt_tokens: int, completion_tokens: int, **context: Any
+    ) -> float:
+        priced_requests.append(
+            {
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                **context,
+            }
+        )
+        return price_request(model, prompt_tokens, completion_tokens, **context)
+
+    monkeypatch.setattr(pricing, "calculate_request_cost", record_request)
+    monkeypatch.setattr("devops_cli.ai.spend.get_pricing_registry", lambda: pricing)
+
+    request_timestamp = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
+    result = EmbeddingResult(
+        embeddings=[[0.1, 0.2]],
+        inputs=["test text"],
+        model_name="local-embed",
+        provider_name="ollama",
+        usage=RequestUsage(input_tokens=100_000),
+        timestamp=request_timestamp,
+    )
+    unpriced_cost = result.cost()
+    pricing.set_custom_pricing("local-embed", 1.5, 0.0)
+    overridden_cost = result.cost()
+
+    request = {
+        "model": "local-embed",
+        "prompt_tokens": 100_000,
+        "completion_tokens": 0,
+        "provider": "ollama",
+        "request_timestamp": request_timestamp,
+    }
+    assert (unpriced_cost, overridden_cost, priced_requests) == (
+        EmbeddingCost(total_price=0.0),
+        EmbeddingCost(total_price=0.15),
+        [request, request],
+    )
 
 
 def test_testing_utilities_and_agent_override() -> None:

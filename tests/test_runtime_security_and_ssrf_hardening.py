@@ -1,13 +1,9 @@
-"""Unit tests for agent runtime security, media storage traversal prevention, and SSRF hardening."""
+"""Unit tests for agent runtime security: URI traversal, SSRF, secret masking, injection guards."""
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
-from devops_cli.ai.agents.media import DiskMediaStore
 from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.exceptions.security import SSRFBlockedError
@@ -16,38 +12,7 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import parse_vault_uri
 from tests.web_fakes import StubWeb
 
-# ── 1. DiskMediaStore Traversal & Hash Validation ─────────────────────────────
-
-
-def test_disk_media_store_rejects_path_traversal() -> None:
-    """Verify that DiskMediaStore rejects non-sha256 digests and path traversal in get/delete."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = DiskMediaStore(root_dir=tmpdir)
-
-        # Attempt path traversal
-        traversal_uri = "media+sha256://../../etc/passwd"
-        assert store.get(traversal_uri) is None
-        assert store.delete(traversal_uri) is False
-
-        # Attempt non-hex digest
-        invalid_uri = "media+sha256://not-a-valid-sha256-hash-too-short"
-        assert store.get(invalid_uri) is None
-        assert store.delete(invalid_uri) is False
-
-        # Valid sha256 store and retrieve
-        valid_digest = "a" * 64
-        valid_uri = f"media+sha256://{valid_digest}"
-        test_file = Path(tmpdir) / valid_digest
-        test_file.write_bytes(b"image content")
-
-        res = store.get(valid_uri)
-        assert res is not None
-        assert res.data == b"image content"
-        assert store.delete(valid_uri) is True
-        assert not test_file.exists()
-
-
-# ── 2. Vault URI Percent-Encoded Traversal Validation ────────────────────────
+# ── 1. Vault URI Percent-Encoded Traversal Validation ────────────────────────
 
 
 def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
@@ -64,7 +29,7 @@ def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
     assert key == "password"
 
 
-# ── 3. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
+# ── 2. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
 
 
 def test_web_fetch_tool_case_insensitive_domains(stub_web: StubWeb) -> None:
@@ -88,7 +53,7 @@ def test_web_fetch_tool_reraises_ssrf_blocked_error() -> None:
         tool.execute(url="http://127.0.0.1:8080/admin")
 
 
-# ── 4. Secret Sanitizer Regex Identifier Protection ──────────────────────────
+# ── 3. Secret Sanitizer Regex Identifier Protection ──────────────────────────
 
 
 def test_secret_sanitizer_does_not_mask_variable_identifiers() -> None:
@@ -111,7 +76,7 @@ def test_secret_sanitizer_masks_actual_secret_assignments() -> None:
     assert "<masked-secret>" in sanitized or "<masked-token>" in sanitized
 
 
-# ── 5. ChaosFaultRunner Argument Injection Guards ────────────────────────────
+# ── 4. ChaosFaultRunner Argument Injection Guards ────────────────────────────
 
 
 def test_chaos_fault_runner_rejects_argument_injection() -> None:
@@ -132,7 +97,7 @@ def test_chaos_fault_runner_rejects_argument_injection() -> None:
     )
 
 
-# ── 6. Structural Diff Ref Injection Guards ──────────────────────────────────
+# ── 5. Structural Diff Ref Injection Guards ──────────────────────────────────
 
 
 def test_structural_diff_rejects_flag_injection_refs() -> None:

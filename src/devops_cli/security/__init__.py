@@ -40,7 +40,6 @@ if TYPE_CHECKING:
         redact_text,
         sanitize_command_args_for_display,
         sanitize_prompt_boundary_tags,
-        sanitize_prompt_injection,
         sanitize_telemetry_endpoint,
     )
     from devops_cli.security.semgrep import SemgrepScanner, run_semgrep_scan
@@ -120,7 +119,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
         "devops_cli.security.sanitizer",
         "sanitize_prompt_boundary_tags",
     ),
-    "sanitize_prompt_injection": ("devops_cli.security.sanitizer", "sanitize_prompt_injection"),
     "sanitize_telemetry_endpoint": ("devops_cli.security.sanitizer", "sanitize_telemetry_endpoint"),
     "SemgrepScanner": ("devops_cli.security.semgrep", "SemgrepScanner"),
     "run_semgrep_scan": ("devops_cli.security.semgrep", "run_semgrep_scan"),
@@ -195,7 +193,6 @@ __all__ = [
     "run_trivy_scan",
     "sanitize_command_args_for_display",
     "sanitize_prompt_boundary_tags",
-    "sanitize_prompt_injection",
     "sanitize_telemetry_endpoint",
     "sort_network_references",
 ]

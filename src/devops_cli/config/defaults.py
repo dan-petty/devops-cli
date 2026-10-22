@@ -116,10 +116,6 @@ DEFAULT_GATEWAY_TUNE_MAX_TOKENS: int = 200
 DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES: int = 2
 DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS: float = 0.5
-DEFAULT_AI_DURABLE_ENGINE: str = "sqlite"
-DEFAULT_AI_DURABLE_STORE_PATH: Path = DEFAULT_DATA_DIR / "durable_runs.db"
-DEFAULT_AI_DURABLE_TASK_QUEUE: str = "devops-cli-tasks"
-DEFAULT_AI_DURABLE_WORKFLOW_PREFIX: str = "devops-run-"
 DEFAULT_LLM_CACHE_ENABLED: bool = True
 DEFAULT_LLM_CACHE_TTL_SECONDS: int = 86400 * 7  # 7 days
 DEFAULT_LLM_CACHE_MAX_ENTRIES: int = 1000
@@ -545,10 +541,6 @@ DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
 # registry, two git clones included, took about 9 s.
 DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS: float = 300.0
 
-# ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
-DEFAULT_XML_INDENT: str = "  "
-DEFAULT_XML_ITEM_TAG: str = "item"
-DEFAULT_XML_NONE_STR: str = "null"
 # ── AI Context Packing & AST Defaults ────────────────────────────────────────
 DEFAULT_CONTEXT_PACKING_MAX_TOKENS: int = 1500
 DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET: int = 3000
@@ -569,8 +561,6 @@ DEFAULT_TAVILY_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_EXA_SEARCH_NUM_RESULTS: int = 5
 DEFAULT_EXA_SEARCH_MAX_CHARACTERS: int = 1000
 
-DEFAULT_SQLITE_MEMORY_DB_PATH: str = ":memory:"
-DEFAULT_AI_DURABLE_AGENT_NAME: str = "durable_agent"
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"
@@ -600,7 +590,6 @@ DEFAULT_OUTPUT_GUARDRAIL_NAME: str = "output_guardrail"
 DEFAULT_EMBEDDING_MODEL_NAME: str = "default"
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = "devops-cli"
 DEFAULT_EMBEDDING_MODEL: str = "openai:text-embedding-3-small"
-DEFAULT_MEDIA_OCTET_STREAM_TYPE: str = "application/octet-stream"
 DEFAULT_PROMPT_INJECTION_PATTERNS: tuple[str, ...] = (
     "ignore previous instructions",
     "ignore all previous instructions",
@@ -614,7 +603,6 @@ DEFAULT_PROMPT_INJECTION_PATTERNS: tuple[str, ...] = (
     "reveal your system prompt",
     "bypass safety filters",
 )
-DEFAULT_MEDIA_EXTERNALIZER_ID: str = "media"
 DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 DEFAULT_PROMPT_INJECTION_DEFENDER_ID: str = "prompt_injection_defender"
@@ -689,10 +677,10 @@ DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 67,
+    "src type: ignore": 64,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
-    "src noqa: F401": 21,
+    "src noqa: F401": 15,
     "src noqa: SIM115": 1,
     "src noqa: UP036": 1,
     "src nosec": 14,
@@ -700,7 +688,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
     "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
-    "tests type: ignore": 138,
+    "tests type: ignore": 136,
     "tests noqa: F401": 3,
     "tests noqa: N803": 1,
     "tests nosec": 17,

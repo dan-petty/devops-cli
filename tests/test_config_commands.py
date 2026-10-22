@@ -303,6 +303,26 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert client is not None
 
 
+def test_a_config_file_still_holding_the_removed_ai_durable_block_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the unread `ai.durable` block that older docs listed is ignored, not rejected."""
+    from devops_cli.config.settings import load_settings, reset_settings_cache
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "ai:\n  model: qwen2.5-coder:14b\n  durable:\n    engine: sqlite\n    task_queue: queue\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_path))
+    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", config_path)
+    reset_settings_cache()
+
+    loaded = load_settings()
+
+    assert (loaded.ai.model, "durable" in loaded.ai.model_dump()) == ("qwen2.5-coder:14b", False)
+
+
 def test_k8s_and_cloudflare_domain_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -293,10 +293,3 @@ DEP002 = [
     "tree-sitter-typescript",
     "openai",
 ]
-# External durable execution engines are optional until #1121 settles them.
-# deptry matches top-level names, which is why opentelemetry-api was declared by hand.
-DEP001 = [
-    "temporalio",
-    "dbos",
-    "prefect",
-]
