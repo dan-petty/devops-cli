@@ -323,7 +323,7 @@ def _is_installed_copy(package_dir: Path) -> bool:
     return any(package_dir.is_relative_to(Path(d).resolve()) for d in install_dirs)
 
 
-def _nearest_checkout(start: Path) -> Path | None:
+def nearest_checkout(start: Path) -> Path | None:
     """The nearest directory holding `.git` from `start` upward, or None outside any checkout."""
     return next((d for d in (start, *start.parents) if (d / CONST_GIT_DIR_NAME).exists()), None)
 
@@ -335,7 +335,7 @@ def _source_repository(package_dir: Path) -> Path | None:
     repository's source even inside its checkout, and outside any checkout there is none."""
     if _is_installed_copy(package_dir):
         return None
-    checkout = _nearest_checkout(package_dir)
+    checkout = nearest_checkout(package_dir)
     return _own_common_dir(checkout) if checkout is not None else None
 
 
@@ -351,7 +351,7 @@ def own_source_state() -> tuple[str, str] | None:
     track are not devops-cli's code and do not count.
     """
     package_dir = _own_source_dir()
-    checkout = None if _is_installed_copy(package_dir) else _nearest_checkout(package_dir)
+    checkout = None if _is_installed_copy(package_dir) else nearest_checkout(package_dir)
     if checkout is None:
         return None
     head, diff = (
@@ -368,7 +368,7 @@ def own_source_state() -> tuple[str, str] | None:
 @functools.lru_cache(maxsize=64)
 def _repository_at(start: str) -> Path | None:
     """The shared git directory of the nearest checkout holding `start`, or None outside one."""
-    checkout = _nearest_checkout(Path(start).resolve())
+    checkout = nearest_checkout(Path(start).resolve())
     return _own_common_dir(checkout) if checkout is not None else None
 
 

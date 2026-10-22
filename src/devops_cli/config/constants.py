@@ -4529,6 +4529,22 @@ CONST_HOST_SANDBOX_VIRTUALENV_BIN: tuple[str, ...] = (".venv", "bin")
 # `lib/python3.14t/os.py` for a free-threaded build), which `getpath` itself looks for.
 CONST_PYTHON_STDLIB_LANDMARK_GLOB: str = "lib/python3.*/os.py"
 
+# The limits a review tool runs under in the sandbox (#772). `prlimit` sets them, so no code of
+# devops-cli calls setrlimit. There is no limit on processes: RLIMIT_NPROC counts every process
+# of the user, so inside the sandbox it would starve the host's own shells and servers
+# (`_run_sandbox_process` in sandbox/host.py has the reason in full).
+# CPU seconds one process of a tool may use before the kernel ends it.
+CONST_TOOL_CPU_LIMIT_SECONDS: Final[int] = 600
+# The least address space, in bytes, a tool may be given. It is the default too. Go tools reserve
+# more address space than they use. No run of the pinned tools has measured this value yet.
+CONST_TOOL_MIN_ADDRESS_SPACE_BYTES: Final[int] = 2 * 1024**3
+# The soft memory limit of a Go tool's collector. Programs that are not written in Go ignore it.
+CONST_TOOL_GO_MEMORY_LIMIT: Final[str] = "1GiB"
+# The program that sets a tool's limits (util-linux).
+CONST_TOOL_PRLIMIT_BINARY: Final[str] = "prlimit"
+# The element of a tool's arguments that stands for the paths the tool scans.
+CONST_TOOL_TARGETS_PLACEHOLDER: Final[str] = "{targets}"
+
 # Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).
 CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400

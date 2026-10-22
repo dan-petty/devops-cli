@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, NamedTuple
@@ -506,10 +507,13 @@ class HostSandbox:
         cwd: Path,
         repo_root: Path | None = None,
         env: dict[str, str] | None = None,
+        read_only_binds: Sequence[Path] = (),
     ) -> list[str]:
         """Compile complete bubblewrap argument list.
 
         The caller's `env` wins over the repository's environment, which wins over the policy's.
+        Each of `read_only_binds` is bound read-only at its own path, after the mounts of the
+        repository, so a path below the tmpfs is not hidden by it.
         """
         mount_args, resolved_cwd = self._resolve_repo_mounts(cwd, repo_root)
         root = _effective_repo_root(resolved_cwd, repo_root)
@@ -529,6 +533,7 @@ class HostSandbox:
             + self._resolve_system_mounts()
             + mount_args
             + env_mounts
+            + [arg for path in read_only_binds for arg in ("--ro-bind", str(path), str(path))]
             + self._build_env_args(repo_env | (env or {}))
             + ["--chdir", str(resolved_cwd), "--"]
             + command_args
