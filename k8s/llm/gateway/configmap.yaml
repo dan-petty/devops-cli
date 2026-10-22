@@ -46,10 +46,10 @@ data:
       # profile keeps two models loaded, the embedding model and qwen3.8:27b, and this list
       # sends it no other. A third model would evict one of them, and Ollama predicts a dense
       # ~30B model too large to fit beside the embedder, so it evicts the embedder (#1064, #1221).
-      # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
-      - model_name: bge-m3:latest
+      # mode: embedding makes health checks embed rather than generate.
+      - model_name: qwen3-embedding:0.6b
         litellm_params:
-          model: ollama/bge-m3:latest
+          model: ollama/qwen3-embedding:0.6b
           api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
         model_info:
           mode: embedding

@@ -1036,8 +1036,8 @@ def test_the_code_and_document_options_are_not_taken_together(
 
 
 def test_the_embedding_benchmark_defaults_to_the_two_candidate_models() -> None:
-    """Verify a runner given no models benchmarks the gateway's `bge-m3:latest` against
-    `qwen3-embedding:0.6b`, the comparison #481 decides (#481)."""
+    """Verify a runner given no models benchmarks the two models that #481 compared:
+    `bge-m3:latest` and `qwen3-embedding:0.6b` (#481)."""
     assert EmbeddingBenchmarkRunner(is_dry_run=True).models == [
         "bge-m3:latest",
         "qwen3-embedding:0.6b",
