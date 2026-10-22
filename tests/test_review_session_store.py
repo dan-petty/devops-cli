@@ -18,7 +18,7 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ReviewSessionExistsError
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
-from devops_cli.ui.data_providers import fetch_review_status, list_review_sessions
+from devops_cli.ui.data_providers import fetch_review_status
 
 
 def test_sessions_live_in_the_reviews_directory_of_the_data_directory_variable(
@@ -92,13 +92,13 @@ def test_the_store_root_refuses_a_directory_a_session_may_not_be_kept_in(
 
 
 @pytest.mark.parametrize("data_dir", REFUSED_DATA_DIRECTORIES)
-def test_the_dashboard_lists_no_review_when_the_store_root_is_refused(
+def test_the_review_summary_has_no_session_when_the_store_root_is_refused(
     data_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify the dashboard shows an empty review panel for a refused directory, not a crash."""
+    """Verify the review summary is empty for a refused directory, not a crash."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", data_dir)
 
-    assert (list_review_sessions(), fetch_review_status().has_session) == ([], False)
+    assert fetch_review_status().has_session is False
 
 
 def _payload(*titles: str) -> ReviewSessionPayload:
@@ -120,36 +120,26 @@ def _published(store: type[ReviewSessionStore], name: str, *titles: str) -> Revi
     return session
 
 
-def test_the_dashboard_lists_the_sessions_of_the_review_store(
+def test_the_review_summary_reads_the_session_published_under_the_store_root(
     review_store: type[ReviewSessionStore],
 ) -> None:
-    """Verify a session published under the store root is the one the dashboard lists."""
+    """Verify a session published under the store root is the one the review summary reads."""
     _published(review_store, "20261001-120000", "Kept")
-
-    assert [(info.name, info.completed, info.finding_count) for info in list_review_sessions()] == [
-        ("20261001-120000", True, 1)
-    ]
-
-
-def test_the_dashboard_lists_an_in_flight_session_as_incomplete(
-    review_store: type[ReviewSessionStore],
-) -> None:
-    """Verify a review that has written its findings but is not yet published is listed, not
-    hidden, and not presented as a completed result (#771)."""
-    _published(review_store, "20261001-120000", "Kept")
-    review_store.session("20261002-120000").write_findings(_payload("Kept"))
 
     summary = fetch_review_status()
 
-    assert (
-        [(info.name, info.completed) for info in list_review_sessions()],
-        summary.session_name,
-        summary.incomplete,
-    ) == (
-        [("20261002-120000", False), ("20261001-120000", True)],
-        "20261001-120000",
-        ["20261002-120000"],
-    )
+    assert (summary.session_name, summary.total_findings) == ("20261001-120000", 1)
+
+
+def test_the_review_summary_does_not_present_an_in_flight_session_as_the_result(
+    review_store: type[ReviewSessionStore],
+) -> None:
+    """Verify a review that has written its findings but is not yet published is not
+    presented as a completed result (#771)."""
+    _published(review_store, "20261001-120000", "Kept")
+    review_store.session("20261002-120000").write_findings(_payload("Kept"))
+
+    assert fetch_review_status().session_name == "20261001-120000"
 
 
 def test_a_session_is_listed_only_once_it_is_published(
@@ -259,7 +249,7 @@ def test_the_store_lists_only_the_directories_that_are_sessions(
 ) -> None:
     """Verify the benchmarks and corpora kept in the sessions directory, and a hidden
     directory, are not sessions, so none is the latest although `corpora` sorts after every
-    timestamp, and the dashboard does not show one in place of a review."""
+    timestamp, and the review summary does not show one in place of a review."""
     _published(review_store, "20261001-120000", "Kept")
     for kept_beside_sessions in ("benchmarks", "corpora", ".cache"):
         (review_store.root() / kept_beside_sessions).mkdir()
@@ -269,9 +259,8 @@ def test_the_store_lists_only_the_directories_that_are_sessions(
     assert (
         [session.name for session in review_store.sessions()],
         latest.name if latest else None,
-        [info.name for info in list_review_sessions()],
         fetch_review_status().session_name,
-    ) == (["20261001-120000"], "20261001-120000", ["20261001-120000"], "20261001-120000")
+    ) == (["20261001-120000"], "20261001-120000", "20261001-120000")
 
 
 def test_sessions_are_listed_newest_first_and_the_latest_is_the_newest(

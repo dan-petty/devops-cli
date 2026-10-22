@@ -267,7 +267,7 @@ def test_review_data_has_one_location_inside_a_review_and_out(
 def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
     hostile_repo: Path, user_level: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The dashboard, `devops ai prompt-eval` and `devops ai runs` resolved their data under the
+    """The dashboard summary, `devops ai prompt-eval` and `devops ai runs` resolved their data under the
     repository they ran in, so none found the session, the recorded verdict or the run a review
     started there wrote under the user-level data root. Each now finds them."""
     from datetime import UTC, datetime
@@ -277,7 +277,7 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
     from devops_cli.ai.run_store import Mechanism, RunRecord, save_run
     from devops_cli.commands.ai import app as ai_app
     from devops_cli.review.session import ReviewSessionStore
-    from devops_cli.ui.data_providers import list_review_sessions
+    from devops_cli.ui.data_providers import fetch_review_status
 
     verdict = {
         "title": "SSRF: urlopen fetches a URL the caller chooses",
@@ -306,14 +306,15 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
 
     exit_code, _ = _seen_by_a_review(hostile_repo, keep_as_a_review_does, monkeypatch)
     listed = CliRunner().invoke(ai_app, ["runs", "list", "--format", "json"])
+    summary = fetch_review_status()
 
     assert (
         exit_code,
-        [(session.name, session.finding_count) for session in list_review_sessions()],
+        (summary.session_name, summary.total_findings),
         evaluate_persona_prompts("devsecops").total_cases,
         [record["run_id"] for record in json.loads(listed.output)],
         (hostile_repo / ".data").exists(),
-    ) == (0, [("20261003-120000", 1)], 1, [run.run_id], False)
+    ) == (0, ("20261003-120000", 1), 1, [run.run_id], False)
 
 
 # =============================================================================

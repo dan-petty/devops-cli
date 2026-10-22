@@ -98,17 +98,11 @@ class ReviewSessionInfo(BaseModel):
 
     name: str
     completed: bool = False
-    finding_count: int = 0
 
 
 class ReviewSummary(BaseModel):
     """AI code review session and findings summary."""
 
-    # Sessions newest first, so the panel can offer selection without re-sorting.
-    sessions: list[ReviewSessionInfo] = Field(default_factory=list)
-    # Sessions still in staging, never published. A review writing one is indistinguishable on
-    # disk from one that died part-way; calling them "incomplete" claims only what can be observed.
-    incomplete: list[str] = Field(default_factory=list)
     has_session: bool = False
     session_name: str = ""
     total_findings: int = 0
@@ -493,17 +487,6 @@ def fetch_telemetry_status() -> TelemetrySummary:
         return fallback.model_copy(update={"error_message": f"{base_url}: {exc}"})
 
 
-def _count_findings(findings_file: Path) -> int:
-    """Count findings in a session file without raising on a malformed one."""
-    try:
-        data = json.loads(findings_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("Unreadable findings file %s: %s", findings_file, exc)
-        return 0
-    findings = data.get("findings") if isinstance(data, dict) else None
-    return len(findings) if isinstance(findings, list) else 0
-
-
 def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
     """Each review session, newest first, with the directory it is read from.
 
@@ -514,11 +497,7 @@ def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
     try:
         published = [
             (
-                ReviewSessionInfo(
-                    name=session.name,
-                    completed=True,
-                    finding_count=_count_findings(session.findings_path),
-                ),
+                ReviewSessionInfo(name=session.name, completed=True),
                 session.directory,
             )
             for session in ReviewSessionStore.sessions()
@@ -533,28 +512,14 @@ def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
     return sorted(published + running, key=lambda listed: listed[0].name, reverse=True)
 
 
-def list_review_sessions() -> list[ReviewSessionInfo]:
-    """List review sessions newest first, recording which ones actually completed.
+def _get_latest_review_session_dir() -> Path | None:
+    """Resolve the session directory to display: the newest **completed** session.
 
-    Session names are timestamps, so a reverse lexical sort is a reverse chronological one.
-    """
-    return [info for info, _ in _listed_sessions()]
-
-
-def _get_latest_review_session_dir(session: str | None = None) -> Path | None:
-    """Resolve the session directory to display.
-
-    Defaults to the newest **completed** session. A review that is still running writes into
-    staging and is published only at the end, so taking the newest session showed an empty
-    in-flight one as the latest result and hid the last real one behind it.
+    A review that is still running writes into staging and is published only at the end, so
+    taking the newest session showed an empty in-flight one as the latest result and hid the
+    last real one behind it.
     """
     listed = _listed_sessions()
-    if session:
-        # A name chosen from the session list, so it is matched as a name rather than
-        # interpreted as a path.
-        name = Path(session).name
-        return next((directory for info, directory in listed if info.name == name), None)
-
     # With nothing completed yet, showing the in-flight session beats showing nothing, and
     # the summary reports that it is still running.
     return next(
@@ -563,23 +528,15 @@ def _get_latest_review_session_dir(session: str | None = None) -> Path | None:
     )
 
 
-def fetch_review_status(session: str | None = None) -> ReviewSummary:
-    """Summarise a review session, defaulting to the newest completed one."""
-    sessions = list_review_sessions()
-    incomplete = [info.name for info in sessions if not info.completed]
-
-    session_dir = _get_latest_review_session_dir(session)
+def fetch_review_status() -> ReviewSummary:
+    """Summarise the newest completed review session."""
+    session_dir = _get_latest_review_session_dir()
     if not session_dir:
-        return ReviewSummary(has_session=False, sessions=sessions, incomplete=incomplete)
+        return ReviewSummary(has_session=False)
 
     findings_file = session_dir / "findings.json"
     if not (findings_file.exists() and findings_file.is_file()):
-        return ReviewSummary(
-            has_session=True,
-            session_name=session_dir.name,
-            sessions=sessions,
-            incomplete=incomplete,
-        )
+        return ReviewSummary(has_session=True, session_name=session_dir.name)
 
     try:
         data = json.loads(findings_file.read_text(encoding="utf-8"))
@@ -597,8 +554,6 @@ def fetch_review_status(session: str | None = None) -> ReviewSummary:
         return ReviewSummary(
             has_session=True,
             session_name=session_dir.name,
-            sessions=sessions,
-            incomplete=incomplete,
             total_findings=len(raw_findings),
             verified_count=verified_count,
             unverified_count=unverified_count,

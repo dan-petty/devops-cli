@@ -10,7 +10,7 @@
 During interactive dashboard execution or parallel test runs (`tests/test_ui_dashboard.py::test_textual_dashboard_app_lifecycle`), worker threads fetching domain snapshot updates could execute and call `apply_snapshot` / `panel.apply(...)` before panels or their child `Static` / `DataTable` widgets were composed and mounted. In Textual, querying for unmounted child nodes (`self.query_one(Static)`) raises `NoMatches`. When caught in `apply_snapshot`, the error fallback also attempted to query the unmounted widget and re-raised `NoMatches`, causing `WorkerFailed` exceptions.
 
 This deliverable:
-- Defensively guards all domain panels (`DomainPanel`, `K8sPanel`, `DockerPanel`, `ReviewPanel`) in `src/devops_cli/ui/widgets.py` by deferring snapshot application (`_pending_snapshot`) when the panel is unmounted (`not self.is_mounted`) or when child queries raise `NoMatches`.
+- Defensively guards all domain panels (`DomainPanel`, `K8sPanel`, `DockerPanel`) in `src/devops_cli/ui/widgets.py` by deferring snapshot application (`_pending_snapshot`) when the panel is unmounted (`not self.is_mounted`) or when child queries raise `NoMatches`.
 - Applies any pending deferred snapshot upon widget mount (`on_mount`).
 - Defends `apply_snapshot` in `src/devops_cli/ui/dashboard.py` against calls when the app is not running or screens are not yet mounted (`ScreenStackError`), and suppresses secondary exceptions in the error fallback.
 - Adds comprehensive test coverage in `tests/test_ui_dashboard.py` verifying that driving snapshot updates before mounting defers cleanly and does not fail any workers.

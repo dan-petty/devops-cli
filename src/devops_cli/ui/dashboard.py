@@ -9,7 +9,6 @@ the sum of five network round trips and one unreachable cluster froze every unre
 from __future__ import annotations
 
 import contextlib
-from functools import partial
 from typing import Any, ClassVar
 
 from textual import work
@@ -30,7 +29,6 @@ from textual.widgets import (
 )
 
 from devops_cli.config.constants import (
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
@@ -44,11 +42,10 @@ from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_STALE_SECONDS,
 )
 from devops_cli.models.k8s import PodInfo
-from devops_cli.ui.data_providers import fetch_review_status
 from devops_cli.ui.projections import log_title, next_container
-from devops_cli.ui.refresh import DOMAIN_FETCHERS, pod_log_source, refresh_domain
+from devops_cli.ui.refresh import pod_log_source, refresh_domain
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane
 
 
 def _tab_id(domain: str) -> str:
@@ -56,19 +53,18 @@ def _tab_id(domain: str) -> str:
     return f"tab-{domain}"
 
 
-_PANELS: dict[str, type[DockerPanel | ReviewPanel | K8sPanel]] = {
+_PANELS: dict[str, type[DockerPanel | K8sPanel]] = {
     CONST_DASHBOARD_DOMAIN_DOCKER: DockerPanel,
-    CONST_DASHBOARD_DOMAIN_AI: ReviewPanel,
     CONST_DASHBOARD_DOMAIN_K8S: K8sPanel,
 }
 
 
-def _panel_for(domain: str) -> DomainPanel | DockerPanel | ReviewPanel | K8sPanel:
+def _panel_for(domain: str) -> DomainPanel | DockerPanel | K8sPanel:
     """Build the panel a domain renders into.
 
-    Most domains are a banner over one table. Docker and AI Review carry several views of
-    one snapshot, so they compose nested tabs instead, and Kubernetes adds its filters;
-    choosing here keeps `compose` flat.
+    Most domains are a banner over one table. Docker carries several views of one snapshot,
+    so it composes nested tabs instead, and Kubernetes adds its filters; choosing here keeps
+    `compose` flat.
     """
     panel = _PANELS.get(domain, DomainPanel)
     return panel(domain, stale_after=DEFAULT_DASHBOARD_STALE_SECONDS)
@@ -134,7 +130,6 @@ class HelpScreen(ModalScreen[None]):
             "  /   : Filter pods by namespace, name or status (Kubernetes)\n"
             "  e   : Inspect the highlighted pod's containers and events (Kubernetes)\n"
             "  esc : Clear the pod filter, or close a dialog\n"
-            "  i   : Toggle finding detail (AI Review)\n"
             "  r   : Refresh active data sources\n"
             "  ctrl+p : Command palette\n"
             "  ?   : Open this help dialog\n"
@@ -204,9 +199,6 @@ class DashboardApp(App[None]):
         )
         self._refresh_interval = max(0, refresh_interval)
         self._state = state if state is not None else DashboardState()
-        # None means "the newest completed session"; set by picking one from the session
-        # list, and reset whenever the review domain is refreshed without a selection.
-        self._review_session: str | None = None
         # The pod and container the log pane is tailing, so `c` can move to the next one.
         self._tailing: tuple[PodInfo, str] | None = None
 
@@ -259,38 +251,19 @@ class DashboardApp(App[None]):
         for domain in CONST_DASHBOARD_DOMAINS:
             self._refresh_worker(domain)
 
-    def _fetchers_for(self, domain: str) -> dict[str, Any] | None:
-        """Return a fetcher override for a domain, or None to use the registered one.
-
-        The review domain is the only one whose fetch is parameterised: it renders whichever
-        session the operator selected rather than always the newest.
-        """
-        if domain == CONST_DASHBOARD_DOMAIN_AI and self._review_session:
-            return {**DOMAIN_FETCHERS, domain: partial(fetch_review_status, self._review_session)}
-        return None
-
     @work(thread=True, group="dashboard-refresh")
     def _refresh_worker(self, domain: str) -> None:
         """Fetch one domain off the UI thread and hand the result back for rendering."""
-        snapshot = refresh_domain(self._state, domain, self._fetchers_for(domain))
+        snapshot = refresh_domain(self._state, domain)
         if snapshot is not None:
             self.call_from_thread(self.apply_snapshot, snapshot)
-
-    def _select_review_session(self, event: DataTable.RowSelected) -> None:
-        """Display the review session named by the selected row."""
-        row = event.data_table.get_row(event.row_key)
-        name = str(row[0]) if row else ""
-        if not name:
-            return
-        self._review_session = name
-        self._refresh_worker(CONST_DASHBOARD_DOMAIN_AI)
 
     def apply_snapshot(self, snapshot: DomainSnapshot) -> None:
         """Render a published snapshot into its panel, if the panel is still mounted.
 
         A projection that cannot render the data it was given is reported in that domain's
         own banner. Letting it propagate would fail the worker and, because this runs on
-        the UI thread, take down a dashboard whose other four subsystems are healthy.
+        the UI thread, take down a dashboard whose other three subsystems are healthy.
         """
         if not self.is_running:
             return
@@ -298,7 +271,6 @@ class DashboardApp(App[None]):
             panels: list[Any] = [
                 *self.query(f"#panel-{snapshot.domain}").results(DomainPanel),
                 *self.query(f"#panel-{snapshot.domain}").results(DockerPanel),
-                *self.query(f"#panel-{snapshot.domain}").results(ReviewPanel),
                 *self.query(f"#panel-{snapshot.domain}").results(K8sPanel),
             ]
         except ScreenStackError:
@@ -316,9 +288,6 @@ class DashboardApp(App[None]):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Route a row selection to the action that row represents."""
-        if event.data_table.id == "review-sessions-table":
-            self._select_review_session(event)
-            return
         if event.data_table.id != f"{CONST_DASHBOARD_DOMAIN_K8S}-table":
             return
         pod = self.query_one(K8sPanel).pod_for(event.row_key.value)

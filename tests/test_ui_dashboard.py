@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from textual.widgets import TabbedContent
+from textual.widgets import ContentSwitcher, Static, TabbedContent
 from typer.testing import CliRunner
 
 import devops_cli.commands.dashboard as dashboard_command
@@ -21,7 +21,6 @@ from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
-    ReviewSessionInfo,
     ReviewSummary,
     TelemetrySummary,
     ValkeySummary,
@@ -30,7 +29,6 @@ from devops_cli.ui.data_providers import (
     fetch_review_status,
     fetch_telemetry_status,
     fetch_valkey_status,
-    list_review_sessions,
 )
 from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
@@ -377,13 +375,13 @@ def test_fetch_review_status_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert summary.total_findings == 0
 
 
-def test_dashboard_lists_sessions_written_where_the_reviews_directory_setting_points(
+def test_the_review_summary_reads_sessions_written_where_the_reviews_directory_setting_points(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:
-    """Verify the dashboard looks where a review writes, not under `data.dir` beside it.
+    """Verify the summary looks where a review writes, not under `data.dir` beside it.
 
     With `data.reviews_dir` pointed away from `data.dir`, the dashboard read `data.dir/reviews`,
-    found nothing, and listed no session of a review that had just run (#771).
+    found nothing, and showed no session of a review that had just run (#771).
     """
     elsewhere = tmp_path / "elsewhere"
     session_dir = elsewhere / "20261001-120000"
@@ -393,15 +391,19 @@ def test_dashboard_lists_sessions_written_where_the_reviews_directory_setting_po
     monkeypatch.setenv("DEVOPS_CLI_DATA_REVIEWS_DIR", str(elsewhere))
     config(data={"dir": str(tmp_path / "data")})
 
-    assert list_review_sessions() == [
-        ReviewSessionInfo(name="20261001-120000", completed=True, finding_count=2)
-    ]
+    summary = fetch_review_status()
+
+    assert (summary.has_session, summary.session_name, summary.total_findings) == (
+        True,
+        "20261001-120000",
+        2,
+    )
 
 
-def test_dashboard_lists_no_session_for_a_reviews_directory_setting_that_is_not_a_path(
+def test_the_review_summary_has_no_session_for_a_reviews_directory_setting_that_is_not_a_path(
     monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:
-    """Verify a settings file the schema refuses leaves the review panel empty, not raising.
+    """Verify a settings file the schema refuses leaves the review summary empty, not raising.
 
     `data.reviews_dir: [1, 2]` fails the settings schema with a `ValidationError`, which is a
     `ValueError` and not a `DevOpsCLIError` (#771).
@@ -409,10 +411,7 @@ def test_dashboard_lists_no_session_for_a_reviews_directory_setting_that_is_not_
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR")
     config(data={"reviews_dir": [1, 2]})
 
-    assert (list_review_sessions(), fetch_review_status()) == (
-        [],
-        ReviewSummary(has_session=False),
-    )
+    assert fetch_review_status() == ReviewSummary(has_session=False)
 
 
 def test_fetch_valkey_status_success() -> None:
@@ -482,13 +481,8 @@ async def test_textual_dashboard_app_lifecycle() -> None:
         await pilot.pause()
         assert tabs.active == "tab-telemetry"
 
-        # Switch to AI Review tab via key '4'
+        # Switch to Valkey tab via key '4'
         await pilot.press("4")
-        await pilot.pause()
-        assert tabs.active == "tab-ai"
-
-        # Switch to Valkey tab via key '5'
-        await pilot.press("5")
         await pilot.pause()
         assert tabs.active == "tab-valkey"
 
@@ -514,17 +508,48 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("empty_docker_engine")
+async def test_the_dashboard_shows_four_domain_tabs_and_the_logs_tab() -> None:
+    """The dashboard holds no AI Review tab: `devops review findings --details` shows findings
+    (#1883)."""
+    app = DashboardApp()
+    async with app.run_test():
+        tabs = app.query_one("#dashboard-tabs", TabbedContent)
+        shown = [pane.id for pane in tabs.get_child_by_type(ContentSwitcher).children]
+
+    assert shown == ["tab-k8s", "tab-docker", "tab-telemetry", "tab-valkey", "tab-logs"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
+async def test_the_help_screen_numbers_the_four_domain_tabs_and_lists_no_finding_key() -> None:
+    """Help names tab 4 as Valkey, and it lists no key for the finding detail pane (#1883)."""
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        app.push_screen(HelpScreen())
+        await pilot.pause()
+        help_text = str(app.screen.query_one("#help-body", Static).content)
+
+    assert (
+        "1=Kubernetes  2=Docker  3=Telemetry  4=Valkey Cache" in help_text,
+        "finding" in help_text,
+    ) == (
+        True,
+        False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
 async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
     """A panel update before the panel is mounted is deferred or dropped, never failing the worker."""
     from devops_cli.ui.state import DomainSnapshot
-    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, ReviewPanel
+    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel
 
     panels: list[Any] = [
         DomainPanel("telemetry"),
         DomainPanel("valkey"),
         K8sPanel("k8s"),
         DockerPanel("docker"),
-        ReviewPanel("ai"),
     ]
     snapshots = [DomainSnapshot(domain=p.domain) for p in panels]
     for p, s in zip(panels, snapshots, strict=True):

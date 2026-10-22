@@ -18,7 +18,6 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
@@ -29,7 +28,6 @@ from devops_cli.config.defaults import DEFAULT_LOG_TAIL_LINES
 from devops_cli.ui.data_providers import (
     fetch_docker_status,
     fetch_k8s_status,
-    fetch_review_status,
     fetch_telemetry_status,
     fetch_valkey_status,
 )
@@ -44,16 +42,11 @@ DOMAIN_FETCHERS: dict[str, Callable[[], Any]] = {
     CONST_DASHBOARD_DOMAIN_K8S: fetch_k8s_status,
     CONST_DASHBOARD_DOMAIN_DOCKER: fetch_docker_status,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: fetch_telemetry_status,
-    CONST_DASHBOARD_DOMAIN_AI: fetch_review_status,
     CONST_DASHBOARD_DOMAIN_VALKEY: fetch_valkey_status,
 }
 
 
-def refresh_domain(
-    state: DashboardState,
-    domain: str,
-    fetchers: dict[str, Callable[[], Any]] | None = None,
-) -> DomainSnapshot | None:
+def refresh_domain(state: DashboardState, domain: str) -> DomainSnapshot | None:
     """Fetch one domain and publish the result, returning the snapshot.
 
     Returns ``None`` when a refresh for the domain is already running, so the caller knows
@@ -61,8 +54,7 @@ def refresh_domain(
     this runs on a worker thread, where an escaping exception would terminate the refresh
     silently and leave the panel showing data that never updates again.
     """
-    table = DOMAIN_FETCHERS if fetchers is None else fetchers
-    fetcher = table.get(domain)
+    fetcher = DOMAIN_FETCHERS.get(domain)
     if fetcher is None:
         return state.publish_error(domain, f"No provider registered for domain '{domain}'")
 
@@ -82,14 +74,13 @@ def refresh_domain(
 def refresh_all(
     state: DashboardState,
     domains: Sequence[str] = CONST_DASHBOARD_DOMAINS,
-    fetchers: dict[str, Callable[[], Any]] | None = None,
 ) -> list[DomainSnapshot]:
     """Refresh every domain in sequence, returning the snapshots that were published.
 
     Callers wanting concurrency run :func:`refresh_domain` per domain on its own worker;
     this exists for the non-interactive summary path, where sequential is correct.
     """
-    published = [refresh_domain(state, domain, fetchers) for domain in domains]
+    published = [refresh_domain(state, domain) for domain in domains]
     return [snapshot for snapshot in published if snapshot is not None]
 
 
