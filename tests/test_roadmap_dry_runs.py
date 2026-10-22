@@ -60,7 +60,7 @@ REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 runner = CliRunner()
-JOBS = ("reprioritize", "migrate", "render", "intake", "close")
+JOBS = ("reprioritize", "migrate", "render", "intake", "close", "refine")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -77,6 +77,7 @@ def _fail(what: str) -> Callable[..., Any]:
 def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     """A roadmap store, a `gh` runner, a process and a socket that fail the test when a dry run
     opens, runs, starts or connects one; the session's socket guard covers the rest."""
+    from devops_cli.ai import client as ai_client
     from devops_cli.github import rate_limiter
     from devops_cli.roadmap import github_store
 
@@ -88,6 +89,9 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "Popen", _fail("started a process"))
     monkeypatch.setattr(socket.socket, "connect", _fail("connected"))
     monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved a name"))
+    monkeypatch.setattr(ai_client, "get_llm_client", _fail("called LLM"))
+    monkeypatch.setattr("devops_cli.roadmap.refine.get_llm_client", _fail("called LLM"))
+    monkeypatch.setattr("devops_cli.roadmap.refine.tavily_search", _fail("called search"))
 
 
 @pytest.mark.parametrize("job", JOBS)
@@ -102,7 +106,17 @@ def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
     ) == (0, True, True), result.output
 
 
-@pytest.mark.parametrize("job", ["reprioritize", "migrate"])
+def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
+    """Refining a single item under dry-run makes no GitHub, process, or model call."""
+    result = runner.invoke(app, ["refine", "--repo", REPO, "--item", "123", "--dry-run"])
+    assert (
+        result.exit_code,
+        "Dry run: no request was made" in result.output,
+        "api repos/dan-petty/devops-cli/issues/123" in result.output,
+    ) == (0, True, True), result.output
+
+
+@pytest.mark.parametrize("job", ["reprioritize", "migrate", "refine"])
 def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
     with patch("devops_cli.commands.roadmap.is_dry_run", return_value=True):
         result = runner.invoke(app, [job, "--repo", REPO, "--confirm"])
@@ -116,31 +130,34 @@ def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str) -> None
 
 
 def test_each_dry_run_returns_its_jobs_result_type_marked_as_a_dry_run() -> None:
+    from devops_cli.roadmap.refine import RefinePlan, dry_run_refine
+
     reprioritized = dry_run_reprioritization(REPO, ref="main", now=NOW)
     migrated = dry_run_migration(REPO, ref=None)
     rendered = dry_run_render(REPO, ref=None)
-    results: list[Any] = [reprioritized, migrated, rendered]
+    refined = dry_run_refine(REPO, ref=None)
+    results: list[Any] = [reprioritized, migrated, rendered, refined]
     planned = [r.requests + getattr(r, "write_requests", ()) for r in results]
     assert (
         [type(result) for result in results],
         [result.dry_run for result in results],
-        (reprioritized.has_writes, migrated.writes, rendered.text),
+        (reprioritized.has_writes, migrated.writes, rendered.text, refined.has_writes),
         [
             all(request.argv[:1] in (("gh",), ("GET",)) for request in requests)
             for requests in planned
         ],
-        [bool(result.write_requests) for result in results[:2]],
+        [bool(result.write_requests) for result in [reprioritized, migrated, refined]],
         [
             requests[-1].argv[-1].endswith("rateLimit { cost limit remaining used resetAt } }")
             for requests in (r.requests for r in results)
         ],
     ) == (
-        [ReprioritizationPlan, MigrationPlan, RenderedRoadmap],
+        [ReprioritizationPlan, MigrationPlan, RenderedRoadmap, RefinePlan],
+        [True, True, True, True],
+        (False, (), "", True),
+        [True, True, True, True],
         [True, True, True],
-        (False, (), ""),
-        [True, True, True],
-        [True, True],
-        [True, True, True],
+        [True, True, True, True],
     )
 
 
@@ -258,13 +275,18 @@ def test_the_run_record_card_a_run_creates_is_written_with_no_read_after_its_cre
 def test_no_roadmap_plan_lists_a_board_command_gh_resolves_by_reading_the_board_first() -> None:
     """Every job's plan: no `field-list`, and every `item-edit` by node ids."""
     from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.request_plan import refine_requests
 
     intake = dry_run_intake(REPO, ref="main")
     plans = [
         *render_requests(REPO, None),
         *(
             r
-            for pair in (reprioritize_requests(REPO, None), migrate_requests(REPO, None))
+            for pair in (
+                reprioritize_requests(REPO, None),
+                migrate_requests(REPO, None),
+                refine_requests(REPO, None),
+            )
             for r in (*pair[0], *pair[1])
         ),
         *(r for r in (*close_requests(REPO, None)[0], *close_requests(REPO, None)[1])),

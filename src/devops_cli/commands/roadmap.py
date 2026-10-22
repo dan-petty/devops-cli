@@ -517,17 +517,25 @@ def refine_cmd(
 ) -> None:
     """Refine roadmap items to Ready with proposed design, tasks and acceptance criteria."""
     _one_mode(dry_run=dry_run, confirm=confirm)
+    target_repo = repo or get_repo_origin_name(source)
+    if not target_repo or "/" not in target_repo:
+        print_error("Cannot resolve the repository; pass --repo owner/name.")
+        raise typer.Exit(1)
+
+    if dry_run or is_dry_run():
+        from devops_cli.roadmap.refine import dry_run_refine
+        from devops_cli.roadmap.request_plan import render_dry_run
+
+        plan = dry_run_refine(target_repo, ref=ref, item=item, limit=limit)
+        render_dry_run("refine", target_repo, plan.requests, plan.write_requests)
+        return
+
     from devops_cli.roadmap.refine import (
         apply_refine,
         plan_refine,
         raise_for_failed_items,
         render_refine_plan,
     )
-
-    target_repo = repo or get_repo_origin_name(source)
-    if not target_repo or "/" not in target_repo:
-        print_error("Cannot resolve the repository; pass --repo owner/name.")
-        raise typer.Exit(1)
 
     opened: list[RoadmapStore] = []
     with _reporting_spend(opened):
@@ -544,7 +552,7 @@ def refine_cmd(
                 config=config,
             )
         write_stdout(render_refine_plan(plan) + "\n")
-        if dry_run or not confirm or is_dry_run():
+        if not confirm:
             print_info(MESSAGES.roadmap.preview_only)
         elif plan.has_writes:
             with _exit_on_failure("Could not apply refinement"):
