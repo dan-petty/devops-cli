@@ -15,7 +15,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import (
-    DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_MAX_CONTEXT_TOKENS,
     DEFAULT_TIKTOKEN_CACHE_ENV_VARS,
     DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS,
@@ -176,75 +175,6 @@ def validate_and_budget_prompt(
         )
 
     return text, False
-
-
-def budget_diff_chunks(  # noqa: C901
-    diff_text: str,
-    max_tokens: int = DEFAULT_DIFF_CHUNK_BUDGET,
-    model: str = "gpt-4o",
-) -> list[str]:
-    """Partition a large unified git diff into cohesive chunks respecting token budget."""
-    if not diff_text.strip():
-        return []
-
-    total_tokens = count_tokens(diff_text, model=model)
-    if total_tokens <= max_tokens:
-        return [diff_text]
-
-    # Split diff along file boundaries: "diff --git "
-    file_diffs: list[str] = []
-    raw_splits = diff_text.split("diff --git ")
-    for split in raw_splits:
-        if not split.strip():
-            continue
-        file_diffs.append("diff --git " + split if not split.startswith("diff --git ") else split)
-
-    chunks: list[str] = []
-    current_chunk: list[str] = []
-    current_tokens = 0
-
-    for fdiff in file_diffs:
-        fdiff_tokens = count_tokens(fdiff, model=model)
-
-        if fdiff_tokens > max_tokens:
-            # If a single file diff exceeds the entire budget, split by hunk ("@@ -")
-            if current_chunk:
-                chunks.append("".join(current_chunk))
-                current_chunk = []
-                current_tokens = 0
-
-            hunks = fdiff.split("\n@@ ")
-            header = hunks[0] if hunks else ""
-            hunk_chunk: list[str] = [header]
-            hunk_tokens = count_tokens(header, model=model)
-
-            for hunk in hunks[1:]:
-                full_hunk = "\n@@ " + hunk
-                h_tokens = count_tokens(full_hunk, model=model)
-
-                if hunk_tokens + h_tokens > max_tokens and len(hunk_chunk) > 1:
-                    chunks.append("".join(hunk_chunk))
-                    hunk_chunk = [header, full_hunk]
-                    hunk_tokens = count_tokens(header, model=model) + h_tokens
-                else:
-                    hunk_chunk.append(full_hunk)
-                    hunk_tokens += h_tokens
-
-            if hunk_chunk:
-                chunks.append("".join(hunk_chunk))
-        elif current_tokens + fdiff_tokens > max_tokens:
-            if current_chunk:
-                chunks.append("".join(current_chunk))
-            current_chunk = [fdiff]
-            current_tokens = fdiff_tokens
-        else:
-            current_chunk.append(fdiff)
-            current_tokens += fdiff_tokens
-
-    if current_chunk:
-        chunks.append("".join(current_chunk))
-
-    return chunks if chunks else [diff_text]
 
 
 class TokenBudgetReport(BaseModel):

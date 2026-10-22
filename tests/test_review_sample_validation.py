@@ -1,8 +1,8 @@
 """Validation of devops ai tooling across the pinned sample repositories (#505).
 
-A category's report records the parser that read each file and what it found, the file analysis,
-the repository map and, with `--review`, a scored review of the category's defect corpus. Its
-problems name what did not work.
+A category's report records the language tree-sitter parsed each file as and the symbols it found,
+the file analysis, the repository map and, with `--review`, a scored review of the category's
+defect corpus. Its problems name what did not work.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.ast.engine import TreeSitterEngine
 from devops_cli.ai.review.defects import CORPUS_FILES_DIR, CorpusScore, DefectCorpus
 from devops_cli.ai.review.profile import ReviewProfile, report_profile
 from devops_cli.ai.review.sample_validation import (
@@ -35,13 +34,6 @@ TAKE = """def take(items, n):
         raise ValueError("too many")
     return items[:n]
 """
-
-
-class _RegexOnlyEngine(TreeSitterEngine):
-    """The AST engine as it runs without tree-sitter installed."""
-
-    def _check_native_tree_sitter(self) -> bool:
-        return False
 
 
 def _sample(root: Path, name: str = "demo", commit: str = "a" * 40) -> SampleRepository:
@@ -64,7 +56,7 @@ def _write(checkout: Path, files: dict[str, str]) -> None:
 
 
 def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -> None:
-    """Verify parsers, symbols and the problems: regex fallback, empty files, unsupported types."""
+    """Verify each file's parsed language and the problems: empty files, unsupported types."""
     _write(
         tmp_path / "demo",
         {
@@ -78,17 +70,21 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
         },
     )
 
-    report = validate_category("python", [_sample(tmp_path)], tmp_path, _RegexOnlyEngine())
+    report = validate_category("python", [_sample(tmp_path)], tmp_path)
 
-    assert (report.samples, report.parsers) == (
+    assert (report.samples, {f.path: f.ast_language for f in report.files}) == (
         {"demo": "a" * 40},
-        {"fallback-ast": 5, "none": 2},
+        {
+            "demo/pkg/main.py": "python",
+            "demo/pkg/server.go": "go",
+            "demo/pkg/empty.ts": "typescript",
+            "demo/pkg/Program.cs": "csharp",
+            "demo/pkg/format.cc": "cpp",
+            "demo/pkg/values.yaml": None,
+            "demo/pkg/LICENSE": None,
+        },
     )
     assert report.problems == [
-        "cpp: 1 of 1 files read by the regex fallback, not tree-sitter",
-        "csharp: 1 of 1 files read by the regex fallback, not tree-sitter",
-        "go: 1 of 1 files read by the regex fallback, not tree-sitter",
-        "typescript: 1 of 1 files read by the regex fallback, not tree-sitter",
         "typescript: 1 of 1 files yielded no symbols",
         "no AST support for .yaml (1 file)",
         "file analysis labels C++ .cc as C (1 file)",

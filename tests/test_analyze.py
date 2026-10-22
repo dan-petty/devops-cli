@@ -659,6 +659,42 @@ class RetainedClass:
     ) == (True, True, True, True, True, True)
 
 
+def test_python_source_symbols_name_declarations_assignments_and_methods() -> None:
+    """Verify a Python source's symbols are its top-level functions, classes and assigned names,
+    and each method both bare and by class, and that source which does not parse has none."""
+    from devops_cli.ai.analyze.symbols import extract_python_source_symbols
+
+    source = (
+        '__all__ = ["fetch"]\n'
+        "LIMIT = 1\n"
+        "first = second = 2\n"
+        "class Client:\n"
+        "    def send(self): ...\n"
+        "async def fetch(): ...\n"
+        "def helper(): ...\n"
+    )
+
+    assert (
+        extract_python_source_symbols(source),
+        extract_python_source_symbols("def (:\n"),
+        extract_python_source_symbols(None),
+    ) == (
+        {
+            "__all__",
+            "LIMIT",
+            "first",
+            "second",
+            "Client",
+            "send",
+            "Client.send",
+            "fetch",
+            "helper",
+        },
+        set(),
+        set(),
+    )
+
+
 def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
     """Verify that _apply_symbol_delta_to_meta lists an added file's symbols as added."""
     from devops_cli.commands.analyze import _apply_symbol_delta_to_meta

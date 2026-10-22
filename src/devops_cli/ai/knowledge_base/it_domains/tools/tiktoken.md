@@ -15,14 +15,13 @@ tags:
 
 ## 1. Overview & Purpose
 
-`tiktoken` is a fast Byte Pair Encoding (BPE) tokenizer by OpenAI designed for client-side token counting, prompt sizing, and context window budgeting. In `devops-cli`, `tiktoken` powers the context budgeting engine (`devops_cli.ai.context_budget`), enabling sub-millisecond token counting, diff hunk partitioning, and context window truncation prior to LLM dispatch across local Ollama and remote AI providers.
+`tiktoken` is a fast Byte Pair Encoding (BPE) tokenizer by OpenAI designed for client-side token counting, prompt sizing, and context window budgeting. In `devops-cli`, `tiktoken` powers the context budgeting engine (`devops_cli.ai.context_budget`), enabling sub-millisecond token counting and context window truncation prior to LLM dispatch across local Ollama and remote AI providers.
 
 ---
 
 ## 2. Usage Information & Architecture
 
 - **Local BPE Encoding**: Encodes text to tokens locally without making network calls or incurring API latency.
-- **Diff Chunk Budgeting**: Automatically calculates diff sizes and partitions oversized multi-file git diffs into cohesive token-budgeted chunks (`budget_diff_chunks`).
 - **Context Truncation**: Truncates prompts and file outlines to fit strictly within model context limits (`truncate_to_token_limit`).
 - **CLI Subcommand**: Exposes `devops ai token-count` for interactive and CI verification of prompt budgets.
 
@@ -44,13 +43,13 @@ devops ai token-count "Evaluate security boundaries and network references"
 
 ### Python SDK Integration
 ```python
-from devops_cli.ai.context_budget import count_tokens, budget_diff_chunks, truncate_to_token_limit
+from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 
 # Count tokens using gpt-4o BPE encoding
 n_tokens = count_tokens("def hello(): pass", model="gpt-4o")
 
-# Partition diff into 8k token chunks
-chunks = budget_diff_chunks(git_diff_text, max_tokens=8192)
+# Cut a long prompt to an 8k token budget
+prompt = truncate_to_token_limit(long_prompt, max_tokens=8192)
 ```
 
 ---

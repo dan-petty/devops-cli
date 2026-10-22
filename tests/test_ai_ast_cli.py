@@ -36,3 +36,22 @@ def test_ast_parse_query_respects_size_cap(tmp_path: Path, monkeypatch: pytest.M
         within.exit_code,
         '"symbol": "f"' in within.output,
     ) == (1, False, True, 0, True)
+
+
+def test_ast_parse_rejects_a_malformed_query(tmp_path: Path) -> None:
+    """Verify `ai ast parse --query` exits 1 naming the query's error when tree-sitter cannot
+    compile it; it exited 0 and printed every symbol of the file."""
+    source = tmp_path / "small.py"
+    source.write_text("def f(x): ...\n", encoding="utf-8")
+
+    result = runner.invoke(ast_app, ["parse", str(source), "--query", "((("])
+
+    assert (
+        result.exit_code,
+        "Invalid tree-sitter query" in result.output,
+        '"symbol"' in result.output,
+    ) == (
+        1,
+        True,
+        False,
+    )

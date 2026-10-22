@@ -44,7 +44,6 @@ class PolyglotSymbol(BaseModel):
     kind: SymbolKind
     span: CodeSpan
     signature: str = ""
-    docstring: str = ""
     language: str = ""
     parent_scope: str | None = None
 
@@ -55,7 +54,6 @@ class PolyglotSymbol(BaseModel):
             "line_start": self.span.line_start,
             "line_end": self.span.line_end,
             "signature": self.signature,
-            "docstring": self.docstring,
             "language": self.language,
             "parent_scope": self.parent_scope,
         }
@@ -68,14 +66,12 @@ class PolyglotFileMap(BaseModel):
     language: str
     line_count: int
     symbols: list[PolyglotSymbol] = Field(default_factory=list)
-    parse_engine: str = "fallback-ast"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "path": self.path,
             "language": self.language,
             "line_count": self.line_count,
-            "parse_engine": self.parse_engine,
             "symbols": [s.to_dict() for s in self.symbols],
         }
 

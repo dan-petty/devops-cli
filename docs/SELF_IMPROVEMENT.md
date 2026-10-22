@@ -956,15 +956,15 @@ catalog of open-source repositories:
 `devops review samples validate` runs the tooling over the fetched samples. It saves one JSON
 report per category under `.data/reviews/sample-validations/<run>/`, recording:
 
-- which parser read each file (tree-sitter, the regex fallback, or none) and the symbols it found;
+- the language tree-sitter parsed each file as, if it has a grammar for it, and its symbols;
 - what file analysis made of each file: its language, symbols and dependencies;
 - how many files and symbols the multilingual repository map shows of each sample;
 - with `--review`, a review of the category's synthetic defect corpus, scored as above. It uses
   the default persona, or every persona with `--all`.
 
-Each report ends with its problems: a language read by the regex fallback, files that yield no
-symbols, code types with no AST support, code the analysis mislabels, an empty repository map,
-and a review that found nothing or failed.
+Each report ends with its problems: files that yield no symbols, code types with no AST
+support, code the analysis mislabels, an empty repository map, and a review that found nothing
+or failed.
 
 ---
 

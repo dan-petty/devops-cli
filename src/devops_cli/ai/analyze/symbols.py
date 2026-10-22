@@ -51,11 +51,14 @@ def extract_python_source_symbols(content: str | None) -> set[str]:
     except SyntaxError, ValueError, RecursionError:
         return set()
 
-    from devops_cli.ai.ast_cache import _extract_symbols_from_tree
     from devops_cli.ai.repomap import _extract_class_methods
 
-    symbols = set(_extract_symbols_from_tree(tree))
-    for node in getattr(tree, "body", []):
+    symbols: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            symbols.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            symbols.add(node.name)
         if isinstance(node, ast.ClassDef):
             for method in _extract_class_methods(node):
                 symbols.add(method.name)
