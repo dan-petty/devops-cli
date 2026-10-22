@@ -183,7 +183,7 @@ def deploy(
                 "ports": [b.model_dump() for b in simulated.port_bindings],
                 "network_mode": cfg.network_mode,
                 "network_config": cfg.network_config.model_dump(),
-                "security": cfg.policy.declared_security_summary(read_only=read_only),
+                "declared_controls": engine.declared_controls(cfg),
             },
         )
         return None

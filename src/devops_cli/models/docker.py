@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
+
 
 class DockerPruneRequest(BaseModel):
     """Request parameters for Docker cleanup and prune operations."""
@@ -249,4 +251,25 @@ class DockerEndpoint(BaseModel):
     base_url: str = Field(..., description="Normalised base URL verified by egress check")
     params: dict[str, Any] = Field(
         default_factory=dict, description="docker.DockerClient initialization parameters"
+    )
+
+
+class EngineSecurityInfo(BaseModel):
+    """The security facts a daemon reports about itself, or why it could not report them.
+
+    A fact the daemon omits stays `None`: an omitted key is unreported, not a negative.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    options: tuple[str, ...] | None = Field(
+        default=None, description="SecurityOptions entries, such as name=seccomp,profile=builtin"
+    )
+    pids_limit_supported: bool | None = Field(
+        default=None, description="Whether the daemon can apply a pids limit (PidsLimit)"
+    )
+    error: str | None = Field(
+        default=None,
+        max_length=CONST_MAX_ERROR_DETAIL_LENGTH,
+        description="Why the daemon could not be asked, bounded in length",
     )
