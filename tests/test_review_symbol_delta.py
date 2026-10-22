@@ -95,13 +95,14 @@ def _report_summary(
     """Generate the session report; return `findings.json` and the console summary's rows."""
     with patch("devops_cli.ai.review.pipeline.print_table") as tables:
         orchestrator.generate_consolidated_report(payloads)
+    orchestrator.session.publish()
     rows = {
         str(metric): str(value)
         for call in tables.call_args_list
         if call.kwargs.get("title") == "Review Summary"
         for metric, value in call.kwargs["rows"]
     }
-    findings_json = (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    findings_json = (orchestrator.session.directory / "findings.json").read_text(encoding="utf-8")
     return json.loads(findings_json), rows
 
 
@@ -353,6 +354,7 @@ def test_a_review_with_no_delta_shows_no_symbol_delta_row(
     assert (
         findings_json["symbol_delta_summary"],
         "Symbol Delta" in summary_rows,
-        "Symbol Delta" in (orchestrator.session_dir / "review.md").read_text(encoding="utf-8"),
+        "Symbol Delta"
+        in (orchestrator.session.directory / "review.md").read_text(encoding="utf-8"),
         "Session ID" in summary_rows,
     ) == ({"added": 0, "removed": 0, "retained": 0}, False, False, True)

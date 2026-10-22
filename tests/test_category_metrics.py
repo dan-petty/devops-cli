@@ -18,7 +18,6 @@ from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 
 _SUBJECT = review_subject("branch", "feature", ["diff --git a/config.py b/config.py\n"])
 _OLDER = "2026-10-01T09:00:00+00:00"
-_NEWEST = "2026-10-01T12:00:00+00:00"
 
 
 def _finding(status: str, category: str = "secret_exposure") -> SavedFinding:
@@ -342,14 +341,12 @@ def test_pipeline_category_baseline_and_summary_integration(tmp_path: Path) -> N
     ) == (True, True, True)
 
 
-def test_the_baseline_leaves_out_the_current_session_and_counts_each_subject_once(
+def test_the_baseline_reads_every_raised_finding_and_counts_each_subject_once(
     tmp_path: Path, write_review_session: Callable[..., Path]
 ) -> None:
-    """Verify the current session, written before its report as the pipeline does, is left out
-    of its own baseline, that the baseline reads every finding the earlier session raised, and
-    that repeats of the earlier session's subject count once (#434's figure counted all three)."""
+    """Verify the baseline reads every finding the earlier session raised, and that repeats of
+    the earlier session's subject count once (#434's figure counted all three)."""
     reviews = tmp_path / "reviews"
-    current = reviews / "current"
     current_findings = [_finding("INVALIDATED")]
     earlier = {
         "subject": _SUBJECT,
@@ -359,14 +356,10 @@ def test_the_baseline_leaves_out_the_current_session_and_counts_each_subject_onc
     write_review_session(reviews / "earlier", generated_at=_OLDER, **earlier)
 
     def baseline() -> tuple[str, str]:
-        lines = format_category_baseline_markdown(current_findings, reviews, exclude=current)
+        lines = format_category_baseline_markdown(current_findings, reviews)
         return _baseline(lines, "secret_exposure")
 
-    before_written = baseline()
-    write_review_session(
-        current, generated_at=_NEWEST, subject=_SUBJECT, candidates=current_findings
-    )
-    written = baseline()
+    once = baseline()
     for name in ("repeat-1", "repeat-2"):
         write_review_session(reviews / name, generated_at="2026-10-01T10:00:00+00:00", **earlier)
     with_repeats = baseline()
@@ -374,8 +367,7 @@ def test_the_baseline_leaves_out_the_current_session_and_counts_each_subject_onc
     note = (
         "_Baseline: 1 earlier session(s), {} repeat session(s) collapsed, this session excluded._"
     )
-    assert (before_written, written, with_repeats) == (
-        ("50.0% (1/2)", note.format(0)),
+    assert (once, with_repeats) == (
         ("50.0% (1/2)", note.format(0)),
         ("50.0% (1/2)", note.format(2)),
     )
@@ -385,20 +377,17 @@ def test_the_baseline_shows_once_an_earlier_session_has_the_category(
     tmp_path: Path, write_review_session: Callable[..., Path]
 ) -> None:
     """Verify a category no earlier session raised reads `baseline established`, and that a
-    first re-review shows its earlier session's figures: the gate counted the current session,
-    and its replacement must not hide the baseline when the only earlier session shares the
-    current session's subject."""
+    first re-review shows its earlier session's figures when the only earlier session shares the
+    current session's subject: the current session is not published, so it cannot take the
+    place of the earlier one."""
     reviews = tmp_path / "reviews"
     current_findings = [
         _finding("INVALIDATED"),
         _finding("VERIFIED", "testing"),
     ]
-    current = write_review_session(
-        reviews / "current", generated_at=_NEWEST, subject=_SUBJECT, candidates=current_findings
-    )
 
     def cells() -> tuple[str, str]:
-        lines = format_category_baseline_markdown(current_findings, reviews, exclude=current)
+        lines = format_category_baseline_markdown(current_findings, reviews)
         return _baseline(lines, "secret_exposure")[0], _baseline(lines, "testing")[0]
 
     first_review = cells()

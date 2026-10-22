@@ -69,8 +69,8 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
     tmp_path: Path, write_review_session: Callable[..., Path]
 ) -> None:
     """Verify `generate_consolidated_report` writes the orchestrator's subject to findings.json
-    and candidates.json, and that the report's baseline, built after findings.json is on disk,
-    counts the earlier session of that subject and not the session itself."""
+    and candidates.json, and that the report's baseline, built while the session is not yet
+    published, counts the earlier session of that subject and not the session itself."""
     subject = review_subject("branch", "feature", _PAGES)
     reviews = tmp_path / "reviews"
     write_review_session(
@@ -93,8 +93,7 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
             [FileReviewPayload(file_path="config.py", findings=[_secret("INVALIDATED", "llm")])],
             personas=["devsecops"],
         )
-
-    session = reviews / "current"
+    session = orchestrator.session.publish()
     report = (session / "review.md").read_text(encoding="utf-8")
     assert (
         json.loads((session / "findings.json").read_text(encoding="utf-8"))["subject"],
@@ -153,18 +152,13 @@ def test_a_subject_key_follows_the_reviewed_pages() -> None:
 def test_history_counts_each_subject_once_and_every_session_without_one(
     review_history: Path,
 ) -> None:
-    """Verify the reader lists the five sessions with a findings.json, counts one of the three
-    with a subject and both without one, and drops an excluded session before repeats collapse,
-    so the next session by rank counts: `same-1`, whose finding has a verdict, not the newer
-    `same-2`."""
-    full = load_review_history(review_history)
-    without_newest = load_review_history(review_history, exclude=review_history / "same-3")
+    """Verify the reader lists the five sessions with a findings.json, and counts one of the three
+    with a subject and both without one."""
+    history = load_review_history(review_history)
 
-    assert (_counts(full), _counted(full), _counts(without_newest), _counted(without_newest)) == (
+    assert (_counts(history), _counted(history)) == (
         (5, 3, 2, 1, 1),
         ("same-3", "target-only", "unkeyed"),
-        (4, 3, 1, 1, 1),
-        ("same-1", "target-only", "unkeyed"),
     )
 
 

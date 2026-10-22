@@ -36,11 +36,11 @@ from devops_cli.ai.spend.ledger import observe_llm_calls
 from devops_cli.config.constants import (
     CONST_FINISH_REASON_LENGTH,
     CONST_FINISH_REASON_UNKNOWN,
+    CONST_REVIEW_PROFILE_FILENAME,
 )
 from devops_cli.core.repo import own_source_state
 from devops_cli.tools_lock import tools_lock_digest
 
-PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
 
 _ACTIVE: ContextVar[ReviewProfiler | None] = ContextVar("review_profiler", default=None)
@@ -162,17 +162,13 @@ class ReviewProfile(BaseModel):
             return None
         return self.total_wall_seconds / self.candidate_findings
 
-    def write(self, session_dir: Path) -> Path:
-        """Write the profile into the review session directory."""
-        path = session_dir / PROFILE_FILENAME
-        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
-        return path
-
     @classmethod
     def load(cls, session_dir: Path) -> ReviewProfile | None:
         """The session's profile; None when it has none or it cannot be read."""
         try:
-            return cls.model_validate_json((session_dir / PROFILE_FILENAME).read_text("utf-8"))
+            return cls.model_validate_json(
+                (session_dir / CONST_REVIEW_PROFILE_FILENAME).read_text("utf-8")
+            )
         except OSError, ValueError:
             return None
 
@@ -503,7 +499,6 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
 
 __all__ = [
     "BENCHMARKS_DIRNAME",
-    "PROFILE_FILENAME",
     "BackendActivity",
     "BenchmarkSummary",
     "ReviewProfile",

@@ -1203,17 +1203,14 @@ def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
 
 @pytest.fixture
 def write_review_session() -> Callable[..., Path]:
-    """Write a completed review session as the pipeline lays one out: findings.json, plus
+    """Write a published review session as the pipeline lays one out: findings.json, plus
     candidates.json and a profile.json naming `target` when they are given.
 
     Review history, baseline and stats tests share it.
     """
     from devops_cli.ai.review.profile import ReviewProfile
     from devops_cli.ai.review_schema import ReviewSessionPayload
-    from devops_cli.config.constants import (
-        CONST_REVIEW_CANDIDATES_FILENAME,
-        CONST_REVIEW_FINDINGS_FILENAME,
-    )
+    from devops_cli.review.session import ReviewSession
 
     def write(
         session_dir: Path,
@@ -1224,22 +1221,19 @@ def write_review_session() -> Callable[..., Path]:
         candidates: Sequence[Any] | None = None,
         target: str | None = None,
     ) -> Path:
-        session_dir.mkdir(parents=True)
-        files = (
-            (CONST_REVIEW_FINDINGS_FILENAME, findings),
-            (CONST_REVIEW_CANDIDATES_FILENAME, candidates),
-        )
-        for name, saved in files:
-            if saved is not None:
-                payload = ReviewSessionPayload(
-                    generated_at=generated_at,
-                    subject=subject or {},
-                    findings=list(saved),
-                )
-                (session_dir / name).write_text(payload.model_dump_json(), encoding="utf-8")
+        session = ReviewSession(session_dir)
+
+        def payload(saved: Sequence[Any]) -> ReviewSessionPayload:
+            return ReviewSessionPayload(
+                generated_at=generated_at, subject=subject or {}, findings=list(saved)
+            )
+
+        session.write_findings(payload(findings))
+        if candidates is not None:
+            session.write_raised(payload(candidates))
         if target is not None:
-            ReviewProfile(session_id=session_dir.name, target=target).write(session_dir)
-        return session_dir
+            session.write_profile(ReviewProfile(session_id=session_dir.name, target=target))
+        return session.publish()
 
     return write
 

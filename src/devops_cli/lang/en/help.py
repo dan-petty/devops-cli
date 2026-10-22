@@ -1375,7 +1375,7 @@ class ReviewCommandHelp:
     no_static_scan: str = "Disable static security scanning."
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_group_analysis: str = "Disable model-driven group analysis."
-    no_reporting: str = "Disable consolidated report generation."
+    no_reporting: str = "Disable consolidated report generation; the review keeps no session."
     reporting_only: str = "Run report generation only."
     append_cache: str = "Append cached response to the LLM prompt as context instead of using it directly as the final response."
     no_cache: str = "Bypass LLM response cache and force fresh inference."

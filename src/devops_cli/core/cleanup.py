@@ -6,11 +6,12 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.constants import CONST_GIT_DIR_NAME
+from devops_cli.config.constants import CONST_GIT_DIR_NAME, CONST_REVIEW_STAGING_DIRNAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
@@ -72,6 +73,18 @@ def _prune_single_item(
             summary.freed_bytes += size
     except Exception as exc:
         logger.warning("Failed to prune cleanup candidate %s: %s", item, exc)
+
+
+def _prune_candidates(directory: Path) -> Iterator[Path]:
+    """The entries of `directory` cleanup judges by their own age: each one, but for the staging
+    directory of review sessions in the making, whose sessions are judged in its place. Its own
+    age is that of the latest review to start or finish, which would keep a review abandoned
+    part-way for as long as other reviews run."""
+    for entry in directory.iterdir():
+        if entry.name == CONST_REVIEW_STAGING_DIRNAME and entry.is_dir() and not entry.is_symlink():
+            yield from entry.iterdir()
+        else:
+            yield entry
 
 
 def _listed_worktrees(main_root: Path) -> list[Path]:
@@ -262,7 +275,7 @@ def cleanup_data_tier(
         target_sub = data_dir / subdir_name
         if not target_sub.exists() or not target_sub.is_dir():
             continue
-        for item in target_sub.iterdir():
+        for item in _prune_candidates(target_sub):
             _prune_single_item(item, data_dir, cutoff_time, dry_run, summary)
 
     return summary

@@ -19,6 +19,7 @@ from devops_cli.ai.review_schema import (
     is_field_discriminating,
 )
 from devops_cli.config import DEFAULT_FINDING_STATUS
+from devops_cli.review.session import ReviewSession
 
 
 def test_finding_polarity_validation_success() -> None:
@@ -357,10 +358,12 @@ def test_review_profile_verdict_distributions(tmp_path: Path) -> None:
         verdict_distributions=test_dists,
     )
     profile = profiler.build(session_id="test_sess", target="src/")
-    profile_path = profile.write(tmp_path)
+    session = ReviewSession(tmp_path / "session")
+    profile_path = session.write_profile(profile)
+    session.publish()
     assert profile_path.exists() is True
 
-    loaded_profile = ReviewProfile.load(tmp_path)
+    loaded_profile = ReviewProfile.load(session.directory)
     assert loaded_profile is not None
     assert (
         profile.verdict_distributions["status"],

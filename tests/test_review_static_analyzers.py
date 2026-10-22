@@ -23,6 +23,7 @@ from devops_cli.ai.review.pipeline import (
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.commands import review as review_commands
+from devops_cli.review.session import ReviewSession
 from devops_cli.security import is_kubernetes_manifest
 from devops_cli.security.base import ScanOutcome
 
@@ -146,14 +147,15 @@ def test_a_benchmark_tells_a_clean_scan_from_a_skipped_one(
 ) -> None:
     """Verify profiles keep the analyzer states and a benchmark shows each state seen."""
     first = ReviewProfile(session_id="a", target="t", static_analyzers=_ONLY_BANDIT)
-    first.write(tmp_path)
+    session = ReviewSession(tmp_path / "session")
+    session.write_profile(first)
     second = ReviewProfile(
         session_id="b", target="t", static_analyzers=_ONLY_BANDIT | {"Semgrep": "ran"}
     )
     printed: list[str] = []
     monkeypatch.setattr(review_commands, "print_info", lambda text, **_: printed.append(text))
 
-    summary = summarize_profiles([ReviewProfile.load(tmp_path) or first, second])
+    summary = summarize_profiles([ReviewProfile.load(session.publish()) or first, second])
     review_commands._render_benchmark(summary, tmp_path / "summary.json")
 
     assert (summary.static_analyzers["Semgrep"], summary.static_analyzers["Bandit"]) == (

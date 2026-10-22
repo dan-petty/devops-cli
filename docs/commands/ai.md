@@ -546,7 +546,7 @@ devops ai review path [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -586,7 +586,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -624,7 +624,7 @@ devops ai review pr [OPTIONS] <number>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |

@@ -11,6 +11,7 @@ from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.review.session import ReviewSessionStore
 
 
 @pytest.fixture(autouse=True)
@@ -63,15 +64,17 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert len(payloads) == 1
     assert payloads[0].file_path == "src/dummy.py"
 
-    file_json = orchestrator.files_dir / "src_dummy_py.json"
-    assert file_json.exists()
-
     # Stage 3: Consolidated report generation
     data_out, report_md = orchestrator.generate_consolidated_report(payloads)
     assert isinstance(data_out, dict)
     assert "Code Review Report" in report_md
-    assert (orchestrator.session_dir / "findings.json").exists()
-    assert (orchestrator.session_dir / "review.md").exists()
+
+    # Publishing renames the staged session to its name
+    session = orchestrator.session
+    published = session.publish()
+    assert len(list((published / "files").glob("*.json"))) == 1
+    assert session.findings_path.exists()
+    assert session.report_path.exists()
 
 
 def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
@@ -102,15 +105,97 @@ def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
     payload = FileReviewPayload(file_path="src/a.py", findings=[kept, dropped])
 
     orchestrator.generate_consolidated_report([payload])
+    orchestrator.session.publish()
 
     def titles(name: str) -> list[tuple[str, str]]:
-        data = json.loads((orchestrator.session_dir / name).read_text(encoding="utf-8"))
+        data = json.loads((orchestrator.session.directory / name).read_text(encoding="utf-8"))
         return [(f["title"], f["status"]) for f in data["findings"]]
 
     assert (titles("findings.json"), titles("candidates.json")) == (
         [("Kept", "VERIFIED")],
         [("Kept", "VERIFIED"), ("Dropped", "INVALIDATED")],
     )
+
+
+def _reported_finding_payload() -> FileReviewPayload:
+    """A file payload holding one reportable finding."""
+    finding = SavedFinding(
+        location="src/a.py:3",
+        title="Kept",
+        description="d",
+        status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
+    )
+    return FileReviewPayload(file_path="src/a.py", findings=[finding])
+
+
+def test_the_consolidated_report_stays_in_staging_until_the_run_publishes_it(
+    review_store: type[ReviewSessionStore], tmp_path: Path
+) -> None:
+    """Verify findings.json being written does not list a session: the profile is written after
+    the report, so only the run's publication makes the session whole (#771)."""
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="20261001-120000", llm_client=MagicMock(), target_dir=tmp_path
+    )
+
+    orchestrator.generate_consolidated_report([_reported_finding_payload()])
+
+    assert (
+        sorted(path.name for path in orchestrator.session.staging.iterdir()),
+        review_store.sessions(),
+        [session.name for session in review_store.in_flight()],
+        review_store.latest(),
+    ) == (
+        ["candidates.json", "files", "findings.json", "findings.sarif", "review.md"],
+        [],
+        ["20261001-120000"],
+        None,
+    )
+
+
+def test_a_review_that_fails_part_way_publishes_nothing(
+    review_store: type[ReviewSessionStore], tmp_path: Path
+) -> None:
+    """Verify a report that fails after findings.json was written leaves no session behind: the
+    session is in staging, where no reader lists it."""
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="20261001-120000", llm_client=MagicMock(), target_dir=tmp_path
+    )
+    (orchestrator.session.staging / "candidates.json").mkdir(parents=True)
+
+    with pytest.raises(IsADirectoryError):
+        orchestrator.generate_consolidated_report([_reported_finding_payload()])
+
+    assert (
+        (orchestrator.session.staging / "findings.json").is_file(),
+        review_store.sessions(),
+        review_store.latest(),
+        list(review_store.root().glob("*/findings.json")),
+    ) == (True, [], None, [])
+
+
+@pytest.mark.parametrize("file_path", ["a%00b.py", "%2e%2e%2fx.py"])
+def test_a_file_whose_name_holds_percent_escapes_is_reviewed(
+    file_path: str, tmp_path: Path
+) -> None:
+    """Verify a file named like an encoded NUL byte or an encoded `..` has its record written,
+    not dropped as an errored file by the path validator that reads the escapes (#771)."""
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="20261001-120000", llm_client=MagicMock(), target_dir=tmp_path
+    )
+
+    payloads = orchestrator.init_per_file_payloads(
+        [file_path], {file_path: FileAnalysisMeta(path=file_path)}
+    )
+
+    published = orchestrator.session.publish()
+    (record,) = (published / "files").glob("*.json")
+    assert (
+        [payload.file_path for payload in payloads],
+        orchestrator.errored_files,
+        FileReviewPayload.model_validate_json(record.read_text("utf-8")).file_path,
+    ) == ([file_path], {}, file_path)
 
 
 def test_get_server_info_formatting() -> None:
@@ -772,7 +857,7 @@ def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
         target_dir=sub_target,
     )
 
-    assert orch.session_dir.parent == ReviewSessionStore.root()
+    assert orch.session.directory.parent == ReviewSessionStore.root()
     assert not (sub_target / ".data").exists()
 
 

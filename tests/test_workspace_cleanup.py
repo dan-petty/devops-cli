@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.config.constants import CONST_REVIEW_STAGING_DIRNAME
 from devops_cli.core.cleanup import cleanup_data_tier
 
 
@@ -85,3 +86,25 @@ def test_cleanup_data_tier_directory_pruning_and_missing_dir(tmp_path: Path) -> 
     assert "20260101-session" in summary.pruned_dirs[0]
     assert not old_dir.exists()
     assert summary.freed_bytes > 0
+
+
+def test_cleanup_judges_each_staged_review_by_its_own_age(tmp_path: Path) -> None:
+    """A staged review is pruned when it is old, though other reviews keep `.staging` itself fresh:
+    it is the sessions inside `.staging` that cleanup judges, not the directory they share."""
+    staging = tmp_path / ".data" / "reviews" / CONST_REVIEW_STAGING_DIRNAME
+    abandoned = staging / "20260101-000000"
+    running = staging / "20261022-000000"
+    for session in (abandoned, running):
+        (session / "files").mkdir(parents=True)
+        (session / "profile.json").write_text("{}", encoding="utf-8")
+    ten_days_ago = time.time() - (10 * 86400)
+    os.utime(abandoned, (ten_days_ago, ten_days_ago))
+
+    summary = cleanup_data_tier(repo_root=tmp_path, older_than_seconds=7 * 86400, dry_run=False)
+
+    assert (summary.pruned_dirs, abandoned.exists(), running.exists(), staging.is_dir()) == (
+        [f"reviews/{CONST_REVIEW_STAGING_DIRNAME}/20260101-000000"],
+        False,
+        True,
+        True,
+    )

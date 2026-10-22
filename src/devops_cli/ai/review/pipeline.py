@@ -46,7 +46,6 @@ from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.review_environment import reviewed_tree
 from devops_cli.ai.review.sanitization import (
-    _sanitize_filename,
     balance_markdown_fences,
     escape_markdown_title,
 )
@@ -81,12 +80,9 @@ from devops_cli.config.constants import (
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_LOCKFILE_NAMES,
     CONST_MAX_FILE_SIZE_BYTES,
-    CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
     CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
     CONST_REVIEW_GENERATED_FILES,
-    CONST_REVIEW_PAGES_DIRNAME,
-    CONST_REVIEW_SARIF_FILENAME,
     CONST_REVIEW_SECRET_SCANNER_RULES,
     CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
@@ -121,7 +117,7 @@ from devops_cli.output import (
     print_success,
     print_table,
 )
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
@@ -1890,15 +1886,16 @@ class ReviewPipelineOrchestrator:
         self.subject = subject or {}
         self.concurrency = concurrency
         self.parallel = parallel
-        self.session_dir = _checked_session_dir(
-            session_dir or ReviewSessionStore.root() / self.session_id
+        self.session = (
+            ReviewSession(session_dir)
+            if session_dir
+            else ReviewSessionStore.session(self.session_id)
         )
-        self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
+        _checked_session_dir(self.session.directory)
         from devops_cli.dry_run.state import is_dry_run
 
         if not is_dry_run():
-            self.session_dir.mkdir(parents=True, exist_ok=True)
-            self.files_dir.mkdir(parents=True, exist_ok=True)
+            self.session.create()
         self.llm_client: ReviewLLMClient | None = llm_client
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
@@ -2558,10 +2555,7 @@ class ReviewPipelineOrchestrator:
         from devops_cli.dry_run.state import is_dry_run
 
         if not is_dry_run():
-            sanitized_name = _sanitize_filename(fpath) + ".json"
-            json_file = self.files_dir / sanitized_name
-            json_file.parent.mkdir(parents=True, exist_ok=True)
-            json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+            self.session.write_payload(payload)
         return payload
 
     def _assemble_single_file_payload(
@@ -2922,10 +2916,8 @@ class ReviewPipelineOrchestrator:
         findings_to_use = all_findings if all_findings is not None else reportable_findings
         if not findings_to_use:
             return []
-        # findings.json is already written, so the session leaves itself out of its own history.
-        return format_category_baseline_markdown(
-            findings_to_use, self.session_dir.parent, exclude=self.session_dir
-        )
+        # The session is not published, so it is not in the history it is compared to.
+        return format_category_baseline_markdown(findings_to_use, self.session.directory.parent)
 
     def _build_verdict_distributions_section(
         self, candidate_findings: list[SavedFinding] | None
@@ -3079,9 +3071,9 @@ class ReviewPipelineOrchestrator:
             llm_client=self.llm_client,
             file_contents=file_contents,
             environment=env,
-            session_dir=self.session_dir,
             concurrency=self.concurrency,
         )
+        self.session.write_analysis(report)
         self.analysis_report = report
         return report
 
@@ -3279,10 +3271,10 @@ class ReviewPipelineOrchestrator:
             Counter(f.status.upper() for f in minor), CONST_REVIEW_STATUS_ORDER
         )
         filters = " ".join(f"--severity {severity}" for severity in severities)
-        command = f"devops review findings {self.session_dir.name} {filters} --details"
+        command = f"devops review findings {self.session.name} {filters} --details"
         return (
             f"Not shown: {len(minor)} {' and '.join(severities)} finding(s) ({statuses}). "
-            f"They are in {self.session_dir / 'review.md'}; list them with:",
+            f"They are in {self.session.report_path}; list them with:",
             command,
         )
 
@@ -3575,8 +3567,8 @@ class ReviewPipelineOrchestrator:
             [
                 ["Dependencies", deps_str],
                 ["Network Endpoints", nets_str],
-                ["Markdown Report", str(self.session_dir / "review.md")],
-                ["Findings JSON", str(self.session_dir / "findings.json")],
+                ["Markdown Report", str(self.session.report_path)],
+                ["Findings JSON", str(self.session.findings_path)],
             ]
         )
 
@@ -3607,20 +3599,18 @@ class ReviewPipelineOrchestrator:
         candidates: ReviewSessionPayload,
         report_md: str,
     ) -> None:
-        """Persist session findings, candidates, SARIF, and markdown report unless in dry-run."""
+        """Stage session findings, candidates, SARIF, and markdown report unless in dry-run.
+
+        The run publishes the session after the profile.
+        """
         from devops_cli.dry_run.state import is_dry_run
 
         if is_dry_run():
             return
-        self.session_dir.mkdir(parents=True, exist_ok=True)
-        (self.session_dir / "findings.json").write_text(
-            payload_out.model_dump_json(indent=2), encoding="utf-8"
-        )
-        (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
-            candidates.model_dump_json(indent=2), encoding="utf-8"
-        )
+        self.session.write_findings(payload_out)
+        self.session.write_raised(candidates)
         from devops_cli.security.normalization import NormalizedFinding
-        from devops_cli.security.sarif import write_sarif
+        from devops_cli.security.sarif import to_sarif
 
         sarif_findings = [
             NormalizedFinding(
@@ -3643,8 +3633,8 @@ class ReviewPipelineOrchestrator:
             )
             for af in getattr(self, "admitted_scanner_findings", [])
         ]
-        write_sarif(sarif_findings, self.session_dir / CONST_REVIEW_SARIF_FILENAME)
-        (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+        self.session.write_sarif(to_sarif(sarif_findings))
+        self.session.write_report(report_md)
 
     def generate_consolidated_report(
         self,
@@ -3740,8 +3730,8 @@ class ReviewPipelineOrchestrator:
             symbol_delta_summary=symbol_delta,
         )
 
-        session_path = escape_text(str(self.session_dir))
-        report_path = escape_text(str(self.session_dir / "review.md"))
+        session_path = escape_text(str(self.session.directory))
+        report_path = escape_text(str(self.session.report_path))
         print_success(
             f"Consolidated review completed for session {escape_text(self.session_id)} "
             f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{session_path}[/dim]; "

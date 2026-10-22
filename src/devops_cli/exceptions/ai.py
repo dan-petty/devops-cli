@@ -18,8 +18,10 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_MODEL_BUNDLE,
     CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
     CONST_ERROR_CODE_REVIEW_POOL,
+    CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
     CONST_EXIT_ERROR_INFERENCE,
     CONST_EXIT_FAILURE,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 
@@ -269,6 +271,20 @@ class ReviewPoolError(DevOpsCLIError, RuntimeError):
             err_details["errors"] = [str(e) for e in errors]
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
         self.errors = errors or []
+
+
+class ReviewSessionExistsError(DevOpsCLIError):
+    """Raised when a review is published under the name of a session that is already published."""
+
+    def __init__(self, name: str, *, staging: str) -> None:
+        bounded_name = name[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        bounded_staging = staging[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        super().__init__(
+            f"Review session {bounded_name} was not published: a session of that name already "
+            f"exists. The review's files are in {bounded_staging}.",
+            error_code=CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
+            details={"session": bounded_name, "staging": bounded_staging},
+        )
 
 
 class LibraryIngestionError(DevOpsCLIError):

@@ -1696,7 +1696,7 @@ Review a git branch diff.
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
@@ -1771,7 +1771,7 @@ Review source files directly (no git required).
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
@@ -1804,7 +1804,7 @@ Review a GitHub pull request.
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
