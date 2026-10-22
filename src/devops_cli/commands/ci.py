@@ -33,6 +33,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_CANCELLED,
     CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
+    CONST_PYPROJECT_FILENAME,
     CONST_TOOLS_LOCK_REPO_DIR,
 )
 from devops_cli.config.defaults import (
@@ -658,10 +659,19 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="lint",
             display_title=MESSAGES.ci.ruff_check,
-            cmd=["uv", "run", "ruff", "check", "."],
+            cmd=["uv", "run", "ruff", "check", "--config", CONST_PYPROJECT_FILENAME, "."],
             span_name="ci.step.lint",
             metric_step="lint",
-            fix_cmd=["uv", "run", "ruff", "check", "--fix", "."],
+            fix_cmd=[
+                "uv",
+                "run",
+                "ruff",
+                "check",
+                "--config",
+                CONST_PYPROJECT_FILENAME,
+                "--fix",
+                ".",
+            ],
         ),
         CheckSpec(
             name="format",

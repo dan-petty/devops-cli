@@ -6,10 +6,11 @@ import ast
 import importlib.util
 import io
 import re
+import subprocess
 import tokenize
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from graphlib import CycleError
 from pathlib import Path
 from typing import Any
@@ -23,9 +24,7 @@ from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANNED_HAND_ROLLED_APIS,
     CONST_BLIND_EXCEPTION_TYPES,
-    CONST_C901_SUPPRESSION,
     CONST_COMPLEXITY_CAP_ROOTS,
-    CONST_COMPLEXITY_LINT_RULES,
     CONST_CONFTEST_FILENAME,
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
@@ -36,16 +35,10 @@ from devops_cli.config.constants import (
     CONST_NOSEC_COMMENT_RE,
     CONST_PRAGMA_NO_COVER_COMMENT_RE,
     CONST_PRAGMA_NO_MUTATE_COMMENT_RE,
-    CONST_RUFF_C901_SUPPRESSION_COMMENT,
-    CONST_RUFF_CONFIG_FILE_NAMES,
-    CONST_RUFF_EXCLUDE,
-    CONST_RUFF_FILE_EXEMPTION,
+    CONST_PYTHON_FILE_SUFFIX,
     CONST_RUFF_IGNORE_FILE_NAMES,
-    CONST_RUFF_LINT_KEYS,
-    CONST_RUFF_MCCABE_KEYS,
     CONST_RUFF_PER_FILE_IGNORE_KEYS,
     CONST_RUFF_SOURCE_SUFFIXES,
-    CONST_RUFF_TOP_LEVEL_KEYS,
     CONST_SUPPRESSION_COMMENT_PREFILTER_RE,
     CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
     CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
@@ -66,7 +59,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_C901_SUPPRESSION_CEILING,
-    DEFAULT_MAX_COMPLEXITY,
     DEFAULT_MAX_NESTING_DEPTH,
     DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
     DEFAULT_SUPPRESSION_CEILINGS,
@@ -1142,84 +1134,15 @@ def test_mypy_ignore_without_code_enabled() -> None:
     assert "ignore-without-code" in enabled
 
 
-def _unlisted_keys(table: str, keys: Iterable[str], allowed: frozenset[str]) -> list[str]:
-    """Name each key of one table that its allowlist does not admit."""
-    return [f"[{table}] {key}: outside the allowlist" for key in sorted(set(keys) - allowed)]
-
-
 def _names_rule(rule: str, code: str) -> bool:
     """Report whether one selector names a rule, by Ruff's prefix matching."""
     return code == "ALL" or rule.startswith(code)
 
 
-def _lint_escapes(lint: Mapping[str, Any]) -> list[str]:
-    """Report an unenforced cap rule, a per-file waiver of one, or a moved complexity limit.
-
-    A cap rule counts as enforced only when `select` names it by its own code. Ruff redirects
-    some prefixes before it weighs them (`C9` reads as `C90`), so `C90` selected with `C9`
-    ignored turns C901 off while `_ruff_enforces`, ranking by length, calls it on. Only the same
-    code can tie an exact code, and `_ruff_enforces` gives that tie to ignore, as Ruff does.
-    """
-    select = [*lint.get("select", []), *lint.get("extend-select", [])]
-    ignore = [*lint.get("ignore", []), *lint.get("extend-ignore", [])]
-    rules = sorted(CONST_COMPLEXITY_LINT_RULES)
-    unenforced = [
-        f"{rule}: not enforced"
-        for rule in rules
-        if rule not in select or not _ruff_enforces(rule, select, ignore)
-    ]
-    waived = [
-        f"[tool.ruff.lint.{table}] {pattern}: waives {rule}"
-        for table in CONST_RUFF_PER_FILE_IGNORE_KEYS
-        for pattern, codes in lint.get(table, {}).items()
-        for rule in rules
-        if any(_names_rule(rule, code) for code in codes)
-    ]
-    mccabe = lint.get("mccabe", {})
-    cap = mccabe.get("max-complexity")
-    raised = f"[tool.ruff.lint.mccabe] max-complexity: {cap}, not {DEFAULT_MAX_COMPLEXITY}"
-    return [
-        *_unlisted_keys("tool.ruff.lint", lint, CONST_RUFF_LINT_KEYS),
-        *unenforced,
-        *waived,
-        *_unlisted_keys("tool.ruff.lint.mccabe", mccabe, CONST_RUFF_MCCABE_KEYS),
-        *([] if cap == DEFAULT_MAX_COMPLEXITY else [raised]),
-    ]
-
-
-def _covered_files(project: Path) -> list[Path]:
-    """List every file under the roots the complexity cap covers."""
-    return sorted(
-        path
-        for root in CONST_COMPLEXITY_CAP_ROOTS
-        for path in (project / root).rglob("*")
-        if path.is_file()
-    )
-
-
-_SOURCE_ESCAPES = (
-    (CONST_RUFF_FILE_EXEMPTION, "file-level noqa"),
-    (CONST_RUFF_C901_SUPPRESSION_COMMENT, "a ruff suppression comment naming C901"),
-)
-
-
-def _source_escapes(project: Path, sources: Iterable[Path]) -> list[str]:
-    """Report each source that exempts itself, or hides C901 behind a comment no marker counts."""
-    texts = {
-        path.relative_to(project).as_posix(): path.read_text(encoding="utf-8") for path in sources
-    }
-    return [
-        f"{name}: {escape}"
-        for name, text in texts.items()
-        for pattern, escape in _SOURCE_ESCAPES
-        if pattern.search(text)
-    ]
-
-
 def _ignore_file_escapes(
     project: Path, covered: Sequence[Path], sources: Sequence[Path]
 ) -> list[str]:
-    """Report an ignore file that drops a covered source from Ruff's walk of the project.
+    """Report an ignore file that drops a covered source from the walk of the network construct gate.
 
     The root `.gitignore` is the project's own and stays, so only a source it matches is an
     escape; an ignore file under a covered root, or a root `.ignore`, is one by being there.
@@ -1244,48 +1167,6 @@ def _ignore_file_escapes(
         if listed.match_file(name)
     ]
     return [*nested, *beside, *matched]
-
-
-def _tree_escapes(project: Path) -> list[str]:
-    """Report a source that suppresses C901 without a marker, or a file that hides one from Ruff."""
-    covered = _covered_files(project)
-    sources = [path for path in covered if path.suffix in CONST_RUFF_SOURCE_SUFFIXES]
-    nested = [
-        f"{path.relative_to(project).as_posix()}: a Ruff config under a covered root"
-        for path in covered
-        if path.name in CONST_RUFF_CONFIG_FILE_NAMES
-    ]
-    outranking = [
-        f"{name}: outranks pyproject.toml"
-        for name in sorted(CONST_RUFF_CONFIG_FILE_NAMES - {"pyproject.toml"})
-        if (project / name).exists()
-    ]
-    return [
-        *_source_escapes(project, sources),
-        *nested,
-        *outranking,
-        *_ignore_file_escapes(project, covered, sources),
-    ]
-
-
-def _complexity_cap_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
-    """Report every way a committed file lets a function past the C901 cap without a marker.
-
-    Keys are checked against allowlists rather than a list of known escapes, so a setting
-    Ruff adds later is reported until a reviewed change admits it. `per-file-ignores` stays
-    allowed for other rules; an entry covering C901, RUF100 or PGH004 is an escape. Ignore
-    files outside the checkout (`.git/info/exclude`, a global gitignore, one above the
-    project) differ per machine and never reach the clean checkout GitHub CI lints.
-    """
-    ruff = pyproject.get("tool", {}).get("ruff", {})
-    exclude, expected = ruff.get("exclude"), [*CONST_RUFF_EXCLUDE]
-    widened = f"[tool.ruff] exclude: {exclude}, not {expected}"
-    return [
-        *_unlisted_keys("tool.ruff", ruff, CONST_RUFF_TOP_LEVEL_KEYS),
-        *([] if exclude == expected else [widened]),
-        *_lint_escapes(ruff.get("lint", {})),
-        *_tree_escapes(project),
-    ]
 
 
 def _sgconfig_escapes(project: Path) -> list[str]:
@@ -1466,29 +1347,6 @@ def _network_construct_escapes(pyproject: Mapping[str, Any], project: Path) -> l
     ]
 
 
-def _c901_suppressions(project: Path) -> dict[str, int]:
-    """Count the noqa comments naming C901 in each covered file, keyed by its project path.
-
-    A regex over the text, not `tokenize`: tokenizing the tree took 1.2-8.0 s (#586).
-    """
-    counts = {
-        path.relative_to(project).as_posix(): len(
-            CONST_C901_SUPPRESSION.findall(path.read_text(encoding="utf-8"))
-        )
-        for path in _covered_files(project)
-        if path.suffix in CONST_RUFF_SOURCE_SUFFIXES
-    }
-    return {name: count for name, count in counts.items() if count}
-
-
-def _c901_suppressions_over(project: Path, ceiling: int) -> tuple[int, list[str]]:
-    """Return how far the C901 suppressions exceed a ceiling, and the files that carry them."""
-    counts = _c901_suppressions(project)
-    excess = sum(counts.values()) - ceiling
-    return (excess, sorted(counts)) if excess > 0 else (0, [])
-
-
-_DROP = object()
 # Built here so this file's own text holds no file-level exemption, no C901 marker and no
 # Ruff suppression comment naming C901. Ruff honours each spelling below (checked on 0.16.8).
 _RUFF_FILE_NOQA = "# " + "ruff" + ": noqa"
@@ -1498,342 +1356,12 @@ _RUFF_COMMENT = "# " + "ruff" + ": "
 _FORM_FEED, _NO_BREAK_SPACE, _EM_SPACE = "\x0c", "\xa0", "\u2003"
 
 
-def _complying_pyproject() -> dict[str, Any]:
-    """Build, as a fresh dict, a pyproject.toml the complexity cap's meta-test accepts."""
-    lint = {
-        "select": ["E", *sorted(CONST_COMPLEXITY_LINT_RULES)],
-        "ignore": ["E501"],
-        "mccabe": {"max-complexity": DEFAULT_MAX_COMPLEXITY},
-    }
-    ruff = {"target-version": "py314", "line-length": 100, "exclude": [*CONST_RUFF_EXCLUDE]}
-    return {"tool": {"ruff": {**ruff, "lint": lint}}}
-
-
 def _edit(table: dict[str, Any], path: Sequence[str], value: object) -> None:
-    """Set, or with `_DROP` delete, the key a path names inside nested tables."""
+    """Set the key a path names inside nested tables."""
     *parents, key = path
     for name in parents:
         table = table[name]
-    if value is _DROP:
-        del table[key]
-    else:
-        table[key] = value
-
-
-_COMPLEXITY_CAP_ESCAPES = [
-    pytest.param((), None, {}, [], id="complying"),
-    pytest.param(
-        ("per-file-ignores",),
-        {"pkg/*": ["C901"]},
-        {},
-        ["[tool.ruff] per-file-ignores: outside the allowlist"],
-        id="top-level-per-file-ignores",
-    ),
-    pytest.param(
-        ("extend-ignore",),
-        ["C901"],
-        {},
-        ["[tool.ruff] extend-ignore: outside the allowlist"],
-        id="top-level-extend-ignore",
-    ),
-    pytest.param(
-        ("include",),
-        ["src/devops_cli/cli.py"],
-        {},
-        ["[tool.ruff] include: outside the allowlist"],
-        id="include",
-    ),
-    pytest.param(
-        ("extend",),
-        "../ruff.toml",
-        {},
-        ["[tool.ruff] extend: outside the allowlist"],
-        id="extend",
-    ),
-    pytest.param(
-        ("extend-exclude",),
-        ["src"],
-        {},
-        ["[tool.ruff] extend-exclude: outside the allowlist"],
-        id="extend-exclude",
-    ),
-    pytest.param(
-        ("lint", "exclude"),
-        ["src/**"],
-        {},
-        ["[tool.ruff.lint] exclude: outside the allowlist"],
-        id="lint-exclude",
-    ),
-    pytest.param(
-        ("exclude",),
-        ["repos", "src"],
-        {},
-        ["[tool.ruff] exclude: ['repos', 'src'], not ['repos']"],
-        id="exclude",
-    ),
-    pytest.param(
-        ("lint", "select"),
-        ["E", "PGH004", "RUF100"],
-        {},
-        ["C901: not enforced"],
-        id="c901-unselected",
-    ),
-    pytest.param(
-        ("lint", "ignore"),
-        ["E501", "C901"],
-        {},
-        ["C901: not enforced"],
-        id="c901-ignored",
-    ),
-    pytest.param(
-        ("lint", "extend-ignore"),
-        ["RUF100"],
-        {},
-        ["RUF100: not enforced"],
-        id="ruf100-extend-ignored",
-    ),
-    pytest.param(
-        ("lint", "select"),
-        ["E", "C901", "RUF100"],
-        {},
-        ["PGH004: not enforced"],
-        id="pgh004-unselected",
-    ),
-    pytest.param(
-        ("lint",),
-        {
-            "select": ["E", "C90", "PGH004", "RUF100"],
-            "ignore": ["E501", "C9"],
-            "mccabe": {"max-complexity": DEFAULT_MAX_COMPLEXITY},
-        },
-        {},
-        ["C901: not enforced"],
-        id="c901-selected-as-c90-and-ignored-as-c9",
-    ),
-    pytest.param(
-        ("lint", "ignore"),
-        ["E501", "C9"],
-        {},
-        [],
-        id="c9-ignored-under-an-exact-c901",
-    ),
-    pytest.param(
-        ("lint", "mccabe", "max-complexity"),
-        11,
-        {},
-        ["[tool.ruff.lint.mccabe] max-complexity: 11, not 10"],
-        id="max-complexity-raised",
-    ),
-    pytest.param(
-        ("lint", "mccabe", "max-complexity"),
-        _DROP,
-        {},
-        ["[tool.ruff.lint.mccabe] max-complexity: None, not 10"],
-        id="max-complexity-missing",
-    ),
-    pytest.param(
-        ("lint", "mccabe", "ignore-names"),
-        ["main"],
-        {},
-        ["[tool.ruff.lint.mccabe] ignore-names: outside the allowlist"],
-        id="mccabe-extra-key",
-    ),
-    pytest.param(
-        ("lint", "per-file-ignores"),
-        {"tests/*": ["C9"]},
-        {},
-        ["[tool.ruff.lint.per-file-ignores] tests/*: waives C901"],
-        id="per-file-ignores",
-    ),
-    pytest.param(
-        ("lint", "extend-per-file-ignores"),
-        {"src/*": ["ALL"]},
-        {},
-        [
-            "[tool.ruff.lint.extend-per-file-ignores] src/*: waives C901",
-            "[tool.ruff.lint.extend-per-file-ignores] src/*: waives PGH004",
-            "[tool.ruff.lint.extend-per-file-ignores] src/*: waives RUF100",
-        ],
-        id="extend-per-file-ignores",
-    ),
-    pytest.param(
-        ("lint", "per-file-ignores"),
-        {"src/*": ["PGH"]},
-        {},
-        ["[tool.ruff.lint.per-file-ignores] src/*: waives PGH004"],
-        id="per-file-ignores-blanket-noqa",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/pkg/mod.py": f"{_RUFF_FILE_NOQA}\n"},
-        ["src/pkg/mod.py: file-level noqa"],
-        id="ruff-file-noqa",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/mod.py": f"{_RUFF_FILE_NOQA}: C901\n"},
-        ["src/mod.py: file-level noqa"],
-        id="ruff-file-noqa-naming-c901",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"tests/test_mod.py": f"{_FLAKE8_FILE_NOQA}\n"},
-        ["tests/test_mod.py: file-level noqa"],
-        id="flake8-file-noqa",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/mod.py": f"#{_FORM_FEED}{_RUFF_FILE_NOQA[2:]}: C901\n"},
-        ["src/mod.py: file-level noqa"],
-        id="ruff-file-noqa-after-a-form-feed",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"tests/test_mod.py": f"#{_NO_BREAK_SPACE}{_FLAKE8_FILE_NOQA[2:]}\n"},
-        ["tests/test_mod.py: file-level noqa"],
-        id="flake8-file-noqa-after-a-no-break-space",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/mod.py": f"def f(x):  {_RUFF_COMMENT}ignore[C901]\n    return x\n"},
-        ["src/mod.py: a ruff suppression comment naming C901"],
-        id="ruff-ignore-naming-c901",
-    ),
-    pytest.param(
-        (),
-        None,
-        {
-            "src/pkg/mod.py": f"{_RUFF_COMMENT}disable[C901]\n"
-            "def f(x):\n    return x\n"
-            f"{_RUFF_COMMENT}enable[C901]\n"
-        },
-        ["src/pkg/mod.py: a ruff suppression comment naming C901"],
-        id="ruff-disable-enable-pair",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"tests/test_mod.py": "#" + "ruff:" + "disable[E501,C901]\ndef f(x):\n    return x\n"},
-        ["tests/test_mod.py: a ruff suppression comment naming C901"],
-        id="ruff-disable-unpaired-unspaced",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/mod.py": f"{_RUFF_COMMENT}file-ignore[C901]\n"},
-        ["src/mod.py: a ruff suppression comment naming C901"],
-        id="ruff-file-ignore",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/mod.py": f"#{_EM_SPACE}{_RUFF_COMMENT[2:]}{_EM_SPACE}disable[ C901 ]\n"},
-        ["src/mod.py: a ruff suppression comment naming C901"],
-        id="ruff-disable-after-em-spaces",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/pkg/.ignore": "mod.py\n", "src/pkg/mod.py": ""},
-        ["src/pkg/.ignore: an ignore file under a covered root"],
-        id="nested-ignore-file",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"tests/.gitignore": "test_mod.py\n", "tests/test_mod.py": ""},
-        ["tests/.gitignore: an ignore file under a covered root"],
-        id="nested-gitignore",
-    ),
-    pytest.param(
-        (),
-        None,
-        {".ignore": "src/mod.py\n", "src/mod.py": ""},
-        [".ignore: an ignore file beside pyproject.toml"],
-        id="project-ignore-file",
-    ),
-    pytest.param(
-        (),
-        None,
-        {
-            ".gitignore": "__pycache__/\n*.py[cod]\nsrc/pkg/hidden.py\n",
-            "src/pkg/hidden.py": "",
-            "src/pkg/kept.py": "",
-            "src/pkg/__pycache__/kept.cpython-314.pyc": "",
-        },
-        ["src/pkg/hidden.py: matched by .gitignore"],
-        id="project-gitignore-listing-a-source",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/pkg/ruff.toml": ""},
-        ["src/pkg/ruff.toml: a Ruff config under a covered root"],
-        id="nested-ruff-toml",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"tests/.ruff.toml": ""},
-        ["tests/.ruff.toml: a Ruff config under a covered root"],
-        id="nested-dot-ruff-toml",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"src/pkg/pyproject.toml": ""},
-        ["src/pkg/pyproject.toml: a Ruff config under a covered root"],
-        id="nested-pyproject-toml",
-    ),
-    pytest.param(
-        (),
-        None,
-        {"ruff.toml": ""},
-        ["ruff.toml: outranks pyproject.toml"],
-        id="project-ruff-toml",
-    ),
-]
-
-
-@pytest.mark.parametrize(("path", "value", "files", "expected"), _COMPLEXITY_CAP_ESCAPES)
-def test_every_complexity_cap_escape_is_reported(
-    tmp_path: Path,
-    path: Sequence[str],
-    value: object,
-    files: Mapping[str, str],
-    expected: list[str],
-) -> None:
-    """Each way past the cap, in the configuration or in the tree, is reported by itself.
-
-    Ruff 0.16 still honours the deprecated top-level `per-file-ignores` and `extend-ignore`,
-    and `include`, `extend` and `lint.exclude` change which files or which settings apply,
-    so the helper allows known keys rather than forbidding known escapes.
-    """
-    pyproject = _complying_pyproject()
-    if path:
-        _edit(pyproject["tool"]["ruff"], path, value)
-    for name, text in files.items():
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text(text, encoding="utf-8")
-
-    assert _complexity_cap_escapes(pyproject, tmp_path) == expected
-
-
-def test_the_complexity_cap_has_no_escape() -> None:
-    """Ruff's C901 is the cap of 10 (#586), and only a counted marker takes a function past it.
-
-    `_ruff_enforces` alone reads `select` and `ignore`; a raised `max-complexity`, a
-    per-file waiver, a nested config, a file-level exemption, one of Ruff's own bracketed
-    suppression comments or an ignore file would each pass it.
-    """
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert _complexity_cap_escapes(pyproject, REPO_ROOT) == []
+    table[key] = value
 
 
 def _complying_network_construct_pyproject() -> dict[str, Any]:
@@ -1848,8 +1376,7 @@ def _complying_network_construct_pyproject() -> dict[str, Any]:
             }
         },
     }
-    ruff = {"target-version": "py314", "line-length": 100, "exclude": [*CONST_RUFF_EXCLUDE]}
-    return {"tool": {"ruff": {**ruff, "lint": lint}}}
+    return {"tool": {"ruff": {"lint": lint}}}
 
 
 def _populate_complying_network_construct_tree(project: Path) -> None:
@@ -2082,55 +1609,6 @@ def test_the_network_construct_gate_has_no_escape() -> None:
     """The ast-grep rules, sgconfig, pre-commit and TID251 gate network constructs with no escape (#1107)."""
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert _network_construct_escapes(pyproject, REPO_ROOT) == []
-
-
-def test_c901_suppressions_stay_under_the_ceiling() -> None:
-    """The functions over the cap when Ruff began enforcing it may only become fewer.
-
-    Each carries a C901 marker that RUF100 reports once the function is back under the cap.
-    A new marker takes the count past `DEFAULT_C901_SUPPRESSION_CEILING` and fails here.
-    """
-    excess, files = _c901_suppressions_over(REPO_ROOT, DEFAULT_C901_SUPPRESSION_CEILING)
-    assert (excess, files) == (0, []), (
-        f"{excess} more C901 marker(s) than DEFAULT_C901_SUPPRESSION_CEILING allows, "
-        f"among these files: {files}. Decompose the function the new marker sits on until "
-        "Ruff no longer reports it; do not raise the ceiling."
-    )
-
-
-def test_suppressions_over_the_ceiling_name_their_files(tmp_path: Path) -> None:
-    """Both forms `--add-noqa` writes count, once per comment, and the excess names its file."""
-    (tmp_path / "src").mkdir()
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "src" / "over.py").write_text(
-        f"def f(x):  {_C901_MARKER}\n    return x\n\n\n"
-        f"def do_GET(x):  {_C901_MARKER}, N802\n    return x\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "tests" / "test_clean.py").write_text("def g(x):\n    return x\n", "utf-8")
-
-    assert (
-        _c901_suppressions(tmp_path),
-        _c901_suppressions_over(tmp_path, 1),
-        _c901_suppressions_over(tmp_path, 2),
-    ) == ({"src/over.py": 2}, (1, ["src/over.py"]), (0, []))
-
-
-@pytest.mark.parametrize(
-    "marker",
-    [
-        pytest.param(f"#{_FORM_FEED}{_C901_MARKER[2:]}", id="form-feed-after-the-hash"),
-        pytest.param(f"#{_NO_BREAK_SPACE}{_C901_MARKER[2:]}", id="no-break-space-after-the-hash"),
-        pytest.param(_C901_MARKER.replace(": ", f":{_EM_SPACE}"), id="em-space-after-the-colon"),
-        pytest.param(_C901_MARKER.replace(": ", " : E501 "), id="spaced-colon-unseparated-codes"),
-    ],
-)
-def test_every_marker_spelling_ruff_honours_is_counted(tmp_path: Path, marker: str) -> None:
-    """Ruff reads any whitespace but a newline inside a noqa comment, so each spelling counts."""
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "mod.py").write_text(f"def f(x):  {marker}\n    return x\n", "utf-8")
-
-    assert _c901_suppressions(tmp_path) == {"src/mod.py": 1}
 
 
 def _missing_stack_lifecycle_paths(
@@ -2409,6 +1887,24 @@ def _collect_suppressions(
     return dict(by_kind)
 
 
+_GIT_TIMEOUT_SECONDS = 60
+# The suffixes Ruff lints under the scanned roots and `_collect_suppressions` does not read.
+_UNSCANNED_RUFF_SUFFIXES = CONST_RUFF_SOURCE_SUFFIXES - {CONST_PYTHON_FILE_SUFFIX}
+
+
+def _unscanned_tracked_sources(project: Path) -> list[str]:
+    """List each tracked file under the scanned roots that Ruff lints and `_collect_suppressions` skips."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--", *CONST_COMPLEXITY_CAP_ROOTS],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=_GIT_TIMEOUT_SECONDS,
+    ).stdout.split("\0")
+    return [name for name in tracked if Path(name).suffix in _UNSCANNED_RUFF_SUFFIXES]
+
+
 def _suppression_ceiling_breaches(
     project: Path,
     ceilings: Mapping[str, int] = DEFAULT_SUPPRESSION_CEILINGS,
@@ -2443,6 +1939,31 @@ def test_suppressions_stay_under_their_ceilings() -> None:
     )
     breaches = _suppression_ceiling_breaches(REPO_ROOT)
     assert breaches == [], "\n".join(breaches)
+
+
+def test_no_tracked_file_under_the_scanned_roots_is_one_the_suppression_scan_skips() -> None:
+    """The scan reads `*.py` only, so a tracked stub or notebook under `src` or `tests` forces a decision.
+
+    Ruff lints `.pyi` and `.ipynb` files as well, and the counter that this scan replaced read the
+    raw text of all three suffixes. None is tracked, so the scan misses no comment. The first one
+    that is added must come with a count of its comments over its raw text, since a notebook is
+    JSON and `tokenize` cannot read it.
+    """
+    assert _unscanned_tracked_sources(REPO_ROOT) == []
+
+
+def test_a_tracked_stub_or_notebook_under_a_scanned_root_is_named(tmp_path: Path) -> None:
+    """A stub or notebook tracked under `src` or `tests` is named, and a module or a docs file is not."""
+    names = ("src/api.pyi", "tests/analysis.ipynb", "src/mod.py", "docs/demo.ipynb")
+    for name in names:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=_GIT_TIMEOUT_SECONDS)
+    subprocess.run(
+        ["git", "add", "-f", "--", *names], cwd=tmp_path, check=True, timeout=_GIT_TIMEOUT_SECONDS
+    )
+
+    assert _unscanned_tracked_sources(tmp_path) == ["src/api.pyi", "tests/analysis.ipynb"]
 
 
 def test_adding_a_type_ignore_in_src_fails_naming_kind_ceiling_and_file(tmp_path: Path) -> None:
@@ -2530,6 +2051,50 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
         "[[tool.mypy.overrides]]": {"pyproject.toml": 2},
         "coverage omit": {"pyproject.toml": 1},
     }
+
+
+_C901_MARKER_SPELLINGS = {
+    "marker-after-a-form-feed": f"#{_FORM_FEED}{_C901_MARKER[2:]}",
+    "marker-after-a-no-break-space": f"#{_NO_BREAK_SPACE}{_C901_MARKER[2:]}",
+    "marker-after-an-em-space": _C901_MARKER.replace(": ", f":{_EM_SPACE}"),
+    "marker-after-a-spaced-colon": _C901_MARKER.replace(": ", " : E501 "),
+}
+_RUFF_DIRECTIVE_SPELLINGS = {
+    "ruff-file-noqa": _RUFF_FILE_NOQA,
+    "ruff-file-noqa-naming-c901": f"{_RUFF_FILE_NOQA}: C901",
+    "flake8-file-noqa": _FLAKE8_FILE_NOQA,
+    "file-noqa-after-a-form-feed": f"#{_FORM_FEED}{_RUFF_FILE_NOQA[2:]}: C901",
+    "flake8-noqa-after-a-no-break-space": f"#{_NO_BREAK_SPACE}{_FLAKE8_FILE_NOQA[2:]}",
+    "ruff-ignore": f"{_RUFF_COMMENT}ignore[C901]",
+    "ruff-disable": f"{_RUFF_COMMENT}disable[C901]",
+    "ruff-disable-unspaced": "#" + "ruff:" + "disable[E501,C901]",
+    "ruff-file-ignore": f"{_RUFF_COMMENT}file-ignore[C901]",
+    "ruff-disable-after-em-spaces": f"#{_EM_SPACE}{_RUFF_COMMENT[2:]}{_EM_SPACE}disable[ C901 ]",
+}
+
+
+@pytest.mark.parametrize(
+    ("source", "kind"),
+    [
+        pytest.param(f"def f(x):  {marker}\n    return x\n", "src noqa: C901", id=name)
+        for name, marker in _C901_MARKER_SPELLINGS.items()
+    ]
+    + [
+        pytest.param(f"{line}\ndef f(x):\n    return x\n", "src file-level directive", id=name)
+        for name, line in _RUFF_DIRECTIVE_SPELLINGS.items()
+    ],
+)
+def test_every_ruff_suppression_spelling_is_counted(tmp_path: Path, source: str, kind: str) -> None:
+    """Ruff reads any whitespace but a newline inside its suppression comments, so each spelling counts.
+
+    The C901 marker counts under its own kind. The comments that hide C901 from a whole file or a
+    block, in Ruff's or flake8's spelling, count under the file-level directive kind, whose
+    ceiling is 0, so none enters the tree.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "mod.py").write_text(source, encoding="utf-8")
+
+    assert _collect_suppressions(tmp_path, pyproject={})[kind] == {"src/mod.py": 1}
 
 
 def _find_package_submodules(pkg_dir: Path) -> set[str]:
