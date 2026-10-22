@@ -542,3 +542,113 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         line for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")
     )
     assert ("npm install -g" in code, "--copilot-cloud" in code) == (False, False)
+
+
+# ── The devcontainer image build (#1895) ─────────────────────────────────────
+
+DEVCONTAINER_IMAGE_ACTION_PATH = GITHUB_DIR / "actions" / "devcontainer-image" / "action.yml"
+
+
+def _shell_command(script: str, program: str) -> list[str]:
+    """The words of the one command in `script` that starts with `program`, its backslash
+    continuations joined, as the shell splits them."""
+    import shlex
+
+    joined = script.replace("\\\n", " ")
+    return next(
+        shlex.split(line) for line in joined.splitlines() if line.strip().startswith(program)
+    )
+
+
+def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli() -> None:
+    """The action builds .devcontainer/devcontainer.json with the Dev Containers CLI that the tools
+    lock pins, so the Dev Container Features and the user vscode are in the image, for both
+    platforms, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
+    holds the digest reach buildx through `build.options`, which the CLI passes on for a
+    Dockerfile configuration where `--label` does nothing (devcontainers/cli#930)."""
+    action = _load_workflow(DEVCONTAINER_IMAGE_ACTION_PATH)
+    steps = {step["name"]: step for step in action["runs"]["steps"]}
+    cli = load_tools_lock().npm["devcontainers-cli"]
+
+    assert (
+        list(steps),
+        steps["Set up Node.js"]["uses"].split(" ")[0],
+        steps["Install the Dev Containers CLI"]["run"].splitlines(),
+        (cli.version, cli.bin),
+        steps["Write the build configuration"]["run"],
+        _shell_command(
+            steps["Build the image with its features and push it by digest"]["run"],
+            "devcontainer build",
+        ),
+        action["outputs"]["digest"]["value"],
+    ) == (
+        [
+            "Set up QEMU",
+            "Set up Docker Buildx",
+            "Set up Node.js",
+            "Install the Dev Containers CLI",
+            "Write the build configuration",
+            "Build the image with its features and push it by digest",
+            "Start the image as its remote user",
+        ],
+        SETUP_NODE,
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool devcontainers-cli --only-missing",
+        ],
+        ("0.89.0", "devcontainer"),
+        "set -euo pipefail\n"
+        'jq --arg labels "$LABELS" --arg metadata "$RUNNER_TEMP/devcontainer-build-metadata.json" \'\n'
+        "  .build.options = (.build.options // [])\n"
+        '    + [$labels | split("\\n")[] | select(length > 0) | ("--label", .)]\n'
+        '    + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]\n'
+        "' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json\n",
+        [
+            "devcontainer",
+            "build",
+            "--workspace-folder",
+            ".",
+            "--config",
+            ".devcontainer/devcontainer.build.json",
+            "--frozen-lockfile",
+            "--image-name",
+            "$IMAGE",
+            "--platform",
+            "linux/amd64,linux/arm64",
+            "--output",
+            "type=image,push-by-digest=true,name-canonical=true,push=true",
+            "${CACHE_ARGS[@]}",
+        ],
+        "${{ steps.build.outputs.digest }}",
+    )
+
+
+def test_the_devcontainer_image_action_starts_the_pushed_digest_as_vscode() -> None:
+    """Before any caller attests or tags the digest, a child repository that names only the image
+    must open as vscode through the image's devcontainer.metadata label, and each platform must
+    run as vscode, uid and gid 1000, with a command from each feature on its path (#1895)."""
+    action = _load_workflow(DEVCONTAINER_IMAGE_ACTION_PATH)
+    smoke = next(
+        step
+        for step in action["runs"]["steps"]
+        if step["name"] == "Start the image as its remote user"
+    )
+
+    assert (smoke["env"], smoke["run"]) == (
+        {"REF": "${{ inputs.image }}@${{ steps.build.outputs.digest }}"},
+        "set -euo pipefail\n"
+        'CHILD="$RUNNER_TEMP/devcontainer-child"\n'
+        'mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"\n'
+        "jq -n --arg image \"$REF\" '{image: $image, updateRemoteUserUID: false}'"
+        ' > "$CHILD/.devcontainer/devcontainer.json"\n'
+        'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
+        'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
+        "for PLATFORM in linux/amd64 linux/arm64; do\n"
+        '  docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec \'\n'
+        '    test "$(id -u):$(id -g)" = 1000:1000\n'
+        "    for TOOL in zsh git gh node npm docker kubectl helm minikube claude; do\n"
+        '      command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
+        "    done\n"
+        "    devops --version > /dev/null'\n"
+        "done\n",
+    )

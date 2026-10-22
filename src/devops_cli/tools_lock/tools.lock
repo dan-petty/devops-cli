@@ -411,3 +411,9 @@ version = "1.14.3"
 description = "OpenSpec spec and change-proposal CLI"
 source = "https://github.com/Fission-AI/OpenSpec"
 bin = "openspec"
+
+[npm.devcontainers-cli]
+version = "0.89.0"
+description = "Dev Containers CLI, which builds the published devcontainer image with its features"
+source = "https://github.com/devcontainers/cli"
+bin = "devcontainer"

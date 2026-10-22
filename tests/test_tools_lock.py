@@ -45,6 +45,7 @@ _REQUIRED_TOOLS = {
     "semgrep",
     "bandit",
     "openspec",
+    "devcontainers-cli",
 }
 
 
@@ -128,13 +129,27 @@ def _npm_project_file(name: str, filename: str) -> dict[str, Any]:
 
 
 def test_the_lock_holds_openspec_as_a_node_tool_at_its_exact_pin() -> None:
-    """OpenSpec is the one Node tool, and its command is the link npm makes in `.bin`."""
+    """OpenSpec is a Node tool, and its command is the link npm makes in `.bin`."""
     openspec = load_tools_lock().npm["openspec"]
 
     assert (openspec.version, openspec.bin, openspec.commands) == (
         "1.14.3",
         "openspec",
         ("openspec",),
+    )
+
+
+def test_the_lock_holds_the_dev_containers_cli_as_a_node_tool_at_its_exact_pin() -> None:
+    """The Dev Containers CLI that builds the published devcontainer image is a Node tool, so
+    the image build and a developer run the same CLI, and `devops ci` audits its lockfile
+    (#1895)."""
+    cli = load_tools_lock().npm["devcontainers-cli"]
+
+    assert (cli.version, cli.bin, cli.commands, cli.source) == (
+        "0.89.0",
+        "devcontainer",
+        ("devcontainer",),
+        "https://github.com/devcontainers/cli",
     )
 
 
@@ -199,7 +214,7 @@ def test_every_node_lockfile_is_version_3_with_a_sha512_for_each_registry_packag
             or urlsplit(str(entry.get("resolved"))).hostname != "registry.npmjs.org"
             or entry.get("hasInstallScript")
         ],
-    ) == ({"openspec": 3}, True, [])
+    ) == ({"openspec": 3, "devcontainers-cli": 3}, True, [])
 
 
 def test_a_node_tools_command_is_the_link_npm_makes_in_its_version_directory(

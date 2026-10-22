@@ -151,12 +151,15 @@ jobs:
       - name: DevContainer Manifest Pre-Build Smoke Test
         run: uv run devops devcontainer validate --workspace .
 
+  # The Dev Containers CLI builds the image, so it holds the features of
+  # .devcontainer/devcontainer.json and the user vscode a child repository runs as (#1895). The
+  # action starts the pushed digest as vscode before this job attests or tags it.
   devcontainer:
     name: Build & Publish DevContainer Image
     needs: release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -192,12 +195,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
-
       - name: Extract Metadata for DevContainer Image
         id: meta
         uses: docker/metadata-action@8e671d84a3bd81afdfc4fdbb96a42b07c2a80934 # v5
@@ -220,38 +217,43 @@ jobs:
         run: |
           uv run devops devcontainer validate --workspace . --oci-labels "$LABELS"
 
-      - name: Build and Push DevContainer Image
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+      # A registry cache: the GitHub Actions cache needs the runtime token, which a `run:` step
+      # gets only from a helper that exports it to every later step of this id-token job.
+      - name: Build, Push by Digest and Smoke-Test DevContainer Image
+        id: image
+        uses: ./.github/actions/devcontainer-image
         with:
-          context: .
-          file: ./.devcontainer/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          outputs: type=image,name=${{ env.DEVCONTAINER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          image: ${{ env.DEVCONTAINER_IMAGE }}
           labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/devcontainer:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/devcontainer:buildcache,mode=max
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
         with:
           subject-name: ghcr.io/${{ github.repository }}/devcontainer
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
+      # A copy of one index keeps its digest, so each tag names the digest the smoke test started.
       - name: Tag the Attested DevContainer Image
         id: tag
         shell: bash
         env:
-          DIGEST: ${{ steps.push.outputs.digest }}
+          DIGEST: ${{ steps.image.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
+          set -euo pipefail
           TAG_ARGS=()
           while read -r TAG; do
             if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
           done <<< "$TAGS"
           docker buildx imagetools create "${TAG_ARGS[@]}" "${DEVCONTAINER_IMAGE}@${DIGEST}"
+          while read -r TAG; do
+            if [ -n "$TAG" ]; then
+              test "$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r .digest)" = "$DIGEST"
+            fi
+          done <<< "$TAGS"
 
   service-image:
     name: Build & Publish Service Image

@@ -59,7 +59,7 @@ def test_maintain_runs_both_audits_of_the_audit_check_and_passes_when_both_are_c
         0,
         [
             ["uv", "--preview-features", "malware-check,check-command", "audit"],
-            get_check_spec("audit").commands[1],
+            *get_check_spec("audit").commands[1:],
         ],
     )
 

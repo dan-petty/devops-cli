@@ -874,6 +874,13 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
         f"The CI image-change filter for {job_name} must watch .dockerignore."
     )
 
+    # The devcontainer image is built by a shared action, whose steps alter the image as much
+    # as the workflow that calls it (#1895).
+    if job_name == "devcontainer":
+        assert _covered(".github/actions/devcontainer-image/action.yml"), (
+            "The CI image-change filter for devcontainer must watch the action that builds it."
+        )
+
 
 def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:
     """Find commands in workflow run steps that mutate the runner environment (#832)."""

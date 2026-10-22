@@ -1,0 +1,113 @@
+name: Build the DevContainer image with its features
+description: >-
+  Build .devcontainer/devcontainer.json with the Dev Containers CLI that tools.lock pins, so the
+  image holds the Dev Container Features, the user vscode and the devcontainer.metadata label a
+  child repository reads. Push it by digest, then start it as its remote user before anything
+  attests or tags it. The pull request job and the release job both call this action, so the
+  pull request check builds what the release publishes (#1895). The caller checks out the
+  repository, installs uv with the project synchronized, and logs in to every registry it names.
+
+inputs:
+  image:
+    description: Repository that receives the image by digest, with no tag.
+    required: true
+  labels:
+    description: OCI image labels, one key=value on each line (the docker/metadata-action labels).
+    required: true
+  cache-from:
+    description: A docker buildx --cache-from value; empty reads no cache.
+    required: false
+    default: ""
+  cache-to:
+    description: A docker buildx --cache-to value; empty writes no cache.
+    required: false
+    default: ""
+
+outputs:
+  digest:
+    description: Digest of the pushed image index that passed the smoke test.
+    value: ${{ steps.build.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+    # The host network lets the builder push to a registry on the runner's localhost.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      with:
+        driver-opts: network=host
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .node-version
+
+    - name: Install the Dev Containers CLI
+      shell: bash
+      run: |
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        uv run devops install-tools --tool devcontainers-cli --only-missing
+
+    # `devcontainer build --label` adds nothing to a Dockerfile configuration
+    # (devcontainers/cli#930), so the labels, the SBOM, the provenance and the metadata file that
+    # holds the digest reach `docker buildx build` through `build.options`. The configuration
+    # stays in .devcontainer/, where its relative paths and devcontainer-lock.json resolve.
+    - name: Write the build configuration
+      shell: bash
+      env:
+        LABELS: ${{ inputs.labels }}
+      run: |
+        set -euo pipefail
+        jq --arg labels "$LABELS" --arg metadata "$RUNNER_TEMP/devcontainer-build-metadata.json" '
+          .build.options = (.build.options // [])
+            + [$labels | split("\n")[] | select(length > 0) | ("--label", .)]
+            + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]
+        ' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json
+
+    - name: Build the image with its features and push it by digest
+      id: build
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        CACHE_FROM: ${{ inputs.cache-from }}
+        CACHE_TO: ${{ inputs.cache-to }}
+      run: |
+        set -euo pipefail
+        CACHE_ARGS=()
+        if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi
+        if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi
+        devcontainer build \
+          --workspace-folder . \
+          --config .devcontainer/devcontainer.build.json \
+          --frozen-lockfile \
+          --image-name "$IMAGE" \
+          --platform linux/amd64,linux/arm64 \
+          --output type=image,push-by-digest=true,name-canonical=true,push=true \
+          "${CACHE_ARGS[@]}"
+        echo "digest=$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/devcontainer-build-metadata.json")" >> "$GITHUB_OUTPUT"
+
+    # A child repository that names only the image gets its remote user from the image's
+    # devcontainer.metadata label, so `devcontainer up` on such a child proves the label and the
+    # user together. Each platform then runs as vscode with one command from each feature.
+    - name: Start the image as its remote user
+      shell: bash
+      env:
+        REF: ${{ inputs.image }}@${{ steps.build.outputs.digest }}
+      run: |
+        set -euo pipefail
+        CHILD="$RUNNER_TEMP/devcontainer-child"
+        mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"
+        jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
+        devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
+        test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
+        for PLATFORM in linux/amd64 linux/arm64; do
+          docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec '
+            test "$(id -u):$(id -g)" = 1000:1000
+            for TOOL in zsh git gh node npm docker kubectl helm minikube claude; do
+              command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
+            done
+            devops --version > /dev/null'
+        done
