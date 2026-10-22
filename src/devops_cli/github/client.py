@@ -17,7 +17,6 @@ from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
-from devops_cli.models.ssh import SSHKeyInfo
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +81,6 @@ class GitHubClient:
             )
         return result
 
-    def get_user_ssh_keys(self) -> list[SSHKeyInfo]:
-        user = self._gh.get_user()
-        return [SSHKeyInfo(id=k.id, title=k.title, key=k.key) for k in user.get_keys()]
-
-    def add_user_ssh_key(self, title: str, key: str) -> int:
-        user = self._gh.get_user()
-        created = user.create_key(title=title, key=key)
-        return created.id
-
-    def delete_user_ssh_key(self, key_id: int) -> None:
-        self._gh.get_user().get_key(key_id).delete()
-
     # ── Pull requests ─────────────────────────────────────────────────────────
 
     def get_pull(self, repo: str, number: int) -> PullRequest:
@@ -141,25 +128,6 @@ class GitHubClient:
             )
         return diff
 
-    def create_pr_review_comment(
-        self,
-        repo: str,
-        number: int,
-        body: str,
-        commit_id: str,
-        path: str,
-        line: int,
-    ) -> Any:
-        """Post a line-level inline review comment on a pull request diff hunk."""
-        pr = self.get_pull(repo, number)
-        commit_obj = pr.head.sha if not commit_id else commit_id
-        return pr.create_review_comment(
-            body=body,
-            commit=commit_obj,
-            path=path,
-            line=line,
-        )
-
     # ── Labels ───────────────────────────────────────────────────────────────
 
     def get_labels(self, repo: str) -> list[dict[str, Any]]:
@@ -190,87 +158,6 @@ class GitHubClient:
             color=color.lstrip("#"),
             description=description,
         )
-
-    # ── Issues ───────────────────────────────────────────────────────────────
-
-    def get_issues(
-        self,
-        repo: str,
-        state: str = "open",
-        milestone: str | int | None = None,
-        labels: list[str] | None = None,
-        limit: int = 30,
-    ) -> list[dict[str, Any]]:
-        """Fetch issues matching state, milestone, and labels."""
-        from devops_cli.github.issues import get_repository_issues
-
-        m_str = str(milestone) if milestone is not None else None
-        issues = get_repository_issues(
-            repo, state=state, milestone=m_str, labels=labels, limit=limit
-        )
-        return [issue.model_dump() for issue in issues]
-
-    def create_issue(
-        self,
-        repo: str,
-        title: str,
-        body: str = "",
-        milestone: str | None = None,
-        labels: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Create a new issue with milestone and taxonomy labels."""
-        from devops_cli.github.issues import create_repository_issue
-
-        issue = create_repository_issue(
-            repo=repo, title=title, body=body, milestone=milestone, labels=labels
-        )
-        return issue.model_dump()
-
-    def edit_issue(
-        self,
-        repo: str,
-        number: int,
-        title: str | None = None,
-        body: str | None = None,
-        state: str | None = None,
-        milestone: str | int | None = None,
-        clear_milestone: bool = False,
-        labels: list[str] | None = None,
-        add_labels: list[str] | None = None,
-        remove_labels: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Update an existing issue in the specified repository."""
-        from devops_cli.github.issues import edit_repository_issue
-
-        issue = edit_repository_issue(
-            repo=repo,
-            number=number,
-            title=title,
-            body=body,
-            state=state,
-            milestone=milestone,
-            clear_milestone=clear_milestone,
-            labels=labels,
-            add_labels=add_labels,
-            remove_labels=remove_labels,
-        )
-        return issue.model_dump()
-
-    # ── GitHub Pages ──────────────────────────────────────────────────────────
-
-    def get_pages_info(self, repo: str) -> dict[str, Any] | None:
-        """Fetch GitHub Pages site status and configuration."""
-        from devops_cli.github.pages import get_pages_status
-
-        info = get_pages_status(repo)
-        return info.model_dump() if info else None
-
-    def get_pages_builds(self, repo: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Fetch historical GitHub Pages build records."""
-        from devops_cli.github.pages import get_pages_builds
-
-        builds = get_pages_builds(repo, limit=limit)
-        return [b.model_dump() for b in builds]
 
 
 class GhCliClient:
@@ -346,39 +233,6 @@ class GhCliClient:
         if target_repo:
             cmd.extend(["--repo", target_repo])
         self._run_label_command(cmd)
-
-    def edit_issue(
-        self,
-        repo: str,
-        number: int,
-        title: str | None = None,
-        body: str | None = None,
-        state: str | None = None,
-        milestone: str | int | None = None,
-        clear_milestone: bool = False,
-        labels: list[str] | None = None,
-        add_labels: list[str] | None = None,
-        remove_labels: list[str] | None = None,
-    ) -> bool:
-        """Update an existing issue using gh CLI."""
-        from devops_cli.github.issues import edit_repository_issue
-
-        try:
-            edit_repository_issue(
-                repo=repo or self.default_repo or "",
-                number=number,
-                title=title,
-                body=body,
-                state=state,
-                milestone=milestone,
-                clear_milestone=clear_milestone,
-                labels=labels,
-                add_labels=add_labels,
-                remove_labels=remove_labels,
-            )
-            return True
-        except Exception:
-            return False
 
     def api(self, endpoint: str) -> str:
         """Execute a GitHub API request via rate-managed run_gh."""

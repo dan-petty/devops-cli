@@ -35,7 +35,7 @@ from devops_cli.exceptions.git import (
     GitHubUnreadError,
 )
 from devops_cli.exceptions.security import SSRFBlockedError
-from devops_cli.github import rate_limiter, session_transport, ssh
+from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
 from devops_cli.http.egress import EgressLevel
@@ -177,23 +177,6 @@ def _review_client() -> Any:
     return used[0]
 
 
-def _ssh_client() -> Any:
-    """The client SSH key registration falls back to when gh cannot register the key."""
-    used: list[Any] = []
-    with (
-        patch.object(ssh, "_register_with_gh", return_value=False),
-        patch.object(ssh, "_add_signing_key"),
-        patch(
-            "devops_cli.github.client.GitHubClient.get_user_ssh_keys",
-            autospec=True,
-            side_effect=lambda client: used.append(client) or [],
-        ),
-        patch("devops_cli.github.client.GitHubClient.add_user_ssh_key"),
-    ):
-        ssh.register_key_on_github("ssh-ed25519 AAAA key", "title")
-    return used[0]
-
-
 def _analyze_client() -> Any:
     """The client `devops analyze pr` reads the pull request with."""
     used: list[Any] = []
@@ -214,13 +197,13 @@ def _analyze_client() -> Any:
 
 @pytest.mark.parametrize(
     "client_of",
-    [_repos_client, _gh_command_client, _review_client, _ssh_client, _analyze_client],
-    ids=["repos", "gh", "review", "ssh", "analyze"],
+    [_repos_client, _gh_command_client, _review_client, _analyze_client],
+    ids=["repos", "gh", "review", "analyze"],
 )
 def test_every_pygithub_caller_uses_the_session_client(
     client_of: Any, pin_github_session: str
 ) -> None:
-    """repos, review, analyze, ssh and `devops gh` use the session's client and its token."""
+    """repos, review, analyze and `devops gh` use the session's client and its token."""
     with patch("github.Github", _RecordedGithub):
         client = client_of()
         session_client = get_github_session().client

@@ -42,20 +42,8 @@ def test_repo_info_model() -> None:
 
 
 def test_github_client_operations() -> None:
-    """Verify GitHubClient get_org_repos, SSH key management, and PR lookups."""
+    """Verify GitHubClient get_org_repos and PR lookups."""
     mock_gh = MagicMock()
-    mock_user = MagicMock()
-    mock_user.login = "test-user"
-    mock_key = MagicMock()
-    mock_key.id = 1
-    mock_key.title = "key1"
-    mock_key.key = "ssh-ed25519 AAA..."
-    mock_user.get_keys.return_value = [mock_key]
-    mock_created_key = MagicMock()
-    mock_created_key.id = 2
-    mock_user.create_key.return_value = mock_created_key
-    mock_gh.get_user.return_value = mock_user
-
     mock_repo = MagicMock()
     mock_repo.name = "repo1"
     mock_repo.full_name = "test-org/repo1"
@@ -74,16 +62,6 @@ def test_github_client_operations() -> None:
         repos = client.get_org_repos("test-org")
         assert len(repos) == 1
         assert repos[0].name == "repo1"
-
-        keys = client.get_user_ssh_keys()
-        assert len(keys) == 1
-        assert keys[0].id == 1
-
-        new_key_id = client.add_user_ssh_key("new_key", "ssh-ed25519 AAA...")
-        assert new_key_id == 2
-
-        client.delete_user_ssh_key(1)
-        mock_user.get_key.assert_called_with(1)
 
         _ = client.get_pull("test-org/repo1", 42)
         mock_gh.get_repo.assert_called_with("test-org/repo1")
@@ -180,43 +158,6 @@ def test_get_org_repos_skips_archived_repos() -> None:
     )
 
     assert [repo.name for repo in result] == ["active-repo"]
-
-
-def test_create_pr_review_comment() -> None:
-    client = GitHubClient("token")
-
-    called_kwargs: dict[str, str | int] = {}
-
-    class _FakePull:
-        head = SimpleNamespace(sha="sha-123")
-
-        def create_review_comment(self, **kwargs: str | int) -> str:
-            called_kwargs.update(kwargs)
-            return "comment-123"
-
-    class _FakeRepo:
-        def get_pull(self, number: int) -> _FakePull:
-            return _FakePull()
-
-    class _FakeGithub:
-        def get_repo(self, repo: str) -> _FakeRepo:
-            return _FakeRepo()
-
-    client._gh = _FakeGithub()  # type: ignore[assignment]
-
-    res = client.create_pr_review_comment(
-        repo="octo/repo",
-        number=42,
-        body="LGTM!",
-        commit_id="",
-        path="src/main.py",
-        line=15,
-    )
-    assert res == "comment-123"
-    assert called_kwargs["body"] == "LGTM!"
-    assert called_kwargs["commit"] == "sha-123"
-    assert called_kwargs["path"] == "src/main.py"
-    assert called_kwargs["line"] == 15
 
 
 def test_get_merge_base_reads_the_compare_endpoint() -> None:

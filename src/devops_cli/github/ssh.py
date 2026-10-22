@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 from collections.abc import Iterable
 from http import HTTPStatus
 from typing import Any
 
-from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
-from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
-from devops_cli.github.rate_limiter import run_gh
+from devops_cli.config.constants import (
+    CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES,
+    CONST_GITHUB_SSH_KEY_REFRESH_SCOPES,
+)
+from devops_cli.exceptions.git import (
+    GitHubNotFoundError,
+    GitHubOperationError,
+    GitHubScopeError,
+)
 from devops_cli.github.session import GitHubSession, get_github_session
-
-_SIGNING_KEYS = "/user/ssh_signing_keys"
 
 
 class SSHRegistrationError(RuntimeError):
@@ -25,88 +25,15 @@ class SSHRegistrationError(RuntimeError):
 def register_key_on_github(pub_key: str, title: str) -> None:
     """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity.
 
-    A refusal on either path is an `SSHRegistrationError`, which the `devops ssh` commands
+    A refusal on either endpoint is an `SSHRegistrationError`, which the `devops ssh` commands
     report, and on which `rotate` removes the key it generated (#983).
     """
-    if _register_with_gh(pub_key, title):
-        return
     try:
         session = get_github_session()
-    except GitHubOperationError as exc:
-        raise SSHRegistrationError(
-            "No usable GitHub auth found for key registration. Run 'gh auth login'."
-        ) from exc
-    try:
-        _register_with_token_api(session, pub_key, title)
+        for endpoint in CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES:
+            _add_key(session, endpoint, pub_key, title)
     except GitHubOperationError as exc:
         raise SSHRegistrationError(str(exc)) from exc
-
-
-def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -> None:
-    """Register through PyGithub and the REST API with the session's token."""
-    client = session.client
-
-    # Authentication key — skip if an identical key body already exists
-    key_body = _key_body(pub_key)
-    existing = client.get_user_ssh_keys()
-    if not any(_key_body(k.key) == key_body for k in existing):
-        client.add_user_ssh_key(title=title, key=pub_key)
-
-    # Signing key (separate endpoint, not yet in PyGithub)
-    _add_signing_key(session, pub_key, title)
-
-
-def _register_with_gh(pub_key: str, title: str) -> bool:
-    """Register keys via GitHub CLI auth context. Returns True on success/path used."""
-    if not _gh_auth_ok():
-        return False
-
-    key_body = _key_body(pub_key)
-    existing_auth = _gh_list_keys("/user/keys")
-    if (existing_auth is not None and key_body not in existing_auth) or existing_auth is None:
-        _gh_add_key("/user/keys", pub_key, title)
-
-    existing_signing = _gh_list_keys("/user/ssh_signing_keys")
-    if existing_signing is None or key_body not in existing_signing:
-        _gh_add_key("/user/ssh_signing_keys", pub_key, title)
-
-    return True
-
-
-def _gh_auth_ok() -> bool:
-    try:
-        result = run_gh(
-            ["auth", "status"],
-            quiet=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
-        return False
-    return result.returncode == 0
-
-
-def _gh_list_keys(endpoint: str) -> set[str] | None:
-    try:
-        result = run_gh(
-            ["api", endpoint],
-            quiet=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(payload, list):
-        return None
-
-    return _listed_key_bodies(payload)
 
 
 def _key_body(key: str) -> str:
@@ -123,97 +50,40 @@ def _listed_key_bodies(entries: Iterable[Any]) -> set[str]:
     }
 
 
-def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
+def _add_key(session: GitHubSession, endpoint: str, pub_key: str, title: str) -> None:
+    """Register the key at `endpoint`. GitHub answers 422 for a key it already holds, but also
+    for one it rejects as invalid and one in use on another account, so a 422 counts as
+    registered only when the session's listing at `endpoint` holds the key or can't be read."""
     try:
-        result = run_gh(
-            [
-                "api",
-                "--method",
-                "POST",
-                endpoint,
-                "-f",
-                f"title={title}",
-                "-f",
-                f"key={pub_key}",
-            ],
-            quiet=True,
-            check=False,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except (FileNotFoundError, OSError, subprocess.SubprocessError) as exc:
-        raise SSHRegistrationError(f"GitHub CLI key registration failed: {exc}") from exc
-
-    if result.returncode == 0:
-        return
-
-    # gh writes the failure to stderr; stdout holds GitHub's answer.
-    said = result.stderr or ""
-    if gh_http_status(said) == HTTPStatus.UNPROCESSABLE_ENTITY and _registered_after_422(
-        endpoint, pub_key
-    ):
-        return
-
-    refused = classify_gh_failure(said, exit_code=result.returncode, operation="ssh_key_upload")
-    if isinstance(refused, GitHubScopeError):
-        raise SSHRegistrationError(
-            "GitHub CLI auth is missing required scopes. "
-            "Run: gh auth refresh -h github.com "
-            "-s admin:public_key,write:ssh_signing_key"
-        ) from refused
-
-    raise SSHRegistrationError(_registration_failure(result)) from refused
-
-
-def _registered_after_422(endpoint: str, pub_key: str) -> bool:
-    """Whether a key GitHub answered 422 for is registered at `endpoint`. GitHub answers 422 for
-    a key it already holds, but also for one it rejects as invalid and one in use on another
-    account, so the keys are listed again: a listed key, or a list that can't be read, is
-    registered."""
-    listed = _gh_list_keys(endpoint)
-    return listed is None or _key_body(pub_key) in listed
-
-
-def _registration_failure(result: subprocess.CompletedProcess[str]) -> str:
-    """What gh wrote for a failed key upload, with the reasons GitHub gave in its answer."""
-    said = result.stderr.strip() or result.stdout.strip() or "gh api failed"
-    reasons = _github_reasons(result.stdout or "")
-    return f"{said}: {reasons}" if reasons else said
-
-
-def _github_reasons(answer: str) -> str:
-    """The `errors[].message` of GitHub's validation answer, for display only, at most
-    `CONST_MAX_ERROR_DETAIL_LENGTH` characters; empty when the answer holds none."""
-    try:
-        decoded = json.loads(answer)
-    except json.JSONDecodeError:
-        return ""
-    errors = decoded.get("errors") if isinstance(decoded, dict) else None
-    if not isinstance(errors, list):
-        return ""
-    reasons = [error.get("message") for error in errors if isinstance(error, dict)]
-    said = "; ".join(reason for reason in reasons if isinstance(reason, str))
-    return said[:CONST_MAX_ERROR_DETAIL_LENGTH]
-
-
-def _add_signing_key(session: GitHubSession, pub_key: str, title: str) -> None:
-    """Register the key as a GitHub SSH signing key. GitHub answers 422 for a key it already
-    holds, but also for one it rejects as invalid and one in use on another account, so a 422
-    counts as registered only when the session's signing-key listing holds the key or can't be
-    read, as `_registered_after_422` reads gh's."""
-    try:
-        session.rest("POST", _SIGNING_KEYS, body={"title": title, "key": pub_key})
+        session.rest("POST", endpoint, body={"title": title, "key": pub_key})
+    except GitHubNotFoundError as exc:
+        raise _hidden_by_scope(endpoint, exc) from exc
     except GitHubOperationError as exc:
         if exc.details.get("status") != HTTPStatus.UNPROCESSABLE_ENTITY or not _session_lists_key(
-            session, pub_key
+            session, endpoint, pub_key
         ):
             raise
 
 
-def _session_lists_key(session: GitHubSession, pub_key: str) -> bool:
-    """Whether the session's signing-key listing holds `pub_key`; a listing that can't be read
+def _hidden_by_scope(endpoint: str, refusal: GitHubNotFoundError) -> GitHubScopeError:
+    """The error for a 404 at a key endpoint. The endpoint has no resource to be missing, and
+    GitHub answers a token whose scopes cannot reach an endpoint with a 404, so the token lacks
+    the endpoint's scope; the error names it and the command that adds the scopes registration
+    needs."""
+    scope = CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES[endpoint]
+    return GitHubScopeError(
+        f"GitHub answered POST {endpoint} with HTTP 404, which it sends a token without the scope "
+        f"{scope}. Run `gh auth refresh -h github.com -s {CONST_GITHUB_SSH_KEY_REFRESH_SCOPES}` "
+        "to add the scopes registering a key needs",
+        details={**refusal.details, "accepted_scopes": scope},
+    )
+
+
+def _session_lists_key(session: GitHubSession, endpoint: str, pub_key: str) -> bool:
+    """Whether the session's listing at `endpoint` holds `pub_key`; a listing that can't be read
     counts as holding it."""
     try:
-        listed = _listed_key_bodies(session.paginate(_SIGNING_KEYS))
+        listed = _listed_key_bodies(session.paginate(endpoint))
     except GitHubOperationError:
         return True
     return _key_body(pub_key) in listed
