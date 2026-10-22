@@ -55,11 +55,9 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-          save-cache: false
-          cache-dependency-glob: "uv.lock"
-          cache-python: "true"
-          prune-cache: "true"
+          # This workflow publishes, so it restores no cache another run could have written
+          # (zizmor cache-poisoning).
+          enable-cache: false
           version: "latest"
           python-version: "3.14"
 
@@ -180,11 +178,9 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-          save-cache: false
-          cache-dependency-glob: "uv.lock"
-          cache-python: "true"
-          prune-cache: "true"
+          # This workflow publishes, so it restores no cache another run could have written
+          # (zizmor cache-poisoning).
+          enable-cache: false
           version: "latest"
           python-version: "3.14"
 
@@ -250,11 +246,9 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-          save-cache: false
-          cache-dependency-glob: "uv.lock"
-          cache-python: "true"
-          prune-cache: "true"
+          # This workflow publishes, so it restores no cache another run could have written
+          # (zizmor cache-poisoning).
+          enable-cache: false
           version: "latest"
           python-version: "3.14"
 
@@ -351,11 +345,9 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
-          save-cache: false
-          cache-dependency-glob: "uv.lock"
-          cache-python: "true"
-          prune-cache: "true"
+          # This workflow publishes, so it restores no cache another run could have written
+          # (zizmor cache-poisoning).
+          enable-cache: false
           version: "latest"
           python-version: "3.14"
 

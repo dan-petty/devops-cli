@@ -783,8 +783,17 @@ def _validate_setup_uv_step(step: dict[str, object], source: str) -> None:
     )
 
 
+def _validate_uncached_setup_uv_step(step: dict[str, object], source: str) -> None:
+    with_args = step.get("with", {})
+    assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"
+    assert {key: value for key, value in with_args.items() if "cache" in key} == {
+        "enable-cache": False
+    }, f"{source}: a publishing workflow restores no cache"
+
+
 def test_github_workflows_caching_configuration() -> None:
-    """Validate that GitHub workflows configure optimized caching for uv."""
+    """Every workflow caches uv, except release.yml: it publishes every artifact, so it restores
+    no cache that another run could have written (zizmor cache-poisoning, #1895)."""
     import yaml
 
     workflows_dir = Path(".github/workflows")
@@ -802,7 +811,9 @@ def test_github_workflows_caching_configuration() -> None:
         for job_name, step in steps:
             uses = str(step.get("uses", ""))
             context_tag = f"{wf_file.name}:{job_name}:{step.get('name', 'unnamed')}"
-            if "astral-sh/setup-uv" in uses:
+            if "astral-sh/setup-uv" in uses and wf_file.name == "release.yml":
+                _validate_uncached_setup_uv_step(step, context_tag)
+            elif "astral-sh/setup-uv" in uses:
                 _validate_setup_uv_step(step, context_tag)
 
 
