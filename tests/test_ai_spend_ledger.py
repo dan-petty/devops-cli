@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -811,3 +812,31 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
         'model="model-old"' not in res_bare.stdout,
         "devops_cli_ai_hardware_cost_usd 1000.0" in res_bare.stdout,
     ) == (0, True, True, True)
+
+
+def test_a_new_ledger_opens_from_several_threads_at_once(tmp_path: Path) -> None:
+    """Switching a database to WAL needs an exclusive lock that SQLite refuses at once, whatever
+    the connection's timeout, so five threads that open the same new ledger together failed with
+    "database is locked" in a few trials of every hundred (#1820). Forty new ledgers make the
+    failure at the base near certain."""
+    failures: list[str] = []
+
+    def open_ledger(db_path: Path, start: threading.Barrier) -> None:
+        start.wait()
+        try:
+            SpendLedger(db_path)
+        except sqlite3.OperationalError as exc:
+            failures.append(str(exc))
+
+    for trial in range(40):
+        start = threading.Barrier(5)
+        threads = [
+            threading.Thread(target=open_ledger, args=(tmp_path / f"spend-{trial}.db", start))
+            for _ in range(5)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    assert failures == []
