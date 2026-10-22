@@ -429,6 +429,10 @@ class DocsMessages:
         "Documentation check failed. Run 'devops docs generate' to refresh documentation."
     )
     argv_unresolved: str = "{location} {owner}: 'devops {command_line}': {problem}."
+    inventory_entry_missing: str = (
+        "{entry}: the document inventory lists it, but no file matches, so its command lines "
+        "cannot be checked."
+    )
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"

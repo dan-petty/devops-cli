@@ -277,11 +277,7 @@ def test_docs_check_reports_an_unresolved_source_argv(tmp_path: Path, command_tr
             return_value=broken,
         ),
         patch(
-            "devops_cli.docs.markdown_argv_collector.collect_knowledge_base_argv_references",
-            return_value=[],
-        ),
-        patch(
-            "devops_cli.docs.markdown_argv_collector.collect_handwritten_docs_argv_references",
+            "devops_cli.docs.markdown_argv_collector.collect_documented_argv_references",
             return_value=[],
         ),
     ):

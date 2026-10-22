@@ -1,4 +1,5 @@
-"""Tests for collecting knowledge base Markdown command lines and resolving them statically."""
+"""Tests for collecting the `devops` command lines of Markdown documents and resolving them
+statically."""
 
 from __future__ import annotations
 
@@ -16,11 +17,7 @@ from devops_cli.core.command_resolver import (
     resolve_devops_argv,
 )
 from devops_cli.docs.generator import DocGenerator
-from devops_cli.docs.markdown_argv_collector import (
-    collect_handwritten_docs_argv_references,
-    collect_knowledge_base_argv_references,
-    collect_markdown_argv_references,
-)
+from devops_cli.docs.markdown_argv_collector import collect_markdown_argv_references
 from devops_cli.docs.source_argv_collector import (
     DevopsArgvReference,
     describe_unresolved_references,
@@ -82,8 +79,8 @@ def test_collect_markdown_argv_references_fixture() -> None:
     assert actual == expected
 
 
-def test_docs_check_reports_an_unresolved_knowledge_base_argv(tmp_path: Path) -> None:
-    """Verify `devops docs check` fails and reports an unresolved knowledge base command line."""
+def test_docs_check_reports_an_unresolved_documented_argv(tmp_path: Path) -> None:
+    """Verify `devops docs check` fails and reports an unresolved documented command line."""
     with (
         patch.object(DocGenerator, "generate_all_docs", return_value={}),
         patch(
@@ -91,82 +88,7 @@ def test_docs_check_reports_an_unresolved_knowledge_base_argv(tmp_path: Path) ->
             return_value=[],
         ),
         patch(
-            "devops_cli.docs.markdown_argv_collector.collect_knowledge_base_argv_references",
-            return_value=[DEFECTIVE_REFERENCE],
-        ),
-    ):
-        ok, errors = DocGenerator().check_docs(tmp_path, check_readme_table=False)
-        result = CliRunner().invoke(
-            docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
-        )
-
-    expected_errors = describe_unresolved_references([DEFECTIVE_REFERENCE])
-    assert (ok, errors, result.exit_code, "docs/sample.md:4" in result.output) == (
-        False,
-        expected_errors,
-        1,
-        True,
-    )
-
-
-def test_every_knowledge_base_argv_resolves() -> None:
-    """Verify every devops command line in the bundled knowledge base resolves statically."""
-    for module_path, _ in _COMMAND_SPECS.values():
-        module_click_command(module_path)
-
-    with patch("subprocess.Popen", side_effect=AssertionError("no subprocess")) as popen:
-        references = collect_knowledge_base_argv_references()
-        unresolved = describe_unresolved_references(references)
-
-    cli_ref_count = sum(1 for ref in references if ref.path.endswith("cli_command_reference.md"))
-
-    assert (
-        unresolved,
-        cli_ref_count >= 60,
-        popen.called,
-    ) == ([], True, False)
-
-
-def test_every_handwritten_doc_argv_resolves() -> None:
-    """Verify every devops command line in the hand-written docs resolves statically."""
-    for module_path, _ in _COMMAND_SPECS.values():
-        module_click_command(module_path)
-
-    with patch("subprocess.Popen", side_effect=AssertionError("no subprocess")) as popen:
-        references = collect_handwritten_docs_argv_references()
-        unresolved = describe_unresolved_references(references)
-
-    paths_seen = {ref.path for ref in references}
-    expected_paths = {
-        "README.md",
-        "ARCHITECTURE.md",
-        "RELEASE_CYCLE.md",
-        "docs/SDLC.md",
-        "docs/ROUTINE_TASKS.md",
-        "docs/DEVCONTAINER_USAGE.md",
-        "k8s/README.md",
-    }
-    assert (
-        unresolved,
-        expected_paths.issubset(paths_seen),
-        popen.called,
-    ) == ([], True, False)
-
-
-def test_docs_check_reports_an_unresolved_handwritten_doc_argv(tmp_path: Path) -> None:
-    """Verify `devops docs check` fails and reports an unresolved handwritten doc command line."""
-    with (
-        patch.object(DocGenerator, "generate_all_docs", return_value={}),
-        patch(
-            "devops_cli.docs.source_argv_collector.collect_source_argv_references",
-            return_value=[],
-        ),
-        patch(
-            "devops_cli.docs.markdown_argv_collector.collect_knowledge_base_argv_references",
-            return_value=[],
-        ),
-        patch(
-            "devops_cli.docs.markdown_argv_collector.collect_handwritten_docs_argv_references",
+            "devops_cli.docs.markdown_argv_collector.collect_documented_argv_references",
             return_value=[DEFECTIVE_REFERENCE],
         ),
     ):
