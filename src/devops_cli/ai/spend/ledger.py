@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -220,6 +221,9 @@ def _add_column(conn: sqlite3.Connection, add_column: str) -> None:
             raise
 
 
+_JOURNAL_MODE_LOCK = threading.Lock()
+
+
 class SpendLedger:
     """Persistent thread-safe SQLite ledger recording AI token spend across backends."""
 
@@ -243,7 +247,12 @@ class SpendLedger:
         """Create a connection with WAL mode and pragmas configured."""
         conn = sqlite3.connect(str(self.db_path), timeout=10.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
+        # WAL belongs to the database file, so it is switched on once. The switch needs an
+        # exclusive lock that SQLite refuses at once, whatever the timeout, so threads of this
+        # process make it one at a time (#1820).
+        with _JOURNAL_MODE_LOCK:
+            if conn.execute("PRAGMA journal_mode;").fetchone()[0].lower() != "wal":
+                conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         return conn
 
