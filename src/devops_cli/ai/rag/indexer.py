@@ -635,7 +635,8 @@ class WorkspaceIndexer:
         except Exception as exc:
             logger.debug("Failed to write index cache: %s", exc)
 
-    def collect_files(self, root_dir: Path) -> list[Path]:
+    @staticmethod
+    def collect_files(root_dir: Path) -> list[Path]:
         """Collect all indexable files under root_dir, respecting .gitignore rules."""
         import os
 

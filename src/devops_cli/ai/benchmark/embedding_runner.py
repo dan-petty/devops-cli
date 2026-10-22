@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
 from devops_cli.ai.benchmark.document_chunker import (
     SectionRetrievalTask,
     load_test_document_corpus,
@@ -193,16 +194,15 @@ def _markdown_leaderboard_row(rank: int, res: EmbeddingBenchmarkResult) -> str:
     )
 
 
-def _format_category_accuracy_row(res: Any, cats: dict[str, float]) -> list[str]:
-    """Format category domain accuracy row."""
+def _format_category_accuracy_row(
+    res: EmbeddingBenchmarkResult, categories: list[str]
+) -> list[str]:
+    """A result's accuracy in each category, a dash where it scored none of that category."""
+    cats = res.category_accuracies
     return [
         res.model,
         res.server,
-        f"{cats['security']:.0f}%" if "security" in cats else "-",
-        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
-        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
-        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
-        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
+        *(f"{cats[category]:.0f}%" if category in cats else "-" for category in categories),
     ]
 
 
@@ -230,6 +230,7 @@ class EmbeddingBenchmarkRunner:
         concurrency: int = DEFAULT_EMBEDDING_BENCHMARK_CONCURRENCY,
         servers: list[str] | None = None,
         document_path: Path | None = None,
+        code_path: Path | None = None,
         sample_count: int = DEFAULT_EMBEDDING_BENCHMARK_SAMPLE_COUNT,
     ) -> None:
         self.models = models or list(DEFAULT_EMBEDDING_BENCHMARK_MODELS)
@@ -240,6 +241,7 @@ class EmbeddingBenchmarkRunner:
         self.servers = servers or self.settings.ai.ollama_urls or ["http://localhost:11434"]
         self.concurrency = max(1, concurrency)
         self.document_path = document_path
+        self.code_path = code_path
         self.sample_count = sample_count
         self._print_lock = threading.Lock()
 
@@ -536,14 +538,34 @@ class EmbeddingBenchmarkRunner:
             is_normalized=False,
         )
 
-    def run(self) -> EmbeddingBenchmarkReport:
-        """Execute parallel benchmark across all candidate embedding models and servers."""
+    def _load_corpus(self) -> tuple[list[SectionRetrievalTask], list[str], str]:
+        """The retrieval tasks, the corpus they rank and a line describing the corpus's source."""
+        if self.code_path:
+            eval_tasks, corpus = load_code_chunk_corpus(self.code_path, self.sample_count)
+            return (
+                eval_tasks,
+                corpus,
+                f"Code: {self.code_path.resolve().name} ({len(corpus)} chunks)",
+            )
         # Load large test document, tokenize in memory, and extract section evaluation tasks
         eval_tasks, corpus, chunks = load_test_document_corpus(
             document_path=self.document_path,
             repo_root=Path.cwd(),
             sample_count=self.sample_count,
         )
+        doc_source = (
+            self.document_path.name if self.document_path else "AGENTS.md & Workspace Specs"
+        )
+        total_words = sum(c.token_count for c in chunks)
+        return (
+            eval_tasks,
+            corpus,
+            f"Document: {doc_source} ({len(chunks)} chunks, ~{total_words} words)",
+        )
+
+    def run(self) -> EmbeddingBenchmarkReport:
+        """Execute parallel benchmark across all candidate embedding models and servers."""
+        eval_tasks, corpus, corpus_summary = self._load_corpus()
 
         # Build Cartesian product of (model, server) if multiple servers provided
         target_runs: list[tuple[str, str]] = []
@@ -558,14 +580,9 @@ class EmbeddingBenchmarkRunner:
                 srv = self.servers[0] if self.servers else "default"
                 target_runs.append((m, srv))
 
-        doc_source = (
-            self.document_path.name if self.document_path else "AGENTS.md & Workspace Specs"
-        )
-        total_words = sum(c.token_count for c in chunks)
         print_info("\n[bold]⚡ DevOps CLI Embedding Model Benchmark Suite[/bold]", prefix=False)
         print_info(
-            f"[dim]Session: {self.session_id} | Document: {doc_source} "
-            f"({len(chunks)} chunks, ~{total_words} words) | "
+            f"[dim]Session: {self.session_id} | {corpus_summary} | "
             f"Evaluation Sections: {len(eval_tasks)} | Models: {len(self.models)} | "
             f"Servers: {len(self.servers)} | Total Executions: {len(target_runs)}[/dim]\n",
             prefix=False,
@@ -649,18 +666,11 @@ class EmbeddingBenchmarkRunner:
         )
 
         # 2. Domain Breakdown Table
-        if report.models and any(r.category_accuracies for r in report.models):
-            cat_cols = [
-                ("Model", "bold"),
-                ("Server", "dim"),
-                "Security",
-                "Kubernetes",
-                "Architecture",
-                "CI/CD",
-                "Infrastructure",
-            ]
+        categories = sorted({cat for res in report.models for cat in res.category_accuracies})
+        if categories:
+            cat_cols = [("Model", "bold"), ("Server", "dim"), *categories]
             cat_rows: list[list[str]] = [
-                _format_category_accuracy_row(res, res.category_accuracies)
+                _format_category_accuracy_row(res, categories)
                 for res in report.models
                 if not res.failed
             ]

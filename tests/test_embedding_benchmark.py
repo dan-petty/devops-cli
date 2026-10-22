@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.benchmark.document_chunker import SectionRetrievalTask
 from devops_cli.ai.benchmark.embedding_runner import (
     EmbeddingBenchmarkRunner,
     cosine_similarity,
@@ -26,6 +28,8 @@ from devops_cli.models.benchmark import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -589,3 +593,452 @@ def test_report_shows_a_failed_run_without_metrics(
         ],
         True,
     )
+
+
+def test_the_category_table_has_a_column_for_each_category_a_run_scored(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify the category table names the categories the results scored, `code` and `iac` for a
+    code run, not five documentation domains no code chunk belongs to, with a dash for a model
+    that scored none of a category (#481)."""
+    scored = {"code": 100.0, "iac": 50.0}
+    report = EmbeddingBenchmarkReport(
+        session_id="20261022-sess",
+        models=[
+            EmbeddingBenchmarkResult(
+                model="model-a", server="localhost", dimension=3, category_accuracies=scored
+            ),
+            EmbeddingBenchmarkResult(
+                model="model-b", server="localhost", dimension=3, category_accuracies={"code": 80.0}
+            ),
+        ],
+    )
+
+    EmbeddingBenchmarkRunner(models=["model-a"], is_dry_run=True).print_report(report)
+
+    lines = capsys.readouterr().out.splitlines()
+    header = next(
+        number for number, line in enumerate(lines) if line.split()[:2] == ["Model", "Server"]
+    )
+    assert [line.split() for line in lines[header : header + 3]] == [
+        ["Model", "Server", "code", "iac"],
+        ["model-a", "localhost", "100%", "50%"],
+        ["model-b", "localhost", "80%", "-"],
+    ]
+
+
+def _source_tree(tmp_path: Path) -> Path:
+    """A small tree of source files: two languages with symbols, a script without, and a note."""
+    tree = tmp_path / "pkg"
+    tree.mkdir()
+    (tree / "alpha.py").write_text(
+        "def load_config(path):\n"
+        "    return path\n"
+        "\n"
+        "\n"
+        "class Store:\n"
+        "    def get(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def put(self):\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+    (tree / "beta.go").write_text(
+        "package main\n\nfunc ServeHTTP() {\n}\n\ntype Router struct {\n}\n", encoding="utf-8"
+    )
+    (tree / "run.sh").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    (tree / "NOTES.md").write_text("# Notes\nNot code.\n", encoding="utf-8")
+    return tree
+
+
+def _code_task(
+    number: int, target: int, location: str, query: str, passage: str, category: str = "code"
+) -> SectionRetrievalTask:
+    """The retrieval task `load_code_chunk_corpus` builds for the chunk at `location`."""
+    return SectionRetrievalTask(
+        id=f"code-task-{number}",
+        target_section_index=target,
+        target_heading=location,
+        query=query,
+        target_passage=passage,
+        category=category,
+    )
+
+
+def test_code_chunks_are_queried_by_their_path_and_symbol_names(tmp_path: Path) -> None:
+    """Verify each code chunk with a symbol name becomes a task whose query is its relative path
+    and its symbols and whose target is its index in the corpus, while a chunk without a symbol
+    stays in the corpus as a distractor and a documentation file is left out of it (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+
+    tasks, corpus = load_code_chunk_corpus(_source_tree(tmp_path), sample_count=15)
+
+    assert (tasks, corpus) == (
+        [
+            _code_task(
+                1,
+                0,
+                "alpha.py:1-2",
+                "alpha.py load_config",
+                "def load_config(path):\n    return path",
+            ),
+            _code_task(
+                2,
+                1,
+                "alpha.py:5-10",
+                "alpha.py Store Store.get Store.put",
+                "class Store:\n"
+                "    def get(self):\n"
+                "        return 1\n"
+                "\n"
+                "    def put(self):\n"
+                "        return 2",
+            ),
+            _code_task(3, 2, "beta.go:3-5", "beta.go ServeHTTP", "func ServeHTTP() {\n}"),
+            _code_task(4, 3, "beta.go:6-7", "beta.go Router", "type Router struct {\n}"),
+        ],
+        [
+            "def load_config(path):\n    return path",
+            "class Store:\n"
+            "    def get(self):\n"
+            "        return 1\n"
+            "\n"
+            "    def put(self):\n"
+            "        return 2",
+            "func ServeHTTP() {\n}",
+            "type Router struct {\n}",
+            "#!/bin/sh\necho hi",
+        ],
+    )
+
+
+def test_code_tasks_are_sampled_evenly_across_the_chunks(tmp_path: Path) -> None:
+    """Verify a sample smaller than the code chunks takes evenly spaced ones, the same every run,
+    each still targeting its own index in the whole corpus (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+
+    (tmp_path / "many.py").write_text(
+        "".join(f"def fn_{name}():\n    return 1\n" for name in "abcdef"), encoding="utf-8"
+    )
+
+    tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=3)
+
+    assert ([(task.target_section_index, task.query) for task in tasks], len(corpus)) == (
+        [(0, "many.py fn_a"), (2, "many.py fn_c"), (4, "many.py fn_e")],
+        6,
+    )
+
+
+def test_a_query_that_names_two_chunks_has_no_single_target(tmp_path: Path) -> None:
+    """Verify two chunks sharing a path and symbols, as a redefined function does, get no task,
+    since the query would have two right answers, while both stay in the corpus (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+
+    (tmp_path / "dup.py").write_text(
+        "def handler():\n    return 1\n\ndef handler():\n    return 2\n\ndef unique():\n    return 3\n",
+        encoding="utf-8",
+    )
+
+    tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=15)
+
+    assert ([(task.target_section_index, task.query) for task in tasks], len(corpus)) == (
+        [(2, "dup.py unique")],
+        3,
+    )
+
+
+def test_a_class_is_queried_by_its_first_symbols_as_the_index_lookup_is(tmp_path: Path) -> None:
+    """Verify a class with many methods is queried by its first five symbols, the lookup
+    `outlines` makes for a file, not by every method (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+
+    methods = "".join(f"    def m{number}(self):\n        return {number}\n" for number in range(7))
+    (tmp_path / "big.py").write_text(f"class Big:\n{methods}", encoding="utf-8")
+
+    tasks, _ = load_code_chunk_corpus(tmp_path, sample_count=15)
+
+    assert [task.query for task in tasks] == ["big.py Big Big.m0 Big.m1 Big.m2 Big.m3"]
+
+
+def test_a_files_preamble_is_a_distractor_not_a_target(tmp_path: Path) -> None:
+    """Verify the chunk of a Python file's imports and docstring, whose only symbol is the
+    chunker's module marker and whose content names no path, stays in the corpus without a task,
+    since a query of its path and the marker has nothing in it to find the chunk by (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+
+    (tmp_path / "service.py").write_text(
+        '"""Serve."""\nimport os\n\n\ndef serve():\n    return os.name\n', encoding="utf-8"
+    )
+
+    tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=15)
+
+    assert ([(task.target_section_index, task.query) for task in tasks], corpus) == (
+        [(1, "service.py serve")],
+        ['"""Serve."""\nimport os', "def serve():\n    return os.name"],
+    )
+
+
+def test_a_code_query_and_the_index_lookup_carry_the_same_symbols() -> None:
+    """Verify the query the benchmark makes for a chunk is the lookup `outlines` makes for the
+    file, a path and the same first symbols, so the two cannot drift apart (#481)."""
+    from devops_cli.ai.analyze.outlines import _enhance_file_metadata_with_ai
+    from devops_cli.ai.benchmark.code_chunk_corpus import _code_chunk_query
+    from devops_cli.ai.rag.models import CodeChunk
+
+    symbols = [f"Big.m{number}" for number in range(9)]
+    lookups: list[str] = []
+
+    def record(query: str, **_: Any) -> MagicMock:
+        lookups.append(query)
+        return MagicMock()
+
+    with (
+        patch("devops_cli.ai.rag.investigator.investigate_rag_context", side_effect=record),
+        patch("devops_cli.ai.rag.investigator.format_rag_investigation_for_prompt"),
+    ):
+        _enhance_file_metadata_with_ai(
+            "pkg/big.py", "class Big: pass", "python", symbols, MagicMock()
+        )
+    chunk = CodeChunk(
+        id="big",
+        file_path="pkg/big.py",
+        start_line=1,
+        end_line=2,
+        content="class Big: pass",
+        symbol_names=symbols,
+    )
+
+    assert lookups == [_code_chunk_query(chunk)]
+
+
+def test_a_directory_with_no_symbol_to_query_by_is_refused(tmp_path: Path) -> None:
+    """Verify a directory whose code chunks name no symbol is refused with the directory named,
+    not benchmarked over an empty task list that scores every model 0% (#481)."""
+    from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
+    from devops_cli.exceptions import ValidationError
+
+    tree = _source_tree(tmp_path)
+    (tree / "alpha.py").unlink()
+    (tree / "beta.go").unlink()
+
+    with pytest.raises(ValidationError) as raised:
+        load_code_chunk_corpus(tree, sample_count=15)
+
+    assert (raised.value.exit_code, raised.value.error_code, raised.value.message) == (
+        1,
+        "VALIDATION_ERROR",
+        f"No code chunk under '{tree.resolve()}' has a symbol name to query by, so the benchmark "
+        "has nothing to retrieve: point --code at a directory of source files.",
+    )
+
+
+@pytest.fixture
+def lexical_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer each Ollama embedding request with vectors that place a text on the symbols of
+    `_source_tree` it names, so a text finds the chunk that defines the symbols it mentions."""
+    import re
+
+    symbols = ["load_config", "Store", "ServeHTTP", "Router"]
+
+    def embed(text: str) -> list[float]:
+        words = set(re.findall(r"[A-Za-z_]+", text))
+        return [*(1.0 if symbol in words else 0.0 for symbol in symbols), 0.1]
+
+    def answer(_client: httpx2.Client, url: str, **kwargs: Any) -> httpx2.Response:
+        vectors = [embed(text) for text in kwargs["json"]["input"]]
+        return httpx2.Response(
+            200, json={"embeddings": vectors}, request=httpx2.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx2.Client, "post", answer)
+
+
+@pytest.mark.usefixtures("lexical_embeddings")
+def test_a_model_that_finds_each_code_chunk_by_its_symbols_scores_full_recall(
+    tmp_path: Path,
+) -> None:
+    """Verify a code run ranks the chunks the queries came from: an embedder that places a text
+    on the symbols it names finds every target first, so recall@1, MRR and nDCG are all 1 (#481)."""
+    bench = EmbeddingBenchmarkRunner(
+        models=["lexical-embed"],
+        servers=["http://localhost:11434"],
+        is_dry_run=False,
+        code_path=_source_tree(tmp_path),
+    )
+    bench.settings.ai.allow_private_network = True
+
+    report = bench.run()
+
+    assert [
+        (
+            result.model,
+            result.failed,
+            result.dimension,
+            result.recall_at_1,
+            result.recall_at_5,
+            result.mrr,
+            result.ndcg_at_5,
+        )
+        for result in report.models
+    ] == [("lexical-embed", False, 5, 100.0, 100.0, 1.0, 1.0)]
+
+
+def test_the_code_digest_follows_the_files_not_the_spelling_of_the_directory(
+    tmp_path: Path,
+) -> None:
+    """Verify the digest a code run is recorded under is the same for a directory spelled two
+    ways and for a copy of it elsewhere, and differs once a file in it changes (#481)."""
+    import shutil
+
+    from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
+
+    tree = _source_tree(tmp_path)
+    copy = shutil.copytree(tree, tmp_path / "copy" / "pkg")
+    before = code_tree_digest(tree)
+    (tree / "alpha.py").write_text("def load_config(path):\n    return None\n", encoding="utf-8")
+
+    assert (
+        code_tree_digest(copy),
+        code_tree_digest(tree / ".." / "pkg") != before,
+        code_tree_digest(copy / ".." / "pkg"),
+    ) == (before, True, before)
+
+
+@pytest.mark.usefixtures("lexical_embeddings")
+def test_a_code_run_is_recorded_with_the_files_it_ranked(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """Verify a recorded code run names the digest of the files its corpus is drawn from in its
+    subject, beside the document it does not use, so a baseline from before a source change is
+    not compared with a run after it (#481)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+    from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
+
+    tree = _source_tree(tmp_path)
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        "--models",
+        "lexical-embed",
+        "--servers",
+        "http://localhost:11434",
+        "--code",
+        tree,
+        env={ENV_AI_ALLOW_PRIVATE_NETWORK: "true"},
+    )
+    (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
+
+    assert (result.exit_code, recorded.subject) == (
+        0,
+        {"kind": "embedding", "document": None, "code": "924c82ce9f27350f", "samples": 5},
+    )
+
+
+def test_the_code_option_ranks_the_code_chunks_of_a_directory(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """Verify `devops ai benchmark --code <dir>` benchmarks the directory's code chunks in place
+    of the document sections, naming the directory and its chunk count (#481)."""
+    result = cli(
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        "--models",
+        "lexical-embed",
+        "--code",
+        _source_tree(tmp_path),
+        "--dry-run",
+    )
+
+    assert (result.exit_code, "Code: pkg (5 chunks)" in result.output) == (0, True)
+
+
+def test_a_code_option_of_dot_names_the_directory_it_stands_in(
+    tmp_path: Path, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `--code .` names the directory it resolves to in the report's header, not an empty
+    name, since `.` is how a run from the repository root reads the paths the index stores (#481)."""
+    monkeypatch.chdir(_source_tree(tmp_path))
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        "--models",
+        "lexical-embed",
+        "--code",
+        ".",
+        "--dry-run",
+    )
+
+    assert (result.exit_code, "Code: pkg (5 chunks)" in result.output) == (0, True)
+
+
+def test_a_code_directory_with_nothing_to_query_by_is_the_commands_error(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """Verify `--code` of a directory whose chunks name no symbol exits 1 with the message that
+    names the directory, and runs no benchmark (#481)."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "run.sh").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        "--models",
+        "lexical-embed",
+        "--code",
+        scripts,
+        "--dry-run",
+    )
+
+    assert (
+        result.exit_code,
+        "point --code at a directory of source files" in result.output,
+        "Benchmark Suite" in result.output,
+    ) == (1, True, False)
+
+
+def test_the_code_and_document_options_are_not_taken_together(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """Verify `--code` and `--document` together are refused, each choosing the corpus the
+    benchmark ranks, and no benchmark runs (#481)."""
+    document = tmp_path / "spec.md"
+    document.write_text("# Spec\nA document.\n", encoding="utf-8")
+
+    result = cli(
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        "--code",
+        _source_tree(tmp_path),
+        "--document",
+        document,
+        "--dry-run",
+    )
+
+    assert (result.exit_code, "pass one" in result.output, "Benchmark Suite" in result.output) == (
+        1,
+        True,
+        False,
+    )
+
+
+def test_the_embedding_benchmark_defaults_to_the_two_candidate_models() -> None:
+    """Verify a runner given no models benchmarks the gateway's `bge-m3:latest` against
+    `qwen3-embedding:0.6b`, the comparison #481 decides (#481)."""
+    assert EmbeddingBenchmarkRunner(is_dry_run=True).models == [
+        "bge-m3:latest",
+        "qwen3-embedding:0.6b",
+    ]

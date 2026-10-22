@@ -212,7 +212,8 @@ Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `explain` | `boolean` | No | `False` | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `document` | `string` | No | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `samples` | `integer` | No | `5` | Number of random sections to sample for retrieval evaluation. |
+| `code` | `string` | No | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
+| `samples` | `integer` | No | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ### `ai_chaos_model`
 
