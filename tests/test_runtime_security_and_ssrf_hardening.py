@@ -7,9 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.ai.agents.capabilities import WebFetch
 from devops_cli.ai.agents.media import DiskMediaStore
-from devops_cli.ai.agents.tools import Tool
 from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.ai.ext_langchain import _validate_langchain_kwargs
@@ -91,26 +89,7 @@ def test_web_fetch_tool_reraises_ssrf_blocked_error() -> None:
         tool.execute(url="http://127.0.0.1:8080/admin")
 
 
-# ── 5. WebFetch Capability Propagates Blocked Domains ────────────────────────
-
-
-def test_web_fetch_capability_propagates_blocked_domains() -> None:
-    """Verify that WebFetch capability passes blocked_domains to web_fetch_tool."""
-    cap = WebFetch(
-        allowed_domains=["example.com"],
-        blocked_domains=["blocked.com"],
-        local=True,
-    )
-    tools = cap.get_tools()
-    assert len(tools) == 1
-    fetch_tool = tools[0]
-    assert isinstance(fetch_tool, Tool)
-
-    with pytest.raises(ValueError, match="blocked_domains"):
-        fetch_tool.execute(url="https://blocked.com/bad")
-
-
-# ── 6. Secret Sanitizer Regex Identifier Protection ──────────────────────────
+# ── 4. Secret Sanitizer Regex Identifier Protection ──────────────────────────
 
 
 def test_secret_sanitizer_does_not_mask_variable_identifiers() -> None:
@@ -133,7 +112,7 @@ def test_secret_sanitizer_masks_actual_secret_assignments() -> None:
     assert "<masked-secret>" in sanitized or "<masked-token>" in sanitized
 
 
-# ── 7. ChaosFaultRunner Argument Injection Guards ────────────────────────────
+# ── 5. ChaosFaultRunner Argument Injection Guards ────────────────────────────
 
 
 def test_chaos_fault_runner_rejects_argument_injection() -> None:
@@ -154,7 +133,7 @@ def test_chaos_fault_runner_rejects_argument_injection() -> None:
     )
 
 
-# ── 8. Structural Diff Ref Injection Guards ──────────────────────────────────
+# ── 6. Structural Diff Ref Injection Guards ──────────────────────────────────
 
 
 def test_structural_diff_rejects_flag_injection_refs() -> None:
@@ -167,7 +146,7 @@ def test_structural_diff_rejects_flag_injection_refs() -> None:
     assert "Error:" in res or res == ""
 
 
-# ── 9. LangChain Tool Kwargs Percent-Encoded Traversal Guards ─────────────────
+# ── 7. LangChain Tool Kwargs Percent-Encoded Traversal Guards ─────────────────
 
 
 def test_validate_langchain_kwargs_detects_percent_encoded_traversal() -> None:

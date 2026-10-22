@@ -274,17 +274,8 @@ else:
 
 
 # =============================================================================
-# SSRF Validation & Untrusted HTML Markdown Rendering
+# Untrusted HTML Markdown Rendering
 # =============================================================================
-
-
-def is_private_ip_or_localhost(url_or_host: str) -> bool:
-    """Validate if a URL or hostname resolves to private/loopback/link-local space."""
-    parsed = urllib.parse.urlparse(url_or_host)
-    host = parsed.hostname or url_or_host
-    from devops_cli.core.validation import is_loopback_or_private_host
-
-    return is_loopback_or_private_host(host)
 
 
 class RenderedUntrustedPage(NamedTuple):
@@ -732,7 +723,6 @@ __all__ = [
     "exa_get_contents_tool",
     "exa_search_tool",
     "image_generation_tool",
-    "is_private_ip_or_localhost",
     "render_untrusted_page",
     "tavily_search",
     "tavily_search_tool",

@@ -917,41 +917,26 @@ def test_shared_tld_extractor_no_writes_no_network(
     ) == ("example.com", True, False, [])
 
 
-@pytest.mark.parametrize("bad_domain", ["", ".", "@", ".example.com"])
-def test_capability_domain_lists_refuse_root_and_leading_dot(bad_domain: str) -> None:
-    """Domain allow/block lists on capabilities and tools refuse root and leading-dot entries (#887)."""
+def test_is_at_or_under_matches_whole_labels_and_equal_ip_literals() -> None:
+    """A host is at or under a domain on whole DNS labels, and an IP literal matches only itself (#887)."""
+    from devops_cli.core.dns_names import is_at_or_under
+
+    assert (
+        is_at_or_under("example.com", "example.com"),
+        is_at_or_under("example.com", "com"),
+        is_at_or_under("example.com", "ample.com"),
+        is_at_or_under("192.0.2.1", "192.0.2.1"),
+        is_at_or_under("192.0.2.1", "192.0.2.2"),
+        is_at_or_under("192.0.2.1", "example.com"),
+        is_at_or_under("example.com", "192.0.2.1"),
+    ) == (True, True, False, True, False, False, False)
+
+
+def test_settings_domain_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """k8s.domain / cloudflare.domain refuse invalid names while blank loads as None (#887)."""
     from pydantic import ValidationError as PydanticValidationError
 
-    from devops_cli.ai.agents.capabilities import WebFetch, WebFetchTool, WebSearchTool
-    from devops_cli.ai.harness.agents import PlaywrightBrowser, Researcher
-
-    with pytest.raises(PydanticValidationError, match="allowed_domains"):
-        WebFetch(allowed_domains=[bad_domain])
-    with pytest.raises(PydanticValidationError, match="allowed_domains"):
-        WebFetchTool(allowed_domains=[bad_domain])
-    with pytest.raises(PydanticValidationError, match="allowed_domains"):
-        WebSearchTool(allowed_domains=[bad_domain])
-    with pytest.raises(PydanticValidationError, match="allowed_domains"):
-        Researcher(allowed_domains=[bad_domain])
-    with pytest.raises(PydanticValidationError, match="allowed_domains"):
-        PlaywrightBrowser(allowed_domains=[bad_domain])
-
-
-def test_capability_blocked_domains_and_settings_domain_validation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """blocked_domains and k8s.domain / cloudflare.domain refuse invalid names while blank loads as None (#887)."""
-    from pydantic import ValidationError as PydanticValidationError
-
-    from devops_cli.ai.agents.capabilities import WebFetch, WebFetchTool, WebSearchTool
     from devops_cli.config.settings import load_settings, reset_settings_cache
-
-    with pytest.raises(PydanticValidationError, match="blocked_domains"):
-        WebFetch(blocked_domains=[".example.com"])
-    with pytest.raises(PydanticValidationError, match="blocked_domains"):
-        WebFetchTool(blocked_domains=[".example.com"])
-    with pytest.raises(PydanticValidationError, match="blocked_domains"):
-        WebSearchTool(blocked_domains=[".example.com"])
 
     cfg_path = tmp_path / "config.yaml"
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_path))
@@ -979,3 +964,16 @@ def test_capability_blocked_domains_and_settings_domain_validation(
         loaded_blank.cloudflare.domain,
         loaded_spaces.k8s.domain,
     ) == (None, None, None)
+
+
+@pytest.mark.parametrize("root_spelling", ["@", " @ ", "\u3002", "\uff0e", "\uff61"])
+def test_settings_domain_refuses_every_spelling_of_the_root_name(root_spelling: str) -> None:
+    """dnspython reads `@` and the IDNA full stops as the root name, which no settings domain may be (#887)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from devops_cli.config.settings import CloudflareConfig, KubernetesConfig
+
+    with pytest.raises(PydanticValidationError, match=r"Invalid domain in k8s\.domain"):
+        KubernetesConfig(domain=root_spelling)
+    with pytest.raises(PydanticValidationError, match=r"Invalid domain in cloudflare\.domain"):
+        CloudflareConfig(domain=root_spelling)

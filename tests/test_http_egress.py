@@ -20,7 +20,6 @@ import pytest
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.common_tools import duckduckgo_search_tool, tavily_search, web_fetch_tool
-from devops_cli.ai.harness.docs import PydanticAIDocs
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
@@ -664,7 +663,6 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
         "ai shared client": _ai_shared_call(flag),
         "duckduckgo": lambda: duckduckgo_search_tool().execute(query="devops"),
         "tavily": lambda: tavily_search("devops", api_key="tvly-test"),
-        "harness docs": lambda: PydanticAIDocs()._fetch_remote_doc("https://example.com/a.md"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
     }
 
@@ -684,7 +682,6 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "ai shared client": PRIVATE if flag else LOOPBACK,
         "duckduckgo": PUBLIC,
         "tavily": PUBLIC,
-        "harness docs": PUBLIC,
         "statuspage": PUBLIC,
     }
 

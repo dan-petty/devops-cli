@@ -15,7 +15,6 @@ from devops_cli.ai.format_prompt import (
     format_examples_as_xml,
     format_findings_as_xml,
     format_metadata_as_xml,
-    format_plan_reminder_as_xml,
     format_prompt_data,
     format_rag_context_as_xml,
 )
@@ -37,15 +36,6 @@ class SampleDataclassItem:
 
     key: str = field(metadata={"description": "Item lookup key"})
     value: int = field(metadata={"description": "Item integer counter"})
-
-
-class SamplePlanItem(BaseModel):
-    """Test plan task item."""
-
-    id: str
-    content: str
-    status: str
-    active_form: str | None = None
 
 
 def test_format_as_xml_reexport() -> None:
@@ -188,23 +178,6 @@ def test_format_findings_as_xml() -> None:
     assert "</findings>" in xml_out
 
 
-def test_format_plan_reminder_as_xml() -> None:
-    """Verify format_plan_reminder_as_xml converts tasks into structured XML."""
-    items = [
-        SamplePlanItem(id="task-1", content="Setup tests", status="completed"),
-        SamplePlanItem(
-            id="task-2", content="Implement feature", status="in_progress", active_form="Coding"
-        ),
-    ]
-    xml_out = format_plan_reminder_as_xml(items)
-    assert "<plan_reminder>" in xml_out
-    assert "<task>" in xml_out or "<SamplePlanItem>" in xml_out
-    assert "<id>task-1</id>" in xml_out
-    assert "<status>completed</status>" in xml_out
-    assert "<active_form>Coding</active_form>" in xml_out
-    assert "</plan_reminder>" in xml_out
-
-
 def test_format_metadata_as_xml() -> None:
     """Verify format_metadata_as_xml serializes session metadata."""
     meta = {"session_id": "sess-12345", "persona": "devsecops", "dry_run": True}
@@ -256,19 +229,3 @@ def test_managed_prompt_xml_formatting() -> None:
     assert "<id>CVE-2026-9999</id>" in rendered
     assert "</finding_context>" in rendered
     assert "Begin analysis." in rendered
-
-
-def test_planning_harness_uses_format_as_xml() -> None:
-    """Verify harness planning uses format_plan_reminder_as_xml cleanly."""
-    from devops_cli.ai.harness.planning import PlanningStore
-
-    store = PlanningStore()
-    store.add("Step 1: Test", status="completed")
-    store.add("Step 2: Code", status="in_progress", active_form="Implementing")
-
-    items = store.get_items()
-    xml_out = format_plan_reminder_as_xml(items)
-    assert "<plan_reminder>" in xml_out
-    assert "Step 1: Test" in xml_out
-    assert "Step 2: Code" in xml_out
-    assert "</plan_reminder>" in xml_out
