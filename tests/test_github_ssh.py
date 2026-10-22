@@ -7,6 +7,8 @@ import json
 import httpx2
 import pytest
 
+from devops_cli.config.constants import CONST_EXIT_FAILURE
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import (
     GitHubNotFoundError,
     GitHubOperationError,
@@ -222,3 +224,19 @@ def test_a_404_at_a_key_endpoint_names_the_scopes_and_the_command_that_adds_them
         GitHubNotFoundError,
         _posts(_ENDPOINTS[: _ENDPOINTS.index(endpoint) + 1]),
     )
+
+
+def test_a_registration_failure_is_a_github_operation_error_of_the_domain_taxonomy(
+    github_api: GitHubApiFake,
+) -> None:
+    """The registration error is a domain error: GitHub's operation error, with its error code
+    and its exit status, so a handler of GitHub failures reads it like any other."""
+    github_api.route("POST", _AUTH_KEYS, github_json({"message": "Server Error"}, status=500))
+    with pytest.raises(GitHubOperationError) as raised:
+        register_key_on_github(_KEY, "Title")
+    assert (
+        type(raised.value),
+        isinstance(raised.value, DevOpsCLIError),
+        raised.value.error_code,
+        raised.value.exit_code,
+    ) == (SSHRegistrationError, True, "GITHUB_OPERATION_FAILED", CONST_EXIT_FAILURE)

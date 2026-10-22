@@ -43,6 +43,20 @@ Two steps of the static stage still read a failed base file as absent: the finge
 
 The open tool for the transport is gidgethub (ADR 0006). The facade adds only pydantic models of the fields that callers read. It uses `base64` and `urllib.parse` from the standard library. No new code replaces an open tool.
 
+## Feasibility of the Last Part
+`git grep` over `src`, `tests`, `docs`, `k8s`, `.github`, `pyproject.toml` and `uv.lock` found no import of PyGithub. The only `from github import` lines were the examples in its knowledge-base page. `uv lock --check` and `uv run deptry src` pass without PyGithub in `pyproject.toml` and `uv.lock`.
+
+`docs/ERRORS.md` lists the `DevOpsCLIError` subclasses that the process has loaded. The generator imports `devops_cli.exceptions` and the modules of `CONST_DOMAIN_EXCEPTION_MODULES`. The module `devops_cli.github.ssh` was in neither. A test that asserted the `SSHRegistrationError` row failed on the base until the module joined the list. `uv run devops docs generate --sync-readme` then wrote the row.
+
+The unit test depends on import order inside one worker. Any earlier import of `devops_cli.github.ssh` loads the class, and the row appears without the entry in `CONST_DOMAIN_EXCEPTION_MODULES`. The gate `uv run devops docs check` runs in a new process and guards that entry. Without the entry, it fails with `ERRORS.md differs from generated content`.
+
+## The Registration Error, the Dependency and the Documents
+`SSHRegistrationError` is a `GitHubOperationError`. It was a plain `RuntimeError` with no error code, which is outside the domain error taxonomy. It takes the code `GITHUB_OPERATION_FAILED` and the exit status 1 from `GitHubOperationError`. `devops ssh register` and `devops ssh rotate` catch it by name as before.
+
+This part deletes the knowledge-base page of PyGithub and its row in the knowledge-base README. `python_packages.md` names gidgethub and the session in place of PyGithub. `docs/KNOWLEDGE_BASE.md`, `tests/test_kb.py` and `tests/test_kb_manuals_metadata.py` count one manual fewer. This part adds no gidgethub manual, because ADR 0006 holds the decision.
+
+This part also edits the words about PyGithub in `AGENTS.md`, `docs/TESTING.md` and ADR 0006. The comment of `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` keeps the reason for the margin of 1 s. `docs/agent/tasks/task-1308-test-conventions.md` and `docs/agent/tasks/task-1364-quota-reset-boundary.md` described text that these edits changed, so they follow the new text. The other task files that name PyGithub describe history and stay as they are.
+
 ## Acceptance Criteria
 - [x] `register_key_on_github` sends only session requests: one POST to `/user/keys` and one to `/user/ssh_signing_keys` with the session's token, and no GET when GitHub accepts both (`test_a_key_is_added_as_an_auth_key_and_a_signing_key_with_the_sessions_token`). It runs no `gh api` or `gh auth status`; `get_github_session()` still runs `gh auth token` once to find the token.
 - [x] A 422 counts as registered only when the session's listing holds the key or cannot be read, at both endpoints, and a key on a later page is found (`test_a_422_counts_as_registered_only_when_the_session_lists_the_key`, `test_a_key_listed_on_a_later_page_counts_as_registered`).
@@ -69,6 +83,9 @@ The open tool for the transport is gidgethub (ADR 0006). The facade adds only py
 - [x] `devops gh labels sync --dry-run` lists the labels with `GhCliClient` and creates none (`test_cli_labels_sync`). `GitHubClient` has no label method, and `_get_github_client` is gone.
 - [x] `rg --glob '*.py' -n "^\s*(from github( |\.)|import github$)" src tests` prints nothing. `uv run deptry src` passes without PyGithub. The swallowed-failures ceilings of `github/client.py` and `commands/review.py` are gone. The ceiling of `commands/gh.py` is 1, and the ceiling of `ai/review/path_classes.py` is 2.
 - Pending a person: from the repository root, run `uv run devops ai analyze pr <an open PR number> --no-enhanced` and expect the changed files of that pull request. No test reads live GitHub.
+- [x] `SSHRegistrationError` is a `GitHubOperationError` and a `DevOpsCLIError`, with the code `GITHUB_OPERATION_FAILED` and the exit status 1 (`test_a_registration_failure_is_a_github_operation_error_of_the_domain_taxonomy`). `docs/ERRORS.md` lists it (`test_configuration_and_error_catalog_docs_describe_real_surface`).
+- [x] These commands print nothing: `rg --glob '*.py' -n "^\s*(from github( |\.)|import github$)" src tests`, `rg -n -i pygithub pyproject.toml uv.lock src AGENTS.md` and `rg -n "_get_github_client|create_pr_review_comment|delete_user_ssh_key|_register_with_gh|_gh_add_key" src tests`. The last one leaves out `get_pages_builds`, because the module function of that name in `github/pages.py` is in use.
+- [x] The knowledge base holds 79 manuals. `devops_cli` has 39 of them, and 22 of those are library manuals. `it_domains` has 40 (`test_list_knowledge_base_articles_all`, `test_list_knowledge_base_articles_by_category`, `test_list_knowledge_base_articles_by_division`, `test_get_knowledge_base_stats`, `test_every_target_manual_has_valid_front_matter`).
 - Pending a person: run `uv run devops review pr <an open PR number> --pre-analysis-only` and expect a review without an error. `get_pull` and `get_pr_diff` read one URL with two media types, and gidgethub keeps its cache by URL only.
 
 ## Deliverables
@@ -85,7 +102,7 @@ The open tool for the transport is gidgethub (ADR 0006). The facade adds only py
 - [x] `tests/test_github_client.py` is rewritten over `GitHubApiFake`. `tests/test_github_session.py`, `tests/test_analyze.py`, `tests/test_repos.py`, `tests/test_review_pr_post.py`, `tests/test_review_scope.py`, `tests/test_review_runner.py`, `tests/test_review_path_routing.py`, `tests/test_batch_2_review_defects.py`, `tests/test_gh_cmd.py` and `tests/test_github_milestones.py` no longer mock PyGithub or the client.
 - [x] `pyproject.toml` and `uv.lock` no longer hold PyGithub. `tests/fixtures/swallowed_failures_ceilings.json` holds the lower ceilings.
 - [x] `docs/adr/0006-github-session-requests-go-through-gidgethub.md` names every `GitHubClient` call as a session request.
-- Not done: `SSHRegistrationError` moves from `RuntimeError` to `GitHubOperationError` (the last Part of #891).
-- Not done: the PyGithub knowledge-base page, its rows in the knowledge-base README and `python_packages.md`, and the regenerated `docs/KNOWLEDGE_BASE.md` (the last Part of #891).
-- Not done: the PyGithub words in `AGENTS.md`, `docs/TESTING.md`, `docs/adr/0006-github-session-requests-go-through-gidgethub.md` and `config/constants.py` (the last Part of #891).
-- Not done: `changelog.d/891.md` (the last Part of #891).
+- [x] `src/devops_cli/github/ssh.py` and `src/devops_cli/config/constants.py`: `SSHRegistrationError` is a `GitHubOperationError`, and `devops_cli.github.ssh` is in `CONST_DOMAIN_EXCEPTION_MODULES`. `uv run devops docs generate --sync-readme` wrote the new row of `docs/ERRORS.md`.
+- [x] This part deletes `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pygithub.md` and its row in `src/devops_cli/ai/knowledge_base/README.md`. `src/devops_cli/ai/knowledge_base/devops_cli/python_packages.md` names gidgethub. The generator wrote `docs/KNOWLEDGE_BASE.md` again, and `tests/test_kb.py` and `tests/test_kb_manuals_metadata.py` hold the new counts.
+- [x] `AGENTS.md`, `docs/TESTING.md`, `docs/adr/0006-github-session-requests-go-through-gidgethub.md` and the comment in `src/devops_cli/config/constants.py` no longer name PyGithub as a tool in use. `docs/agent/tasks/task-1364-quota-reset-boundary.md` no longer says that the constant cites PyGithub. `docs/agent/tasks/task-1308-test-conventions.md` no longer says that the faked edges name PyGithub.
+- [x] `changelog.d/891.md` lists the PyGithub removal under `### Removed` and the typed client under `### Changed`.
