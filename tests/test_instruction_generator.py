@@ -394,9 +394,10 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
     )
     generic_content = generate_agents_md(generic_meta)
     generic_expected = (
-        "Mandatory Root-Cause Remediation & Instruction Hardening",
-        "INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE",
-        "UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)",
+        "Mandatory Root-Cause Remediation",
+        "Investigate and fix the cause at the source.",
+        "add a check that fails when the problem returns",
+        "Add prose here only when no check is possible.",
         "Continuous Interaction & Collaborative Value Improvement",
         "suggest concrete, actionable ways to improve",
     )
@@ -424,7 +425,7 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "budget/borrowed",
         "open_issue_limit",
         "Feasibility Check & Stop Rather Than Add Compensating Code",
-        "devops roadmap return",
+        "ask a person to return the item to `New` (`devops roadmap return <number>",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
     # Intake is the one way in (#742): the ingestion rules that filed straight into a release

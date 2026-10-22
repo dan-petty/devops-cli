@@ -134,14 +134,14 @@ feedback loop that changes what it does once the defects are gone:
 
 1. **Reactive remediation**: while invariant violations, failing tests or verified findings
    exist, an agent works on nothing else, with minimal, surgical fixes.
-2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent turns to headroom:
-   functions near the complexity cap ($7 \le M \le 10$) come down to $M \le 6$ and depth $\le 3$,
-   public interfaces get complete docstrings and type hints, and tests are brought to the
-   conventions in [`docs/TESTING.md`](TESTING.md).
+2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent gives public
+   interfaces complete docstrings and type hints. The agent also brings tests to the conventions in
+   [`docs/TESTING.md`](TESTING.md).
 3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
-   idea becomes an issue (`devops gh issues create`), and a rule for agents goes into
-   [`AGENTS.md`](../AGENTS.md). `docs/ROADMAP.md` is rendered from GitHub at the cut and never
-   edited in an item's pull request ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
+   idea becomes an issue (`devops gh issues create`), and a check that fails when the problem
+   returns guards it. A rule goes into [`AGENTS.md`](../AGENTS.md) only when no check is possible.
+   `docs/ROADMAP.md` is rendered from GitHub at the cut and never edited in an item's pull request
+   ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
 
 ---
 
