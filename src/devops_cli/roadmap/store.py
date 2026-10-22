@@ -178,11 +178,13 @@ class PullRequestState(StrEnum):
 
 class RefineRecordKey(StrEnum):
     """What refine records in an Item's job record (#744): the body hash outside the section,
-    the section hash, and whether the proposal needs splitting."""
+    the section hash, whether the proposal needs splitting, and the body hash a reply that never
+    validated was about (#1539)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
     NEEDS_SPLIT = "refine.needs_split"
+    FAILED_BODY_HASH = "refine.failed_body_hash"
 
 
 JobRecord = dict[ItemField | JobMark | RefineRecordKey, str | None]
@@ -266,7 +268,9 @@ class Item(BaseModel):
     board. The job record holds the last value the store set for each field; a field missing
     from it was never set by a job. `card_id` is the node id of the Item's card, which every
     Item a store reads or adds carries and a store writes it by; an Item built as a probe has
-    none, and a write to it raises.
+    none, and a write to it raises. `body` is the issue's body as the listing the Item came from
+    read it, so a job can judge an Item by its text without reading each issue; a write to the
+    issue does not change an Item already read.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -274,6 +278,7 @@ class Item(BaseModel):
     number: int
     title: str
     url: str
+    body: str = ""
     card_id: str | None = None
     state: GitHubState = GitHubState.OPEN
     state_reason: str | None = None
