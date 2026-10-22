@@ -718,18 +718,83 @@ CONST_DEVOPS_ARGV_PREFIXES: Final[tuple[tuple[str, ...], ...]] = (
     ("uv", "run", "devops"),
 )
 CONST_DEVOPS_ARGV_QUOTED_COMMAND: Final[tuple[str, ...]] = ('"devops"', "'devops'")
-# Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
+# Well-known placeholder tokens in the documented command lines checked for argv resolution (#921).
 CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
 )
-CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
-    Path("README.md"),
-    Path("ARCHITECTURE.md"),
-    Path("RELEASE_CYCLE.md"),
-    Path("docs/SDLC.md"),
-    Path("docs/ROUTINE_TASKS.md"),
-    Path("docs/DEVCONTAINER_USAGE.md"),
-    Path("docs/VISION.md"),
+# The documentation inventory (#1103): every Markdown file in the repository matches the globs of
+# exactly one class, so a new document is classified in the pull request that adds it. The classes
+# differ in how a document stays true:
+# - generated: written by `DocGenerator` or the instruction generator and checked against them.
+# - release artifact: written by the release cut, never by an item pull request.
+# - record: history, never rewritten to match later code, so no command name in it is checked.
+# - prompt: loaded by code at run time.
+# - hand-written: everything else, listed by path (README.md also holds a generated command matrix).
+# An entry with a glob wildcard is a pattern and may match no file (the release cut deletes every
+# `changelog.d/<issue>.md`); an entry without one names a document and must match its file.
+CONST_DOCS_CLASS_GENERATED: Final[str] = "generated"
+CONST_DOCS_CLASS_RELEASE_ARTIFACT: Final[str] = "release artifact"
+CONST_DOCS_CLASS_RECORD: Final[str] = "record"
+CONST_DOCS_CLASS_PROMPT: Final[str] = "prompt"
+CONST_DOCS_CLASS_HAND_WRITTEN: Final[str] = "hand-written"
+CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
+    CONST_DOCS_CLASS_GENERATED: (
+        "CLAUDE.md",
+        ".github/copilot-instructions.md",
+        "docs/CLI_REFERENCE.md",
+        "docs/CONFIGURATION.md",
+        "docs/ENV_VARS.md",
+        "docs/ERRORS.md",
+        "docs/KNOWLEDGE_BASE.md",
+        "docs/MCP_TOOLS.md",
+        "docs/TELEMETRY.md",
+        "docs/commands/*.md",
+    ),
+    CONST_DOCS_CLASS_RELEASE_ARTIFACT: (
+        "CHANGELOG.md",
+        "docs/ROADMAP.md",
+        "docs/RELEASE_NOTES.md",
+    ),
+    CONST_DOCS_CLASS_RECORD: (
+        "changelog.d/[0-9]*.md",
+        "docs/adr/*.md",
+        "docs/agent/archive/**/*.md",
+        "docs/agent/tasks/task-*.md",
+    ),
+    CONST_DOCS_CLASS_PROMPT: (
+        "src/devops_cli/ai/personas/**/*.md",
+        "src/devops_cli/ai/prompts/**/*.md",
+        "src/devops_cli/ai/tasks/**/*.md",
+    ),
+    CONST_DOCS_CLASS_HAND_WRITTEN: (
+        ".github/pull_request_template.md",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CONTEXT.md",
+        "CONTRIBUTING.md",
+        "README.md",
+        "RELEASE_CYCLE.md",
+        "SECURITY.md",
+        "changelog.d/README.md",
+        "docs/DEVCONTAINER_USAGE.md",
+        "docs/KNOWN_ISSUES.md",
+        "docs/ROUTINE_TASKS.md",
+        "docs/SDLC.md",
+        "docs/SELF_IMPROVEMENT.md",
+        "docs/TESTING.md",
+        "docs/VISION.md",
+        "docs/agent/README.md",
+        "docs/agent/tasks/README.md",
+        "k8s/**/README.md",
+        "src/devops_cli/ai/knowledge_base/**/*.md",
+        "tf/README.md",
+    ),
+}
+# The classes whose `devops` command lines `devops docs check` resolves against the live command
+# tree: the documents a reader or a model follows, which must name commands that exist.
+CONST_DOCS_NAME_CHECKED_CLASSES: Final[tuple[str, ...]] = (
+    CONST_DOCS_CLASS_PROMPT,
+    CONST_DOCS_CLASS_HAND_WRITTEN,
 )
 # The list methods that add tokens to a `devops` argv built up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})

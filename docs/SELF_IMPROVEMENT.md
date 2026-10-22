@@ -1092,7 +1092,7 @@ findings.json and candidates.json, and leaves the file as it was when it finds n
 record carries its session's subject, the finding's category and references, and the excerpt
 of its cited code. `devops ai prompt-eval` reports its counts per labeller and leaves out the labels a
 deterministic check wrote, a machine's labels rather than a person's (`--include-deterministic`
-counts them). `devops ai benchmark --suite` is gone: it sent empty
+counts them). The benchmark's `--suite` option is gone: it sent empty
 prompts from two task files that never existed and scored the fix as the code under test.
 
 ---
