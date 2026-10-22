@@ -468,6 +468,7 @@ class SSHCommandHelp:
     comment: str = "Comment to include in public key."
     force_rotate: str = "Rotate even if not yet due."
     prefix: str = "Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd)."
+    list_all: str = "List the managed keys of all projects, not only the keys of the prefix."
 
 
 @dataclass(frozen=True)

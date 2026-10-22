@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -420,7 +423,7 @@ def test_ssh_prefix_filtering_and_parsing(tmp_path: Path) -> None:
     # find_newest_key with prefix
     assert find_newest_key(tmp_path, prefix="proj-a") == k_proj_a
     assert find_newest_key(tmp_path, prefix="proj-b") == k_proj_b
-    assert find_newest_key(tmp_path, prefix="nonexistent") == k_proj_b  # Fallback to newest
+    assert find_newest_key(tmp_path, prefix="nonexistent") is None
 
     # list_managed_keys_info with prefix
     info_a = list_managed_keys_info(tmp_path, prefix="proj-a")
@@ -498,22 +501,22 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
     # 1. Rotate in empty dir
     res_rot = runner.invoke(ssh_app, ["rotate", "--key-dir", str(empty_dir)])
     assert res_rot.exit_code == 0
-    assert "No managed SSH keys found" in res_rot.output
+    assert "No managed SSH key with the prefix" in res_rot.output
 
     # 2. List in empty dir
     res_list = runner.invoke(ssh_app, ["list", "--key-dir", str(empty_dir)])
     assert res_list.exit_code == 0
-    assert "No managed SSH keys found" in res_list.output
+    assert "No managed SSH key with the prefix" in res_list.output
 
     # 3. Status in empty dir
     res_stat = runner.invoke(ssh_app, ["status", "--key-dir", str(empty_dir)])
     assert res_stat.exit_code == 0
-    assert "No managed SSH keys found" in res_stat.output
+    assert "No managed SSH key with the prefix" in res_stat.output
 
     # 4. Rotation with failed GitHub registration cleanup
-    old_key = tmp_path / "id_ed25519-20240101"
+    old_key = tmp_path / "devops-cli-id_ed25519-20240101"
     old_key.write_text("old_private")
-    (tmp_path / "id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
+    (tmp_path / "devops-cli-id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
 
     with (
         patch(
@@ -526,7 +529,7 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
     ):
         settings = MagicMock()
         settings.ssh.key_dir = tmp_path
-        settings.ssh.key_prefix = None
+        settings.ssh.key_prefix = "devops-cli"
         settings.ssh.rotation_days = 30
         mock_load.return_value = settings
 
@@ -542,23 +545,23 @@ def test_a_rotation_github_refuses_removes_the_new_key(
 ) -> None:
     """The GitHub session registers the new key, and GitHub refuses its signing key with a 422
     the listing does not confirm: rotate warns, removes the key it generated and exits 0 (#983)."""
-    old_key = tmp_path / "id_ed25519-20240101"
+    old_key = tmp_path / "devops-cli-id_ed25519-20240101"
     old_key.write_text("old_private")
-    (tmp_path / "id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
+    (tmp_path / "devops-cli-id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
     github_api.route("POST", "/user/keys", github_json({"id": 1}, status=201))
     refusal = {"message": "Validation Failed", "errors": [{"message": "key is already in use"}]}
     github_api.route("POST", "/user/ssh_signing_keys", github_json(refusal, status=422))
     github_api.route("GET", "/user/ssh_signing_keys", github_json([]))
     with patch("devops_cli.config.settings.load_settings") as load:
         load.return_value.ssh.key_dir = tmp_path
-        load.return_value.ssh.key_prefix = None
+        load.return_value.ssh.key_prefix = "devops-cli"
         load.return_value.ssh.rotation_days = 30
         result = runner.invoke(ssh_app, ["rotate", "--force"])
     assert (
         result.exit_code,
         "registration failed" in result.output,
-        sorted(path.name for path in tmp_path.glob("id_ed25519*")),
-    ) == (0, True, ["id_ed25519-20240101", "id_ed25519-20240101.pub"])
+        sorted(path.name for path in tmp_path.glob("*id_ed25519*")),
+    ) == (0, True, ["devops-cli-id_ed25519-20240101", "devops-cli-id_ed25519-20240101.pub"])
 
 
 def test_a_rotation_github_answers_with_a_404_warns_with_the_scope_command_and_removes_the_new_key(
@@ -566,21 +569,21 @@ def test_a_rotation_github_answers_with_a_404_warns_with_the_scope_command_and_r
 ) -> None:
     """GitHub answers a token without the key scope with a 404, and rotate's warning gives the
     command that adds the scopes, then removes the key it generated."""
-    old_key = tmp_path / "id_ed25519-20240101"
+    old_key = tmp_path / "devops-cli-id_ed25519-20240101"
     old_key.write_text("old_private")
-    (tmp_path / "id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
+    (tmp_path / "devops-cli-id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
     github_api.route("POST", "/user/keys", github_json({"message": "Not Found"}, status=404))
     with patch("devops_cli.config.settings.load_settings") as load:
         load.return_value.ssh.key_dir = tmp_path
-        load.return_value.ssh.key_prefix = None
+        load.return_value.ssh.key_prefix = "devops-cli"
         load.return_value.ssh.rotation_days = 30
         result = runner.invoke(ssh_app, ["rotate", "--force"])
     assert (
         result.exit_code,
         "gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key"
         in " ".join(result.output.split()),
-        sorted(path.name for path in tmp_path.glob("id_ed25519*")),
-    ) == (0, True, ["id_ed25519-20240101", "id_ed25519-20240101.pub"])
+        sorted(path.name for path in tmp_path.glob("*id_ed25519*")),
+    ) == (0, True, ["devops-cli-id_ed25519-20240101", "devops-cli-id_ed25519-20240101.pub"])
 
 
 def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:
@@ -641,3 +644,274 @@ def test_crypto_ssh_keys_devcontainer_config_resolution(
     monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
     found = _find_project_config_path(base_dir=sub_dir)
     assert found == (dev_dir / "config.yaml").resolve()
+
+
+_PROJECT_PREFIX = "devops-cli"
+_PROJECT_KEY = "devops_cli-id_ed25519-20260831"
+_OTHER_PROJECT_KEYS = ["alpha-id_ed25519-20260901", "beta_svc-id_ed25519-20260915"]
+_ALL_KEY_NAMES = [_PROJECT_KEY, *_OTHER_PROJECT_KEYS]
+_GENERATE_TIP = "devops ssh generate"
+
+
+def _write_key_pair(key_dir: Path, name: str) -> str:
+    """Write the private and the public file of the key `name`; return the public key line."""
+    public_line = f"ssh-ed25519 PUBLIC-{name} user@example.com"
+    (key_dir / name).write_text("private", encoding="utf-8")
+    (key_dir / f"{name}.pub").write_text(public_line, encoding="utf-8")
+    return public_line
+
+
+@pytest.fixture
+def global_git_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The global git config of the test: a file under `tmp_path`, which `git config --global`
+    writes instead of the one in the home directory that all tests of a worker share. Without it,
+    `register` and `rotate` turn on commit signing for each later test that runs `git commit`."""
+    config_file = tmp_path / "global-gitconfig"
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config_file))
+    return config_file
+
+
+@pytest.fixture
+def key_dir_of_three_projects(
+    tmp_path: Path, config: Callable[..., Path], global_git_config: Path
+) -> Path:
+    """A key directory with the key of this project, spelled with an underscore, and the newer
+    keys of two other projects. The settings give the prefix `devops-cli`, spelled with a hyphen."""
+    key_dir = tmp_path / "keys"
+    key_dir.mkdir()
+    for name in _ALL_KEY_NAMES:
+        _write_key_pair(key_dir, name)
+    config(ssh={"key_dir": str(key_dir), "key_prefix": _PROJECT_PREFIX})
+    return key_dir
+
+
+@pytest.fixture
+def key_dir_of_other_projects(tmp_path: Path, config: Callable[..., Path]) -> Path:
+    """A key directory that holds the keys of two other projects and none of this project."""
+    key_dir = tmp_path / "keys"
+    key_dir.mkdir()
+    for name in _OTHER_PROJECT_KEYS:
+        _write_key_pair(key_dir, name)
+    config(ssh={"key_dir": str(key_dir), "key_prefix": _PROJECT_PREFIX})
+    return key_dir
+
+
+def _keys_named_in(output: str) -> list[str]:
+    """The managed keys of the test directories that `output` names, in a fixed order."""
+    return [name for name in _ALL_KEY_NAMES if name in output]
+
+
+def _squash(output: str) -> str:
+    """The output with each run of white space as one space, so a wrapped message compares whole."""
+    return " ".join(output.split())
+
+
+@pytest.mark.parametrize("prefix", ["devops-cli", "devops_cli"])
+def test_a_prefix_matches_the_keys_of_both_separator_spellings(tmp_path: Path, prefix: str) -> None:
+    """A hyphen and an underscore in a prefix are the same: the prefix `devops-cli` and the
+    prefix `devops_cli` each match the key of either spelling and no key of another project."""
+    names = [_PROJECT_KEY, "devops-cli-id_ed25519-20261001", *_OTHER_PROJECT_KEYS]
+    for name in names:
+        _write_key_pair(tmp_path, name)
+    assert (
+        sorted(path.name for path in list_managed_keys(tmp_path, prefix=prefix)),
+        find_newest_key(tmp_path, prefix=prefix),
+    ) == (sorted(names[:2]), tmp_path / "devops-cli-id_ed25519-20261001")
+
+
+def test_a_prefix_with_no_key_finds_no_key_and_never_the_key_of_another_project(
+    tmp_path: Path,
+) -> None:
+    for name in (*_OTHER_PROJECT_KEYS, "id_ed25519-20260801"):
+        _write_key_pair(tmp_path, name)
+    assert (
+        list_managed_keys(tmp_path, prefix=_PROJECT_PREFIX),
+        find_newest_key(tmp_path, prefix=_PROJECT_PREFIX),
+    ) == ([], None)
+
+
+def test_the_empty_prefix_matches_only_the_keys_without_a_prefix(tmp_path: Path) -> None:
+    for name in (*_OTHER_PROJECT_KEYS, "id_ed25519-20260801"):
+        _write_key_pair(tmp_path, name)
+    assert list_managed_keys(tmp_path, prefix="") == [tmp_path / "id_ed25519-20260801"]
+
+
+def test_list_shows_only_the_keys_of_the_project_prefix(
+    key_dir_of_three_projects: Path, cli: Callable[..., Any]
+) -> None:
+    result = cli("ssh", "list")
+    assert (result.exit_code, _keys_named_in(result.output)) == (0, [_PROJECT_KEY])
+
+
+def test_list_with_all_shows_the_keys_of_every_project(
+    key_dir_of_three_projects: Path, cli: Callable[..., Any]
+) -> None:
+    result = cli("ssh", "list", "--all")
+    assert (result.exit_code, _keys_named_in(result.output)) == (
+        0,
+        _ALL_KEY_NAMES,
+    )
+
+
+@pytest.mark.parametrize("dry_run_options", [[], ["--dry-run"]])
+def test_list_refuses_all_together_with_a_prefix(
+    key_dir_of_three_projects: Path, cli: Callable[..., Any], dry_run_options: list[str]
+) -> None:
+    """A dry run refuses the same arguments as a run, and prints no plan for them."""
+    result = cli("ssh", "list", "--all", "--prefix", "alpha", *dry_run_options)
+    assert (
+        result.exit_code,
+        _keys_named_in(result.output),
+        "Use '--all' or '--prefix'. Do not use both." in _squash(result.output),
+    ) == (2, [], True)
+
+
+def test_list_of_a_project_with_no_key_names_the_prefix_and_never_shows_other_projects(
+    key_dir_of_other_projects: Path, cli: Callable[..., Any]
+) -> None:
+    result = cli("ssh", "list")
+    output = _squash(result.output)
+    assert (
+        result.exit_code,
+        _keys_named_in(output),
+        f"prefix '{_PROJECT_PREFIX}'" in output,
+        _GENERATE_TIP in output,
+        "--all" in output,
+    ) == (0, [], True, True, True)
+
+
+def test_list_with_all_of_a_directory_with_no_managed_key_names_the_expected_file_names(
+    tmp_path: Path, config: Callable[..., Path], cli: Callable[..., Any]
+) -> None:
+    config(ssh={"key_dir": str(tmp_path), "key_prefix": _PROJECT_PREFIX})
+    result = cli("ssh", "list", "--all")
+    assert (
+        result.exit_code,
+        "(expected: PREFIX-id_ed25519-YYYYMMDD or id_ed25519-YYYYMMDD)" in _squash(result.output),
+    ) == (0, True)
+
+
+def _accept_keys(github_api: GitHubApiFake) -> None:
+    """Make the GitHub fake accept a key at both endpoints that `register` and `rotate` use."""
+    for endpoint in ("/user/keys", "/user/ssh_signing_keys"):
+        github_api.route("POST", endpoint, github_json({"id": 1}, status=201))
+
+
+def test_register_adds_the_key_of_the_project_to_github(
+    key_dir_of_three_projects: Path,
+    global_git_config: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    result = cli("ssh", "register")
+    project_line = (key_dir_of_three_projects / f"{_PROJECT_KEY}.pub").read_text(encoding="utf-8")
+    signing_config = global_git_config.read_text(encoding="utf-8")
+    assert (
+        result.exit_code,
+        [json.loads(sent.content)["key"] for sent in github_api.sent],
+        [str(key_dir_of_three_projects / name) in signing_config for name in _ALL_KEY_NAMES],
+    ) == (0, [project_line, project_line], [True, False, False])
+
+
+@pytest.mark.parametrize(
+    ("key_name", "expected_title"),
+    [
+        (None, _PROJECT_KEY),
+        ("id_ed25519-20260801", f"{_PROJECT_PREFIX}-id_ed25519-20260801"),
+        ("id_rsa", f"{_PROJECT_PREFIX}-id_rsa"),
+    ],
+)
+def test_register_titles_a_key_with_its_own_prefix_or_with_the_prefix_of_the_project(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+    key_name: str | None,
+    expected_title: str,
+) -> None:
+    """The project key `devops_cli-id_ed25519-20260831` keeps its own name as the title, though the
+    prefix `devops-cli` spells the separator in another way. A key with no prefix, managed or not,
+    gets the prefix of the project."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    key_options: list[str] = []
+    if key_name is not None:
+        _write_key_pair(key_dir_of_three_projects, key_name)
+        key_options = ["--key-file", str(key_dir_of_three_projects / key_name)]
+    result = cli("ssh", "register", *key_options)
+    assert (result.exit_code, [json.loads(sent.content)["title"] for sent in github_api.sent]) == (
+        0,
+        [expected_title, expected_title],
+    )
+
+
+def test_register_of_a_project_with_no_key_sends_nothing_and_points_to_generate(
+    key_dir_of_other_projects: Path, cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    result = cli("ssh", "register")
+    output = _squash(result.output)
+    assert (result.exit_code, github_api.requested, f"prefix '{_PROJECT_PREFIX}'" in output) == (
+        1,
+        [],
+        True,
+    )
+    assert _GENERATE_TIP in output
+
+
+def test_rotate_replaces_the_key_of_the_project_and_leaves_the_keys_of_other_projects(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    before = {path.name for path in key_dir_of_three_projects.iterdir()}
+    result = cli("ssh", "rotate", "--force")
+    created = {path.name for path in key_dir_of_three_projects.iterdir()} - before
+    assert (result.exit_code, sorted(created), _keys_named_in(_squash(result.output))) == (
+        0,
+        sorted(
+            f"{_PROJECT_PREFIX}-id_ed25519-{date.today():%Y%m%d}{suffix}" for suffix in ("", ".pub")
+        ),
+        [_PROJECT_KEY],
+    )
+    assert {path.name for path in key_dir_of_three_projects.iterdir()} >= before
+
+
+def test_rotate_of_a_project_with_no_key_changes_nothing_and_points_to_generate(
+    key_dir_of_other_projects: Path, cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    before = sorted(path.name for path in key_dir_of_other_projects.iterdir())
+    result = cli("ssh", "rotate", "--force")
+    output = _squash(result.output)
+    assert (
+        result.exit_code,
+        sorted(path.name for path in key_dir_of_other_projects.iterdir()),
+        github_api.requested,
+        f"prefix '{_PROJECT_PREFIX}'" in output,
+        _GENERATE_TIP in output,
+    ) == (0, before, [], True, True)
+
+
+def test_status_shows_the_key_of_the_project(
+    key_dir_of_three_projects: Path, cli: Callable[..., Any]
+) -> None:
+    result = cli("ssh", "status")
+    assert (result.exit_code, _keys_named_in(result.output)) == (0, [_PROJECT_KEY])
+
+
+def test_status_of_a_project_with_no_key_names_the_prefix_and_points_to_generate(
+    key_dir_of_other_projects: Path, cli: Callable[..., Any]
+) -> None:
+    result = cli("ssh", "status")
+    output = _squash(result.output)
+    assert (
+        result.exit_code,
+        _keys_named_in(output),
+        f"prefix '{_PROJECT_PREFIX}'" in output,
+        _GENERATE_TIP in output,
+    ) == (0, [], True, True)

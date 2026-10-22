@@ -156,7 +156,7 @@ def register(
     ] = False,
 ) -> None:
     from devops_cli.config.settings import load_settings
-    from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix
+    from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix, parse_key_prefix
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
@@ -178,9 +178,13 @@ def register(
     )
 
     if key_file is None:
-        key_file = find_newest_key(settings.ssh.key_dir.expanduser(), prefix=active_prefix)
+        key_dir = settings.ssh.key_dir.expanduser()
+        key_file = find_newest_key(key_dir, prefix=active_prefix)
         if key_file is None:
-            print_error(MESSAGES.messages.no_ssh_key_found, prefix=False)
+            print_error(
+                MESSAGES.ssh.no_project_key.format(prefix=active_prefix, key_dir=key_dir),
+                prefix=False,
+            )
             raise typer.Exit(1)
     else:
         key_file = key_file.expanduser()
@@ -193,7 +197,7 @@ def register(
     pub_key = pub_path.read_text(encoding="utf-8").strip()
     if title:
         key_title = title
-    elif active_prefix and not key_file.stem.startswith(f"{active_prefix}-"):
+    elif active_prefix and parse_key_prefix(key_file) is None:
         key_title = f"{active_prefix}-{key_file.stem}"
     else:
         key_title = key_file.stem
@@ -268,7 +272,10 @@ def rotate(
 
     newest = find_newest_key(target_key_dir, prefix=active_prefix)
     if newest is None:
-        print_warning(MESSAGES.ssh.no_managed_keys, prefix=False)
+        print_warning(
+            MESSAGES.ssh.no_project_key.format(prefix=active_prefix, key_dir=target_key_dir),
+            prefix=False,
+        )
         raise typer.Exit(0)
 
     age = get_key_age_days(newest)
@@ -340,21 +347,29 @@ def list_keys(
             help=HELP.ssh.prefix,
         ),
     ] = None,
+    all_projects: Annotated[bool, typer.Option("--all", help=HELP.ssh.list_all)] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """List all managed SSH keys with their age and rotation status."""
+    """List the managed SSH keys of the project prefix with their age and rotation status."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import list_managed_keys_info
     from devops_cli.dry_run import is_dry_run
+
+    if all_projects and prefix is not None:
+        raise typer.BadParameter(MESSAGES.ssh.all_with_prefix)
 
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh list",
             action="audit_ssh_keys",
-            details={"key_dir": str(key_dir) if key_dir else None, "prefix": prefix},
+            details={
+                "key_dir": str(key_dir) if key_dir else None,
+                "prefix": prefix,
+                "all_projects": all_projects,
+            },
         )
         return
 
@@ -365,12 +380,17 @@ def list_keys(
         prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
     )
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
-    keys = list_managed_keys_info(target_key_dir, prefix=active_prefix)
-    if not keys and prefix is None:
-        keys = list_managed_keys_info(target_key_dir)
+    keys = list_managed_keys_info(target_key_dir, prefix=None if all_projects else active_prefix)
 
     if not keys:
-        print_warning(MESSAGES.ssh.no_managed_keys_pattern, prefix=False)
+        if all_projects:
+            print_warning(MESSAGES.ssh.no_managed_keys_pattern, prefix=False)
+        else:
+            print_warning(
+                MESSAGES.ssh.no_project_key.format(prefix=active_prefix, key_dir=target_key_dir),
+                prefix=False,
+            )
+            print_info(MESSAGES.ssh.list_all_tip, prefix=False)
         raise typer.Exit(0)
 
     rotation_days = settings.ssh.rotation_days
@@ -420,7 +440,10 @@ def status(
 
     newest = find_newest_key(target_key_dir, prefix=active_prefix)
     if newest is None:
-        print_warning(MESSAGES.ssh.no_managed_keys, prefix=False)
+        print_warning(
+            MESSAGES.ssh.no_project_key.format(prefix=active_prefix, key_dir=target_key_dir),
+            prefix=False,
+        )
         raise typer.Exit(0)
 
     age = get_key_age_days(newest)

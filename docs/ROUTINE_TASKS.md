@@ -353,7 +353,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 
 #### 3. SSH Key & Host Security Audit
 - **Frequency**: On-demand / Monthly.
-- **Methodology**: Lists managed SSH keys with age and rotation status (`devops ssh audit`/`list`) and shows the active key and days until rotation (`devops ssh status`).
+- **Methodology**: Lists the managed SSH keys of the project prefix with age and rotation status (`devops ssh audit`/`list`, or `--all` for the keys of all projects) and shows the active key and days until rotation (`devops ssh status`).
 - **Commands**:
   ```bash
   devops ssh status

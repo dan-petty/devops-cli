@@ -1169,9 +1169,9 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         )
 
         prefix = get_ssh_key_prefix(workspace_dir)
-        newest = find_newest_key(ssh_dir, prefix=prefix, fallback_to_any=False)
+        newest = find_newest_key(ssh_dir, prefix=prefix) or find_newest_key(ssh_dir, prefix="")
         if newest is None:
-            # Fallback only to unmanaged keys matching id_ or un-prefixed keys; never foreign projects
+            # Fallback only to unmanaged keys matching id_; never foreign projects
             fallback_keys = sorted(
                 [
                     p
@@ -1181,7 +1181,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                     and "id_" in p.name
                     and p.name
                     not in {"config", "known_hosts", "authorized_keys", "allowed_signers"}
-                    and parse_key_prefix(p) in (None, prefix)
+                    and parse_key_prefix(p) is None
                 ],
                 key=lambda p: p.stat().st_mtime if p.exists() else 0,
                 reverse=True,

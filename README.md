@@ -165,8 +165,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
-|  | `devops ssh list [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
-|  | `devops ssh audit [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
+|  | `devops ssh list [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
+|  | `devops ssh audit [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
 |  | `devops ssh status [OPTIONS]` | Show the active SSH key and days until rotation. |
 | **branches** | `devops branches update [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
