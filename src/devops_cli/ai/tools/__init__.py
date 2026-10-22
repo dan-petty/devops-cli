@@ -9,27 +9,12 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from pydantic_ai.tools import (
-    AgentDepsT,
-    AgentNativeTool,
     ArgsValidatorFunc,
     DeferredToolResults,
     DocstringFormat,
-    NativeToolFunc,
-    ObjectJsonSchema,
-    RunContext,
-    SystemPromptFunc,
     ToolApproved,
-    ToolDefinition,
     ToolDenied,
-    ToolFuncContext,
-    ToolFuncEither,
-    ToolFuncPlain,
-    ToolParams,
     ToolPrepareFunc,
-    ToolSelector,
-    ToolSelectorFunc,
-    ToolsPrepareFunc,
-    matches_tool_selector,
 )
 from pydantic_ai.tools import (
     DeferredToolRequests as NativeDeferredToolRequests,
@@ -290,97 +275,6 @@ class DeferredToolRequests(NativeDeferredToolRequests):
         )
 
 
-def create_tool(
-    function: Callable[..., Any],
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    takes_ctx: bool | None = None,
-    timeout: float | None = None,
-    max_retries: int | None = None,
-    requires_approval: bool = False,
-    metadata: dict[str, Any] | None = None,
-    args_validator: ArgsValidatorFunc[Any, Any] | None = None,
-    docstring_format: DocstringFormat = "auto",
-    strict: bool | None = None,
-    sequential: bool = False,
-    defer_loading: bool = False,
-    include_return_schema: bool | None = None,
-) -> Tool:
-    """Construct a native Tool instance with rich configuration."""
-    return Tool(
-        function,
-        name=name,
-        description=description,
-        takes_ctx=takes_ctx,
-        timeout=timeout,
-        max_retries=max_retries,
-        requires_approval=requires_approval,
-        metadata=metadata,
-        args_validator=args_validator,
-        docstring_format=docstring_format,
-        strict=strict,
-        sequential=sequential,
-        defer_loading=defer_loading,
-        include_return_schema=include_return_schema,
-    )
-
-
-def is_native_tool(val: Any) -> bool:
-    """Check whether a value is an instance of native Tool."""
-    return isinstance(val, Tool)
-
-
-def create_tool_definition(
-    name: str,
-    parameters_json_schema: dict[str, Any],
-    *,
-    description: str | None = None,
-    outer_typed_dict_key: str | None = None,
-    strict: bool | None = None,
-    sequential: bool = False,
-    metadata: dict[str, Any] | None = None,
-    timeout: float | None = None,
-    defer_loading: bool = False,
-    return_schema: dict[str, Any] | None = None,
-    include_return_schema: bool | None = None,
-    toolset_id: str | None = None,
-    capability_id: str | None = None,
-) -> ToolDefinition:
-    """Construct a model-bound ToolDefinition dataclass."""
-    return ToolDefinition(
-        name=name,
-        parameters_json_schema=parameters_json_schema,
-        description=description,
-        outer_typed_dict_key=outer_typed_dict_key,
-        strict=strict,
-        sequential=sequential,
-        metadata=metadata or {},
-        timeout=timeout,
-        defer_loading=defer_loading,
-        return_schema=return_schema,
-        include_return_schema=include_return_schema,
-        toolset_id=toolset_id,
-        capability_id=capability_id,
-    )
-
-
-def approve_all_requests(requests: DeferredToolRequests) -> DeferredToolResults:
-    """Auto-approve all approval-requesting tool calls."""
-    return requests.build_results(approve_all=True)
-
-
-def deny_all_requests(
-    requests: DeferredToolRequests,
-    message: str = "The tool call was denied.",
-) -> DeferredToolResults:
-    """Auto-deny all approval-requesting tool calls with a message."""
-    approvals = {
-        (c.tool_call_id or c.tool_name): ToolDenied(message=message) for c in requests.approvals
-    }
-    return requests.build_results(approvals=approvals)
-
-
 def _run_coroutine_sync(coro: Any) -> Any:
     """Run an awaitable to completion from synchronous code, even inside a running event loop."""
     try:
@@ -396,44 +290,14 @@ def _run_coroutine_sync(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
-def matches_tool_selector_sync(
-    selector: ToolSelector[Any],
-    ctx: RunContext[Any],
-    tool_def: ToolDefinition,
-) -> bool:
-    """Synchronous evaluation wrapper for matches_tool_selector."""
-    return bool(_run_coroutine_sync(matches_tool_selector(selector, ctx, tool_def)))
-
-
 __all__ = [
-    "AgentDepsT",
-    "AgentNativeTool",
-    "ArgsValidatorFunc",
     "DeferredToolRequests",
     "DeferredToolResults",
-    "DocstringFormat",
-    "NativeToolFunc",
-    "ObjectJsonSchema",
-    "RunContext",
-    "SystemPromptFunc",
     "Tool",
     "ToolApproved",
-    "ToolDefinition",
     "ToolDenied",
-    "ToolFuncContext",
-    "ToolFuncEither",
-    "ToolFuncPlain",
-    "ToolParams",
-    "ToolPrepareFunc",
-    "ToolSelector",
-    "ToolSelectorFunc",
-    "ToolsPrepareFunc",
-    "approve_all_requests",
     "argo_apps",
     "check_threat_intel",
-    "create_tool",
-    "create_tool_definition",
-    "deny_all_requests",
     "docker_analyze_layers",
     "get_default_tools",
     "get_devops_mcp_toolset",
@@ -441,13 +305,10 @@ __all__ = [
     "get_persona_tools",
     "git_diff",
     "git_status",
-    "is_native_tool",
     "k8s_pods",
     "k8s_tempo_status",
     "k8s_validate_manifests",
     "list_files",
-    "matches_tool_selector",
-    "matches_tool_selector_sync",
     "rag_search",
     "read_file",
     "scan_bandit",

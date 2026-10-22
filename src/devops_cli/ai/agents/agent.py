@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 if TYPE_CHECKING:
-    from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+    from pydantic_ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+
     from devops_cli.ai.function_signature import FunctionSignature
 
 from pydantic_ai import RunContext as NativeRunContext
+from pydantic_ai.template import TemplateStr
 from pydantic_ai.toolsets import AbstractToolset as PyAIAbstractToolset
 
 from devops_cli.ai.agents.capabilities import (
@@ -70,7 +72,6 @@ from devops_cli.ai.agents.tools import (
     ToolReturn,
 )
 from devops_cli.ai.client import LLMClient, get_llm_client
-from devops_cli.ai.template import TemplateStr
 from devops_cli.ai.toolsets import extract_tools_from_toolset
 from devops_cli.config.defaults import (
     DEFAULT_AGENT_MAX_TURNS,
@@ -278,7 +279,7 @@ class PydanticAgent[T, DepsT = Any]:
         self.tool_timeout = tool_timeout
         self.max_concurrency = max_concurrency
         if max_concurrency is not None:
-            from devops_cli.ai.concurrency import normalize_to_limiter
+            from pydantic_ai.concurrency import normalize_to_limiter
 
             self._concurrency_limiter: AbstractConcurrencyLimiter | None = normalize_to_limiter(
                 max_concurrency, name=f"agent:{name}"
@@ -1221,7 +1222,7 @@ class PydanticAgent[T, DepsT = Any]:
         """Asynchronously execute the agent tool loop with concurrency limiting."""
         from functools import partial
 
-        from devops_cli.ai.concurrency import get_concurrency_context
+        from pydantic_ai.concurrency import get_concurrency_context
 
         async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
             loop = asyncio.get_running_loop()
@@ -1247,7 +1248,7 @@ class PydanticAgent[T, DepsT = Any]:
         enable_thinking: bool = True,
     ) -> AsyncGenerator[str]:
         """Asynchronously stream response tokens in real-time with concurrency limiting."""
-        from devops_cli.ai.concurrency import get_concurrency_context
+        from pydantic_ai.concurrency import get_concurrency_context
 
         async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
             for token in self.run_stream(user_prompt, enable_thinking=enable_thinking):

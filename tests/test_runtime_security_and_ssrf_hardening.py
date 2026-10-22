@@ -10,7 +10,6 @@ import pytest
 from devops_cli.ai.agents.media import DiskMediaStore
 from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
-from devops_cli.ai.ext_langchain import _validate_langchain_kwargs
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
 from devops_cli.security.sanitizer import mask_secrets
@@ -144,13 +143,3 @@ def test_structural_diff_rejects_flag_injection_refs() -> None:
         base="main",
     )
     assert "Error:" in res or res == ""
-
-
-# ── 7. LangChain Tool Kwargs Percent-Encoded Traversal Guards ─────────────────
-
-
-def test_validate_langchain_kwargs_detects_percent_encoded_traversal() -> None:
-    """Verify that _validate_langchain_kwargs catches percent-encoded traversal."""
-    err = _validate_langchain_kwargs({"file_path": "%2e%2e/etc/passwd"})
-    assert err is not None
-    assert "traversal" in err.lower()

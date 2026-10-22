@@ -81,21 +81,11 @@ def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Non
             os.environ["KUBECONFIG"] = previous
 
 
-@pytest.fixture(autouse=True, scope="session")
-def register_test_mock_provider():
-    """Register test MockProvider for unit testing."""
-    from devops_cli.ai.providers import register_provider
-    from tests.mock_provider import MockProvider
-
-    register_provider("mock", MockProvider)
-
-
 _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.benchmark.document_chunker": ("reset_document_chunker_cache",),
     "devops_cli.ai.benchmark.embedding_tasks": ("reset_embedding_tasks_cache",),
     "devops_cli.ai.client.factory": ("reset_llm_client_override",),
     "devops_cli.ai.client.network": ("reset_ollama_slots",),
-    "devops_cli.ai.concurrency": ("reset_shared_limiters",),
     "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),
     "devops_cli.ai.gateway": ("clear_gateway_reasoning_cache",),
     "devops_cli.ai.kb": ("reset_uv_lock_cache",),
@@ -103,7 +93,6 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),
     "devops_cli.ai.mcp.server": ("reset_hydrated_domains",),
     "devops_cli.ai.personas": ("reset_persona_caches",),
-    "devops_cli.ai.providers": ("reset_providers",),
     "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache",),
     "devops_cli.ai.rag.investigator": ("clear_investigation_cache",),
     "devops_cli.ai.rag.kb_sync": ("reset_kb_sync_state",),
@@ -165,11 +154,6 @@ def _reset_loaded_process_state() -> None:
                     break
             if callable(target):
                 target()
-    providers_module = sys.modules.get("devops_cli.ai.providers")
-    if providers_module is not None:
-        from tests.mock_provider import MockProvider
-
-        providers_module.register_provider("mock", MockProvider)
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,7 @@ applies_to:
 sources:
   - "https://ai.pydantic.dev/"
   - "https://github.com/pydantic/pydantic-ai"
-reviewed: "2026-10-15"
+reviewed: "2026-10-22"
 tags:
   - "pydantic-ai"
   - "ai"
@@ -15,7 +15,7 @@ tags:
 
 ## 1. Overview & Purpose
 
-`PydanticAI` is a Python agent framework built by the Pydantic team that uses Pydantic models for structured outputs, dependency injection, and tool validation. In `devops-cli`, `PydanticAI` provides a standardized agent architecture (`devops_cli.ai.pydantic_ai_bridge`), integrating chat personas, FastMCP tools, and typed reasoning schemas.
+`PydanticAI` is a Python agent framework built by the Pydantic team that uses Pydantic models for structured outputs, dependency injection, and tool validation. In `devops-cli`, `PydanticAI` provides the agent framework and model types, and `devops_cli.ai.pydantic_ai_bridge` resolves a configured model name to a pydantic-ai `Model` and builds fallback cascades across models.
 
 ---
 
@@ -23,23 +23,22 @@ tags:
 
 - **Type-Safe Agent Execution**: Uses Pydantic schemas to validate LLM responses and arguments passed to agent tools.
 - **Model Agnostic**: Integrates with local Ollama backends, Anthropic Claude, OpenAI, and GitHub Copilot.
-- **Context & Dependency Injection**: Injects runtime settings, workspace repositories, and token budgets (`DevOpsAgentContext`) into agent runs.
-- **Interoperability**: Bridges seamlessly with existing DevOps CLI `LLMClient` and FastMCP tools.
+- **Endpoint-Safe Model Resolution**: A remote model is sent to the endpoint its settings name, after the URL passes the egress policy (loopback allowed, any other non-public host needs `ai.allow_private_network`).
+- **Fallback Cascades**: `build_fallback_cascade_model` tries the gateway routes and then Ollama in order, through pydantic-ai's `FallbackModel`.
 
 ---
 
 ## 3. Common & Advanced Commands
 
-### DevOps CLI Agent Integration
+### DevOps CLI Model Resolution
 ```python
-from devops_cli.ai.pydantic_ai_bridge import create_pydantic_ai_agent, get_persona_pydantic_agent
-from devops_cli.ai.personas import Persona
+from devops_cli.ai.pydantic_ai_bridge import build_fallback_cascade_model, resolve_pydantic_ai_model
 
-# Instantiate persona-tailored PydanticAI agent
-agent = get_persona_pydantic_agent(Persona.DEVSECOPS)
+# Resolve a configured model name to a pydantic-ai Model on its configured endpoint
+model = resolve_pydantic_ai_model("ollama:qwen3-coder:30b")
 
-# Run typed review or reasoning workflow
-# result = agent.run_sync("Audit network endpoints in src/devops_cli/security/")
+# Fall back across the gateway routes and then Ollama
+cascade = build_fallback_cascade_model()
 ```
 
 ---

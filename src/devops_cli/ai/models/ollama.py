@@ -22,12 +22,9 @@ from pydantic_ai.profiles.meta import meta_model_profile
 from pydantic_ai.profiles.mistral import mistral_model_profile
 from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer, OpenAIModelProfile
 from pydantic_ai.profiles.qwen import qwen_model_profile
+from pydantic_ai.settings import ModelSettings, merge_model_settings
 
-from devops_cli.ai.settings import (
-    ModelSettings,
-    create_model_settings,
-    merge_model_settings,
-)
+from devops_cli.ai.settings import create_model_settings
 from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
 
 DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -88,41 +85,6 @@ def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
     return urlunsplit(
         (parsed.scheme, parsed.netloc, normalized_path, parsed.query, parsed.fragment)
     )
-
-
-def is_ollama_cloud(base_url: str | None = None, model_name: str | None = None) -> bool:
-    """Determine if a target Ollama endpoint or model name references Ollama Cloud.
-
-    Ollama Cloud models ending in '-cloud' or hosted on 'ollama.com' do not yet enforce
-    upstream JSON Schema grammar constraints at generation time.
-    """
-    if base_url:
-        import dns.exception
-        import dns.name
-
-        parsed = urlsplit(base_url.strip())
-        hostname = parsed.hostname
-        if hostname:
-            try:
-                h_name = dns.name.from_text(hostname)
-                if h_name.is_subdomain(dns.name.from_text("ollama.com")):
-                    return True
-            except dns.exception.DNSException, ValueError, AttributeError:
-                pass
-
-    if model_name and model_name.strip().lower().endswith("-cloud"):
-        return True
-
-    return False
-
-
-def get_recommended_output_mode(base_url: str | None = None, model_name: str | None = None) -> str:
-    """Return recommended Pydantic AI output mode ('native' vs 'tool') for target model.
-
-    Self-hosted Ollama (v0.5.0+) supports grammar-constrained JSON decoding ('native').
-    Ollama Cloud endpoints/models recommend 'tool' output to avoid unconstrained output.
-    """
-    return "tool" if is_ollama_cloud(base_url=base_url, model_name=model_name) else "native"
 
 
 def create_ollama_provider(
@@ -274,10 +236,8 @@ __all__ = [
     "create_ollama_model",
     "create_ollama_provider",
     "deepseek_model_profile",
-    "get_recommended_output_mode",
     "google_model_profile",
     "harmony_model_profile",
-    "is_ollama_cloud",
     "meta_model_profile",
     "mistral_model_profile",
     "normalize_ollama_base_url",
