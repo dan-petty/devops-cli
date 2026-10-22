@@ -32,6 +32,9 @@ from devops_cli.ui.data_providers import (
 )
 from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
+from tests.support.fakes.valkey import bulk_reply, serving_valkey
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 runner = CliRunner()
 
@@ -414,29 +417,57 @@ def test_the_review_summary_has_no_session_for_a_reviews_directory_setting_that_
     assert fetch_review_status() == ReviewSummary(has_session=False)
 
 
-def test_fetch_valkey_status_success() -> None:
-    """fetch_valkey_status returns parsed info and hit ratios."""
-    mock_client = MagicMock()
-    mock_client.info.return_value = {
-        "server": {"valkey_version": "8.0.1", "uptime_in_seconds": "3600"},
-        "clients": {"connected_clients": "4"},
-        "memory": {"used_memory_human": "2.4M", "used_memory_peak_human": "4.1M"},
-        "stats": {
-            "keyspace_hits": "800",
-            "keyspace_misses": "200",
-            "total_commands_processed": "5000",
-        },
-    }
-    mock_client.dbsize.return_value = 150
+# The text a Valkey 8 server answers to INFO: one flat list of `field:value` lines under section
+# headings. valkey-py drops the headings, so the client returns one flat mapping.
+_VALKEY_INFO_TEXT = (
+    "# Server\r\nredis_version:7.2.4\r\nserver_name:valkey\r\nvalkey_version:8.0.0\r\n"
+    "uptime_in_seconds:3600\r\n\r\n"
+    "# Clients\r\nconnected_clients:4\r\n\r\n"
+    "# Memory\r\nused_memory:2516582\r\nused_memory_human:2.40M\r\n\r\n"
+    "# Stats\r\ntotal_commands_processed:5000\r\nkeyspace_hits:800\r\nkeyspace_misses:200\r\n"
+)
 
-    with patch("devops_cli.ui.data_providers.ValkeyClient", return_value=mock_client):
+
+def test_fetch_valkey_status_reads_the_flat_info_the_client_returns(
+    config: Callable[..., Path],
+) -> None:
+    """The panel shows what a server reports: version, uptime, memory, clients, commands, hits."""
+    replies = {"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode()), "DBSIZE": b":150\r\n"}
+    with serving_valkey(replies) as (port, _received):
+        config(valkey={"host": "127.0.0.1", "port": port})
         summary = fetch_valkey_status()
-        assert isinstance(summary, ValkeySummary)
-        assert summary.connected is True
-        assert summary.version == "8.0.1"
-        assert summary.used_memory == "2.4M"
-        assert summary.hit_ratio == 80.0
-        assert summary.key_count == 150
+
+    assert summary == ValkeySummary(
+        connected=True,
+        endpoint=f"127.0.0.1:{port}",
+        version="8.0.0",
+        uptime_seconds=3600,
+        used_memory="2.40M",
+        hit_ratio=80.0,
+        connected_clients=4,
+        total_commands=5000,
+        key_count=150,
+    )
+
+
+@pytest.mark.parametrize(
+    "plaintext_password",
+    [
+        pytest.param(None, id="keyring-only"),
+        pytest.param("plaintext-password", id="keyring-over-plaintext-setting"),
+    ],
+)
+def test_fetch_valkey_status_authenticates_with_the_keyring_password(
+    config: Callable[..., Path], mock_keyring: Any, plaintext_password: str | None
+) -> None:
+    """The panel sends the password `get_valkey_password` resolves, never the plaintext setting."""
+    mock_keyring.values["valkey_password"] = "keyring-password"
+    valkey_settings = {"host": "127.0.0.1", "password": plaintext_password}
+    with serving_valkey({"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode())}) as (port, received):
+        config(valkey={**valkey_settings, "port": port})
+        fetch_valkey_status()
+
+    assert received[0] == ["AUTH", "keyring-password"]
 
 
 def test_fetch_valkey_status_failure() -> None:
