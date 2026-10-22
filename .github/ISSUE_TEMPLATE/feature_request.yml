@@ -49,9 +49,11 @@ body:
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives Considered
-      description: What other approaches or existing tools have you considered?
-      placeholder: Describe alternative libraries, manual workarounds, or reason for rejection.
+      label: Existing Tool Considered
+      description: Which open tool or library covers this? If you propose to build instead, state the cost, which is the tokens to implement, maintain and fix until it matches the tool, plus the elapsed time.
+      placeholder: Name the tool and what it lacks, or the cost of building.
+    validations:
+      required: true
 
   - type: checkboxes
     id: checklist
