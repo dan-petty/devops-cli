@@ -103,6 +103,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
+| `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Devops_cli.github.ssh | Raised when SSH/signing key registration on GitHub fails. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |
 | `SandboxError` | `SANDBOX_ERROR` | `1` | Sandbox | Base exception for workload sandbox lifecycle operations. |
 | `SandboxNotFoundError` | `SANDBOX_NOT_FOUND_ERROR` | `1` | Sandbox | Raised when requested sandbox instance or container cannot be found. |

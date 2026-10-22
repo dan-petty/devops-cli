@@ -129,6 +129,7 @@ CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.rag.qdrant",
     "devops_cli.ai.run_store",
     "devops_cli.core.templating",
+    "devops_cli.github.ssh",
     "devops_cli.http.client",
     "devops_cli.k8s.node_port",
     "devops_cli.k8s.service_proxy",
@@ -1708,9 +1709,8 @@ CONST_GITHUB_GHOST_LOGIN: Final[str] = "ghost"
 CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
-# second after it. A call at a reset that has passed waits until this long past it, the margin
-# PyGithub 2.10.0 adds ("plus 1s as it is not clear when in that second the reset occurs",
-# github/GithubRetry.py) (#1364).
+# second after it. A call at a reset that has passed waits until this long past it, because it is
+# not clear when in that second the reset occurs (#1364).
 CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS: Final[float] = 1.0
 # How far the local clock may run past the reset GitHub has just reported before the clocks count
 # as disagreeing. The Service measured GitHub reporting an ended window 0.72 s to 2.07 s past its

@@ -36,7 +36,7 @@ graph TD
         K8S["kubernetes<br/>K8s API & Pods"]
         DOCKER["docker<br/>Engine Daemon SDK"]
         CRYPTO["cryptography<br/>X.509 CA & TLS"]
-        GIT["gitpython & PyGithub<br/>Git & GitHub APIs"]
+        GIT["gitpython & gidgethub<br/>Git & GitHub APIs"]
         OTEL["opentelemetry-otlp<br/>Tempo Tracing"]
         FASTMCP["fastmcp<br/>MCP Server Protocol"]
         FASTAPI["fastapi & uvicorn<br/>REST API Engine"]
@@ -169,11 +169,12 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Codebase Integration**:
   - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
 
-#### `PyGithub` ([Dedicated Manual](libraries/pygithub.md))
-- **Pinned Version**: `PyGithub==2.10.0`
-- **Ecosystem Role**: Full-featured client for the GitHub REST API v3 and GraphQL API.
+#### `gidgethub`
+- **Pinned Version**: `gidgethub==6.0.0`
+- **Ecosystem Role**: Sans-I/O GitHub REST client. It builds each request and decodes each answer. It sends nothing itself.
 - **Codebase Integration**:
-  - `devops_cli.github.client`: Fetches PR details and posts review findings through the GitHub REST API.
+  - `devops_cli.github.session` and `devops_cli.github.session_transport`: Send every REST request as the one identity of the process, read every `Link` page, and raise the typed GitHub errors. See ADR 0006.
+  - `devops_cli.github.client`: Reads pull requests, their files, files at a commit, merge bases and repositories through the session. It posts review comments through the session.
 
 #### `cryptography` ([Dedicated Manual](libraries/cryptography.md))
 - **Pinned Version**: `cryptography==50.0.2`

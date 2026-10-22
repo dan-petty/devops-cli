@@ -18,7 +18,7 @@ from devops_cli.exceptions.git import (
 from devops_cli.github.session import GitHubSession, get_github_session
 
 
-class SSHRegistrationError(RuntimeError):
+class SSHRegistrationError(GitHubOperationError):
     """Raised when SSH/signing key registration on GitHub fails."""
 
 

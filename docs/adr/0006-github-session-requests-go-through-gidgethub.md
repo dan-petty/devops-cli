@@ -15,7 +15,7 @@ The process's GitHub session (#767) sends its own REST requests through gidgethu
 ## Considered Options
 
 - **A hand-written subclass of `gidgethub.abc.GitHubAPI`** (the owner's 2026-10-08 decision): superseded. It was chosen because gidgethub's httpx adapter took an `httpx.AsyncClient`. Since 6.0.0 (2026-09-25) the adapter imports `httpx2` first, so it takes the factory's client unchanged, and subclassing it leaves `_request` as a thin wrapper rather than a transport of our own.
-- **PyGithub**: rejected as the transport. It talks to GitHub over `requests`, outside the egress-checked factory and the ledger, its pagination and retries are its own, and #891 removes it.
+- **PyGithub**: rejected as the transport. It talks to GitHub over `requests`, outside the egress-checked factory and the ledger, its pagination and retries are its own, and #891 removed it.
 - **githubkit**: rejected. It generates models and methods for the whole API, far more than the session reads, and its own retry and rate-limit handling would compete with the ledger that already paces `gh`.
 - **httpx2 alone, with our own `Link` parser, retry loop and ETag store**: rejected. That is the hand-written code this decision removes, and #1034 showed how such a page loop goes wrong.
 - **Everything through the `gh` CLI**: rejected for the session's own requests. Each call is a process, and its errors arrive as text that can only be matched by phrase. Board commands, review threads and other GraphQL calls stay on gh until an item moves them.
