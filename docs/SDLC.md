@@ -73,7 +73,6 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 3. **Active Milestone GitHub Resource Population**:
    - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
-   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
 4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
      - **Backlog / Ready**: Queued deliverables and scoped milestones.
