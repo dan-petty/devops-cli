@@ -57,7 +57,7 @@ Behaviour that changes with the library:
 - Not done: one validated `valkey.url` with `--url` on the `devops valkey` commands, in place of `valkey.host`, `valkey.port` and `valkey.db` (a later Part of #1113).
 - Not done: resolve a name once, check every answer and dial the checked address, under #898's resolve-and-check function (a later Part of #1113).
 - Not done: build the k8s URLs with `httpx2.URL` (a later Part of #1113).
-- Not done: fix the dashboard INFO reading and its plaintext password (a later Part of #1113).
+- [x] Fix the dashboard INFO reading and its plaintext password. `docs/agent/tasks/task-1113-the-valkey-dashboard-panel-reads-the-real-client.md` describes this step.
 - Not done: share one fail-soft client between the embeddings, library-symbol and threat-intel caches (a later Part of #1113).
 - Not done: add a contract suite for the in-memory Valkey server. A recorded exchange or a local Valkey must become available first (a later Part of #1113).
 - Not done: add the changelog fragment `changelog.d/1113.md`. The Part that closes #1113 adds it.

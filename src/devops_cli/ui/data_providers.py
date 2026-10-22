@@ -24,7 +24,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_PORT,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import get_valkey_password, load_settings
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
@@ -575,23 +575,14 @@ def fetch_valkey_status() -> ValkeySummary:
         client = ValkeyClient(
             host=endpoint,
             port=int(getattr(cfg, "port", DEFAULT_VALKEY_PORT)),
-            password=getattr(cfg, "password", None),
+            password=get_valkey_password(settings),
             db=int(getattr(cfg, "db", 0)),
             timeout=DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
         )
         endpoint = f"{client.host}:{client.port}"
         info = client.info()
-        server_raw = info.get("server")
-        server_dict: dict[str, Any] = server_raw if isinstance(server_raw, dict) else {}
-        clients_raw = info.get("clients")
-        clients_dict: dict[str, Any] = clients_raw if isinstance(clients_raw, dict) else {}
-        memory_raw = info.get("memory")
-        memory_dict: dict[str, Any] = memory_raw if isinstance(memory_raw, dict) else {}
-        stats_raw = info.get("stats")
-        stats_dict: dict[str, Any] = stats_raw if isinstance(stats_raw, dict) else {}
-
-        hits = float(stats_dict.get("keyspace_hits", 0))
-        misses = float(stats_dict.get("keyspace_misses", 0))
+        hits = float(info.get("keyspace_hits", 0))
+        misses = float(info.get("keyspace_misses", 0))
         total_queries = hits + misses
         hit_ratio = round((hits / total_queries) * 100.0, 1) if total_queries > 0 else 0.0
 
@@ -604,12 +595,12 @@ def fetch_valkey_status() -> ValkeySummary:
         return ValkeySummary(
             connected=True,
             endpoint=endpoint,
-            version=str(server_dict.get("valkey_version", "unknown")),
-            uptime_seconds=int(server_dict.get("uptime_in_seconds", 0)),
-            used_memory=str(memory_dict.get("used_memory_human", "0M")),
+            version=str(info.get("valkey_version", "unknown")),
+            uptime_seconds=int(info.get("uptime_in_seconds", 0)),
+            used_memory=str(info.get("used_memory_human", "0M")),
             hit_ratio=hit_ratio,
-            connected_clients=int(clients_dict.get("connected_clients", 0)),
-            total_commands=int(stats_dict.get("total_commands_processed", 0)),
+            connected_clients=int(info.get("connected_clients", 0)),
+            total_commands=int(info.get("total_commands_processed", 0)),
             key_count=key_count,
         )
     except Exception as exc:

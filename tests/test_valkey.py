@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import socket
-import threading
-from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +21,7 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.valkey.client import ValkeyClient
-from tests.support.fakes.valkey import valkey_client_on
+from tests.support.fakes.valkey import bulk_reply, serving_valkey, valkey_client_on
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 runner = CliRunner()
@@ -37,58 +34,6 @@ _PRIVATE_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379)
 # =============================================================================
 # 1. ValkeyClient: destination check, commands, failures
 # =============================================================================
-
-
-def _bulk(payload: bytes) -> bytes:
-    """A RESP bulk string reply."""
-    return b"$%d\r\n%s\r\n" % (len(payload), payload)
-
-
-def _commands_in(request: bytes) -> list[list[str]]:
-    """The commands in the bytes a client sent: an array header, then a bulk string per word."""
-    lines = request.decode().split("\r\n")
-    commands: list[list[str]] = []
-    position = 0
-    while position < len(lines) and lines[position].startswith("*"):
-        words = int(lines[position][1:])
-        commands.append(lines[position + 2 : position + 1 + 2 * words : 2])
-        position += 1 + 2 * words
-    return commands
-
-
-@contextmanager
-def _serving_valkey(
-    replies: Mapping[str, bytes] | None = None,
-) -> Iterator[tuple[int, list[list[str]]]]:
-    """A loopback server that records the commands it receives and answers each from `replies`.
-
-    `replies` maps an upper-case command name to its RESP reply; any other command is answered
-    +OK. The yielded record is complete once the block exits, which waits for the client to close
-    its connection. valkey-py announces its name and version with `CLIENT SETINFO` after it
-    connects; the record leaves those out.
-    """
-    answers = replies or {}
-    received: list[list[str]] = []
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-
-        def serve() -> None:
-            connection, _ = listener.accept()
-            with connection:
-                while request := connection.recv(4096):
-                    commands = _commands_in(request)
-                    received.extend(c for c in commands if c[:2] != ["CLIENT", "SETINFO"])
-                    connection.sendall(
-                        b"".join(
-                            answers.get(command[0].upper(), b"+OK\r\n") for command in commands
-                        )
-                    )
-
-        server = threading.Thread(target=serve, daemon=True)
-        server.start()
-        yield listener.getsockname()[1], received
-        server.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
 
 class TestValkeyClientDestination:
@@ -205,7 +150,7 @@ class TestValkeyClientCommands:
 
     def test_info_is_parsed_into_a_dict(self) -> None:
         text = "# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n"
-        with _serving_valkey({"INFO": _bulk(text.encode())}) as (port, _received):
+        with serving_valkey({"INFO": bulk_reply(text.encode())}) as (port, _received):
             client = ValkeyClient(host="127.0.0.1", port=port)
             info = client.info()
             client.close()
@@ -285,14 +230,14 @@ class TestValkeyClientConnection:
     def test_a_new_connection_authenticates_and_selects_what_the_client_was_given(
         self, arguments: dict[str, Any], announced: list[list[str]]
     ) -> None:
-        with _serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
             client = ValkeyClient(host="127.0.0.1", port=port, **arguments)
             pinged = client.ping()
             client.close()
         assert (pinged, received) == (True, [*announced, ["PING"]])
 
     def test_a_reply_that_is_not_utf8_is_decoded_with_replacement(self) -> None:
-        with _serving_valkey({"GET": _bulk(b"ok\xff")}) as (port, _received):
+        with serving_valkey({"GET": bulk_reply(b"ok\xff")}) as (port, _received):
             client = ValkeyClient(host="127.0.0.1", port=port)
             values = (client.get("blob"), client.execute("GET", "blob"))
             client.close()
