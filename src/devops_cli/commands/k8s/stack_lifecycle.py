@@ -81,8 +81,9 @@ _HELM_REPOS: dict[str, str] = {
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
-        # First: argocd's metrics.serviceMonitor, pyroscope's serviceMonitor, qdrant's
-        # metrics.serviceMonitor and k8s/llm/gateway/servicemonitor.yaml define ServiceMonitors,
+        # First: argocd's metrics.serviceMonitor, argo-workflows' controller.serviceMonitor,
+        # pyroscope's serviceMonitor, qdrant's metrics.serviceMonitor and
+        # k8s/llm/gateway/servicemonitor.yaml define ServiceMonitors,
         # and no other chart ships their CRD (k8s-monitoring 4.x dropped it).
         {
             "name": "prometheus-operator-crds",
@@ -97,6 +98,13 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "namespace": "argocd",
             "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
             "version": "10.9.6",
+        },
+        {
+            "name": "argo-workflows",
+            "chart": "argo/argo-workflows",
+            "namespace": "argo-workflows",
+            "values": str(DEFAULT_K8S_DIR / "argo-workflows" / "values.yaml"),
+            "version": "2.0.13",
         },
         {
             "name": "k8s-monitoring",
@@ -188,6 +196,7 @@ _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
         DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "argo-workflows" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "otel" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "ingress" / "ingress-routes.yaml",
     ],
@@ -235,6 +244,7 @@ _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
 # reverse order before Helm releases uninstall: a directory goes through `_apply_kustomizations`
 # (`kubectl apply -k`) and a file through `_apply_manifest_files` (`kubectl apply -f`) (#1367, #1391).
 _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
+    "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
 }
 
@@ -1265,7 +1275,7 @@ def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> N
         return
 
     ns_map: dict[str, tuple[str, ...]] = {
-        "infra": ("argocd", "monitoring", "otel"),
+        "infra": ("argocd", "argo-workflows", "monitoring", "otel"),
         "llm": ("llm",),
         "logging": ("logging",),
     }

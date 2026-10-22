@@ -1,0 +1,46 @@
+# The controller and every workflow pod reach DNS and the API server, and nothing else. They
+# accept only the metrics scrape. No public HTTPS and no OTLP: `--version` needs neither (#1535).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argo-workflows-default-perimeter
+  namespace: argo-workflows
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. Alloy's scrape of the controller's metrics port. A namespace-selector-only peer, and no
+    #    ipBlock: kube-router matches an ingress CIDR against pod addresses.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # 1. CoreDNS lookups
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The API server. The `kubernetes` Service resolves to the node's address on 6443, which no
+    #    namespace selector matches, so the peer is an ipBlock with the cloud metadata address
+    #    excluded, as Argo CD's and cloudflared's are.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 6443

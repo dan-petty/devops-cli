@@ -598,6 +598,7 @@ def _repo_scrape_sources() -> dict[str, Any]:
         "cloudflared": _k8s_yaml("cloudflared/deployment.yaml"),
         "roadmap-service": _k8s_yaml("devops/roadmap-service/deployment.yaml"),
         "argocd": _k8s_yaml("argocd/values.yaml"),
+        "argo-workflows": _k8s_yaml("argo-workflows/values.yaml"),
         "valkey": next(
             d for d in valkey_docs if isinstance(d, dict) and d.get("kind") == "Deployment"
         ),
@@ -614,6 +615,15 @@ def _argocd_monitored(argocd: dict[str, Any]) -> bool:
     ) and (argocd.get("redis", {}).get("exporter", {}).get("enabled") is True)
 
 
+def _argo_workflows_monitored(argo_workflows: dict[str, Any]) -> bool:
+    """Whether the Argo Workflows chart serves the controller's metrics and renders its ServiceMonitor (#1535)."""
+    controller = argo_workflows["controller"]
+    return (
+        controller["metricsConfig"]["enabled"] is True
+        and controller["serviceMonitor"]["enabled"] is True
+    )
+
+
 def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
     template = deployment["spec"]["template"]["metadata"]
     return _Pods(
@@ -622,7 +632,8 @@ def _deployment_pods(deployment: dict[str, Any]) -> _Pods:
 
 
 def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
-    """The components the server's pod discovery scraped before #1130, DCGM, and #551's additions."""
+    """The components the server's pod discovery scraped before #1130, DCGM, and the additions of
+    #551 and #1535."""
     return {
         "cloudflared": _deployment_pods(sources["cloudflared"]),
         "roadmap-service": _deployment_pods(sources["roadmap-service"]),
@@ -633,6 +644,12 @@ def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
             {"app.kubernetes.io/part-of": "argocd"},
             {},
             chart_monitor=_argocd_monitored(sources["argocd"]),
+        ),
+        "argo-workflows": _Pods(
+            _argo_namespace("argo-workflows"),
+            {"app.kubernetes.io/part-of": "argo-workflows"},
+            {},
+            chart_monitor=_argo_workflows_monitored(sources["argo-workflows"]),
         ),
         "alertmanager": _Pods(
             _argo_namespace("prometheus"),
@@ -710,6 +727,7 @@ def test_each_annotated_component_has_one_scrape_owner() -> None:
         "valkey": ["annotationAutodiscovery"],
         "registry": ["annotationAutodiscovery"],
         "argocd": ["chart ServiceMonitor"],
+        "argo-workflows": ["chart ServiceMonitor"],
         "alertmanager": ["annotationAutodiscovery"],
         "otel-collector": ["kubernetes-pods"],
         "loki": ["integrations/loki"],
@@ -810,18 +828,23 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
     """Alloy's collectors and the Prometheus server both run in `monitoring`, behind its
     perimeter, so each port they scrape needs an egress rule there (#1130). Without one the
     scrape is dropped; with two, narrowing one rule would leave the port open through the other.
-    The ports are the annotated pods' own, Traefik's metrics entry point, and the ports the
-    charts and k3s set for CoreDNS, Loki and DCGM."""
+    The ports are the annotated pods' own, Traefik's metrics entry point, the Argo Workflows
+    controller's, and the ports the charts and k3s set for CoreDNS, Loki and DCGM."""
     policy = _k8s_yaml("monitoring/networkpolicy.yaml")
     egress = policy["spec"]["egress"]
     traefik_port = _k8s_yaml("ingress/traefik-values.yaml")["ports"]["metrics"]["port"]
+    sources = _repo_scrape_sources()
     scrapes = {
         *(
             (pods.namespace, int(pods.annotations["prometheus.io/port"]))
-            for pods in _annotated_components(_repo_scrape_sources()).values()
+            for pods in _annotated_components(sources).values()
             if "prometheus.io/port" in pods.annotations
         ),
         *((_argo_namespace("argocd"), port) for port in ARGOCD_METRICS_PORTS),
+        (
+            _argo_namespace("argo-workflows"),
+            sources["argo-workflows"]["controller"]["metricsConfig"]["port"],
+        ),
         (_argo_namespace("traefik"), traefik_port),
         (COREDNS_NAMESPACE, COREDNS_METRICS_PORT),
         (_argo_namespace("loki"), LOKI_METRICS_PORT),
@@ -833,6 +856,7 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
     }
 
     assert sorted(counts.items()) == [
+        (("argo-workflows", 9090), 1),
         (("argocd", 8082), 1),
         (("argocd", 8083), 1),
         (("argocd", 8084), 1),

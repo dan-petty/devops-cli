@@ -22,7 +22,7 @@ graph TD
 ```
 
 - **Stack Metadata**:
-  - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Tempo in `otel`.
+  - `infra`: Argo CD in `argocd`; the Argo Workflows controller in `argo-workflows`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Tempo in `otel`.
   - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
   - `logging`: Loki in `logging` namespace.
   - `devops`: devops-cli's cluster Jobs and roadmap-service in `devops` namespace; deploy-stack renders their ConfigMap `devops-cli-config` from `config.yaml`, and on an Argo CD-managed cluster sets the homelab hosts on the Applications `devops` and `ingress`.

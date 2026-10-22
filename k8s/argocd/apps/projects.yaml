@@ -23,6 +23,8 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: agents
     - server: https://kubernetes.default.svc
+      namespace: argo-workflows
+    - server: https://kubernetes.default.svc
       namespace: argocd
     - server: https://kubernetes.default.svc
       namespace: cloudflared
@@ -79,6 +81,9 @@ spec:
       - group: batch
         kind: Job
         name: devops-cli-*
+      - group: argoproj.io
+        kind: Workflow
+        name: devops-cli-version-*
       - group: argoproj.io
         kind: AppProject
         name: default

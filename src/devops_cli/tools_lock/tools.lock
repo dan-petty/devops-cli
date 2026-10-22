@@ -102,27 +102,27 @@ sha256 = "d3870437e1e95b67f8edbde964156c84a26503f560821d40c542441658934fba"
 member = "darwin-arm64/helm"
 
 [binary.argo]
-version = "4.1.4"
+version = "4.1.5"
 description = "Argo Workflows CLI"
 source = "https://github.com/argoproj/argo-workflows"
 bin = "argo"
 format = "gzip"
 
 [binary.argo.platforms.linux-amd64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.4/argo-linux-amd64.gz"
-sha256 = "2c8ef41d53593f2ee64d85fb69b631c89a0fc2c57e6ce011422caa525a97ec58"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-amd64.gz"
+sha256 = "ab78728d3bcd029f0e8547736e2f3c69d2519a134a3f9ee74454ededa14af36c"
 
 [binary.argo.platforms.linux-arm64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.4/argo-linux-arm64.gz"
-sha256 = "f95eb2f6c3b3481724a76f5f90269d09a8be3a4529ee08eb9287adaab3622192"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-arm64.gz"
+sha256 = "70058ede05677ae1d173bc9de8c670f01e21284dbbc0da1c5434217208a5c5eb"
 
 [binary.argo.platforms.darwin-amd64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.4/argo-darwin-amd64.gz"
-sha256 = "7dc8d83e3524d1b603bc1749ea6e2919624a4ada2b9ad8dbb28c428e32749fe4"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-darwin-amd64.gz"
+sha256 = "79ea9f4d7503c32aea79d40a0e2f78a36a7bb814c4bd3dd644e0185dd2f4f89a"
 
 [binary.argo.platforms.darwin-arm64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.4/argo-darwin-arm64.gz"
-sha256 = "010e265e19acc4af4441307811cf342f897db4c8ae598a0983fbb2a82dadde79"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-darwin-arm64.gz"
+sha256 = "cd76f14ca024247323a56e55b0c9ca5c9ee3510607e9ea0fe833d0a329044e03"
 
 [binary.argocd]
 version = "3.5.4"
