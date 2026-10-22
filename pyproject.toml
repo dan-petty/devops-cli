@@ -244,6 +244,7 @@ pytest_add_cli_args_test_selection = [
 also_copy = [
     ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gh-dash.yml", ".gitattributes",
     ".github", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version",
+    ".tuicrignore",
     ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
     "CONTRIBUTING.md", "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md",
     "changelog.d", "config.example.yaml", "docs", "k8s", "tf",

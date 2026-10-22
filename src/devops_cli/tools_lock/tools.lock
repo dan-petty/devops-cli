@@ -20,6 +20,11 @@
 # `go install` or `brew`: each one skips this pin. A bump of gh-dash also replaces
 # `tests/fixtures/gh_dash_schema/` with the schema of the new version, which
 # `tests/test_gh_dash_config.py` checks against this `version`.
+# tuicr publishes no checksum file, and its release workflow has no signing or attestation step, so
+# the asset `digest` is the only source of each tuicr `sha256`. Never install it with `curl | sh`,
+# `cargo install` or `brew`, and never run `tuicr update`: each one skips this pin. Take the Linux
+# build from the `musl` archive, which is static. A bump of tuicr also needs a run of
+# `tests/test_tuicr_config.py`.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
@@ -368,6 +373,33 @@ sha256 = "6b8d26b4d01d7b9f96930b7aaafd145a91a9af94332199c44e20b5a3e8e5f1dc"
 [binary.gh-dash.platforms.darwin-arm64]
 url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_darwin-arm64"
 sha256 = "591cfe85838c3459b56b4a08bcdf0ce11a5c59a92d466ab312cca0c4ad0d163f"
+
+[binary.tuicr]
+version = "0.27.0"
+description = "Terminal code review UI for diffs"
+source = "https://github.com/agavra/tuicr"
+bin = "tuicr"
+format = "tar.gz"
+
+[binary.tuicr.platforms.linux-amd64]
+url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4"
+member = "tuicr"
+
+[binary.tuicr.platforms.linux-arm64]
+url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-aarch64-unknown-linux-musl.tar.gz"
+sha256 = "d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490"
+member = "tuicr"
+
+[binary.tuicr.platforms.darwin-amd64]
+url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-x86_64-apple-darwin.tar.gz"
+sha256 = "c93a066b4c0d558ecb09ebad498f12b6c34fd95cad536ec5a05a4fec91be1850"
+member = "tuicr"
+
+[binary.tuicr.platforms.darwin-arm64]
+url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-aarch64-apple-darwin.tar.gz"
+sha256 = "170b2e5290435faaf663c9498b1385493df7c336646b74c9336388844e028dcf"
+member = "tuicr"
 
 [binary.gitleaks]
 version = "8.30.1"
