@@ -445,6 +445,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("ai", "review", "findings"),
         ("ai", "review", "path"),
         ("ai", "review", "pr"),
+        ("ai", "review", "rules", "fetch"),
         ("ai", "review", "rules", "test"),
         ("ai", "review", "samples", "fetch"),
         ("ai", "review", "samples", "list"),
@@ -647,6 +648,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("review", "benchmark"),
         ("review", "corpus", "generate"),
         ("review", "corpus", "score"),
+        ("review", "rules", "fetch"),
         ("review", "rules", "test"),
         ("review", "samples", "fetch"),
         ("review", "samples", "list"),
@@ -3275,6 +3277,14 @@ CONST_SEMGREP_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
     "repos",
     ".git",
 )
+
+# Where a registry ruleset is downloaded from, `{ruleset}` being an id such as `p/default`.
+CONST_SEMGREP_REGISTRY_URL_TEMPLATE: Final[str] = "https://semgrep.dev/c/{ruleset}"
+# The prefixes of a Semgrep registry id, the ones its own `is_registry_id` takes: `p/` for a pack
+# of rules, `r/` for one rule, `s/` for a snippet.
+CONST_SEMGREP_REGISTRY_RULESET_KINDS: Final[frozenset[str]] = frozenset({"p", "r", "s"})
+# The directory of the user data root that holds the downloaded registry rulesets.
+CONST_SEMGREP_REGISTRY_CACHE_DIRNAME: Final[str] = "semgrep"
 
 
 CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(

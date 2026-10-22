@@ -248,6 +248,9 @@ DEFAULT_SEMGREP_TIMEOUT_SECONDS: float = 300.0
 # 300 s timeout at a one-minute load average of 33, about 0.87 s a file: 100 files take about
 # 87 s at that rate, under half the timeout.
 DEFAULT_SEMGREP_REVIEW_BATCH_FILES: int = 100
+# The most bytes a registry ruleset download may hold; p/default is 2.5 MB.
+DEFAULT_SEMGREP_REGISTRY_MAX_BYTES: int = 32 * 1024 * 1024
+DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS: float = 60.0
 
 
 # ── Telemetry HTTP Defaults ───────────────────────────────────────────────────

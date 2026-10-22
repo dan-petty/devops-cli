@@ -1324,7 +1324,7 @@ class ReviewCommandHelp:
         "Specific defect template(s) to check (default: all registered templates)."
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
-    rules: str = "Verify and lock devops-cli's Semgrep review rule pack."
+    rules: str = "Verify and lock devops-cli's Semgrep review rule pack, and cache Semgrep registry rulesets."
     rules_test: str = (
         "Run `semgrep --test` on the review rule pack and write or check `rules.lock`."
     )
@@ -1332,6 +1332,9 @@ class ReviewCommandHelp:
         "Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`."
     )
     rules_check: str = "Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it."
+    rules_fetch_ruleset: str = (
+        "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
+    )
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."

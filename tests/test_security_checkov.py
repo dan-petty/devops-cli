@@ -395,7 +395,7 @@ def test_fallback_k8s_matches_yaml_nested_too_deep_to_walk_line_by_line(
     """
     from devops_cli.security import checkov
 
-    monkeypatch.setattr(checkov, "_YAML_LOADER", yaml.SafeLoader)
+    monkeypatch.setattr(checkov, "YAML_SAFE_LOADER", yaml.SafeLoader)
     depth = 1500
     nested = "kind: List\nitems: " + "[{items: " * depth + "[]" + "}]" * depth + "\n"
     (tmp_path / "deep.yaml").write_text(nested + "---\n" + _PRIVILEGED_MANIFESTS["pod.yaml"])

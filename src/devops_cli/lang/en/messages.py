@@ -121,6 +121,24 @@ class ReviewMessages:
         "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
     )
     rules_test_dry_run: str = r"[yellow]\[dry-run][/yellow] Would run `semgrep --test --metrics off {path}` and write {lock}."
+    rules_fetch_dry_run_heading: str = (
+        "Dry run: no request was made. rules fetch would make these requests, in order:"
+    )
+    rules_fetch_dry_run_writes: str = (
+        "It would then write the ruleset to {rules} and its ETag to {etag}."
+    )
+    rules_fetch_cached: str = "Cached {count} rule(s) of {ruleset} in [bold]{path}[/bold]."
+    rules_fetch_current: str = "The cached {ruleset} in [bold]{path}[/bold] is current."
+    registry_ruleset_invalid: str = (
+        "'{ruleset}' is not a Semgrep registry id. Write the kind ({kinds}), a slash and one name "
+        "with no path, query or fragment in it, such as p/default."
+    )
+    registry_answer_refused: str = "the registry answered HTTP {status}"
+    registry_answer_too_large: str = "the ruleset is larger than {limit} bytes"
+    registry_answer_not_a_ruleset: str = (
+        "The answer from {url} is not a Semgrep ruleset: it needs a `rules` list of at least one "
+        "rule, each with an id."
+    )
 
 
 @dataclass(frozen=True)

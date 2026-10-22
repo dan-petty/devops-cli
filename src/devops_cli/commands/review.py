@@ -31,15 +31,18 @@ from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_BENCHMARK_RUNS,
     DEFAULT_REVIEW_CORPUS_SEED,
+    DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
-from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
+from devops_cli.telemetry import trace_span
 
 __all__ = [
     "app",
@@ -2470,7 +2473,7 @@ def export_feedback(
 
 
 # =============================================================================
-# Commands: devops review rules test
+# Commands: devops review rules test, devops review rules fetch
 # =============================================================================
 
 rules_app = new_typer(help=HELP.review.rules, no_args_is_help=True)
@@ -2525,4 +2528,53 @@ def rules_test(
             version=versions[0] if versions else "unknown",
             path=lock_path,
         )
+    )
+
+
+@rules_app.command("fetch")
+@trace_span("review.rules.fetch")
+def rules_fetch(
+    ruleset: Annotated[
+        str,
+        typer.Option("--ruleset", help=HELP.review.rules_fetch_ruleset),
+    ] = DEFAULT_SEMGREP_CONFIG,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+    This is the one step that reaches the registry, and a review never runs it. A later part of
+    #1144 makes the review read the cached ruleset offline.
+    """
+    from devops_cli.security.semgrep_registry import (
+        fetch_registry_ruleset,
+        registry_cache_paths,
+        registry_ruleset_url,
+    )
+
+    if dry_run:
+        set_dry_run(True)
+    with exit_on_error(DevOpsCLIError):
+        if is_dry_run():
+            paths = registry_cache_paths(ruleset)
+            render_request_plan(
+                MESSAGES.review.rules_fetch_dry_run_heading,
+                [PlannedRequest(method="GET", target=registry_ruleset_url(ruleset))],
+                [
+                    MESSAGES.review.rules_fetch_dry_run_writes.format(
+                        rules=paths.rules, etag=paths.etag
+                    )
+                ],
+            )
+            return
+        cached = fetch_registry_ruleset(ruleset)
+    template = (
+        MESSAGES.review.rules_fetch_current
+        if cached is None
+        else MESSAGES.review.rules_fetch_cached
+    )
+    print_success(
+        template.format(count=cached, ruleset=ruleset, path=registry_cache_paths(ruleset).rules)
     )

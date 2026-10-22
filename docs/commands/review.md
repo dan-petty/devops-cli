@@ -508,4 +508,24 @@ devops review rules test [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops review rules fetch`
+
+**Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).**
+
+Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+This is the one step that reaches the registry, and a review never runs it. A later part of
+#1144 makes the review read the cached ruleset offline.
+
+```bash
+devops review rules fetch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ruleset` | `string` | `p/default` | Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
