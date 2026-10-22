@@ -2,74 +2,27 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 import logging
-import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai import CachePoint
+from pydantic_ai.concurrency import AnyConcurrencyLimit
 from pydantic_ai.exceptions import UserError
-from pydantic_ai.messages import UserPromptPart
+from pydantic_ai.models.concurrency import limit_model_concurrency
 from pydantic_ai.models.fallback import FallbackModel
-from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.agents.capabilities import BaseCapability
-from devops_cli.ai.client import LLMClient, get_llm_client
-from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
-from devops_cli.ai.governance import TokenBucketGovernance, TokenBudgetConfig
-from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.constants import (
     CONST_AI_CASCADE_PROVIDERS,
-    CONST_AI_DEFAULT_CACHE_MARKER_KIND,
     CONST_AI_GATEWAY_DEFAULT_ROUTE,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_URL_SETTINGS,
-    CONST_AI_PROMPT_CACHE_TTL_5M,
-    CONST_AI_PROMPT_CACHE_TTLS,
     CONST_AI_PYDANTIC_MODEL_PREFIXES,
     CONST_URL_GITHUB_COPILOT_API_BASE,
-)
-from devops_cli.config.defaults import (
-    DEFAULT_AI_AGENT_PERSONA,
-    DEFAULT_AI_CONTEXT_TOKEN_BUDGET,
-    DEFAULT_AI_END_STRATEGY,
-    DEFAULT_CURRENT_PATH,
 )
 from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.exceptions import ConfigurationError, InvalidURLError, SSRFBlockedError
 
 logger = logging.getLogger(__name__)
-
-
-class DevOpsAgentContext(BaseModel):
-    """Execution context and dependency container passed to PydanticAI agents."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
-
-    settings: Settings | None = None
-    target_repo: str = str(DEFAULT_CURRENT_PATH)
-    active_persona: str = DEFAULT_AI_AGENT_PERSONA
-    context_tokens_budget: int = DEFAULT_AI_CONTEXT_TOKEN_BUDGET
-    capabilities: list[BaseCapability] = Field(default_factory=list)
-    tools: list[Any] = Field(default_factory=list)
-    client: LLMClient | None = None
-    governance: TokenBucketGovernance | None = None
-    budget: TokenBudgetConfig | None = None
-
-
-def is_pydantic_ai_available() -> bool:
-    """Check if pydantic_ai library is installed and importable."""
-    try:
-        import pydantic_ai  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
 
 
 def _gateway_prefix(model_str: str) -> str | None:
@@ -234,181 +187,6 @@ def resolve_pydantic_ai_model(
     return _wrap_model_concurrency(resolved, model_concurrency)
 
 
-def _resolve_result_model(output_type: Any, result_type: Any, output_mode: str | None) -> Any:
-    """Resolve structured output result model."""
-    res_model = output_type if output_type is not None else (result_type or ReviewResult)
-    if output_mode is not None:
-        from devops_cli.ai.output import build_output_spec
-
-        return build_output_spec(res_model, mode=output_mode)  # type: ignore[arg-type]
-    return res_model
-
-
-def _populate_agent_optional_kwargs(
-    kwargs: dict[str, Any],
-    sig_params: Mapping[str, inspect.Parameter],
-    active_caps: list[BaseCapability],
-    active_tools: list[Any],
-    active_toolsets: list[Any],
-    max_concurrency: AnyConcurrencyLimit,
-) -> None:
-    """Populate optional capability, tool, and concurrency kwargs based on Agent signature."""
-    if "capabilities" in sig_params and active_caps:
-        kwargs["capabilities"] = active_caps
-    if "tools" in sig_params and active_tools:
-        kwargs["tools"] = active_tools
-    if "toolsets" in sig_params and active_toolsets:
-        kwargs["toolsets"] = active_toolsets
-    if "max_concurrency" in sig_params and max_concurrency is not None:
-        kwargs["max_concurrency"] = max_concurrency
-
-
-def _fallback_pydantic_agent(
-    client: LLMClient | None,
-    settings: Settings,
-    target_model: Any,
-    system_prompt: str,
-    active_tools: list[Any],
-    active_toolsets: list[Any],
-    active_caps: list[BaseCapability],
-    res_model: Any,
-    max_concurrency: AnyConcurrencyLimit,
-) -> Any:
-    """Construct fallback PydanticAgent when native PydanticAI Agent fails to initialize."""
-    active_client = client or get_llm_client(settings=settings)
-    name_suffix = target_model if target_model else "default"
-    return PydanticAgent(
-        client=active_client,
-        name=f"agent-{name_suffix}",
-        system_prompt=system_prompt,
-        tools=active_tools,
-        toolsets=active_toolsets,
-        capabilities=active_caps,
-        output_type=res_model,
-        max_concurrency=max_concurrency,
-    )
-
-
-def create_pydantic_ai_agent(
-    model_name: str | Any | None = None,
-    system_prompt: str = "",
-    output_type: Any = None,
-    result_type: Any = None,
-    output_mode: str | None = None,
-    deps_type: type[Any] = DevOpsAgentContext,
-    capabilities: Sequence[BaseCapability] | None = None,
-    tools: Sequence[Any] | None = None,
-    client: LLMClient | None = None,
-    end_strategy: str = DEFAULT_AI_END_STRATEGY,
-    retries: int | None = None,
-    max_concurrency: AnyConcurrencyLimit = None,
-    model_concurrency: AnyConcurrencyLimit = None,
-    toolsets: Sequence[Any] | None = None,
-) -> Any:
-    """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, outputs, and concurrency limits."""
-    settings: Settings = load_settings()
-    target_model = model_name or getattr(getattr(settings, "ai", None), "model", None)
-    res_model = _resolve_result_model(output_type, result_type, output_mode)
-    active_caps = list(capabilities or [])
-    active_tools = list(tools or [])
-    active_toolsets = list(toolsets or [])
-
-    try:
-        from pydantic_ai import Agent
-
-        resolved_model = resolve_pydantic_ai_model(
-            target_model, settings=settings, model_concurrency=model_concurrency
-        )
-        kwargs: dict[str, Any] = {
-            "system_prompt": system_prompt,
-            "deps_type": deps_type,
-            "end_strategy": end_strategy,
-        }
-        if retries is not None:
-            kwargs["retries"] = retries
-        sig = inspect.signature(Agent.__init__)
-        res_key = "output_type" if "output_type" in sig.parameters else "result_type"
-        kwargs[res_key] = res_model
-        _populate_agent_optional_kwargs(
-            kwargs, sig.parameters, active_caps, active_tools, active_toolsets, max_concurrency
-        )
-        if resolved_model is not None:
-            kwargs["model"] = resolved_model
-        return Agent(**kwargs)
-    except (TypeError, UserError) as exc:
-        # The native Agent refused its arguments; a ConfigurationError from resolving the
-        # model is the user's to fix and is not swallowed here.
-        logger.debug("Native PydanticAI agent unavailable, creating PydanticAgent: %s", exc)
-        return _fallback_pydantic_agent(
-            client=client,
-            settings=settings,
-            target_model=target_model,
-            system_prompt=system_prompt,
-            active_tools=active_tools,
-            active_toolsets=active_toolsets,
-            active_caps=active_caps,
-            res_model=res_model,
-            max_concurrency=max_concurrency,
-        )
-
-
-def get_persona_pydantic_agent(
-    persona: Persona | str = Persona.DEVSECOPS,
-    settings: Settings | None = None,
-    capabilities: Sequence[BaseCapability] | None = None,
-    tools: Sequence[Any] | None = None,
-    model_name: str | Any | None = None,
-    max_concurrency: AnyConcurrencyLimit = None,
-    model_concurrency: AnyConcurrencyLimit = None,
-) -> Any:
-    """Build a persona-specialized PydanticAI agent instance with optional concurrency limiting."""
-    p_enum = Persona(persona) if isinstance(persona, str) else persona
-    p_def = PERSONAS[p_enum]
-    active_settings = settings or load_settings()
-    target_model = model_name or active_settings.ai.model
-
-    return create_pydantic_ai_agent(
-        model_name=target_model,
-        system_prompt=p_def.system_prompt,
-        output_type=ReviewResult,
-        deps_type=DevOpsAgentContext,
-        capabilities=capabilities,
-        tools=tools,
-        max_concurrency=max_concurrency,
-        model_concurrency=model_concurrency,
-    )
-
-
-def inject_prompt_cache_points(
-    content: str | Sequence[Any],
-    ttl: str = CONST_AI_PROMPT_CACHE_TTL_5M,
-) -> list[Any]:
-    """Inject CachePoint markers into prompt content for Anthropic/OpenAI prompt caching."""
-    target_ttl: Any = ttl if ttl in CONST_AI_PROMPT_CACHE_TTLS else CONST_AI_PROMPT_CACHE_TTL_5M
-    if isinstance(content, str):
-        return [content, CachePoint(ttl=target_ttl)]
-
-    parts = list(content)
-    has_cache_point = any(
-        getattr(part, "kind", None) == CONST_AI_DEFAULT_CACHE_MARKER_KIND for part in parts
-    )
-    if not has_cache_point:
-        parts.append(CachePoint(ttl=target_ttl))
-    return parts
-
-
-def create_cached_user_prompt(
-    prompt: str,
-    preamble: str = "",
-    ttl: str = CONST_AI_PROMPT_CACHE_TTL_5M,
-) -> UserPromptPart:
-    """Construct a UserPromptPart with embedded prompt caching boundaries."""
-    target_ttl: Any = ttl if ttl in CONST_AI_PROMPT_CACHE_TTLS else CONST_AI_PROMPT_CACHE_TTL_5M
-    if preamble:
-        return UserPromptPart(content=[preamble, CachePoint(ttl=target_ttl), prompt])
-    return UserPromptPart(content=[prompt, CachePoint(ttl=target_ttl)])
-
-
 def _cascade_member(item: str | Any, ai_cfg: AIConfig) -> str | Any:
     """The model a cascade member names: a bare `litellm` or `portkey` is that gateway's default
     chat route, a bare `ollama` is `ai.model` on Ollama, and anything else is a model already."""
@@ -454,83 +232,7 @@ def build_fallback_cascade_model(
     )
 
 
-def _resolve_workflow_usage_limits(
-    usage_limits: UsageLimits | TokenBudgetConfig | None,
-    deps: DevOpsAgentContext | None,
-) -> UsageLimits | None:
-    """Resolve UsageLimits from explicit argument or dependency container."""
-    if isinstance(usage_limits, TokenBudgetConfig):
-        return usage_limits.to_usage_limits()
-    if isinstance(usage_limits, UsageLimits):
-        return usage_limits
-    if deps is not None and deps.budget is not None:
-        return deps.budget.to_usage_limits()
-    return None
-
-
-async def execute_structured_workflow(
-    agent: Any,
-    prompt: str | Any,
-    deps: DevOpsAgentContext | None = None,
-    usage_limits: UsageLimits | TokenBudgetConfig | None = None,
-    model_settings: Any = None,
-) -> Any:
-    """Execute asynchronous structured agent workflow with dependency injection and token governance."""
-    active_limits = _resolve_workflow_usage_limits(usage_limits, deps)
-    if deps is not None and deps.governance is not None:
-        pacing_delay = deps.governance.acquire_token_permit(estimated_tokens=50)
-        if pacing_delay > 0:
-            await asyncio.sleep(pacing_delay)
-
-    result = await agent.run(
-        prompt,
-        deps=deps,
-        usage_limits=active_limits,
-        model_settings=model_settings,
-    )
-
-    if deps is not None and deps.governance is not None and hasattr(result, "usage"):
-        deps.governance.record_run_usage(result.usage)
-
-    return result
-
-
-def execute_structured_workflow_sync(
-    agent: Any,
-    prompt: str | Any,
-    deps: DevOpsAgentContext | None = None,
-    usage_limits: UsageLimits | TokenBudgetConfig | None = None,
-    model_settings: Any = None,
-) -> Any:
-    """Execute synchronous structured agent workflow with dependency injection and token governance."""
-    active_limits = _resolve_workflow_usage_limits(usage_limits, deps)
-    if deps is not None and deps.governance is not None:
-        pacing_delay = deps.governance.acquire_token_permit(estimated_tokens=50)
-        if pacing_delay > 0:
-            time.sleep(pacing_delay)
-
-    result = agent.run_sync(
-        prompt,
-        deps=deps,
-        usage_limits=active_limits,
-        model_settings=model_settings,
-    )
-
-    if deps is not None and deps.governance is not None and hasattr(result, "usage"):
-        deps.governance.record_run_usage(result.usage)
-
-    return result
-
-
 __all__ = [
-    "DevOpsAgentContext",
     "build_fallback_cascade_model",
-    "create_cached_user_prompt",
-    "create_pydantic_ai_agent",
-    "execute_structured_workflow",
-    "execute_structured_workflow_sync",
-    "get_persona_pydantic_agent",
-    "inject_prompt_cache_points",
-    "is_pydantic_ai_available",
     "resolve_pydantic_ai_model",
 ]

@@ -18,10 +18,6 @@ from devops_cli.exceptions import (
     ToolExecutionError,
     ValidationError,
 )
-from devops_cli.exceptions.ai import (
-    ContextBudgetExceededError,
-    ModelUnavailableError,
-)
 
 
 def test_base_devops_cli_error() -> None:
@@ -73,22 +69,6 @@ def test_secret_exposure_error() -> None:
     assert err.error_code == "SECRET_EXPOSURE_DETECTED"
     assert "aws_key" in str(err)
     assert "src/main.py:12" in str(err)
-
-
-def test_context_budget_exceeded_error() -> None:
-    err = ContextBudgetExceededError(token_count=12000, budget=8000, model="gpt-4o")
-    assert err.exit_code == 11
-    assert err.error_code == "CONTEXT_BUDGET_EXCEEDED"
-    assert "12000" in str(err)
-    assert "8000" in str(err)
-    assert err.details["token_count"] == 12000
-
-
-def test_model_unavailable_error() -> None:
-    err = ModelUnavailableError("claude-3-5-sonnet", "anthropic")
-    assert err.exit_code == 12
-    assert err.error_code == "MODEL_UNAVAILABLE"
-    assert "claude-3-5-sonnet" in str(err)
 
 
 def test_validation_exceptions() -> None:

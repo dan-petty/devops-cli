@@ -2940,9 +2940,6 @@ CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
 CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
-CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
-CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
-CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
 # The default fallback cascade, by path: a bare `litellm` or `portkey` member is that gateway's
 # default chat route (CONST_AI_GATEWAY_DEFAULT_ROUTE), and a bare `ollama` member is `ai.model`
 # on Ollama itself.
@@ -2963,7 +2960,6 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
     "litellm": "gateway_url",
     "portkey": "portkey_url",
 }
-CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
     "\n...[stage output truncated to the stage context budget]"
 )

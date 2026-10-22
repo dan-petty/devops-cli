@@ -396,12 +396,6 @@ DEFAULT_AI_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_AI_AGENT_NAME: str = "Assistant"
 DEFAULT_AI_PIPELINE_SESSION_ID: str = "pipeline-session"
 DEFAULT_MOCK_LLM_RESPONSE: str = '{"findings": []}'
-DEFAULT_AI_TIMEOUT_SECONDS: float = 60.0
-DEFAULT_OPENAI_MODEL: str = "gpt-4o"
-DEFAULT_OLLAMA_HOST: str = "http://localhost:11434"
-DEFAULT_GITHUB_COPILOT_MODEL: str = "gpt-4o"
-DEFAULT_ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
-DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB DoS protection limit
@@ -555,15 +549,6 @@ DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_XML_INDENT: str = "  "
 DEFAULT_XML_ITEM_TAG: str = "item"
 DEFAULT_XML_NONE_STR: str = "null"
-DEFAULT_XML_CONTEXT_ROOT_TAG: str = "context"
-DEFAULT_XML_EXAMPLES_ROOT_TAG: str = "examples"
-DEFAULT_XML_EXAMPLE_ITEM_TAG: str = "example"
-DEFAULT_XML_RAG_ROOT_TAG: str = "rag_context"
-DEFAULT_XML_RAG_ITEM_TAG: str = "chunk"
-DEFAULT_XML_FINDINGS_ROOT_TAG: str = "findings"
-DEFAULT_XML_FINDING_ITEM_TAG: str = "finding"
-DEFAULT_XML_METADATA_ROOT_TAG: str = "metadata"
-
 # ── AI Context Packing & AST Defaults ────────────────────────────────────────
 DEFAULT_CONTEXT_PACKING_MAX_TOKENS: int = 1500
 DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET: int = 3000
@@ -584,9 +569,6 @@ DEFAULT_TAVILY_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_EXA_SEARCH_NUM_RESULTS: int = 5
 DEFAULT_EXA_SEARCH_MAX_CHARACTERS: int = 1000
 
-# ── AI Concurrency & Durable Agent Defaults ──────────────────────────────────
-DEFAULT_AI_CONCURRENCY_MAX_RUNNING: int = 2
-DEFAULT_AI_CONCURRENCY_SOURCE: str = "unnamed"
 DEFAULT_SQLITE_MEMORY_DB_PATH: str = ":memory:"
 DEFAULT_AI_DURABLE_AGENT_NAME: str = "durable_agent"
 DEFAULT_SIGNATURE_BODY: str = "..."
@@ -594,14 +576,7 @@ DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"
 DEFAULT_PYTHON_REQUIRES: str = ">=3.14"
 
-# ── AI Bridge, Personas & Guardrails Defaults ────────────────────────────────
-DEFAULT_AI_AGENT_PERSONA: str = "devsecops"
-DEFAULT_AI_CONTEXT_TOKEN_BUDGET: int = 16384
-DEFAULT_AI_END_STRATEGY: str = "graceful"
-DEFAULT_AI_TOKEN_BUCKET_CAPACITY: int = 100_000
-DEFAULT_AI_TOKEN_BUCKET_REFILL_RATE: float = 10_000.0
 DEFAULT_AI_PROMPT_CACHE_TTL: str = "5m"
-DEFAULT_AI_USAGE_REQUEST_LIMIT: int = 50
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
 DEFAULT_ROUTER_LATENCY_TIER: str = "fast-interactive"
 DEFAULT_SYNTHESIZED_TEST_STATUS: str = "UNEXECUTED"
@@ -707,17 +682,17 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 28
+DEFAULT_C901_SUPPRESSION_CEILING: int = 25
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
 DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 71,
+    "src type: ignore": 67,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
-    "src noqa: F401": 22,
+    "src noqa: F401": 21,
     "src noqa: SIM115": 1,
     "src noqa: UP036": 1,
     "src nosec": 14,
@@ -725,7 +700,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
     "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
-    "tests type: ignore": 139,
+    "tests type: ignore": 138,
     "tests noqa: F401": 3,
     "tests noqa: N803": 1,
     "tests nosec": 17,
@@ -733,7 +708,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "tests pragma: no mutate": 0,
     "tests file-level directive": 0,
     "per-file-ignores": 0,
-    "[[tool.mypy.overrides]]": 2,
+    "[[tool.mypy.overrides]]": 1,
     "coverage omit": 0,
 }
 DEFAULT_MAX_NESTING_DEPTH: int = 5

@@ -7,7 +7,7 @@ from typing import Any, get_args
 
 import httpx2
 import pytest
-from pydantic_ai.messages import FinishReason, ModelResponse, TextPart
+from pydantic_ai.messages import FinishReason
 
 from devops_cli.ai.client import LLMClient, LLMResponse, ReplyRejectedError, RequestPriority
 from devops_cli.config.constants import (
@@ -117,15 +117,12 @@ def test_every_mapped_reason_is_a_pydantic_ai_finish_reason() -> None:
     ) == ([[], [], []], [])
 
 
-def test_the_reason_survives_conversion_both_ways() -> None:
-    """Verify `to_model_response` passes the reason on and `from_model_response` reads it."""
-    filtered = ModelResponse(parts=[TextPart(content="ok")], finish_reason="content_filter")
-
+def test_the_reason_survives_conversion_to_a_model_response() -> None:
+    """Verify `to_model_response` passes the reason on."""
     assert (
         LLMResponse("ok", finish_reason="length").to_model_response().finish_reason,
-        LLMResponse.from_model_response(filtered).finish_reason,
         LLMResponse("ok").to_model_response().finish_reason,
-    ) == ("length", "content_filter", None)
+    ) == ("length", None)
 
 
 @pytest.mark.parametrize(

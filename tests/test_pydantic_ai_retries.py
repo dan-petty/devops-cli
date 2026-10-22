@@ -6,36 +6,19 @@ from unittest.mock import MagicMock
 
 import httpx2
 import pytest
+from pydantic_ai.retries import wait_retry_after
 from tenacity import RetryCallState
 
 from devops_cli.ai.retries import (
-    AsyncHTTPX2TenacityTransport,
-    AsyncTenacityTransport,
-    HTTPX2TenacityTransport,
-    TenacityTransport,
-    create_async_retry_transport,
     create_retry_config,
     create_retry_transport,
     is_retryable_status_code,
-    normalize_agent_retries,
-    wait_retry_after,
 )
 from tests.support.fakes.clock import ClockFake
 
 
 class TestPydanticAIRetriesSubsystem:
     """Validate native Pydantic AI retries integration and transports."""
-
-    def test_core_classes_and_function_exports(self) -> None:
-        """Verify core types, classes, and aliases are exported correctly."""
-        assert HTTPX2TenacityTransport is not None
-        assert AsyncHTTPX2TenacityTransport is not None
-        assert TenacityTransport is not None
-        assert AsyncTenacityTransport is not None
-        assert callable(wait_retry_after)
-        assert callable(create_retry_config)
-        assert callable(create_retry_transport)
-        assert callable(create_async_retry_transport)
 
     def test_is_retryable_status_code(self) -> None:
         """Test predicate identifying transient HTTP error codes including 524 Cloudflare timeouts."""
@@ -145,55 +128,6 @@ class TestPydanticAIRetriesSubsystem:
                 2,
                 [1.0],
             )
-
-    @pytest.mark.asyncio
-    async def test_async_httpx2_tenacity_transport_retry(self, clock: ClockFake) -> None:
-        """Verify async AsyncHTTPX2TenacityTransport retries and recovers on transient 429."""
-        attempts = 0
-
-        class FlakyAsyncTransport(httpx2.AsyncBaseTransport):
-            async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal attempts
-                attempts += 1
-                if attempts < 2:
-                    return httpx2.Response(429, headers={"retry-after": "3"}, request=request)
-                return httpx2.Response(200, json={"status": "ok"}, request=request)
-
-        transport = create_async_retry_transport(
-            max_attempts=3,
-            min_wait=1.0,
-            max_wait=10.0,
-            wrapped=FlakyAsyncTransport(),
-        )
-        async with httpx2.AsyncClient(transport=transport) as client:
-            resp = await client.get("https://example.com/ai/async")
-            assert (resp.status_code, resp.json(), attempts, clock.waits) == (
-                200,
-                {"status": "ok"},
-                2,
-                [3.0],
-            )
-
-    def test_normalize_agent_retries(self) -> None:
-        """Verify normalization of diverse retries configurations into standard AgentRetries."""
-        from devops_cli.ai.agents.context import AgentRetries as ContextAgentRetries
-
-        # None -> default (tools=1, output=1)
-        r_none = normalize_agent_retries(None)
-        assert r_none == {"tools": 1, "output": 1}
-
-        # int -> uniform budget
-        r_int = normalize_agent_retries(3)
-        assert r_int == {"tools": 3, "output": 3}
-
-        # dict -> custom budgets
-        r_dict = normalize_agent_retries({"tools": 4, "output": 2})
-        assert r_dict == {"tools": 4, "output": 2}
-
-        # Pydantic BaseModel instance -> extracted dict
-        model_retries = ContextAgentRetries(tools=5, output=3)
-        r_model = normalize_agent_retries(model_retries)
-        assert r_model == {"tools": 5, "output": 3}
 
     def test_httpx2_tenacity_transport_retries_on_http_524(self, clock: ClockFake) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on Cloudflare HTTP 524 gateway timeout."""

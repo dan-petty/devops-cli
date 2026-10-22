@@ -11,74 +11,27 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from pydantic_ai import RunContext as NativeRunContext
+from pydantic_ai.toolsets import (
+    ApprovalRequiredToolset,
+    CombinedToolset,
+    DeferredLoadingToolset,
+    FilteredToolset,
+    PrefixedToolset,
+    RenamedToolset,
+)
 
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.tools import Tool
 from devops_cli.ai.toolsets import (
     AbstractToolset,
-    AgentToolset,
-    ApprovalRequiredToolset,
-    CombinedToolset,
-    DeferredLoadingToolset,
-    DynamicToolset,
-    ExternalToolset,
-    FilteredToolset,
     FunctionToolset,
-    IncludeReturnSchemasToolset,
-    PrefixedToolset,
-    PreparedToolset,
-    RenamedToolset,
-    SetMetadataToolset,
-    ToolsetFunc,
-    ToolsetTool,
-    WrapperToolset,
-    combine_toolsets,
     create_function_toolset,
-    defer_loading_toolset,
     extract_tools_from_toolset,
-    filter_toolset,
-    is_toolset,
-    prefix_toolset,
-    rename_toolset,
-    require_approval_toolset,
 )
 
 
 class TestPydanticAIToolsetsSubsystem:
     """Test suite verifying full native toolsets integration and backward compatibility."""
-
-    def test_package_reexports(self) -> None:
-        """Verify all native classes, types, combinators, and helpers are re-exported."""
-        expected_symbols = [
-            AbstractToolset,
-            AgentToolset,
-            ApprovalRequiredToolset,
-            CombinedToolset,
-            DeferredLoadingToolset,
-            DynamicToolset,
-            ExternalToolset,
-            FilteredToolset,
-            FunctionToolset,
-            IncludeReturnSchemasToolset,
-            PrefixedToolset,
-            PreparedToolset,
-            RenamedToolset,
-            SetMetadataToolset,
-            ToolsetFunc,
-            ToolsetTool,
-            WrapperToolset,
-            create_function_toolset,
-            combine_toolsets,
-            prefix_toolset,
-            filter_toolset,
-            rename_toolset,
-            require_approval_toolset,
-            defer_loading_toolset,
-            is_toolset,
-            extract_tools_from_toolset,
-        ]
-        for sym in expected_symbols:
-            assert sym is not None
 
     def test_function_toolset_tool_and_plain_decorators(self) -> None:
         """Verify @tool (context-aware) and @tool_plain (context-free) decorators."""
@@ -191,7 +144,7 @@ class TestPydanticAIToolsetsSubsystem:
         asyncio.run(run_inst_test())
 
     def test_prefixed_toolset_combinator(self) -> None:
-        """Verify .prefixed() and prefix_toolset combinator prefixes tool names."""
+        """Verify .prefixed() prefixes the tool names of a FunctionToolset."""
         base_ts = FunctionToolset()
 
         @base_ts.tool_plain
@@ -215,12 +168,8 @@ class TestPydanticAIToolsetsSubsystem:
 
         asyncio.run(run_prefix_test())
 
-        # Also verify prefix_toolset helper
-        h_ts = prefix_toolset(base_ts, "cluster_")
-        assert isinstance(h_ts, PrefixedToolset)
-
     def test_filtered_toolset_combinator(self) -> None:
-        """Verify .filtered() and filter_toolset combinator filters tool exposure."""
+        """Verify .filtered() filters the tools a FunctionToolset exposes."""
         base_ts = FunctionToolset()
 
         @base_ts.tool_plain
@@ -245,12 +194,8 @@ class TestPydanticAIToolsetsSubsystem:
 
         asyncio.run(run_filter_test())
 
-        # Also verify filter_toolset helper
-        h_ts = filter_toolset(base_ts, lambda ctx, tool_def: True)
-        assert isinstance(h_ts, FilteredToolset)
-
     def test_renamed_toolset_combinator(self) -> None:
-        """Verify .renamed() and rename_toolset renames registered tools."""
+        """Verify .renamed() renames the tools of a FunctionToolset."""
         base_ts = FunctionToolset()
 
         @base_ts.tool_plain
@@ -270,12 +215,8 @@ class TestPydanticAIToolsetsSubsystem:
 
         asyncio.run(run_renamed_test())
 
-        # Also verify rename_toolset helper
-        h_ts = rename_toolset(base_ts, {"read_log": "get_log"})
-        assert isinstance(h_ts, RenamedToolset)
-
     def test_combined_toolset_combinator(self) -> None:
-        """Verify CombinedToolset and combine_toolsets merges multiple toolsets."""
+        """Verify CombinedToolset merges FunctionToolsets."""
         ts1 = FunctionToolset()
         ts2 = FunctionToolset()
 
@@ -287,7 +228,7 @@ class TestPydanticAIToolsetsSubsystem:
         def tool_beta() -> str:
             return "beta"
 
-        combined = combine_toolsets(ts1, ts2)
+        combined = CombinedToolset([ts1, ts2])
         assert isinstance(combined, CombinedToolset)
 
         rc: Any = RunContext()
@@ -300,21 +241,21 @@ class TestPydanticAIToolsetsSubsystem:
         asyncio.run(run_combined_test())
 
     def test_approval_and_deferred_loading_combinators(self) -> None:
-        """Verify approval_required and defer_loading combinators and helpers."""
+        """Verify approval_required and defer_loading wrap a FunctionToolset."""
         ts = FunctionToolset()
 
         @ts.tool_plain
         def drop_database() -> str:
             return "dropped"
 
-        app_ts = require_approval_toolset(ts)
+        app_ts = ts.approval_required()
         assert isinstance(app_ts, ApprovalRequiredToolset)
 
-        def_ts = defer_loading_toolset(ts)
+        def_ts = ts.defer_loading()
         assert isinstance(def_ts, DeferredLoadingToolset)
 
     def test_domain_helper_factories(self) -> None:
-        """Verify create_function_toolset, is_toolset, and extract_tools_from_toolset."""
+        """Verify create_function_toolset and extract_tools_from_toolset."""
 
         def fn_one() -> str:
             return "one"
@@ -327,8 +268,6 @@ class TestPydanticAIToolsetsSubsystem:
             instructions="Domain instruction set.",
         )
         assert isinstance(ts, FunctionToolset)
-        assert is_toolset(ts) is True
-        assert is_toolset("not a toolset") is False
 
         extracted = extract_tools_from_toolset(ts)
         assert len(extracted) == 2
@@ -361,7 +300,6 @@ class TestPydanticAIToolsetsSubsystem:
                 return inst
 
         mt = MetricToolset(prefix="sys_")
-        assert is_toolset(mt) is True
 
         # Sync verification
         sync_tools = mt.get_tools()

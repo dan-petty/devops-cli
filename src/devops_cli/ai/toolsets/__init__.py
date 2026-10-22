@@ -1,14 +1,10 @@
-"""Native Pydantic AI Toolsets subsystem.
-
-Provides full native adoption of pydantic_ai.toolsets primitives, combinators,
-protocols, schemas, and high-level domain helpers for workstation automation.
-"""
+"""Dual sync and async toolset bases bridging workstation tool inspection with native toolsets."""
 
 from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from typing import (
     Any,
     Generic,
@@ -22,26 +18,9 @@ from pydantic_ai.toolsets import (
     AbstractToolset as NativeAbstractToolset,
 )
 from pydantic_ai.toolsets import (
-    AgentToolset,
-    ApprovalRequiredToolset,
-    CombinedToolset,
-    DeferredLoadingToolset,
-    DynamicToolset,
-    ExternalToolset,
-    FilteredToolset,
-    IncludeReturnSchemasToolset,
-    PrefixedToolset,
-    PreparedToolset,
-    RenamedToolset,
-    SetMetadataToolset,
-    ToolsetFunc,
-    ToolsetTool,
-    WrapperToolset,
-)
-from pydantic_ai.toolsets import (
     FunctionToolset as NativeFunctionToolset,
 )
-from pydantic_ai.toolsets.abstract import AgentDepsT  # type: ignore[attr-defined]
+from pydantic_ai.toolsets import ToolsetTool
 
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.tools import Tool
@@ -398,60 +377,6 @@ def create_function_toolset(
     )
 
 
-def combine_toolsets(
-    *toolsets: AbstractToolset[Any] | NativeAbstractToolset[Any],
-) -> CombinedToolset[Any]:
-    """Combine multiple toolsets into a single CombinedToolset."""
-    return CombinedToolset(list(toolsets))
-
-
-def prefix_toolset(
-    toolset: AbstractToolset[Any] | NativeAbstractToolset[Any],
-    prefix: str,
-) -> PrefixedToolset[Any]:
-    """Prefix all tool names within a toolset using native PrefixedToolset."""
-    clean_prefix = prefix[:-1] if prefix.endswith("_") else prefix
-    return toolset.prefixed(clean_prefix)
-
-
-def filter_toolset(
-    toolset: AbstractToolset[Any] | NativeAbstractToolset[Any],
-    filter_func: Callable[..., bool | Awaitable[bool]],
-) -> FilteredToolset[Any]:
-    """Filter tools within a toolset using a filter predicate."""
-    return toolset.filtered(filter_func)
-
-
-def rename_toolset(
-    toolset: AbstractToolset[Any] | NativeAbstractToolset[Any],
-    name_map: dict[str, str],
-) -> RenamedToolset[Any]:
-    """Rename tools within a toolset using a name mapping dictionary."""
-    return toolset.renamed(name_map)
-
-
-def require_approval_toolset(
-    toolset: AbstractToolset[Any] | NativeAbstractToolset[Any],
-    approval_func: Callable[..., bool] | None = None,
-) -> ApprovalRequiredToolset[Any]:
-    """Wrap a toolset to require approval before calling its tools."""
-    if approval_func is not None:
-        return toolset.approval_required(approval_func)
-    return toolset.approval_required()
-
-
-def defer_loading_toolset(
-    toolset: AbstractToolset[Any] | NativeAbstractToolset[Any],
-) -> DeferredLoadingToolset[Any]:
-    """Wrap a toolset to defer loading of its tools until revealed."""
-    return toolset.defer_loading()
-
-
-def is_toolset(val: Any) -> bool:
-    """Check whether a value is an instance of native or modernized AbstractToolset."""
-    return isinstance(val, (NativeAbstractToolset, AbstractToolset))
-
-
 def _convert_to_tool(t: Any) -> Tool | None:
     """Normalize raw tool representations into unified Tool instances."""
     if isinstance(t, Tool):
@@ -521,32 +446,7 @@ def extract_tools_from_toolset(
 
 __all__ = [
     "AbstractToolset",
-    "AgentDepsT",
-    "AgentToolset",
-    "ApprovalRequiredToolset",
-    "CombinedToolset",
-    "DeferredLoadingToolset",
-    "DynamicToolset",
-    "ExternalToolset",
-    "FilteredToolset",
     "FunctionToolset",
-    "IncludeReturnSchemasToolset",
-    "NativeAbstractToolset",
-    "NativeFunctionToolset",
-    "PrefixedToolset",
-    "PreparedToolset",
-    "RenamedToolset",
-    "SetMetadataToolset",
-    "ToolsetFunc",
-    "ToolsetTool",
-    "WrapperToolset",
-    "combine_toolsets",
     "create_function_toolset",
-    "defer_loading_toolset",
     "extract_tools_from_toolset",
-    "filter_toolset",
-    "is_toolset",
-    "prefix_toolset",
-    "rename_toolset",
-    "require_approval_toolset",
 ]

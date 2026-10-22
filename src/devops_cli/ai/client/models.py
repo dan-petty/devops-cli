@@ -196,38 +196,6 @@ class LLMResponse(str):
             finish_reason=self.finish_reason,
         )
 
-    @classmethod
-    def from_model_response(
-        cls,
-        response: Any,
-        wall_seconds: float = 0.0,
-        cached: bool = False,
-    ) -> LLMResponse:
-        """Construct LLMResponse from standard pydantic_ai.messages.ModelResponse."""
-        from pydantic_ai.messages import TextPart, ThinkingPart
-
-        texts = [p.content for p in response.parts if isinstance(p, TextPart) and p.has_content()]
-        thinks = [
-            p.content for p in response.parts if isinstance(p, ThinkingPart) and p.has_content()
-        ]
-        content_str = "\n".join(texts)
-        thinking_str = "\n\n".join(thinks) if thinks else None
-        in_tokens = response.usage.input_tokens if response.usage else None
-        out_tokens = response.usage.output_tokens if response.usage else None
-        tot_tokens = response.usage.total_tokens if response.usage else None
-        return cls(
-            content=content_str,
-            wall_seconds=wall_seconds,
-            backend_info=response.model_name,
-            thinking=thinking_str,
-            prompt_tokens=in_tokens,
-            completion_tokens=out_tokens,
-            total_tokens=tot_tokens,
-            cached=cached,
-            model=response.model_name,
-            finish_reason=response.finish_reason,
-        )
-
 
 def _is_json_error_payload(raw_str: str) -> bool:
     """Check if raw JSON text represents an error dictionary."""

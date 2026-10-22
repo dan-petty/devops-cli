@@ -1,13 +1,11 @@
 """Contract suite for the clock waiting seam (`devops_cli.core.clock`) and `ClockFake` (#1320).
 
-Each contract case runs against both the fake (`clock` fixture) and the real seam (`time.sleep`,
-`asyncio.sleep`, `time.monotonic`), the real side with 10-50 ms waits so every case finishes well
-under 1 s.
+Each contract case runs against both the fake (`clock` fixture) and the real seam (`time.sleep` and
+`time.monotonic`), the real side with 10-50 ms waits so every case finishes well under 1 s.
 """
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 import time
 from datetime import UTC, datetime
@@ -18,11 +16,7 @@ import pytest
 from ratelimit import limits, sleep_and_retry
 from tenacity import wait_chain, wait_fixed
 
-from devops_cli.ai.retries import (
-    create_async_retry_transport,
-    create_retry_config,
-    create_retry_transport,
-)
+from devops_cli.ai.retries import create_retry_config, create_retry_transport
 from devops_cli.core import clock as clock_seam
 from devops_cli.github.rate_limiter import reset_github_rate_limiter, run_gh
 from tests.support.fakes.clock import ClockFake
@@ -58,30 +52,6 @@ def test_a_sync_wait_advances_the_wall_clock_by_at_least_its_duration(
     ) == (True, True, [duration])
 
 
-@pytest.mark.parametrize(("mode", "duration"), [("fake", 2.5), ("real", 0.02)])
-@pytest.mark.asyncio
-async def test_an_async_wait_advances_the_wall_clock_by_at_least_its_duration(
-    request: pytest.FixtureRequest, mode: str, duration: float
-) -> None:
-    """After an async wait of `duration`, `time.time()` and `datetime.now(UTC)` have advanced by
-    at least `duration`, and `asyncio.sleep` itself is untouched by the fake."""
-    fake = _install_mode(request, mode)
-    before_epoch = time.time()
-    before_dt = datetime.now(UTC)
-
-    answered = await clock_seam.async_sleep(duration, "done")
-    await asyncio.sleep(0)
-
-    after_epoch = time.time()
-    after_dt = datetime.now(UTC)
-    assert (
-        answered,
-        after_epoch - before_epoch >= duration - _TOLERANCE,
-        (after_dt - before_dt).total_seconds() >= duration - _TOLERANCE,
-        fake.waits if fake is not None else [duration],
-    ) == ("done", True, True, [duration])
-
-
 @pytest.mark.parametrize(
     ("mode", "waits"),
     [("fake", (1.0, 2.0)), ("real", (0.015, 0.025))],
@@ -104,40 +74,6 @@ def test_a_sync_tenacity_retry_with_fixed_waits_waits_those_amounts_in_order(
     transport = create_retry_transport(config=config, wrapped=ThreeStepTransport())
     with httpx2.Client(transport=transport) as client:
         response = client.get("https://example.com/sync")
-
-    gaps = [stamps[1] - stamps[0], stamps[2] - stamps[1]]
-    assert (
-        response.status_code,
-        len(stamps),
-        gaps[0] >= d1 - _TOLERANCE,
-        gaps[1] >= d2 - _TOLERANCE,
-        fake.waits if fake is not None else [d1, d2],
-    ) == (200, 3, True, True, [d1, d2])
-
-
-@pytest.mark.parametrize(
-    ("mode", "waits"),
-    [("fake", (1.0, 2.0)), ("real", (0.015, 0.025))],
-)
-@pytest.mark.asyncio
-async def test_an_async_tenacity_retry_with_fixed_waits_waits_those_amounts_in_order(
-    request: pytest.FixtureRequest, mode: str, waits: tuple[float, float]
-) -> None:
-    """`create_async_retry_transport` routes tenacity's async waits through the seam in order."""
-    fake = _install_mode(request, mode)
-    d1, d2 = waits
-    stamps: list[float] = []
-
-    class ThreeStepAsyncTransport(httpx2.AsyncBaseTransport):
-        async def handle_async_request(self, req: httpx2.Request) -> httpx2.Response:
-            stamps.append(time.time())
-            status = 503 if len(stamps) < 3 else 200
-            return httpx2.Response(status, json={"attempt": len(stamps)}, request=req)
-
-    config = create_retry_config(max_attempts=3, wait=wait_chain(wait_fixed(d1), wait_fixed(d2)))
-    transport = create_async_retry_transport(config=config, wrapped=ThreeStepAsyncTransport())
-    async with httpx2.AsyncClient(transport=transport) as client:
-        response = await client.get("https://example.com/async")
 
     gaps = [stamps[1] - stamps[0], stamps[2] - stamps[1]]
     assert (

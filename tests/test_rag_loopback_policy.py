@@ -3,8 +3,8 @@
 `config.example.yaml` points Qdrant, Ollama and the gateway at localhost, enables RAG and leaves
 `ai.allow_private_network` false. A loopback URL from the user's own config is the workstation
 itself, so Qdrant, the embedding calls and the chat providers reach it; every other non-public
-host still needs the setting. Replies come from a stubbed `httpx2.Client.post` (and
-`httpx2.get`, `httpx2.post` for the Ollama provider), so no socket is opened.
+host still needs the setting. Replies come from a stubbed `httpx2.Client.post`, so no socket is
+opened.
 """
 
 from __future__ import annotations
@@ -16,13 +16,11 @@ import pytest
 import yaml
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.providers.ollama import OllamaProvider
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import SSRFBlockedError
-from devops_cli.models.ai import ChatMessage
 from tests.support.paths import REPO_ROOT
 
 EXAMPLE_CONFIG = REPO_ROOT / "config.example.yaml"
@@ -108,29 +106,16 @@ def test_the_example_config_probes_its_loopback_embedding_dimension(
 
 
 def test_the_example_config_chat_providers_accept_its_loopback_endpoints(
-    example_settings: Settings, monkeypatch: pytest.MonkeyPatch
+    example_settings: Settings,
 ) -> None:
-    """Verify the chat client and the Ollama provider take the same loopback endpoints."""
+    """Verify the chat client takes the example's loopback Ollama and gateway endpoints."""
     ai = example_settings.ai
     gateway = LLMClient(ai.model_copy(update={"provider": "gateway"}), api_key="sk-test")
-    reply = httpx2.Response(
-        200, json={"message": {"content": "ok"}}, request=httpx2.Request("POST", "http://x")
-    )
-    tags = httpx2.Response(200, json={"models": []}, request=httpx2.Request("GET", "http://x"))
-    monkeypatch.setattr(httpx2, "post", lambda url, **_kwargs: reply)
-    monkeypatch.setattr(httpx2, "get", lambda url, **_kwargs: tags)
 
     assert (
         LLMClient(ai)._validate_base_url(ai.get_ollama_urls[0], purpose="Ollama"),
         gateway._api_base(),
-        OllamaProvider(ai).generate([ChatMessage(role="user", content="hi")]),
-        OllamaProvider(ai).is_available(),
-    ) == (
-        "http://localhost:11434",
-        "http://localhost:4000/v1",
-        {"message": {"content": "ok"}},
-        True,
-    )
+    ) == ("http://localhost:11434", "http://localhost:4000/v1")
 
 
 @pytest.mark.parametrize(

@@ -16,12 +16,6 @@ from devops_cli.ai.agents.capabilities import (
     HandleDeferredToolCalls,
     SystemReminders,
 )
-from devops_cli.ai.personas import Persona
-from devops_cli.ai.pydantic_ai_bridge import (
-    DevOpsAgentContext,
-    create_pydantic_ai_agent,
-    get_persona_pydantic_agent,
-)
 from devops_cli.ai.review_schema import ReviewResult
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -119,34 +113,3 @@ def test_dual_compatibility_with_devops_cli_pydantic_agent() -> None:
     # Ensure tools from capability are registered
     tool_names = [getattr(t, "name", getattr(t, "__name__", str(t))) for t in agent.tools]
     assert "multiply_numbers" in tool_names
-
-
-def test_create_pydantic_ai_agent_with_native_capabilities() -> None:
-    """Verify create_pydantic_ai_agent instantiates native Agent that runs with capabilities."""
-    reminders = SystemReminders(reminders=["Always follow clean code."], cadence=1)
-
-    agent = create_pydantic_ai_agent(
-        model_name="test",
-        system_prompt="Primary system prompt",
-        output_type=ReviewResult,
-        deps_type=DevOpsAgentContext,
-        capabilities=[reminders, MathCapability()],
-    )
-
-    assert isinstance(agent, Agent)
-    res = agent.run_sync("review code")
-    assert isinstance(res.output, ReviewResult)
-
-
-def test_get_persona_pydantic_agent_native_execution() -> None:
-    """Verify persona-specialized agent instantiation and execution."""
-    reminders = SystemReminders(reminders=["Check every dependency."], cadence=1)
-    agent = get_persona_pydantic_agent(
-        persona=Persona.DEVSECOPS,
-        capabilities=[reminders],
-        model_name="test",
-    )
-
-    assert isinstance(agent, Agent)
-    res = agent.run_sync("perform security check")
-    assert isinstance(res.output, ReviewResult)

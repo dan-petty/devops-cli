@@ -17,10 +17,6 @@ from pydantic_ai.messages import ModelRequest, TextPart, ThinkingPart, UserPromp
 from pydantic_ai.models.test import TestModel
 
 from devops_cli.ai.client import AIClientError, LLMClient
-from devops_cli.ai.direct import (
-    direct_model_request_stream_sync,
-    direct_model_request_sync,
-)
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import (
@@ -281,19 +277,28 @@ def test_list_models_and_llm_client_duck_typing() -> None:
     assert fake.model == "fake-model"
 
 
-def test_pydantic_ai_direct_request_sync() -> None:
-    """`ModelFake` integrates with `direct_model_request_sync` returning `ModelResponse`."""
+def test_pydantic_ai_model_request_sync_over_the_fake() -> None:
+    """`ModelFake` answers a native `model_request_sync` with a `ModelResponse` of its content."""
     fake = ModelFake("Pydantic AI direct sync response")
-    response = direct_model_request_sync("Explain unit testing", model=fake)
+    request = [ModelRequest(parts=[UserPromptPart(content="Explain unit testing")])]
+    response = model_request_sync(fake, request)
 
     text_parts = [part.content for part in response.parts if isinstance(part, TextPart)]
     assert "".join(text_parts) == "Pydantic AI direct sync response"
     assert fake.requested == ["Explain unit testing"]
 
 
-def test_pydantic_ai_direct_request_stream_sync() -> None:
-    """`ModelFake` integrates with `direct_model_request_stream_sync` yielding text deltas."""
+def test_pydantic_ai_model_request_stream_sync_over_the_fake() -> None:
+    """`ModelFake` streams a native `model_request_stream_sync` whose deltas rebuild its content."""
     fake = ModelFake("Pydantic AI stream response")
-    stream_deltas = list(direct_model_request_stream_sync("Explain streaming", model=fake))
-    assert "".join(stream_deltas) == "Pydantic AI stream response"
+    request = [ModelRequest(parts=[UserPromptPart(content="Explain streaming")])]
+
+    deltas: list[str] = []
+    with model_request_stream_sync(fake, request) as stream:
+        for event in stream:
+            delta_content = getattr(getattr(event, "delta", None), "content_delta", None)
+            if delta_content:
+                deltas.append(delta_content)
+
+    assert "".join(deltas) == "Pydantic AI stream response"
     assert fake.call_count == 1
