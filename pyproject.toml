@@ -65,8 +65,6 @@ dependencies = [
     "markdown-it-py==4.2.0",
     "mdit-py-plugins==0.6.1",
     "graphql-core==3.3.0",
-    "markdownify==1.2.3",
-    "beautifulsoup4==4.15.0",
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",

@@ -187,7 +187,7 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 - Scratchpad buffer reasoning state handover between stages.
 
 ### 5. HTTP Connection Management & Security Broker
-`HttpClientBroker` (`devops_cli.http.broker`) serves agent tools and Vault with HTTP/2 and W3C `traceparent` injection. Its clients, and the shared LLM connection pool in `devops_cli.http.pool`, are built by `devops_cli.http.client`, so each address they dial is checked at the connect and on every redirect hop (see SSRF Guardrails above). The GitHub, vulnerability-lookup and Cloudflare clients still create their own `httpx2` clients until #1381 moves them:
+`HttpClientBroker` (`devops_cli.http.broker`) serves Vault with HTTP/2 and W3C `traceparent` injection. Its clients, and the shared LLM connection pool in `devops_cli.http.pool`, are built by `devops_cli.http.client`, so each address they dial is checked at the connect and on every redirect hop (see SSRF Guardrails above). The GitHub, vulnerability-lookup and Cloudflare clients still create their own `httpx2` clients until #1381 moves them:
 - Native HTTP/2 connection pooling with persistent keepalive and backoff retries where supported.
 - Connect-time egress checks by level (public, loopback-allowed, private-allowed), with cloud metadata addresses refused at every level.
 - Automatic W3C `traceparent` header injection for distributed trace waterfalls.
