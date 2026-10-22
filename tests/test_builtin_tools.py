@@ -24,10 +24,13 @@ from devops_cli.ai.tools.builtin_tools import (
     scan_osv,
     scan_pluto,
     scan_popeye,
+    scan_semgrep,
     scan_trivy,
     scan_uv_audit,
     search_code,
 )
+from devops_cli.review.rules_pack import RULE_PACK_DIR
+from tests.support.fakes.scanners import ScannerFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -519,3 +522,31 @@ def test_rag_search_names_an_embedding_failure(
         "https://example.com/v1/embeddings answered HTTP 400: model not loaded. "
         "Fallback: use search_code."
     )
+
+
+def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool's scan sends no metrics, checks no version, runs the rule pack and excludes no
+    directory (#1144)."""
+    monkeypatch.chdir(tmp_path)
+
+    scan_semgrep(str(tmp_path), config="./local-rules")
+
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            "./local-rules",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            str(tmp_path.resolve()),
+        ]
+    ]

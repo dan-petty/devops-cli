@@ -360,3 +360,20 @@ def test_review_start_runs_canaries_automatically_via_subprocess_when_unmocked(
         orchestrator.canary_results["bandit"],
         orchestrator.canary_results["semgrep"],
     ) == (2, True, True)
+
+
+def test_the_semgrep_canary_sends_no_metrics_and_checks_no_version(tmp_path: Path) -> None:
+    """The canary runs Semgrep as every other scan does, on its probe rules alone (#1144)."""
+    assert build_canary_command("semgrep", tmp_path) == [
+        "semgrep",
+        "scan",
+        "--json",
+        "--metrics",
+        "off",
+        "--disable-version-check",
+        "--config",
+        "semgrep_probes.yaml",
+        "--disable-nosem",
+        "--quiet",
+        "canary.py",
+    ]

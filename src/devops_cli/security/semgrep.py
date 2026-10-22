@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import batched
 from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_SEMGREP, build_semgrep_cmd
-from devops_cli.config.constants import CONST_SEMGREP_EXCLUDED_EXTENSIONS
+from devops_cli.config.constants import (
+    CONST_SEMGREP_EXCLUDED_DIRECTORIES,
+    CONST_SEMGREP_EXCLUDED_EXTENSIONS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
@@ -121,16 +125,19 @@ def _scannable_files(targets: list[Path]) -> list[Path]:
     ]
 
 
-def _files_command(names: list[str], config: str) -> list[str] | None:
-    """The command that scans the named files; None when none is named."""
-    if not names:
-        return None
+def semgrep_scan_command(
+    targets: Sequence[Path | str], config: str, exclude_paths: Sequence[str] = ()
+) -> list[str]:
+    """The Semgrep scan of `targets` with `config` and devops-cli's rule pack, which runs with
+    whatever config a scan names (#1144)."""
     from devops_cli.review.rules_pack import RULE_PACK_DIR
 
-    configs = ["--config", config]
-    if config == DEFAULT_SEMGREP_CONFIG and RULE_PACK_DIR.is_dir():
-        configs.extend(["--config", str(RULE_PACK_DIR)])
-    return [BIN_SEMGREP, "scan", "--json", *configs, "--disable-nosem", "--quiet", *names]
+    return build_semgrep_cmd(targets, [config, str(RULE_PACK_DIR)], exclude_paths)
+
+
+def _files_command(names: list[str], config: str) -> list[str] | None:
+    """The command that scans the named files; None when none is named."""
+    return semgrep_scan_command(names, config) if names else None
 
 
 def _build_scan_command(
@@ -144,18 +151,7 @@ def _build_scan_command(
 
     if not target.exists():
         return None
-    return build_semgrep_cmd(
-        target_path=target.resolve(),
-        config=config,
-        exclude_paths=[
-            ".venv",
-            "venv",
-            "node_modules",
-            ".data",
-            "repos",
-            ".git",
-        ],
-    )
+    return semgrep_scan_command([target.resolve()], config, CONST_SEMGREP_EXCLUDED_DIRECTORIES)
 
 
 def _build_dry_run_finding(target_str: str) -> Finding:

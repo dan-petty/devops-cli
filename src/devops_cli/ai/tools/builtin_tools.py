@@ -349,9 +349,11 @@ def scan_gitleaks(target: str = ".") -> str:
 
 def scan_semgrep(target: str = ".", config: str = DEFAULT_SEMGREP_CONFIG) -> str:
     """Run Semgrep multilingual static AST pattern matching scan."""
+    from devops_cli.security.semgrep import semgrep_scan_command
+
     return _run_workspace_security_scan(
         target,
-        lambda p: ["semgrep", "scan", "--json", "--config", config, str(p)],
+        lambda p: semgrep_scan_command([p], config),
         fallback_msg="No AST code pattern flaws detected by Semgrep.",
         missing_tool_name="semgrep",
     )

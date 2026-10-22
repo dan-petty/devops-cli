@@ -123,14 +123,25 @@ def test_command_builders(tmp_path: Path) -> None:
         "--source",
         "src",
     ]
-    assert build_semgrep_cmd("src", exclude_paths=["tests/*"]) == [
+    assert build_semgrep_cmd(
+        ["src", "docs"],
+        configs=["p/default", "rules"],
+        exclude_paths=["tests/*"],
+    ) == [
         BIN_SEMGREP,
         "scan",
         "--json",
+        "--metrics",
+        "off",
+        "--disable-version-check",
         "--config",
         "p/default",
+        "--config",
+        "rules",
         "--disable-nosem",
         "--exclude",
         "tests/*",
+        "--quiet",
         "src",
+        "docs",
     ]

@@ -2,8 +2,10 @@
 (#1666, ADR 0007).
 
 Each run in `tests/fixtures/scanner_runs/recorded_runs.json` is the real tool's, at the version
-`tools.lock` pins, started on 2026-10-20 through its adapter as a review starts it, over one file
-holding `print("hello")`. Each case starts the adapter that way again, over `ScannerFake`, and
+`tools.lock` pins, started through its adapter as a review starts it (Semgrep's on 2026-10-22,
+the others' on 2026-10-20), over one file holding `print("hello")`. Semgrep's recording ran
+offline, with the rule file `_SEMGREP_RULES` in place of the registry's `p/default`, which a
+recording cannot fetch. Each case starts the adapter that way again, over `ScannerFake`, and
 checks that it made the recorded command and read the recorded run as it read the real one: a
 scan that ran and found nothing. Another checks each recording's version against the lock. Where
 a case fails, the recording no longer stands for the real tool: record the run again with the
@@ -29,9 +31,26 @@ from tests.support.fakes.scanners import ScannerFake
 
 ReviewScan = Callable[[Path, Path], ScanOutcome]
 
+# The one rule of the rule file Semgrep's recording ran with; it matches nothing in the scanned file.
+_SEMGREP_RULES = """rules:
+  - id: eval-of-input
+    languages: [python]
+    severity: ERROR
+    message: eval of input
+    pattern: eval(input())
+"""
+
+
+def _review_semgrep_scan(target: Path, tree: Path) -> ScanOutcome:
+    """Semgrep as a review's scanner stage starts it, with a rule file in `tree` as its config."""
+    rules = tree / "rules.yaml"
+    rules.write_text(_SEMGREP_RULES, encoding="utf-8")
+    return run_semgrep_scan([target], config=str(rules), reviewed_tree=tree)
+
+
 # Each adapter as a review's scanner stage starts it (`devops_cli.ai.review.pipeline`).
 REVIEW_SCANS: dict[str, ReviewScan] = {
-    "semgrep": lambda target, tree: run_semgrep_scan([target], reviewed_tree=tree),
+    "semgrep": _review_semgrep_scan,
     "gitleaks": lambda target, tree: run_gitleaks_scan([target], ignore_tests=True, isolated=True),
     "bandit": lambda target, tree: run_bandit_scan([target], isolated=True, tree=tree),
     "osv-scanner": lambda target, tree: run_osv_scan([target], tree=tree, isolated=True),

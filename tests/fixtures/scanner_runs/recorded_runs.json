@@ -5,8 +5,11 @@
       "semgrep",
       "scan",
       "--json",
+      "--metrics",
+      "off",
+      "--disable-version-check",
       "--config",
-      "p/default",
+      "{tree}/rules.yaml",
       "--config",
       "{rule_pack}",
       "--disable-nosem",
@@ -14,7 +17,7 @@
       "./app.py"
     ],
     "returncode": 0,
-    "stdout": "{\"version\":\"1.179.0\",\"results\":[],\"errors\":[],\"paths\":{\"scanned\":[\"app.py\"]},\"time\":{\"rules\":[],\"rules_parse_time\":5.60148286819458,\"profiling_times\":{\"config_time\":5.032546043395996,\"core_time\":7.675029516220093,\"ignores_time\":0.0028438568115234375,\"total_time\":12.756030559539795},\"parsing_time\":{\"total_time\":0.0,\"per_file_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_files\":[]},\"scanning_time\":{\"total_time\":0.1283106803894043,\"per_file_time\":{\"mean\":0.042770226796468094,\"std_dev\":0.0035838790248716476},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_files\":[]},\"matching_time\":{\"total_time\":0.0,\"per_file_and_rule_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_rules_on_files\":[]},\"tainting_time\":{\"total_time\":0.0,\"per_def_and_rule_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_rules_on_defs\":[]},\"fixpoint_timeouts\":[],\"prefiltering\":{\"project_level_time\":0.0,\"file_level_time\":0.0,\"rules_with_project_prefilters_ratio\":0.0,\"rules_with_file_prefilters_ratio\":0.9896551724137931,\"rules_selected_ratio\":0.010344827586206896,\"rules_matched_ratio\":0.010344827586206896},\"targets\":[],\"total_bytes\":0,\"max_memory_bytes\":769200768},\"engine_requested\":\"OSS\",\"skipped_rules\":[],\"profiling_results\":[]}\n",
+    "stdout": "{\"version\":\"1.179.0\",\"results\":[],\"errors\":[],\"paths\":{\"scanned\":[\"app.py\"]},\"time\":{\"rules\":[],\"rules_parse_time\":0.0007829666137695312,\"profiling_times\":{\"config_time\":0.17338275909423828,\"core_time\":0.1031644344329834,\"ignores_time\":5.269050598144531e-05,\"total_time\":0.28497767448425293},\"parsing_time\":{\"total_time\":0.0,\"per_file_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_files\":[]},\"scanning_time\":{\"total_time\":0.000141143798828125,\"per_file_time\":{\"mean\":0.000141143798828125,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_files\":[]},\"matching_time\":{\"total_time\":0.0,\"per_file_and_rule_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_rules_on_files\":[]},\"tainting_time\":{\"total_time\":0.0,\"per_def_and_rule_time\":{\"mean\":0.0,\"std_dev\":0.0},\"very_slow_stats\":{\"time_ratio\":0.0,\"count_ratio\":0.0},\"very_slow_rules_on_defs\":[]},\"fixpoint_timeouts\":[],\"prefiltering\":{\"project_level_time\":0.0,\"file_level_time\":0.0,\"rules_with_project_prefilters_ratio\":0.0,\"rules_with_file_prefilters_ratio\":1.0,\"rules_selected_ratio\":0.0,\"rules_matched_ratio\":0.0},\"targets\":[],\"total_bytes\":0,\"max_memory_bytes\":74638976},\"engine_requested\":\"OSS\",\"skipped_rules\":[],\"profiling_results\":[]}\n",
     "stderr": ""
   },
   "gitleaks": {

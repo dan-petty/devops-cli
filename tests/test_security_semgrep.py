@@ -17,11 +17,13 @@ from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.semgrep import (
     parse_semgrep_json,
     run_semgrep_scan,
 )
+from tests.support.fakes.scanners import ScannerFake
 
 runner = CliRunner()
 
@@ -357,3 +359,69 @@ def test_semgrep_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> N
         str(fixture_tree) in f.location,
         str(fixture_tree) in f.description,
     ) == ("app/x.py:15", False, False)
+
+
+def test_a_review_runs_the_rule_pack_whatever_config_it_names(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The pack's rules run next to the config a review names, not only next to `p/default`,
+    and the scan sends no metrics and checks no version (#1144)."""
+    tree = (tmp_path / "tree").resolve()
+    tree.mkdir()
+    target = tree / "app.py"
+    target.write_text('print("hello")\n', encoding="utf-8")
+
+    run_semgrep_scan([target], config="./local-rules", reviewed_tree=tree)
+
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            "./local-rules",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            "./app.py",
+        ]
+    ]
+
+
+def test_scan_sast_runs_the_rule_pack_next_to_the_config_it_names(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """`devops scan sast --config ./local-rules` scans the directory with the same flags as a
+    review, excluding what a checkout holds that is not its code, and still adds the pack."""
+    result = cli("scan", "sast", str(tmp_path), "--config", "./local-rules")
+
+    assert (result.exit_code, [run.argv for run in scanner_fake.runs]) == (
+        0,
+        [
+            [
+                "semgrep",
+                "scan",
+                "--json",
+                "--metrics",
+                "off",
+                "--disable-version-check",
+                "--config",
+                "./local-rules",
+                "--config",
+                str(RULE_PACK_DIR),
+                "--disable-nosem",
+                *("--exclude", ".venv"),
+                *("--exclude", "venv"),
+                *("--exclude", "node_modules"),
+                *("--exclude", ".data"),
+                *("--exclude", "repos"),
+                *("--exclude", ".git"),
+                "--quiet",
+                str(tmp_path.resolve()),
+            ]
+        ],
+    )
