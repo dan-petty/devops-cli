@@ -10,6 +10,7 @@ from markdown_it import MarkdownIt
 from mdit_py_plugins.anchors import anchors_plugin
 
 from devops_cli.ai.instruction_generator import (
+    POINTER_STUBS,
     generate_instruction_content,
     parse_project_metadata,
 )
@@ -83,12 +84,24 @@ def test_personas_in_self_improvement_are_valid() -> None:
 
 
 def test_instruction_stubs_byte_equal_to_generator() -> None:
-    """CLAUDE.md and .github/copilot-instructions.md must match generator output byte-for-byte."""
+    """The pointer stubs must match generator output byte-for-byte."""
     meta = parse_project_metadata(REPO_ROOT)
-    for target in ("CLAUDE.md", ".github/copilot-instructions.md"):
+    for target in ("CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"):
         expected = generate_instruction_content(target, meta)
         actual = (REPO_ROOT / target).read_text(encoding="utf-8")
         assert actual == expected, f"{target} differs from generator output"
+
+
+def test_the_canonical_source_note_links_every_pointer_stub() -> None:
+    """The Canonical Source note of AGENTS.md, and of the generated one, links each pointer stub."""
+    meta = parse_project_metadata(REPO_ROOT)
+    documents = (
+        (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+        generate_instruction_content("AGENTS.md", meta),
+    )
+    for document in documents:
+        note = document.split("**Canonical Source**", 1)[1].split("\n\n", 1)[0]
+        assert [stub for stub in POINTER_STUBS if f"[{stub}](./{stub})" not in note] == []
 
 
 def test_agents_md_stays_within_character_budget() -> None:

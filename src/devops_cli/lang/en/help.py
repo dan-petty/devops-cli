@@ -79,7 +79,9 @@ class AICommandHelp:
     chat: str = "Interactive multi-turn AI chat session with optional tool execution."
     config: str = "Show or update AI provider configuration (provider, model, endpoints, keys)."
     test: str = "Send a test prompt to verify AI provider connectivity."
-    agents: str = "Generate or regenerate AGENTS.md, CLAUDE.md, and copilot-instructions.md."
+    agents: str = (
+        "Generate or regenerate AGENTS.md, CLAUDE.md, GEMINI.md, and copilot-instructions.md."
+    )
     review: str = "AI-powered code review and group analysis system."
     analyze: str = "Analyze codebase metadata and generate structural outlines."
     rag: str = "Manage RAG vector embeddings, indexing, and semantic search (Qdrant)."

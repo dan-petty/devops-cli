@@ -11,7 +11,7 @@ DevContainer lifecycle automation in `devops-cli` standardizes the provisioning,
 ```mermaid
 graph TD
     A[devops devcontainer init] --> B[Generate devcontainer.json & mcp.json]
-    B --> C[Scaffold AGENTS.md, CLAUDE.md, copilot-instructions.md]
+    B --> C[Scaffold AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md]
     D[Container Start: postCreateCommand] --> E[devops devcontainer post-create]
     E --> F[Volume Mount Permissions & Ownership: /tmp, .venv, caches]
     E --> G[Persistent Bash History & Path Setup]

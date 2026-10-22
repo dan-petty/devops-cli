@@ -12,6 +12,7 @@ import pytest
 from devops_cli.ai.instruction_generator import (
     CONST_CLAUDE_MD_FILENAME,
     CONST_COPILOT_INSTRUCTIONS_PATH,
+    CONST_GEMINI_MD_FILENAME,
 )
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FRAGMENTS_DIR,
@@ -117,12 +118,13 @@ def test_an_inventory_entry_is_a_pattern_when_it_holds_a_glob_wildcard(
 
 def test_the_generated_class_is_what_the_generator_writes() -> None:
     """Verify the generated class is the documents `DocGenerator` writes under `docs/` plus the
-    two instruction stubs. The generator also returns `README.md`, whose synced command matrix
+    three instruction stubs. The generator also returns `README.md`, whose synced command matrix
     is its only generated part, so it is hand-written."""
     written = DocGenerator(REPO_ROOT).generate_all_docs(REPO_ROOT / "docs")
     generated_by_the_generator = {
         *(f"docs/{name}" for name in written if name != "README.md"),
         CONST_CLAUDE_MD_FILENAME,
+        CONST_GEMINI_MD_FILENAME,
         CONST_COPILOT_INSTRUCTIONS_PATH,
     }
     generated_in_the_inventory = {

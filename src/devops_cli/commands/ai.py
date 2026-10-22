@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 import typer
 
+from devops_cli.ai.instruction_generator import DEFAULT_AGENT_FILES
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
@@ -176,12 +177,6 @@ def ai_main(
 
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
 _AI_TASKS = ("chat", "metadata", "analysis", "embedding")
-
-_AGENT_FILES: dict[str, str] = {
-    CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
-    "CLAUDE.md": "Pointer stub redirecting Claude Code to AGENTS.md",
-    ".github/copilot-instructions.md": "Pointer stub redirecting GitHub Copilot to AGENTS.md",
-}
 
 
 def _get_agents_task_addendum() -> str:
@@ -925,16 +920,16 @@ def agents(
         typer.Option(
             "--file",
             "-f",
-            show_default=", ".join(_AGENT_FILES),
+            show_default=", ".join(DEFAULT_AGENT_FILES),
             help=HELP.ai.generate_file,
         ),
     ] = None,
 ) -> None:
-    """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md)."""
+    """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md)."""
     from devops_cli.lang import MESSAGES
 
     repo = repo.resolve()
-    target_files = files if files is not None else list(_AGENT_FILES)
+    target_files = files if files is not None else list(DEFAULT_AGENT_FILES)
 
     valid_targets: list[str] = []
     for target in target_files:

@@ -1,8 +1,8 @@
 """AI agent instruction generator and scaffolding utilities.
 
 Scaffolds canonical AGENTS.md instructions along with pointer stubs for
-CLAUDE.md and .github/copilot-instructions.md across repositories and
-project initialization workflows.
+CLAUDE.md, GEMINI.md and .github/copilot-instructions.md across repositories
+and project initialization workflows.
 """
 
 from __future__ import annotations
@@ -10,10 +10,10 @@ from __future__ import annotations
 import html
 import logging
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
 from devops_cli.config.defaults import (
@@ -24,12 +24,49 @@ from devops_cli.config.defaults import (
 logger = logging.getLogger(__name__)
 
 CONST_CLAUDE_MD_FILENAME = "CLAUDE.md"
+CONST_GEMINI_MD_FILENAME = "GEMINI.md"
 CONST_COPILOT_INSTRUCTIONS_PATH = ".github/copilot-instructions.md"
 
 DEFAULT_AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
     CONST_CLAUDE_MD_FILENAME: "Pointer stub redirecting Claude Code to AGENTS.md",
+    CONST_GEMINI_MD_FILENAME: "Pointer stub redirecting Gemini CLI to AGENTS.md",
     CONST_COPILOT_INSTRUCTIONS_PATH: "Pointer stub redirecting GitHub Copilot to AGENTS.md",
+}
+
+
+class PointerStub(BaseModel):
+    """What differs between the pointer stubs: the tool, the title and the way to AGENTS.md."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    title_suffix: str
+    tool_name: str
+    canonical_relpath: str
+    import_line: str | None = None
+
+
+# The stub of each tool by its file name. A tool that expands an import line (Claude Code and
+# Gemini CLI) gets one, in the form that its own documentation shows, so its session carries
+# the rules of AGENTS.md.
+POINTER_STUBS: dict[str, PointerStub] = {
+    CONST_CLAUDE_MD_FILENAME: PointerStub(
+        title_suffix="Claude Instructions",
+        tool_name="Claude Code",
+        canonical_relpath="./AGENTS.md",
+        import_line="@AGENTS.md",
+    ),
+    CONST_GEMINI_MD_FILENAME: PointerStub(
+        title_suffix="Gemini CLI Instructions",
+        tool_name="Gemini CLI",
+        canonical_relpath="./AGENTS.md",
+        import_line="@./AGENTS.md",
+    ),
+    CONST_COPILOT_INSTRUCTIONS_PATH: PointerStub(
+        title_suffix="GitHub Copilot Instructions",
+        tool_name="GitHub Copilot",
+        canonical_relpath="../AGENTS.md",
+    ),
 }
 
 
@@ -135,9 +172,13 @@ def generate_pointer_stub(
     filename: str,
     canonical_relpath: str,
     *,
+    import_line: str | None = None,
     is_devops_cli: bool = False,
 ) -> str:
-    """Generate a thin pointer stub that redirects tools to the canonical AGENTS.md."""
+    """Generate a thin pointer stub that redirects tools to the canonical AGENTS.md.
+
+    With `import_line`, the stub also holds that line, which the tool expands into its context.
+    """
     alpha_notice = (
         "\n>\n"
         "> **Pre-1.0 Alpha Notice**: This codebase is active alpha software prior to release `1.0.0`\n"
@@ -147,7 +188,7 @@ def generate_pointer_stub(
         if is_devops_cli
         else ""
     )
-    import_directive = "@AGENTS.md\n\n" if filename == CONST_CLAUDE_MD_FILENAME else ""
+    import_directive = f"{import_line}\n\n" if import_line else ""
     return f"""\
 # {title}
 
@@ -238,7 +279,7 @@ practices for AI coding assistants (GitHub Copilot, Claude, Cursor, Codex) worki
 codebase or reviewing target repositories.
 
 > **Canonical Source**: This file is the single source of truth for AI coding agent
-> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
+> instructions in this repo. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and
 > [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
 > to this file.
 
@@ -418,20 +459,15 @@ codebase or reviewing target repositories.
 
 def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str:
     """Generate content for a specific instruction file based on project metadata."""
-    if target_file == CONST_CLAUDE_MD_FILENAME:
+    filename = PurePosixPath(target_file).as_posix()
+    stub = POINTER_STUBS.get(filename)
+    if stub is not None:
         return generate_pointer_stub(
-            title=f"{meta.name} — Claude Instructions",
-            tool_name="Claude Code",
-            filename="CLAUDE.md",
-            canonical_relpath="./AGENTS.md",
-            is_devops_cli=meta.is_devops_cli,
-        )
-    if "copilot" in target_file:
-        return generate_pointer_stub(
-            title=f"{meta.name} — GitHub Copilot Instructions",
-            tool_name="GitHub Copilot",
-            filename=".github/copilot-instructions.md",
-            canonical_relpath="../AGENTS.md",
+            title=f"{meta.name} — {stub.title_suffix}",
+            tool_name=stub.tool_name,
+            filename=filename,
+            canonical_relpath=stub.canonical_relpath,
+            import_line=stub.import_line,
             is_devops_cli=meta.is_devops_cli,
         )
     return generate_agents_md(meta)
@@ -453,7 +489,7 @@ def scaffold_agent_instructions(
         template: If True, generate from built-in templates without LLM invocation.
         use_llm: If True and template is False, attempt LLM completion for AGENTS.md.
         files: Optional list of relative file paths to generate. Defaults to
-               AGENTS.md, CLAUDE.md, and .github/copilot-instructions.md.
+               every file of `DEFAULT_AGENT_FILES`.
 
     Returns:
         List of Path objects for files that were written or updated.

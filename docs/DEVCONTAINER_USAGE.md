@@ -61,7 +61,7 @@ devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/
 This scaffolds:
 1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with `/tmp`, persistent user home volume, SSH directory forwarding, post-create lifecycle commands (`devops devcontainer post-create`), and IDE extensions.
 2. `.vscode/mcp.json`: Model Context Protocol configuration exposing `devops-cli` tools to AI coding assistants (Claude Desktop, Cursor, VS Code, Antigravity IDE).
-3. `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md`: Operational engineering instructions and architectural constraints for AI pair programmers.
+3. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`: Operational engineering instructions and architectural constraints for AI pair programmers.
 4. `.mcp.json`: the same MCP server for Claude Code.
 
 ---
