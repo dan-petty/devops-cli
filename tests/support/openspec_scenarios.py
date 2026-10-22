@@ -1,16 +1,15 @@
 """The OpenSpec trees the gate is recorded and tested over (#1844).
 
 A scenario is a small checkout: `openspec/` with a configuration and some change folders, the
-generated skills the repository commits, and a git history in which the changes merged one commit
-each, in the order named. `build_scenario` writes it. `tests/support/openspec_recording.py` runs
-the real, pinned OpenSpec over each scenario and keeps what it answered, and
-`tests/support/fakes/openspec.py` answers a test's runs of the same commands from that record, so
-the tree a test builds and the tree the record was made over are the same.
+generated skills the repository commits, and a git repository around them. `build_scenario`
+writes it. `tests/support/openspec_recording.py` runs the real, pinned OpenSpec over each scenario
+and keeps what it answered, and `tests/support/fakes/openspec.py` answers a test's runs of the
+same commands from that record, so the tree a test builds and the tree the record was made over
+are the same.
 """
 
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,11 +55,9 @@ _UNTICKED = "## 1. Export\n\n- [ ] 1.1 Write the file\n"
 
 @dataclass(frozen=True)
 class OpenSpecScenario:
-    """A checkout: its files by path from its root, and the changes it committed one by one, in
-    the order they merged. A change folder not named in `merged` is not committed."""
+    """A checkout: its files by path from its root."""
 
     files: dict[str, str]
-    merged: tuple[str, ...] = ()
 
 
 def delta(operation: str, requirement: str, text: str, *, purpose: bool = False) -> str:
@@ -100,9 +97,7 @@ def change(
     return files
 
 
-def _scenario(
-    *changes: dict[str, str], merged: tuple[str, ...] = (), config: str = CONFIG
-) -> OpenSpecScenario:
+def _scenario(*changes: dict[str, str], config: str = CONFIG) -> OpenSpecScenario:
     """A scenario holding `changes` and an empty `openspec/specs` and archive."""
     files = {
         "openspec/config.yaml": config,
@@ -111,13 +106,12 @@ def _scenario(
     }
     for files_of_change in changes:
         files.update(files_of_change)
-    return OpenSpecScenario(files, merged)
+    return OpenSpecScenario(files)
 
 
 _WIDGET = "The system SHALL export every widget to a file."
 _JSON = "The system SHALL export every widget to a file in JSON."
 _YAML = "The system SHALL export every widget to a file in YAML."
-_AGAIN = "The system SHALL export every widget to a file, again."
 
 SCENARIOS: dict[str, OpenSpecScenario] = {
     "empty": _scenario(),
@@ -129,47 +123,6 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
             ticked=True,
         ),
         change("1902-export-json", "widget-export", delta("MODIFIED", "Export widgets", _JSON)),
-        merged=("1901-export-widgets", "1902-export-json"),
-    ),
-    "merged-out-of-issue-order": _scenario(
-        change(
-            "1930-export-widgets",
-            "widget-export",
-            delta("ADDED", "Export widgets", _WIDGET, purpose=True),
-        ),
-        change("1920-export-json", "widget-export", delta("MODIFIED", "Export widgets", _JSON)),
-        merged=("1930-export-widgets", "1920-export-json"),
-    ),
-    "missing-purpose": _scenario(
-        change(
-            "1910-export-widgets",
-            "widget-export",
-            delta("ADDED", "Export widgets", _WIDGET),
-            ticked=True,
-        ),
-        merged=("1910-export-widgets",),
-    ),
-    "modified-spec-absent": _scenario(
-        change(
-            "1911-export-json",
-            "widget-export",
-            delta("MODIFIED", "Export widgets", _JSON),
-            ticked=True,
-        ),
-        merged=("1911-export-json",),
-    ),
-    "duplicate-added": _scenario(
-        change(
-            "1912-export-widgets",
-            "widget-export",
-            delta("ADDED", "Export widgets", _WIDGET, purpose=True),
-        ),
-        change(
-            "1913-export-widgets-again",
-            "widget-export",
-            delta("ADDED", "Export widgets", _AGAIN),
-        ),
-        merged=("1912-export-widgets", "1913-export-widgets-again"),
     ),
     "requirement-modified-twice": _scenario(
         change(
@@ -179,11 +132,8 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
         ),
         change("1915-export-json", "widget-export", delta("MODIFIED", "Export widgets", _JSON)),
         change("1916-export-yaml", "widget-export", delta("MODIFIED", "Export widgets", _YAML)),
-        merged=("1914-export-widgets", "1915-export-json", "1916-export-yaml"),
     ),
-    "skip-specs-change": _scenario(
-        change("1918-reword-docs", ticked=True), merged=("1918-reword-docs",)
-    ),
+    "skip-specs-change": _scenario(change("1918-reword-docs", ticked=True)),
     "requirement-renamed-and-modified": _scenario(
         change(
             "1921-export-widgets",
@@ -194,7 +144,6 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
         change(
             "1923-dump-widgets", "widget-export", rename_delta("Export widgets", "Dump widgets")
         ),
-        merged=("1921-export-widgets", "1922-export-json", "1923-dump-widgets"),
     ),
     "unknown-metadata-key": _scenario(
         {
@@ -207,7 +156,6 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
                 "schema: spec-driven\ncreated: 2026-10-22\nmilestone: v0.2.39\n"
             ),
         },
-        merged=("1917-export-widgets",),
     ),
     "archived-change-with-unticked-task": _scenario(
         {
@@ -223,37 +171,9 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
 }
 
 
-def _change_names(files: dict[str, str]) -> list[str]:
-    """The names of the active change folders `files` holds, in path order."""
-    pattern = re.compile(r"openspec/changes/(?!archive/)([^/]+)/")
-    return sorted({match[1] for path in files if (match := pattern.match(path))})
-
-
-def _git(root: Path, *args: str) -> None:
-    """Run git in `root` as a fixed author, so a commit needs no identity of the machine's."""
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(root),
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            *args,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def build_scenario(name: str, root: Path, committed_skills: Path) -> None:
-    """Write scenario `name` under `root` and commit it: the skills read from `committed_skills`
-    and everything but the changes first, then each change in the order it merged. A change the
-    scenario does not name as merged is left uncommitted."""
+    """Write scenario `name` under `root` with the skills read from `committed_skills`, and make
+    `root` a git repository, which is how `devops` finds the root of a checkout."""
     from devops_cli.openspec.skills import generated_files
 
     scenario = SCENARIOS[name]
@@ -263,10 +183,4 @@ def build_scenario(name: str, root: Path, committed_skills: Path) -> None:
     for path, content in generated_files(committed_skills).items():
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_bytes(content)
-    _git(root, "init", "-q")
-    held_back = [f"openspec/changes/{change_name}" for change_name in _change_names(scenario.files)]
-    _git(root, "add", "-A", "--", ".", *(f":!{path}" for path in held_back))
-    _git(root, "commit", "-q", "--allow-empty", "-m", "base")
-    for change_name in scenario.merged:
-        _git(root, "add", f"openspec/changes/{change_name}")
-        _git(root, "commit", "-q", "-m", change_name)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)

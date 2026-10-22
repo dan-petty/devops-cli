@@ -2,7 +2,7 @@
 
 Two active changes that `MODIFY` one requirement both archive, the spec keeps the later text, and
 neither `openspec validate` nor `openspec doctor` says so. OpenSpec's bulk-archive conflict
-detection is an agent skill, not a command, so a rehearsal cannot call it and this check is ours.
+detection is an agent skill, not a command, so the gate cannot call it and this check is ours.
 Delete this module when OpenSpec ships a deterministic check for it (the ADR's Revisit
 Conditions).
 """

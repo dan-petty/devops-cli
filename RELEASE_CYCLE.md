@@ -126,7 +126,7 @@ uv run devops ci
 11. **Project Environment Validation (`uv check`)**: Verifies project dependencies and Python environment consistency.
 12. **Lockfile Validation (`uv lock --check`)**: Verifies `uv.lock` remains strictly synchronized with `pyproject.toml`.
 13. **Dependency Freshness (`uv tree --outdated`)**: Inspects dependency tree for outdated packages.
-14. **OpenSpec Gate (`devops openspec check`)**: Validates every change folder and archived change, checks the committed skills against a regeneration under the isolated `custom` profile, renders the instructions every agent reads, and rehearses the cut's archive of the active changes in the order they merged ([ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
+14. **OpenSpec Gate (`devops openspec check`)**: Validates every change folder and archived change, checks the committed skills against a regeneration under the isolated `custom` profile, renders the instructions every agent reads, and finds a requirement that two active changes rewrite ([ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 
 CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`. On pull requests, the Tests & Coverage job also writes an advisory changed-line coverage report (diff-cover) against the base branch to its job summary.
 

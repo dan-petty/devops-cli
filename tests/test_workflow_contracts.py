@@ -480,8 +480,8 @@ SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
 
 def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() -> None:
     """`setup-node` is pinned by the commit of v7.1.0 and reads `.node-version`, the install step
-    follows it, and both come before the gate that runs the openspec row; the checkout holds the
-    history the cut's order is read from."""
+    follows it, and both come before the gate that runs the openspec row; the checkout is the
+    default shallow one, since the gate reads no git history."""
     steps = _steps(WORKFLOWS_DIR / "ci.yml", "static")
     names = [step.get("name") for step in steps]
     node, install = (steps[names.index(name)] for name in ("Set up Node.js", "Install OpenSpec"))
@@ -492,7 +492,7 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
         install["run"].splitlines(),
         names.index("Set up Node.js") < names.index("Install OpenSpec"),
         names.index("Install OpenSpec") < names.index("Static Analysis Quality Gate"),
-        checkout["with"]["fetch-depth"],
+        "fetch-depth" in checkout["with"],
     ) == (
         SETUP_NODE,
         {"node-version-file": ".node-version"},
@@ -502,7 +502,7 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
         ],
         True,
         True,
-        0,
+        False,
     )
 
 

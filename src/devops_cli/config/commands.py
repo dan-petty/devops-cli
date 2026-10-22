@@ -237,28 +237,6 @@ def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
     ]
 
 
-def build_git_additions_log_cmd(
-    changes_dir: str, metadata_filename: str, commit_prefix: str
-) -> list[str]:
-    """Build the git command that lists, oldest first and parents before children, the commits that
-    added a file named `metadata_filename` in a folder under `changes_dir`, with the files each
-    added. A rename counts as an addition, and a path is printed as it is, never quoted."""
-    return [
-        BIN_GIT,
-        "-c",
-        "core.quotepath=false",
-        "log",
-        "--topo-order",
-        "--reverse",
-        "--no-renames",
-        "--diff-filter=A",
-        "--name-only",
-        f"--format={commit_prefix}%H",
-        "--",
-        f":(glob){changes_dir}/*/{metadata_filename}",
-    ]
-
-
 def build_openspec_cmd(*args: str) -> list[str]:
     """Build an `openspec` command: the pinned OpenSpec's program, then its arguments."""
     return [BIN_OPENSPEC, *args]

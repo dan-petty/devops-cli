@@ -27,14 +27,16 @@ def test_check_prints_each_problem_with_its_check_and_exits_1(
     cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every finding is a line led by the check that found it, then the count."""
-    monkeypatch.chdir(openspec_fake.tree("duplicate-added"))
+    monkeypatch.chdir(openspec_fake.tree("requirement-modified-twice"))
 
     result = cli("openspec", "check")
 
     assert result.exit_code == 1
     assert [line for line in result.output.splitlines() if line.strip()][:2] == [
-        'archive rehearsal: 1913-export-widgets-again: widget-export ADDED failed for header "### '
-        'Requirement: Export widgets" - already exists',
+        'overlap: widget-export: the requirement "Export widgets" is rewritten by '
+        "1915-export-json (MODIFIED), 1916-export-yaml (MODIFIED): both would archive and the "
+        "later would overwrite the earlier with no signal, so fold the items into one change or "
+        "order them with a blocker, so that the second waits until the first archives.",
         "OpenSpec check found 1 problem(s).",
     ]
 

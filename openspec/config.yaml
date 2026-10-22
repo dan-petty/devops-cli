@@ -18,7 +18,7 @@ rules:
     - >-
       Run openspec list --specs first and reuse a capability. The delta that creates a capability starts with a "## Purpose" section of at least 50 characters, so archive never writes TBD. A capability that another active change creates is extended with ADDED requirements and no Purpose of its own.
     - >-
-      Change an existing requirement only with MODIFIED, REMOVED or RENAMED, and only when it exists in openspec/specs/ or an active change that already merged ADDs it (name that issue as a blocker). Two active changes never MODIFY, REMOVE or RENAME one requirement: fold the items or wait for the cut.
+      Change an existing requirement only with MODIFIED, REMOVED or RENAMED, and only when it exists in openspec/specs/. When an active change adds it, name that issue as a blocker and archive after it. Archive refuses a MODIFIED of a spec that does not exist. Two active changes never MODIFY, REMOVE or RENAME one requirement: fold the items, or wait until the first archives.
     - >-
       Write only scenarios a test under tests/ can assert offline. Tests double only process edges and never reach a network, a cluster or a real scanner.
     - >-
@@ -42,4 +42,4 @@ operations:
   apply:
     guidance:
       - >-
-        Implement test-first on a topic branch as AGENTS.md requires, tick a task in the commit that completes it, and push only after `uv run devops ci` passes completely. Do not archive or sync: the release cut archives each delivered change.
+        Implement test-first on a topic branch as AGENTS.md requires. Tick a task in the commit that completes it. Push only after `uv run devops ci` passes completely. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `openspec archive <change> --yes` after every task is ticked. A pull request that says Part of #<issue> archives nothing.

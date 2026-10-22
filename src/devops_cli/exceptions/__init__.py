@@ -74,7 +74,6 @@ from devops_cli.exceptions.telemetry import (
 from devops_cli.exceptions.tools import (
     ChecksumMismatchError,
     DependencyError,
-    OpenSpecArchiveError,
     SubprocessError,
     ToolDownloadError,
     ToolExecutionError,
@@ -141,7 +140,6 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
-    "OpenSpecArchiveError",
     "ReleaseBranchMissingError",
     "ReleasePRCreationError",
     "ReleasePushError",

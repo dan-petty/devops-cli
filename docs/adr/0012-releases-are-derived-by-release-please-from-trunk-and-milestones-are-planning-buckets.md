@@ -113,7 +113,8 @@ Counts of lines, files and tests come from the tip of `release/v0.2.39` (commit 
   - OpenSpec 1.14.3 ran in scratch repositories. Archived one after another at a cut, two text-only `MODIFIED` deltas to one requirement silently keep only the later text. Archived in each pull request, the same collision is a git conflict in the pull request where the author can fix it.
   - Four branch pairs rebased. Modify and modify conflict. Add and add to one capability conflict. Modify and add are clean in both orders. A conflict where both sides only appended is spurious.
   - Archiving again after a rebase gave a result byte-identical to a serial archive.
-  - Code that orders archives at a cut merged in #1868, under ADR 0010. It holds `archive_sequence` in `src/devops_cli/openspec/archive.py`, the rehearsal of the cut in `src/devops_cli/openspec/gate.py` and the overlap check in `src/devops_cli/openspec/overlap.py`.
+  - Code that orders archives at a cut merged in #1868, under ADR 0010. It holds `archive_sequence` in `src/devops_cli/openspec/archive.py` and the rehearsal of the cut in `src/devops_cli/openspec/gate.py`. This code goes.
+  - The overlap check in `src/devops_cli/openspec/overlap.py` merged in #1868 too. It is not cut-time code. It reads `openspec show --json --deltas-only` for each active change, archives nothing and reads no git history. It stays until OpenSpec ships its own check.
 - **Couplings of the roadmap code to a version.**
   - `roadmap/store.py` treats a milestone as a Release only when its title parses as a version (`is_release_title`). A title such as `2026-11-05` or `Q4 hardening` is no Release. `parse_release_version` raises `InvalidVersionError` for it.
   - `reprioritize.py` names the next patch (`_patch_bump`, `_next_release`, `_planned_titles`, `nearest_planned_release`). `roadmap/document.py:37` carries a `vX.Y.Z` regular expression.
@@ -395,7 +396,8 @@ About 310 lines move into `image-publish.yml`. About 14,400 lines go. This ADR g
   - ADR 0011 gets one first line that names this ADR. Nothing else in it changes.
   - ADR 0001: milestones are planning buckets, not releases, and `docs/ROADMAP.md` is rendered. It gets a dated note that points here.
   - ADR 0004: [#1752](https://github.com/dan-petty/devops-cli/issues/1752) records the amendment (required checks, no merge queue, what runs locally). This decision adds `Semantic PR title` to its list.
-  - ADR 0010: the archive moves from the cut to the closing pull request. That makes the cut-time archive code unnecessary: the archive-ordering function, the rehearsal of the cut and the overlap check. They merged in #1868. [#1846](https://github.com/dan-petty/devops-cli/issues/1846) edits ADR 0010 in place and deletes the code that exists only for the cut.
+  - ADR 0010: the archive moves from the cut to the closing pull request. That makes the cut-time archive code unnecessary: the archive-ordering function and the rehearsal of the cut. They merged in #1868. [#1846](https://github.com/dan-petty/devops-cli/issues/1846) edits ADR 0010 in place and deletes the code that exists only for the cut. The overlap check does not exist only for the cut, so it stays.
+    - Corrected on 2026-10-22: the overlap check stays (evidence in docs/agent/tasks/task-1846-the-openspec-gate-drops-the-cut-only-code.md).
 - Nothing in the release path waits for the roadmap Service ([#1562](https://github.com/dan-petty/devops-cli/issues/1562)). The planner changes can merge on any date after step 6.
 
 ## Decisions Taken

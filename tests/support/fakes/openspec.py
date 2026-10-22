@@ -1,5 +1,5 @@
-"""The OpenSpec the gate and the cut start, faked at the process edge, and the `openspec_fake`
-fixture that installs the fake (#1844, ADR 0007).
+"""The OpenSpec the gate starts, faked at the process edge, and the `openspec_fake` fixture that
+installs the fake (#1844, ADR 0007).
 
 The process edge has no seam yet (#775), so the fake doubles the stdlib objects themselves, as
 `ScannerFake` does: `shutil.which` finds `openspec` under `bin_dir` while the fake is installed,
