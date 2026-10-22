@@ -26,7 +26,7 @@ The first plan archived changes at the release cut. The owner replaced that plan
 - **Tests.** `tests/test_openspec_archive.py` is deleted. `tests/test_openspec_gate.py`, `test_openspec_tool.py` and `test_openspec_command.py` lose the rehearsal, order, symlink and archive-failure cases. The scenarios `merged-out-of-issue-order`, `missing-purpose`, `modified-spec-absent` and `duplicate-added` are gone. The `merged` field and the commits that `build_scenario` made are gone too. A scenario tree holds a `git init` and no commit, so a gate that reads git history fails every gate test.
 - **New tests.** `test_the_gate_passes_changes_and_archives_none_of_them` runs the scenarios `pair` and `skip-specs-change`. It asserts no finding and no `archive` run. `test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate` now asserts that the checkout step has no `fetch-depth`.
 - **Recorded runs.** I deleted four scenarios from `tests/fixtures/openspec_runs/recorded_runs.json`. I also deleted every `archive` run and every `validate --specs --strict` run. I edited no recorded text. `tests/test_openspec_contract.py` proves that the record holds only runs that the gate starts.
-- **Other task text.** `docs/agent/tasks/task-1844-openspec-scaffold-and-gate.md` loses the archive-function bullet and the rehearsal. Its criterion for a change that would not archive now names the overlap check. Its kept settings text denies no `archive`. `docs/agent/tasks/task-1753-openspec-adoption.md` and `changelog.d/1753.md` no longer say that the cut archives.
+- **Other task text.** `docs/agent/tasks/task-1844-openspec-scaffold-and-gate.md` loses the archive-function bullet and the rehearsal. Its criterion for a change that would not archive now names the overlap check. `docs/agent/tasks/task-1753-openspec-adoption.md` and `changelog.d/1753.md` no longer say that the cut archives.
 
 ## Acceptance Criteria
 
@@ -35,13 +35,13 @@ The first plan archived changes at the release cut. The owner replaced that plan
 - [x] ADR 0010 holds no passage that archives at the cut. It names the release cut only to say that the cut does not archive.
 - [x] `openspec/config.yaml` tells an agent to archive its own change in the commit that closes it. It also tells the agent not to run `sync`. The copy in ADR 0010 equals the file.
 - [x] The help text, the docstrings and the documents name no archive at the cut.
-- [x] The kept settings text in the task file of #1844 holds no `archive` deny entry.
+- [x] The settings hold no `archive` deny entry. `Bash(openspec *)` allows the direct tool `openspec archive`, so nothing in the settings blocks it. ADR 0012 still plans the wrapper `devops openspec archive`, which the last part of #1844 builds. The wrapper is not built yet.
 - [x] ADR 0012 no longer calls the overlap check cut-time code that #1846 removes. The two passages that named it now say that it stays, and one dated line records the correction.
 - [x] The gate tests pass with the recorded runs that remain. A gate that archives a change, or reads git history, fails them.
 - [x] `uv run devops openspec check` passes on the tree with the real tool.
 - Not done: readiness refuses a `Closes` pull request whose folder is not under `openspec/changes/archive/`. It also allows a write to `openspec/specs/**` only in a `Closes` pull request for its own change (the last Part of #1846, after #1847).
-- Pending a person: apply the `permissions` entries kept in `docs/agent/tasks/task-1844-openspec-scaffold-and-gate.md` to `.claude/settings.json` after this pull request merges. That text no longer denies `openspec archive`, so an agent can run `openspec archive <change> --yes` in the closing commit. To let an agent run it without a prompt, also add `"Bash(openspec archive *)"` to the allow list. Add `archive` to `ALLOWED_OPENSPEC_VERBS` in the kept test as well.
-- Pending a person: decide the form of the archive command. ADR 0010 and `openspec/config.yaml` say `openspec archive <name> --yes`. Line 185 of ADR 0012 plans a wrapper, `devops openspec archive <name>`. Settle the form before Part B.
+- [x] The `permissions` entries are in `.claude/settings.json`. A person applied them on 2026-10-22: `Bash(uv run devops *)`, `Bash(openspec *)` and `Bash(tuicr *)` allow, and no deny list. An agent runs `openspec archive <change> --yes` in the closing commit without a prompt.
+- Pending a person: decide the form of the archive command. ADR 0010 and `openspec/config.yaml` say `openspec archive <name> --yes`, and the settings allow it. Line 186 of ADR 0012 plans a wrapper, `devops openspec archive <name>`, which the last part of #1844 builds. The wrapper is not built yet. The settings enforce neither form. Settle the form before Part B.
 - Pending a person: edit the text of #1847. It says that the cut owns the writes to `openspec/specs/**` and `openspec/changes/archive/**`. It says that the cut lists a change which is not `complete`. Both statements conflict with the decision of 2026-10-22.
 
 ## Deliverables
