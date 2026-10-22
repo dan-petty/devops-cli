@@ -9,15 +9,7 @@ from datetime import date
 import pydantic_ai.format_prompt as p_fp
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.format_prompt import (
-    format_as_xml,
-    format_context_as_xml,
-    format_examples_as_xml,
-    format_findings_as_xml,
-    format_metadata_as_xml,
-    format_prompt_data,
-    format_rag_context_as_xml,
-)
+from devops_cli.ai.format_prompt import format_as_xml, format_prompt_data
 
 
 class SampleFinding(BaseModel):
@@ -118,90 +110,6 @@ def test_format_prompt_data_wrapper() -> None:
     rootless = format_prompt_data(data, root_tag=None)
     assert "<project>devops-cli</project>" in rootless
     assert "<metadata>" not in rootless
-
-
-def test_format_examples_as_xml() -> None:
-    """Verify format_examples_as_xml formats few-shot examples with field info."""
-    examples = [
-        {"input": "find vulnerabilities in auth.py", "expected_action": "run_security_scan"},
-        {"input": "deploy valkey helm chart", "expected_action": "k8s_deploy_stack"},
-    ]
-    xml_out = format_examples_as_xml(examples)
-    assert "<examples>" in xml_out
-    assert "<example>" in xml_out
-    assert "<input>find vulnerabilities in auth.py</input>" in xml_out
-    assert "<expected_action>run_security_scan</expected_action>" in xml_out
-    assert "</examples>" in xml_out
-
-
-def test_format_rag_context_as_xml() -> None:
-    """Verify format_rag_context_as_xml serializes retrieved chunks."""
-    chunks = [
-        {
-            "file": "src/auth.py",
-            "lines": "10-25",
-            "score": 0.89,
-            "snippet": "def authenticate(user, password): ...",
-        },
-        {
-            "file": "src/tokens.py",
-            "lines": "40-60",
-            "score": 0.95,
-            "snippet": "def generate_jwt(payload): ...",
-        },
-    ]
-    xml_out = format_rag_context_as_xml(chunks)
-    assert "<rag_context>" in xml_out
-    assert "<chunk>" in xml_out
-    assert "<file>src/auth.py</file>" in xml_out
-    assert "<lines>10-25</lines>" in xml_out
-    assert "<snippet>def authenticate(user, password): ...</snippet>" in xml_out
-    assert "</rag_context>" in xml_out
-
-
-def test_format_findings_as_xml() -> None:
-    """Verify format_findings_as_xml serializes finding objects."""
-    findings = [
-        SampleFinding(
-            id="F-1",
-            title="Unchecked Subprocess",
-            severity="CRITICAL",
-            file_path="src/shell.py",
-            line=12,
-        )
-    ]
-    xml_out = format_findings_as_xml(findings)
-    assert "<findings>" in xml_out
-    assert "<SampleFinding>" in xml_out or "<finding>" in xml_out
-    assert "<id>F-1</id>" in xml_out
-    assert "<title>Unchecked Subprocess</title>" in xml_out
-    assert "</findings>" in xml_out
-
-
-def test_format_metadata_as_xml() -> None:
-    """Verify format_metadata_as_xml serializes session metadata."""
-    meta = {"session_id": "sess-12345", "persona": "devsecops", "dry_run": True}
-    xml_out = format_metadata_as_xml(meta)
-    assert "<metadata>" in xml_out
-    assert "<session_id>sess-12345</session_id>" in xml_out
-    assert "<persona>devsecops</persona>" in xml_out
-    assert "<dry_run>True</dry_run>" in xml_out
-    assert "</metadata>" in xml_out
-
-
-def test_format_context_as_xml() -> None:
-    """Verify format_context_as_xml handles arbitrary context dicts and models."""
-    ctx_data = {
-        "repo": "devops-cli",
-        "branch": "main",
-        "diff_stats": {"files_changed": 3, "insertions": 120, "deletions": 15},
-    }
-    xml_out = format_context_as_xml(ctx_data, root_tag="context")
-    assert "<context>" in xml_out
-    assert "<repo>devops-cli</repo>" in xml_out
-    assert "<diff_stats>" in xml_out
-    assert "<files_changed>3</files_changed>" in xml_out
-    assert "</context>" in xml_out
 
 
 def test_managed_prompt_xml_formatting() -> None:

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+    from pydantic_ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
 
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.memory import AgentMemory
@@ -184,7 +184,7 @@ class MultiAgentPipeline[T]:
         self.memory: AgentMemory = memory or AgentMemory(session_id=session_id)
         self.concurrency_limit = concurrency_limit
         if concurrency_limit is not None:
-            from devops_cli.ai.concurrency import normalize_to_limiter
+            from pydantic_ai.concurrency import normalize_to_limiter
 
             self.concurrency_limiter: AbstractConcurrencyLimiter | None = normalize_to_limiter(
                 concurrency_limit, name=f"pipeline:{session_id}"
@@ -451,7 +451,7 @@ class MultiAgentPipeline[T]:
         if not self.agents:
             return MultiAgentPipelineResult[T](final_content="")
 
-        from devops_cli.ai.concurrency import get_concurrency_context
+        from pydantic_ai.concurrency import get_concurrency_context
 
         async def _execute_agent(
             idx: int, agent: PydanticAgent[Any]

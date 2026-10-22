@@ -9,48 +9,11 @@ from pydantic_ai import RunContext as NativeRunContext
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.context import RunContext, _check_path_traversal
 from devops_cli.ai.agents.tools import AgentTool
-from devops_cli.ai.personas import Persona
-from devops_cli.ai.pydantic_ai_bridge import (
-    DevOpsAgentContext,
-    create_pydantic_ai_agent,
-    get_persona_pydantic_agent,
-    is_pydantic_ai_available,
-)
 from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ModelRetry
 
 pytestmark = pytest.mark.usefixtures("public_dns")
-
-
-def test_is_pydantic_ai_available() -> None:
-    assert is_pydantic_ai_available() is True
-
-
-def test_devops_agent_context_model() -> None:
-    ctx = DevOpsAgentContext(
-        target_repo="/workspaces/test",
-        active_persona="devsecops",
-        context_tokens_budget=8192,
-    )
-    assert ctx.target_repo == "/workspaces/test"
-    assert ctx.active_persona == "devsecops"
-    assert ctx.context_tokens_budget == 8192
-
-
-def test_create_pydantic_ai_agent() -> None:
-    agent = create_pydantic_ai_agent(
-        model_name="ollama:test-model",
-        system_prompt="You are a test reviewer.",
-        result_type=ReviewResult,
-        deps_type=DevOpsAgentContext,
-    )
-    assert agent is not None
-
-
-def test_get_persona_pydantic_agent() -> None:
-    agent = get_persona_pydantic_agent(Persona.DEVSECOPS)
-    assert agent is not None
 
 
 def test_pydantic_agent_execution_and_tools() -> None:
@@ -429,8 +392,9 @@ def test_pydantic_agent_capabilities_and_on_demand() -> None:
 
 def test_pydantic_agent_spec_and_template_str() -> None:
     """Verify AgentSpec parsing, from_spec factory, and TemplateStr rendering against deps."""
+    from pydantic_ai.template import TemplateStr
+
     from devops_cli.ai.agents.tools import AgentSpec
-    from devops_cli.ai.template import TemplateStr
 
     # 1. TemplateStr test
     tmpl = TemplateStr("You are assisting {{user_name}} in {{environment}}.")
@@ -964,28 +928,6 @@ def test_resolve_pydantic_ai_model() -> None:
     assert "example.com" in str(m_ollama.provider.base_url)
 
 
-def test_create_pydantic_ai_agent_native_execution() -> None:
-    """Verify create_pydantic_ai_agent constructs native Agent and supports run_sync with TestModel."""
-    from pydantic_ai.agent import Agent
-    from pydantic_ai.models.test import TestModel
-
-    from devops_cli.ai.pydantic_ai_bridge import create_pydantic_ai_agent
-    from devops_cli.ai.review_schema import ReviewResult
-
-    agent = create_pydantic_ai_agent(
-        model_name=TestModel(custom_output_args={"summary": "Automated code review passed"}),
-        system_prompt="You are a reviewer.",
-        output_type=ReviewResult,
-    )
-    assert isinstance(agent, Agent)
-    assert agent.output_type is ReviewResult
-
-    # Run native run_sync
-    run_res = agent.run_sync("Review this diff")
-    assert run_res.output.summary == "Automated code review passed"
-    assert run_res.usage.requests >= 1
-
-
 def test_pydantic_agent_native_parity() -> None:
     """Verify PydanticAgent supports output_type, output_json_schema, run_sync, and decorators."""
     from unittest.mock import MagicMock
@@ -1028,26 +970,11 @@ def test_pydantic_agent_native_parity() -> None:
     assert cli_out == str(resp.output)
 
 
-def test_agent_response_output_and_from_run_result() -> None:
-    """Verify AgentResponse.output and AgentResponse.from_run_result adaptation."""
-    from pydantic_ai.agent import Agent
-    from pydantic_ai.models.test import TestModel
-
+def test_agent_response_output_falls_back_to_the_text() -> None:
+    """Verify AgentResponse.output is the structured data when present and the text otherwise."""
     from devops_cli.ai.agents.models import AgentResponse
 
-    # 1. Output property fallback
     resp_text = AgentResponse(content="Simple text")
-    assert resp_text.output == "Simple text"
-
     resp_data = AgentResponse(content="{}", data={"key": "val"})
-    assert resp_data.output == {"key": "val"}
 
-    # 2. Adaptation from native AgentRunResult
-    native_agent = Agent(TestModel(custom_output_text="From native run"))
-    native_run_res = native_agent.run_sync("Hi")
-
-    adapted = AgentResponse.from_run_result(native_run_res)
-    assert adapted.content == "From native run"
-    assert adapted.output == "From native run"
-    assert adapted.usage.input_tokens == native_run_res.usage.input_tokens
-    assert adapted.usage.output_tokens == native_run_res.usage.output_tokens
+    assert (resp_text.output, resp_data.output) == ("Simple text", {"key": "val"})

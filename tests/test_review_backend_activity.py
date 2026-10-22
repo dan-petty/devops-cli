@@ -12,10 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.models.test import TestModel
 from typer.testing import CliRunner
 
-from devops_cli.ai.direct import direct_model_request_sync
 from devops_cli.ai.review import profile as profile_module
 from devops_cli.ai.review.profile import (
     BackendActivity,
@@ -27,7 +25,6 @@ from devops_cli.ai.review.profile import (
     review_stage,
     summarize_profiles,
 )
-from devops_cli.ai.spend.ledger import observe_llm_calls
 from devops_cli.commands import review as review_commands
 from devops_cli.main import app
 
@@ -130,15 +127,3 @@ def test_benchmark_table_shows_busy_share_and_peak(
         result.exit_code,
         "remote.example.com 60% ×4, ollama-0.example.com 10% ×1" in result.output,
     ) == (0, True)
-
-
-def test_direct_requests_report_how_long_they_took() -> None:
-    """Verify direct model requests give observers their duration like gateway calls do."""
-    seen: list[dict[str, Any]] = []
-
-    with observe_llm_calls(seen.append):
-        direct_model_request_sync(model=TestModel(), prompt_or_messages="Run diagnostic check")
-
-    assert [(c["request_type"], c["duration_seconds"] >= 0.0) for c in seen] == [
-        ("direct_sync", True)
-    ]

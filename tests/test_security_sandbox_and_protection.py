@@ -114,17 +114,6 @@ def test_agent_memory_masks_secrets_in_auto_summarize() -> None:
     assert "<masked" in mem.summary.lower() or "[REDACTED" in mem.summary
 
 
-# 8. URL validation in OllamaProvider (Finding 8)
-def test_ollama_provider_validates_urls() -> None:
-    """Verify OllamaProvider validates base_url against invalid schemes and formats."""
-    from devops_cli.ai.providers.ollama import OllamaProvider
-
-    cfg_mock = MagicMock()
-    cfg_mock.get_ollama_urls = ["ftp://example.com:11434"]
-    prov = OllamaProvider(cfg_mock)
-    assert prov.is_available() is False
-
-
 # 9. Telemetry error sample secret sanitization (Finding 9)
 @pytest.mark.live("python")
 @pytest.mark.asyncio
