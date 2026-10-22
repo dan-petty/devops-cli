@@ -4,6 +4,14 @@
 # winning over this file. Each section is a GitHub search filter. gh-dash adds `is:pr` or
 # `is:issue` and `archived:false`, and, started inside a clone, `repo:<owner>/<name>`.
 # gh-dash ignores a key it does not know: tests/test_gh_dash_config.py checks every key.
+#
+# GraphQL cost. The gh-dash 4.26.2 source gives the request counts, and GitHub dry runs give the
+# points of one request. A count of the lines in debug.log at start showed one section fetch more
+# than the source gives. Nobody has confirmed the cause. The token has a budget of 5,000 points an
+# hour, and AI agents use the same token. With these values gh-dash costs about 7 points at start
+# and 5 points an hour, not counting that extra fetch. A refresh fetches every section of the view
+# on screen: 5 points for the four PR sections. An open preview adds 2 points for each row that a
+# person selects, and for the selected row at each refresh. The `p` key opens the preview.
 prSections:
   # GitHub uses the first `sort:` in a query, so `sort:created-asc` here wins over the
   # ` sort:updated` that gh-dash appends. Every PR section lists the oldest pull request first.
@@ -36,11 +44,11 @@ defaults:
   prsLimit: 20
   issuesLimit: 20
   notificationsLimit: 5
-  # gh-dash refetches the current view at this interval, in minutes: 15 is 4 refreshes an hour.
-  # `0` turns the timer off, and `R` refreshes on demand.
-  refetchIntervalMinutes: 15
+  # gh-dash refetches every section of the view on screen at this interval, in minutes: 60 is 1
+  # refresh an hour. `0` turns the timer off, and `R` refreshes on demand.
+  refetchIntervalMinutes: 60
   preview:
-    open: true
+    open: false
     width: 0.45
   # gh-dash draws each of these cells as a Nerd Font glyph, so the config hides them. The tabs
   # Failing CI, Needs review and Drafts carry the same facts as filters. Set `hidden: false` to
