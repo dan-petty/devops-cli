@@ -1,4 +1,4 @@
-"""Read the code in Markdown documents: shell fences, code spans, and the `devops` commands in them.
+"""Read the code in Markdown documents: fences, code spans, headings and the `devops` commands in them.
 
 Documents are parsed with markdown-it-py's CommonMark parser, so a fence inside a list item or a
 code span inside a table cell is found where a reader sees it, and a command line is split into
@@ -15,7 +15,7 @@ from __future__ import annotations
 import shlex
 from collections.abc import Iterator
 from functools import cache
-from itertools import takewhile
+from itertools import pairwise, takewhile
 from pathlib import Path
 from typing import NamedTuple
 
@@ -26,6 +26,8 @@ from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken
 
 # The fences whose lines a shell would run; a fence with no language is read as one too.
 SHELL_FENCE_LANGUAGES = frozenset({"", "bash", "sh", "shell", "zsh", "console", "shell-session"})
+# The fences that hold YAML; the language is the first word of the fence's info string.
+YAML_FENCE_LANGUAGES = frozenset({"yaml", "yml"})
 # The characters a POSIX shell reads as operators, as the standard library's lexer lists them.
 _SHELL_OPERATOR_CHARACTERS = frozenset(shlex.shlex(punctuation_chars=True).punctuation_chars)
 # The ones the lexer splits from a word they touch: all but `<` and `>`, which `<session>` holds.
@@ -41,6 +43,14 @@ class CodeSnippet(NamedTuple):
     fenced: bool
 
 
+class Heading(NamedTuple):
+    """A heading a document shows: the line it is on, its level (1 for `#`) and its text."""
+
+    line: int
+    level: int
+    text: str
+
+
 @cache
 def _tokens(path: Path) -> tuple[Token, ...]:
     return tuple(_PARSER.parse(path.read_text(encoding="utf-8")))
@@ -50,6 +60,32 @@ def _fence_language(token: Token) -> str:
     return token.info.split(maxsplit=1)[0] if token.info.strip() else ""
 
 
+def _line(token: Token) -> int:
+    return (token.map[0] if token.map else 0) + 1
+
+
+def fences(path: Path, languages: frozenset[str]) -> list[CodeSnippet]:
+    """Every fence in the document written in one of `languages`, with the line its body starts on.
+
+    A fence is in a language when that is the first word of its info string, so
+    ```` ```yml title=x ```` is `yml`.
+    """
+    return [
+        CodeSnippet(_line(token) + 1, token.content, True)
+        for token in _tokens(path)
+        if token.type == "fence" and _fence_language(token) in languages
+    ]
+
+
+def headings(path: Path) -> list[Heading]:
+    """Every heading in the document, in order, with the line it is on."""
+    return [
+        Heading(_line(opening), int(opening.tag.removeprefix("h")), title.content)
+        for opening, title in pairwise(_tokens(path))
+        if opening.type == "heading_open"
+    ]
+
+
 def code_snippets(path: Path) -> list[CodeSnippet]:
     """Every shell fence and code span in the document, with the line it starts on.
 
@@ -57,7 +93,7 @@ def code_snippets(path: Path) -> list[CodeSnippet]:
     """
     snippets: list[CodeSnippet] = []
     for token in _tokens(path):
-        line = (token.map[0] if token.map else 0) + 1
+        line = _line(token)
         if token.type == "fence" and _fence_language(token) in SHELL_FENCE_LANGUAGES:
             snippets.append(CodeSnippet(line + 1, token.content, True))
         elif token.type == "inline":

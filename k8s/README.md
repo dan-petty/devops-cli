@@ -77,7 +77,7 @@ minikube service llm-gateway -n llm --url
 ```
 
 ### LLM Gateway (`llm-gateway`)
-The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-review`, plus models by name (`qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, `bge-m3:latest`, `embeddinggemma:300m`). It moves a prompt too long for `devops-chat` to `devops-coder`, then `devops-reasoning`, before calling any backend. It falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
+The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-review`, plus models by name (`qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, `bge-m3:latest`). It moves a prompt too long for `devops-chat` to `devops-coder`, then `devops-reasoning`, before calling any backend. It falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
 The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
 ```bash
 KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
@@ -86,7 +86,7 @@ curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
 These groups route reviews, embeddings and background work:
 
 - `devops-review` spreads one model name over four Ollama tiers: `qwen3-coder:30b` on `ollama-48gib` (weight 9) and `ollama-64gib` (6), and `gpt-oss:20b` on `ollama-16gib` (8) and `ollama-24gib` (1). Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
-- Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding models `bge-m3:latest` and `embeddinggemma:300m`. Embedding groups configure `model_info.mode: embedding` so health checks embed rather than generate.
+- Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding model `bge-m3:latest`. An embedding group configures `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
 - `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
   ```bash
@@ -116,7 +116,7 @@ ai:
       model: devops-coder
     embedding:
       provider: gateway
-      model: embeddinggemma:300m
+      model: bge-m3:latest
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
