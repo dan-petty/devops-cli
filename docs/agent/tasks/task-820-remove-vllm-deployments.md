@@ -37,7 +37,7 @@ fdd4d0f (#734) deleted the vLLM profiles (`k8s/llm/profiles/vllm-profiles.yaml`)
 - [x] `grep -rn -i "vllm" src k8s tests .devcontainer` reports only authorized generic continuous batching engine support, review sample data, and regression tests.
 - [x] `devops ai gateway load` reports gateway and GPU figures with zero vLLM columns.
 - [x] `ollama.endpoint` in `.devcontainer/devcontainer.json` points to `http://ollama-16gib.llm.svc.cluster.local:11434`.
-- [x] Added regression test `test_vllm_dead_settings_commands_and_mcp_tools_are_removed` in `tests/test_codebase_hygiene_and_shims.py`.
+- [x] Added a regression test for the removed vLLM settings, commands and MCP tools. #1871 deleted it later.
 - [x] Added file-only test `test_devcontainer_ollama_endpoint_matches_gateway_service_and_port` in `tests/test_devcontainer.py`.
 - [x] Documentation regenerated and verified clean via `uv run devops docs check`.
 - Pending a person: `uv run devops ci` on this branch; it is this PR's own check, which readiness reads.

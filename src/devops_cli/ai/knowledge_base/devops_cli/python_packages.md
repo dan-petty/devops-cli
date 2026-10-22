@@ -164,7 +164,7 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 ### 4. Git, GitHub & DevSecOps Subsystems
 
 #### `gitpython` ([Dedicated Manual](libraries/gitpython.md))
-- **Pinned Version**: `gitpython==3.2.0`
+- **Pinned Version**: `gitpython==3.2.1`
 - **Ecosystem Role**: Python interface for interacting with Git repositories, inspecting commits, reading tree objects, and managing tracking branches.
 - **Codebase Integration**:
   - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
@@ -229,7 +229,7 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
   - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and an SSE event stream.
 
 #### `opentelemetry-exporter-otlp-proto-grpc` ([Dedicated Manual](libraries/opentelemetry.md))
-- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.44.0`
+- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.45.1`
 - **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
 - **Codebase Integration**:
   - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to the OpenTelemetry Collector and Tempo.

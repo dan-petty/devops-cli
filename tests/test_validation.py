@@ -680,8 +680,8 @@ _ACTION_DISPATCH: dict[str, Any] = {
     ),
     "validate_configured_default": lambda u: validate_configured_service_url(u),
     "validate_url_egress_allow_private": lambda u: validate_url_egress(u, allow_private=True),
-    "validate_url_egress_web_fetch": lambda u: validate_url_egress(
-        u, purpose="web_fetch", allow_private=False
+    "validate_url_egress_public_only": lambda u: validate_url_egress(
+        u, purpose="public fetch", allow_private=False
     ),
     "validate_url_egress_no_private": lambda u: validate_url_egress(u, allow_private=False),
 }
@@ -722,10 +722,10 @@ _ACTION_DISPATCH: dict[str, Any] = {
             "validate_url_egress_allow_private",
             "SSRFBlockedError",
         ),
-        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
-        ("http://[64:ff9b::7f00:1]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
-        ("http://[::127.0.0.1]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
-        ("http://168.63.129.16/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
+        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_egress_public_only", "SSRFBlockedError"),
+        ("http://[64:ff9b::7f00:1]/", "validate_url_egress_public_only", "SSRFBlockedError"),
+        ("http://[::127.0.0.1]/", "validate_url_egress_public_only", "SSRFBlockedError"),
+        ("http://168.63.129.16/", "validate_url_egress_public_only", "SSRFBlockedError"),
         ("http://[64:ff9b::808:808]/", "validate_url_egress_no_private", "allowed"),
         ("http://8.8.8.8/", "validate_url_egress_no_private", "allowed"),
     ],

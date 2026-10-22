@@ -45,6 +45,7 @@ _REQUIRED_TOOLS = {
     "semgrep",
     "bandit",
     "openspec",
+    "gh-dash",
 }
 
 
