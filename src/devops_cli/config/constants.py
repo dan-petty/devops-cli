@@ -775,6 +775,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "openspec/changes/**/*.md",
     ),
     CONST_DOCS_CLASS_PROMPT: (
+        ".devops/review.md",
         "src/devops_cli/ai/personas/**/*.md",
         "src/devops_cli/ai/prompts/**/*.md",
         "src/devops_cli/ai/tasks/**/*.md",

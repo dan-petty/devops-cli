@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 import typer
+from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.ai.review.review_environment import (
     nearest_conventions,
@@ -17,6 +18,7 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review.runner import (
     _prepare_branch_content,
 )
+from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
 from tests.support.paths import REPO_ROOT
 
 
@@ -67,6 +69,48 @@ def test_no_shared_review_prompt_carries_a_project_rule(phrase: str) -> None:
     ]
 
     assert carriers == []
+
+
+def _guard_lines(conventions: str) -> list[str]:
+    """The text of each bullet of a conventions file, without its marker."""
+    return [
+        line.strip().removeprefix("- ")
+        for line in conventions.splitlines()
+        if line.strip().startswith("- ")
+    ]
+
+
+def _guards_held_by(guards: list[str], text: str) -> list[str]:
+    return [guard for guard in guards if guard in text]
+
+
+def test_the_review_conventions_of_this_repository_hold_each_guard_in_full(
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Verify the guards of what a review must not flag load, word for word, from `.devops/review.md` (#1881).
+
+    The whole text of the file is the contract, so a snapshot pins it. A guard that loses a
+    word, or changes `MUST NOT` to `may`, fails the test.
+    """
+    assert nearest_review_conventions(REPO_ROOT) == snapshot
+
+
+def test_agents_md_holds_no_review_guard_and_names_the_file_once(tmp_path: Path) -> None:
+    """Verify `AGENTS.md` keeps one pointer in place of the guards of `.devops/review.md` (#1881).
+
+    `AGENTS.md` is a file for agents that write code, and a guard for a review is no use to
+    them. The guards come from the loader, so a guard added to the file is checked at once. The
+    negative controls give the same check a file with other text and a text with one guard.
+    """
+    agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    guards = _guard_lines(nearest_review_conventions(REPO_ROOT))
+
+    assert guards
+    assert _guards_held_by(guards, agents_md) == []
+    assert agents_md.count(CONST_REVIEW_CONVENTIONS_FILE) == 1
+    # Negative controls: the check finds no guard in other text and only the guard that is there.
+    assert _guards_held_by(guards, nearest_review_conventions(_repo(tmp_path))) == []
+    assert _guards_held_by(guards, f"# Other rules\n- {guards[-1]}\n") == [guards[-1]]
 
 
 def test_the_nearest_review_conventions_win(tmp_path: Path) -> None:
