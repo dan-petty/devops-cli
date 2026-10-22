@@ -252,6 +252,21 @@ class WorkloadSandboxEngine:
         clean_name = "".join(c if c.isalnum() or c == "-" else "-" for c in name.lower()).strip("-")
         return f"sandbox-{clean_name}-{ts}-{nonce}"
 
+    @staticmethod
+    def declared_controls(config: SandboxDeployConfig) -> dict[str, Any]:
+        """The hardening a deployment declares to the engine, before any engine call.
+
+        These are the policy's security options, the Docker network of the network mode and the
+        mode the workspace is mounted in. The method is pure: it asks the engine nothing,
+        provisions no network and injects no trace, so the dry run and the enforcement audit read
+        the controls the container is created with.
+        """
+        return {
+            **config.policy.to_docker_security_kwargs(read_only=config.read_only),
+            "network_mode": config.network_config.to_docker_network_mode(),
+            "workspace_mount_mode": "ro" if config.read_only else "rw",
+        }
+
     def _build_create_kwargs(
         self,
         config: SandboxDeployConfig,
@@ -260,10 +275,12 @@ class WorkloadSandboxEngine:
     ) -> dict[str, Any]:
         """Construct Docker container creation options with strict security containment.
 
+        The declared controls come first, and the workspace is mounted in the mode they declare.
         The environment is a copy of the config's that carries the active trace context, so a
         workload that traces is parented to the deploy span.
         """
-        mount_mode = "ro" if config.read_only else "rw"
+        declared = self.declared_controls(config)
+        mount_mode = declared.pop("workspace_mount_mode")
         volumes = {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}}
         ports_map = {
             f"{b.container_port}/{b.protocol}": ("127.0.0.1", b.host_port) for b in port_bindings
@@ -282,15 +299,11 @@ class WorkloadSandboxEngine:
             "nano_cpus": nano_cpus,
             "environment": dict(config.env),
             "detach": True,
-            **config.policy.to_docker_security_kwargs(read_only=config.read_only),
+            **declared,
         }
         if user_str is not None:
             kwargs["user"] = user_str
-        if config.network_config.mode == SandboxNetworkMode.ISOLATED:
-            kwargs["network_mode"] = "none"
-        elif config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
-        elif config.network_config.mode in (
+        if config.network_config.mode in (
             SandboxNetworkMode.PUBLIC_WHITELIST,
             SandboxNetworkMode.LOCAL_WHITELIST,
         ):
@@ -298,7 +311,6 @@ class WorkloadSandboxEngine:
                 raise SandboxValidationError(
                     f"Docker engine cannot enforce egress whitelist boundaries for mode '{config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
                 )
-            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
             proxy_url = config.network_config.egress_proxy or ""
             kwargs["environment"] = {
                 "HTTP_PROXY": proxy_url,
@@ -306,8 +318,6 @@ class WorkloadSandboxEngine:
                 "ALL_PROXY": proxy_url,
                 **config.env,
             }
-        else:
-            kwargs["network_mode"] = "bridge"
         get_tracer().inject_trace_env(kwargs["environment"])
         return kwargs
 

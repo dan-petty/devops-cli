@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_OTEL_OTLP_GRPC_PORT,
     CONST_OTEL_OTLP_HTTP_PORT,
     CONST_SANDBOX_COLLECTOR_LANE_MODES,
+    CONST_SANDBOX_DOCKER_NETWORK_BY_MODE,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
@@ -398,6 +399,10 @@ class SandboxNetworkConfig(BaseModel):
                 _validate_local_whitelist_item(item)
         return self
 
+    def to_docker_network_mode(self) -> str:
+        """The Docker network the mode runs on, a pure lookup that asks neither engine nor proxy."""
+        return CONST_SANDBOX_DOCKER_NETWORK_BY_MODE[self.mode]
+
     def _k8s_ingress_and_egress(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """The NetworkPolicy ingress and egress rules of the network mode."""
         if self.mode == SandboxNetworkMode.ISOLATED:
@@ -478,10 +483,6 @@ class SandboxPolicy(BaseModel):
             "read_only": effective_ro,
             "tmpfs": dict(self.tmpfs),
         }
-
-    def declared_security_summary(self, read_only: bool | None = None) -> dict[str, Any]:
-        """Render declared security control dictionary for dry-run rendering and audit."""
-        return self.to_docker_security_kwargs(read_only=read_only)
 
 
 DEFAULT_SANDBOX_POLICY: Final[SandboxPolicy] = SandboxPolicy()

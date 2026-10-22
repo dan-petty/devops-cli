@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.sandbox import app as sandbox_app
 from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
@@ -179,6 +180,31 @@ def test_sandbox_network_config_normalization_and_aliases() -> None:
     )
 
     assert SandboxNetworkConfig(mode="bridge").mode == SandboxNetworkMode.BRIDGE
+
+
+_DOCKER_NETWORK_BY_MODE: dict[SandboxNetworkMode, tuple[str, dict[str, list[str]]]] = {
+    SandboxNetworkMode.ISOLATED: ("none", {}),
+    SandboxNetworkMode.SANDBOX_NAMESPACE: (CONST_SANDBOX_DOCKER_INTERNAL_NET, {}),
+    SandboxNetworkMode.PUBLIC_WHITELIST: (
+        CONST_SANDBOX_DOCKER_INTERNAL_NET,
+        {"public_whitelist": ["example.com"]},
+    ),
+    SandboxNetworkMode.LOCAL_WHITELIST: (
+        CONST_SANDBOX_DOCKER_INTERNAL_NET,
+        {"local_whitelist": ["http://localhost:8080"]},
+    ),
+    SandboxNetworkMode.BRIDGE: ("bridge", {}),
+}
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize("mode", list(SandboxNetworkMode), ids=lambda mode: mode.value)
+def test_every_network_mode_runs_on_one_docker_network(mode: SandboxNetworkMode) -> None:
+    """Isolated runs on no network, the bridge on the default bridge, and the other modes on the
+    egress-denied internal bridge, whether or not a proxy is set."""
+    docker_network, whitelist = _DOCKER_NETWORK_BY_MODE[mode]
+
+    assert SandboxNetworkConfig(mode=mode, **whitelist).to_docker_network_mode() == docker_network
 
 
 def test_sandbox_network_config_isolated_mode() -> None:

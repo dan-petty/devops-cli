@@ -15,10 +15,12 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_TRACEPARENT_ENV_VAR,
     CONST_TRACESTATE_ENV_VAR,
     CONST_X11_SOCKET_DIR,
 )
+from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 from devops_cli.exceptions.docker import DockerEngineError, DockerSandboxError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -1306,19 +1308,10 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
         SandboxPolicy(extra_param=123)  # type: ignore[call-arg]
 
     sec_kwargs = policy.to_docker_security_kwargs()
-    summary = policy.declared_security_summary()
     assert (
         sec_kwargs,
-        summary,
         policy.to_docker_security_kwargs(read_only=False)["read_only"],
     ) == (
-        {
-            "cap_drop": ["ALL"],
-            "security_opt": ["no-new-privileges:true"],
-            "pids_limit": 256,
-            "read_only": True,
-            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108  # in-container, under test
-        },
         {
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
@@ -1360,6 +1353,218 @@ def test_sandbox_policy_identical_security_kwargs_across_builders(
     )
 
 
+# Each case is a policy, a network mode, and the Docker network that mode runs on.
+_DECLARED_CONTROL_CASES = {
+    "default": (SandboxPolicy(), "isolated", "none"),
+    "default bridge": (SandboxPolicy(), "bridge", "bridge"),
+    "small pid cap in the sandbox namespace": (
+        SandboxPolicy(pids_limit=16),
+        "sandbox_namespace",
+        CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    ),
+}
+
+
+def _declared_pair(
+    workspace: Path, policy: SandboxPolicy, network_mode: str, workload_read_only: bool = True
+) -> tuple[SandboxDeployConfig, WorkloadSandboxConfig]:
+    """The deploy and workload configs for one policy and network mode.
+
+    A deployment must keep its root read-only, so only the workload can be made writable.
+    """
+    return (
+        SandboxDeployConfig(workspace_dir=workspace, policy=policy, network_mode=network_mode),
+        WorkloadSandboxConfig(
+            workspace_dir=workspace,
+            command=["true"],
+            policy=policy,
+            network_mode=network_mode,
+            read_only=workload_read_only,
+        ),
+    )
+
+
+def test_the_declared_controls_of_the_default_policy_are_the_hardening_the_engine_is_told(
+    tmp_path: Path,
+) -> None:
+    """The default policy declares dropped capabilities, no-new-privileges, a pid cap, a read-only
+    root, a noexec /tmp, no network and a read-only workspace mount, and the two runners declare
+    the same."""
+    deploy_cfg, workload_cfg = _declared_pair(tmp_path, SandboxPolicy(), "isolated")
+    expected = {
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges:true"],
+        "pids_limit": 256,
+        "read_only": True,
+        "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108  # the in-container mount, under test
+        "network_mode": "none",
+        "workspace_mount_mode": "ro",
+    }
+
+    assert (
+        WorkloadSandboxEngine.declared_controls(deploy_cfg),
+        WorkloadSandboxRunner(workload_cfg).declared_controls(),
+    ) == (expected, expected)
+
+
+def test_a_writable_workload_declares_a_writable_root_and_workspace(tmp_path: Path) -> None:
+    """The workload runner's read-only flag reaches the declared root filesystem and the declared
+    mode of the workspace mount."""
+    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["true"], read_only=False)
+
+    declared = WorkloadSandboxRunner(cfg).declared_controls()
+
+    assert declared["read_only"] is False
+    assert declared["workspace_mount_mode"] == "rw"
+
+
+@pytest.mark.parametrize(
+    ("policy", "network_mode", "docker_network"),
+    [pytest.param(*case, id=name) for name, case in _DECLARED_CONTROL_CASES.items()],
+)
+def test_each_runner_declares_the_same_controls_for_the_same_policy(
+    tmp_path: Path, policy: SandboxPolicy, network_mode: str, docker_network: str
+) -> None:
+    """The deploy engine and the workload runner declare identical controls, on the network
+    the mode runs on."""
+    deploy_cfg, workload_cfg = _declared_pair(tmp_path, policy, network_mode)
+
+    deploy_controls = WorkloadSandboxEngine.declared_controls(deploy_cfg)
+
+    assert (
+        WorkloadSandboxRunner(workload_cfg).declared_controls(),
+        deploy_controls["network_mode"],
+    ) == (deploy_controls, docker_network)
+
+
+def _controls_sent(create_kwargs: dict[str, Any], declared: dict[str, Any]) -> dict[str, Any]:
+    """The declared controls as a create call carried them, the mount mode read off the
+    workspace volume."""
+    (workspace_mount,) = create_kwargs["volumes"].values()
+    sent = {**create_kwargs, "workspace_mount_mode": workspace_mount["mode"]}
+    return {key: sent[key] for key in declared}
+
+
+@pytest.mark.parametrize("workload_read_only", [True, False], ids=["read-only", "writable"])
+@pytest.mark.parametrize(
+    ("policy", "network_mode", "docker_network"),
+    [pytest.param(*case, id=name) for name, case in _DECLARED_CONTROL_CASES.items()],
+)
+def test_each_runner_creates_its_container_with_the_controls_it_declares(
+    tmp_path: Path,
+    docker_engine: Any,
+    policy: SandboxPolicy,
+    network_mode: str,
+    docker_network: str,
+    workload_read_only: bool,
+) -> None:
+    """The create call each runner sends the engine carries every declared control unchanged,
+    the workspace mount mode among them, and no control the engine would reject."""
+    deploy_cfg, workload_cfg = _declared_pair(tmp_path, policy, network_mode, workload_read_only)
+    container = MagicMock()
+    container.id = "c-declared"
+    container.wait.return_value = {"StatusCode": 0}
+    container.logs.side_effect = [b"", b""]
+    deploy_client, workload_client = MagicMock(), MagicMock()
+    deploy_client.containers.create.return_value = container
+    workload_client.containers.create.return_value = container
+
+    with docker_engine(deploy_client):
+        WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
+    with docker_engine(workload_client):
+        WorkloadSandboxRunner(workload_cfg).run()
+
+    deploy_sent = deploy_client.containers.create.call_args.kwargs
+    workload_sent = workload_client.containers.create.call_args.kwargs
+    deploy_declared = WorkloadSandboxEngine.declared_controls(deploy_cfg)
+    workload_declared = WorkloadSandboxRunner(workload_cfg).declared_controls()
+    assert _controls_sent(deploy_sent, deploy_declared) == deploy_declared
+    assert _controls_sent(workload_sent, workload_declared) == workload_declared
+    assert deploy_declared["network_mode"] == docker_network
+    assert deploy_declared["workspace_mount_mode"] == "ro"
+    assert workload_declared["workspace_mount_mode"] == ("ro" if workload_read_only else "rw")
+    assert "workspace_mount_mode" not in deploy_sent
+    assert "workspace_mount_mode" not in workload_sent
+
+
+def test_declared_controls_ask_the_engine_nothing(tmp_path: Path, docker_engine: Any) -> None:
+    """Declaring the controls looks up no rootless user, provisions no network and injects no
+    trace, so the audit and the dry runs make no engine request."""
+    deploy_cfg, workload_cfg = _declared_pair(tmp_path, SandboxPolicy(), "sandbox_namespace")
+    client = MagicMock()
+
+    with docker_engine(client):
+        controls = (
+            WorkloadSandboxEngine.declared_controls(deploy_cfg),
+            WorkloadSandboxRunner(workload_cfg).declared_controls(),
+        )
+
+    assert client.mock_calls == []
+    assert all("environment" not in declared and "user" not in declared for declared in controls)
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize(
+    ("mode", "whitelist"),
+    [
+        ("public_whitelist", {"public_whitelist": ["example.com"]}),
+        ("local_whitelist", {"local_whitelist": ["http://localhost:8080"]}),
+    ],
+)
+def test_a_whitelist_without_an_egress_proxy_declares_its_network_and_refuses_to_run(
+    tmp_path: Path, docker_engine: Any, mode: str, whitelist: dict[str, list[str]]
+) -> None:
+    """Declaring is not running: the declared network of a whitelist mode is reported, while
+    creating the container still needs the proxy that enforces the whitelist."""
+    deploy_cfg = SandboxDeployConfig(workspace_dir=tmp_path, network_mode=mode, **whitelist)
+    workload_cfg = WorkloadSandboxConfig(
+        workspace_dir=tmp_path, command=["true"], network_mode=mode, **whitelist
+    )
+    client = MagicMock()
+
+    with docker_engine(client):
+        declared = (
+            WorkloadSandboxEngine.declared_controls(deploy_cfg)["network_mode"],
+            WorkloadSandboxRunner(workload_cfg).declared_controls()["network_mode"],
+        )
+        with pytest.raises(SandboxValidationError, match="egress proxy"):
+            WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(
+                deploy_cfg
+            )
+        with pytest.raises(DockerSandboxError, match="egress proxy"):
+            WorkloadSandboxRunner(workload_cfg).run()
+
+    assert declared == (CONST_SANDBOX_DOCKER_INTERNAL_NET, CONST_SANDBOX_DOCKER_INTERNAL_NET)
+    assert client.containers.create.called is False
+
+
+def _printed_declared_controls(response: Any) -> dict[str, Any]:
+    """The declared_controls a dry run printed, parsed from its JSON response."""
+    printed: dict[str, Any] = json.loads(response.output.split("Command response:\n")[1])
+    controls: dict[str, Any] = printed["details"]["declared_controls"]
+    return controls
+
+
+def test_both_dry_runs_print_the_controls_without_asking_the_engine(
+    tmp_path: Path, docker_engine: Any, cli: Any
+) -> None:
+    """`devops sandbox deploy --dry-run` and `devops docker sandbox --dry-run` print the same
+    declared controls for the same flags and make no engine request."""
+    client = MagicMock()
+
+    with docker_engine(client):
+        deploy = cli("sandbox", "deploy", "--workspace", tmp_path, "--read-only", "--dry-run")
+        workload = cli(
+            "docker", "sandbox", "--workspace", tmp_path, "--read-only", "--dry-run", "true"
+        )
+
+    deploy_controls = _printed_declared_controls(deploy)
+    assert (deploy.exit_code, workload.exit_code) == (0, 0)
+    assert deploy_controls == _printed_declared_controls(workload)
+    assert (deploy_controls["pids_limit"], deploy_controls["network_mode"]) == (256, "none")
+    assert client.mock_calls == []
+
+
 def test_sandbox_deploy_config_policy_integration() -> None:
     """Verify that SandboxDeployConfig carries policy and generates matching declared security."""
     custom_policy = SandboxPolicy(pids_limit=128, read_only=True)
@@ -1368,7 +1573,7 @@ def test_sandbox_deploy_config_policy_integration() -> None:
     assert (
         cfg.policy.pids_limit,
         cfg.policy.read_only,
-        cfg.policy.declared_security_summary(read_only=True)["pids_limit"],
+        WorkloadSandboxEngine.declared_controls(cfg)["pids_limit"],
     ) == (128, True, 128)
 
 

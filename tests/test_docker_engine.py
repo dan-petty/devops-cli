@@ -24,6 +24,7 @@ from devops_cli.docker.engine import (
     project_container_stats,
 )
 from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerEngineError
+from devops_cli.models.docker import EngineSecurityInfo
 
 runner = CliRunner()
 
@@ -891,6 +892,148 @@ def test_engine_facts_memoized(docker_engine: Any) -> None:
         _ = engine.is_rootless()
 
     assert (mock_client.version.call_count, mock_client.info.call_count) == (1, 1)
+
+
+_BUILTIN_SECCOMP = "name=seccomp,profile=builtin"
+
+
+@pytest.mark.parametrize(
+    ("daemon_info", "reported"),
+    [
+        pytest.param(
+            {"SecurityOptions": [_BUILTIN_SECCOMP, "name=cgroupns"], "PidsLimit": True},
+            EngineSecurityInfo(
+                options=(_BUILTIN_SECCOMP, "name=cgroupns"), pids_limit_supported=True
+            ),
+            id="builtin-seccomp",
+        ),
+        pytest.param(
+            {"SecurityOptions": ["name=seccomp,profile=unconfined"], "PidsLimit": True},
+            EngineSecurityInfo(
+                options=("name=seccomp,profile=unconfined",), pids_limit_supported=True
+            ),
+            id="unconfined-seccomp",
+        ),
+        pytest.param(
+            {"SecurityOptions": ["name=rootless", _BUILTIN_SECCOMP], "PidsLimit": True},
+            EngineSecurityInfo(
+                options=("name=rootless", _BUILTIN_SECCOMP), pids_limit_supported=True
+            ),
+            id="rootless",
+        ),
+        pytest.param(
+            {"SecurityOptions": [_BUILTIN_SECCOMP], "PidsLimit": False},
+            EngineSecurityInfo(options=(_BUILTIN_SECCOMP,), pids_limit_supported=False),
+            id="no-pids-limit",
+        ),
+        pytest.param(
+            {"SecurityOptions": [], "PidsLimit": True},
+            EngineSecurityInfo(options=(), pids_limit_supported=True),
+            id="no-options",
+        ),
+        pytest.param({}, EngineSecurityInfo(), id="keys-omitted"),
+        pytest.param(
+            {"SecurityOptions": None, "PidsLimit": None},
+            EngineSecurityInfo(),
+            id="keys-null",
+        ),
+    ],
+)
+def test_security_info_reports_what_the_daemon_declares(
+    docker_engine: Any, daemon_info: dict[str, Any], reported: EngineSecurityInfo
+) -> None:
+    """The daemon's security options and pids-limit support are reported, and a key the daemon
+    omits stays unreported rather than reading as a negative."""
+    mock_client = MagicMock()
+    mock_client.info.return_value = daemon_info
+
+    with docker_engine(mock_client) as engine:
+        assert engine.security_info() == reported
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectionError("connection refused: " + "x" * 1000),
+        DockerException("api error"),
+        DockerDaemonUnavailableError("socket gone", host="unix:///x"),
+    ],
+    ids=["socket-error", "docker-sdk-error", "daemon-unavailable"],
+)
+def test_security_info_never_raises_and_bounds_the_reason(
+    docker_engine: Any, failure: Exception
+) -> None:
+    """A daemon that cannot answer yields the reason, capped at 256 characters, and no facts."""
+    mock_client = MagicMock()
+    mock_client.info.side_effect = failure
+
+    with docker_engine(mock_client) as engine:
+        report = engine.security_info()
+
+    assert report == EngineSecurityInfo(error=str(failure)[:256])
+    assert len(str(report.error)) <= 256
+
+
+def test_one_info_call_serves_the_security_facts(docker_engine: Any) -> None:
+    """security_info(), security_options() and is_rootless() read one cached info() answer."""
+    mock_client = MagicMock()
+    mock_client.info.return_value = {"SecurityOptions": ["name=rootless"], "PidsLimit": True}
+
+    with docker_engine(mock_client) as engine:
+        security_info = engine.security_info()
+        security_options = engine.security_options()
+        rootless = engine.is_rootless()
+
+    assert security_info == EngineSecurityInfo(
+        options=("name=rootless",), pids_limit_supported=True
+    )
+    assert security_options == ["name=rootless"]
+    assert rootless is True
+    assert mock_client.info.call_count == 1
+
+
+def test_an_unreachable_daemon_reports_no_security_options_and_not_rootless(
+    docker_engine: Any,
+) -> None:
+    """Callers that only want the options or rootless flag keep the empty answer on failure."""
+    mock_client = MagicMock()
+    mock_client.info.side_effect = OSError("down")
+
+    with docker_engine(mock_client) as engine:
+        assert engine.security_options() == []
+        assert engine.is_rootless() is False
+
+
+def test_security_info_failure_is_retried_after_two_seconds_and_success_after_the_ttl(
+    docker_engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed answer is remembered for 2 s, like a failed ping, and a good one for the normal
+    cache lifetime."""
+    now = [1000.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    mock_client = MagicMock()
+    mock_client.info.side_effect = [
+        OSError("down"),
+        {"SecurityOptions": [_BUILTIN_SECCOMP], "PidsLimit": True},
+        {"SecurityOptions": [], "PidsLimit": False},
+    ]
+
+    with docker_engine(mock_client) as engine:
+        reads: list[tuple[float, bool, int]] = []
+        for elapsed in (0.0, 1.9, 2.1, 4.0, 5.2, 7.5):
+            now[0] = 1000.0 + elapsed
+            reads.append(
+                (elapsed, engine.security_info().error is None, mock_client.info.call_count)
+            )
+
+    assert reads == [
+        (0.0, False, 1),
+        (1.9, False, 1),
+        (2.1, True, 2),
+        (4.0, True, 2),
+        (5.2, True, 2),
+        (7.5, True, 3),
+    ]
 
 
 def test_container_stats_two_frames_first_empty_precpu(docker_engine: Any) -> None:

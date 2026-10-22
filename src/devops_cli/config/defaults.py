@@ -286,6 +286,9 @@ DEFAULT_DOCKER_PING_TIMEOUT_SECONDS: float = 2.0
 # Reachability and introspection response cache lifetime, mirroring the Kubernetes
 # service cache tier so repeated command invocations avoid redundant round-trips.
 DEFAULT_DOCKER_CACHE_TTL_SECONDS: float = 5.0
+# Lifetime of a remembered failed Engine API answer. Short by design, so a daemon that comes
+# back is noticed at the next command rather than after the full cache lifetime.
+DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS: float = 2.0
 # Grace period granted to a container to flush and exit before SIGKILL.
 DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: int = 10
 # Maximum consecutive samples drained from the Engine stats stream per invocation.

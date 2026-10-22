@@ -2546,6 +2546,15 @@ CONST_SANDBOX_COLLECTOR_LANE_MODES: Final[tuple[str, ...]] = (
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
 )
 CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
+# The Docker network each network mode runs on: none, the egress-denied internal bridge, or the
+# default bridge. The whitelist modes run on the internal bridge, behind the egress proxy.
+CONST_SANDBOX_DOCKER_NETWORK_BY_MODE: Final[dict[str, str]] = {
+    CONST_SANDBOX_NETWORK_ISOLATED: "none",
+    CONST_SANDBOX_NETWORK_NAMESPACE: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_BRIDGE: "bridge",
+}
 
 # Exit status reported when a sandbox workload exceeds its wall-clock budget,
 # matching the conventional GNU coreutils `timeout` termination code.
