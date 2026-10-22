@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
@@ -28,6 +29,7 @@ def test_scan_dry_run() -> None:
         assert "Trivy Security Scan" in result.output or "DRY-RUN" in result.output
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_scan_individual_tools(tmp_path: Path) -> None:
     """Verify scan tool dispatching for trivy, secrets, semgrep, and checkov."""
     mock_finding = Finding(

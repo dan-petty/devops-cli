@@ -1584,11 +1584,17 @@ def _materialise_golden(
 
 
 def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
-    """What could change the scored reviews: their prompts, conventions and pinned tools."""
+    """What could change the scored reviews: their prompts, conventions, pinned tools and the
+    registry rules Semgrep scanned with."""
     profiles = [p for p in (ReviewProfile.load(d) for d in sessions) if p is not None]
     return {
         name: sorted({digest for p in profiles if (digest := getattr(p, name))})
-        for name in ("prompt_digest", "conventions_digest", "tools_lock_digest")
+        for name in (
+            "prompt_digest",
+            "conventions_digest",
+            "tools_lock_digest",
+            "semgrep_registry_digest",
+        )
     }
 
 
@@ -2543,8 +2549,8 @@ def rules_fetch(
 ) -> None:
     """Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
 
-    This is the one step that reaches the registry, and a review never runs it. A later part of
-    #1144 makes the review read the cached ruleset offline.
+    This is the one step that reaches the registry, and a review never runs it. A review,
+    `devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
     """
     from devops_cli.security.semgrep_registry import (
         fetch_registry_ruleset,

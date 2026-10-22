@@ -9,6 +9,7 @@ read from the rows), not numbers this scorer produced.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -798,6 +799,24 @@ def test_review_score_records_a_run(isolate_data_dir: Path) -> None:
         412.0,
         ["s11", "loop"],
     )
+
+
+def test_review_score_records_the_registry_rules_digests_of_its_sessions(
+    tmp_path: Path, isolate_data_dir: Path
+) -> None:
+    """The registry rules a session scanned with could change its scores, so the run lists each
+    digest the sessions recorded beside the other inputs (#1144)."""
+    session = tmp_path / S11.name
+    shutil.copytree(S11, session)
+    profile = json.loads((session / "profile.json").read_text(encoding="utf-8"))
+    (session / "profile.json").write_text(
+        json.dumps({**profile, "semgrep_registry_digest": "sha256:feedface"}), encoding="utf-8"
+    )
+
+    result = cli.invoke(app, ["review", "score", str(session), "--labels", str(LABELS), "--json"])
+    (run,) = load_runs(Mechanism.REVIEW_SCORE)
+
+    assert (result.exit_code, run.setup["semgrep_registry_digest"]) == (0, ["sha256:feedface"])
 
 
 def test_review_score_needs_sessions_or_a_golden_directory() -> None:

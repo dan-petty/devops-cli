@@ -1420,8 +1420,9 @@ class ScanCommandHelp:
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."
     severity: str = "Comma-separated severity levels to include."
     semgrep_config: str = (
-        "Semgrep ruleset config (e.g. p/default, p/security-audit). devops-cli's own rule pack "
-        "runs with it."
+        "Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads "
+        "a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of "
+        "devops-cli runs with it."
     )
     complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
     sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."

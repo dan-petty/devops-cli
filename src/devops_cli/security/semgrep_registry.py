@@ -10,11 +10,18 @@ YAML document, and Semgrep reads either under the `.yaml` name.
 Both files are written atomically, the ruleset first. A run that stops between the two leaves a
 ruleset with the ETag of an older one, or none, which the registry does not answer with a 304, so
 an interrupted fetch costs one download.
+
+A scan reads the cached ruleset offline through `cached_ruleset`, which takes the sha256 of the
+file as it reads it and the age from the file's modification time. A 304 sets that time to now,
+since the registry has just confirmed the ruleset.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
+import time
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import NamedTuple
@@ -34,6 +41,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_SEMGREP_REGISTRY_MAX_BYTES,
     DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS,
+    DEFAULT_SEMGREP_REGISTRY_TTL_SECONDS,
 )
 from devops_cli.core.repo import user_data_root
 from devops_cli.core.serialization import YAML_SAFE_LOADER
@@ -42,7 +50,10 @@ from devops_cli.exceptions.validation import ValidationError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
+from devops_cli.output import print_warning
 from devops_cli.output.file_writer import write_bytes_file, write_text_file
+
+_DIGEST_PREFIX = "sha256:"
 
 
 class RegistryCachePaths(NamedTuple):
@@ -52,13 +63,34 @@ class RegistryCachePaths(NamedTuple):
     etag: Path
 
 
+@dataclass(frozen=True)
+class CachedRuleset:
+    """A cached ruleset a scan can read: its file, the bytes read from it, their sha256 and the
+    age of the file.
+
+    A review scans with `body`, the bytes it hashed, and not with the file. A fetch can replace
+    the file at any time.
+    """
+
+    path: Path
+    digest: str
+    age_seconds: float
+    body: bytes = field(repr=False)
+
+    @property
+    def workdir_name(self) -> str:
+        """The file name of the ruleset in a review's working directory: its digest."""
+        return f"{self.digest.removeprefix(_DIGEST_PREFIX)}.yaml"
+
+
 class _RegistryAnswer(NamedTuple):
     body: bytes
     etag: str | None
 
 
-def _registry_id(ruleset: str) -> tuple[str, str]:
-    """The kind and name of `ruleset`, such as `p` and `default` for `p/default`.
+def _parse_registry_id(ruleset: str) -> tuple[str, str] | None:
+    """The kind and name of `ruleset`, such as `p` and `default` for `p/default`; None when it is
+    no registry id.
 
     Semgrep takes `p/` (a pack), `r/` (a rule) and `s/` (a snippet) as registry ids. The name is
     one URL path segment that needs no percent-encoding, so it cannot add a path, a query or a
@@ -73,6 +105,19 @@ def _registry_id(ruleset: str) -> tuple[str, str]:
         or name in (os.curdir, os.pardir)
         or quote(name, safe="") != name
     ):
+        return None
+    return kind, name
+
+
+def is_registry_id(config: str) -> bool:
+    """Whether a Semgrep `--config` value names a registry ruleset, which the cache serves."""
+    return _parse_registry_id(config) is not None
+
+
+def _registry_id(ruleset: str) -> tuple[str, str]:
+    """The kind and name of `ruleset`; a `ValidationError` when it is no registry id."""
+    parsed = _parse_registry_id(ruleset)
+    if parsed is None:
         raise ValidationError(
             MESSAGES.review.registry_ruleset_invalid.format(
                 ruleset=ruleset[:CONST_MAX_ERROR_DETAIL_LENGTH],
@@ -80,7 +125,7 @@ def _registry_id(ruleset: str) -> tuple[str, str]:
             ),
             field="ruleset",
         )
-    return kind, name
+    return parsed
 
 
 def registry_ruleset_url(ruleset: str) -> str:
@@ -167,15 +212,17 @@ def fetch_registry_ruleset(
 ) -> int | None:
     """Download `ruleset` into the cache and return how many rules it holds.
 
-    None when the registry reports the cached ruleset unchanged, which rewrites nothing. Nothing is
-    written unless the answer is a ruleset within `max_bytes`, so a refused download leaves the
-    earlier cache as it was. The ETag is written after the ruleset, and removed when the registry
-    sent none, since the one on disk would describe a ruleset that is no longer there.
+    None when the registry reports the cached ruleset unchanged, which rewrites nothing but sets the
+    file's modification time to now, the cache's age. Nothing is written unless the answer is a
+    ruleset within `max_bytes`, so a refused download leaves the earlier cache as it was. The ETag
+    is written after the ruleset, and removed when the registry sent none, since the one on disk
+    would describe a ruleset that is no longer there.
     """
     url = registry_ruleset_url(ruleset)
     paths = registry_cache_paths(ruleset)
     answer = _download(url, max_bytes, _cached_etag(paths))
     if answer is None:
+        os.utime(paths.rules)
         return None
     rules = _rules_in(answer.body)
     if not rules:
@@ -190,3 +237,44 @@ def fetch_registry_ruleset(
     else:
         paths.etag.unlink(missing_ok=True)
     return len(rules)
+
+
+def cached_ruleset(ruleset: str) -> CachedRuleset | None:
+    """The cached `ruleset` a scan can read offline; None when none is cached or the file is no
+    longer a ruleset, as when it was emptied or edited until it does not parse.
+
+    The digest is the sha256 of the bytes read here, and the age counts from the file's
+    modification time. The cache keeps no digest from the fetch, so an edit that leaves a ruleset
+    is read as one, and its digest shows in what a review records.
+    """
+    rules = registry_cache_paths(ruleset).rules
+    try:
+        body = rules.read_bytes()
+        modified = rules.stat().st_mtime
+    except OSError:
+        return None
+    if not _rules_in(body):
+        return None
+    return CachedRuleset(
+        rules,
+        f"{_DIGEST_PREFIX}{hashlib.sha256(body).hexdigest()}",
+        max(0.0, time.time() - modified),
+        body,
+    )
+
+
+def registry_cache_warning(ruleset: str, cached: CachedRuleset) -> str:
+    """What to tell the user when `cached` is older than the TTL, which still serves a scan; empty
+    when it is current."""
+    if cached.age_seconds <= DEFAULT_SEMGREP_REGISTRY_TTL_SECONDS:
+        return ""
+    return MESSAGES.review.registry_cache_old.format(
+        ruleset=ruleset, hours=int(cached.age_seconds // 3600)
+    )
+
+
+def warn_of_old_cache(ruleset: str, cached: CachedRuleset, *, to_stderr: bool = True) -> None:
+    """Print the warning for a cache older than the TTL, if there is one. It goes to stderr unless
+    the caller keeps stdout for it, so that a JSON report on stdout stays clean."""
+    if warning := registry_cache_warning(ruleset, cached):
+        print_warning(warning, to_stderr=to_stderr)

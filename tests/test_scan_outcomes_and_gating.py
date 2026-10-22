@@ -78,6 +78,7 @@ def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_single_scanner_commands_not_run_when_unavailable_or_failed(tmp_path: Path) -> None:
     """Single-scanner commands display 'not run' and never claim 'passed' when unrun."""
     unavail = ScanOutcome(

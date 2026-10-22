@@ -3052,7 +3052,7 @@ devops scan sast [OPTIONS] <target>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). devops-cli's own rule pack runs with it. |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of devops-cli runs with it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
@@ -4175,8 +4175,8 @@ devops ai review rules test [OPTIONS]
 
 Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
 
-This is the one step that reaches the registry, and a review never runs it. A later part of
-#1144 makes the review read the cached ruleset offline.
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
 
 ```bash
 devops ai review rules fetch [OPTIONS]
@@ -5924,8 +5924,8 @@ devops review rules test [OPTIONS]
 
 Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
 
-This is the one step that reaches the registry, and a review never runs it. A later part of
-#1144 makes the review read the cached ruleset offline.
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
 
 ```bash
 devops review rules fetch [OPTIONS]
