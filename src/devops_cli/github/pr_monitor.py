@@ -914,34 +914,6 @@ def monitor_pr(
         time.sleep(min(float(valid_interval), time_left))
 
 
-def get_copilot_review_status(
-    owner: str,
-    repo: str,
-    pr_number: int,
-    unresolved_threads: list[ReviewThread] | None = None,
-) -> CopilotReviewStatus:
-    """Retrieve Copilot review activity matching pr monitor's detection logic."""
-    repo_name = repo.split("/")[-1]
-    raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
-    reviews_err = getattr(raw_reviews, "error", "")
-    return _detect_copilot_status(
-        owner,
-        repo_name,
-        pr_number,
-        raw_reviews,
-        unresolved_threads=unresolved_threads,
-        reviews_err=reviews_err,
-    )
-
-
-def _extract_pr_number(p: Any) -> int:
-    val = p.number if hasattr(p, "number") else (p.get("number") if isinstance(p, dict) else 0)
-    try:
-        return int(val or 0)
-    except ValueError, TypeError:
-        return 0
-
-
-def sort_prs_oldest_first(prs: list[Any]) -> list[Any]:
+def sort_prs_oldest_first(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sort pull requests in ascending order by PR number (FIFO / oldest first)."""
-    return sorted(prs, key=_extract_pr_number)
+    return sorted(prs, key=lambda p: int(p.get("number") or 0))

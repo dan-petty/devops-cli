@@ -750,7 +750,7 @@ def test_get_quota_unknown_subcommand_does_not_mutate_quotas() -> None:
     limiter = GitHubRateLimiter()
     quota = limiter.get_quota("nonexistent_subcmd")
     assert (quota.remaining, quota.used, quota.is_valid()) == (None, None, False)
-    assert "nonexistent_subcmd" not in limiter.get_all_quotas()
+    assert "nonexistent_subcmd" not in limiter._quotas
 
 
 def test_quota_from_dict_preserves_none_and_rejects_malformed() -> None:

@@ -776,15 +776,30 @@ def test_a_module_that_names_the_support_package_is_named_with_path_and_line(
     ]
 
 
+def _stray_root_scripts(root: Path) -> list[str]:
+    """Name the `.py` and `.sh` files that lie directly in `root`; a directory is never one."""
+    return sorted(
+        entry.name for entry in root.iterdir() if entry.is_file() and entry.suffix in {".py", ".sh"}
+    )
+
+
 def test_no_stray_scripts_in_project_root() -> None:
-    """Ensure no ad-hoc scratch scripts (*.py, *.sh) or stray scripts directories exist in the project root."""
-    stray_files = sorted(
-        f.name for f in REPO_ROOT.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
-    )
-    assert (stray_files, (REPO_ROOT / "scripts").exists()) == (
-        [],
-        False,
-    )
+    """The project root holds no ad-hoc scratch script (`*.py`, `*.sh`)."""
+    assert _stray_root_scripts(REPO_ROOT) == []
+
+
+def test_a_reviewed_scripts_directory_is_no_stray_script(tmp_path: Path) -> None:
+    """A committed helper under `scripts/` is not a scratch script in the project root."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "helper.py").write_text("print('ok')\n", encoding="utf-8")
+    assert _stray_root_scripts(tmp_path) == []
+
+
+@pytest.mark.parametrize("name", ["tmp_x.py", "scratch_x.py", "debug_x.py", "test_x.py", "x.sh"])
+def test_a_scratch_script_in_the_project_root_is_stray(tmp_path: Path, name: str) -> None:
+    """Each scratch pattern of the rule still fails when it lies in the project root."""
+    (tmp_path / name).write_text("", encoding="utf-8")
+    assert _stray_root_scripts(tmp_path) == [name]
 
 
 def _dockerfile_build_context_sources(dockerfile: Path) -> set[str]:

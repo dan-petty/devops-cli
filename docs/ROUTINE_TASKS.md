@@ -8,7 +8,7 @@ This document serves as the authoritative operational manual for developers, mai
 
 All routine operations in `devops-cli` adhere to six core engineering tenets:
 1. **Deterministic Execution**: Workflows run through standardized CLI commands (`devops ci`, `devops release`, `devops docs`, `uv`) to guarantee reproducible outcomes across local DevContainers and GitHub Actions CI.
-2. **Zero-Plaintext Credentials**: All authentication tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) are stored exclusively in the OS Keyring via `devops config set` and retrieved programmatically via Python `keyring`.
+2. **Zero-Plaintext Credentials**: No token is stored in git, configuration or logs. Tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) come from a secret store. Examples are the OS Keyring (`devops config set`, Python `keyring`), the credential store of the owning tool and a Kubernetes Secret in the cluster.
 3. **Strict Quality Assurance**: Changes must pass the automated CI validation suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`, `uv_check`, `lockfile`, `outdated`) before merging.
 4. **Target Branch Hierarchy & Non-Merge Policy**: Feature/bugfix PRs strictly target active release branches (`release/vX.Y.Z`). Direct pushes to `main` are blocked. AI agents stage commits and open/update PRs, while PR merge actions are strictly reserved for human maintainers.
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
@@ -47,7 +47,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
-| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops roadmap intake` | Files active milestone deliverables as candidates; intake puts each on the board | Open issues populated with zero empty state |
+| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops roadmap intake` | Files active milestone deliverables as candidates; intake puts each on the board | Each deliverable is an open issue on the board |
 | **Release Lifecycle** | Historical Documentation Compaction | Step 7 | Automated / Manual | Compacts historical milestone docs in `docs/ROADMAP.md` and `RELEASE_NOTES.md` on major/minor releases | Expressive, token-efficient docs with zero bloat |
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
@@ -272,7 +272,6 @@ sequenceDiagram
 7. **Next Active Milestone Initialization & Issue/Views Population**:
    - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
    - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-   - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
    - Reconcile custom fields on the cards of GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
 8. **Automated Historical Documentation Compaction & Task Archival**:
    - When transitioning across major or minor release boundaries, run `uv run devops docs compact --series <series>` to automatically compact historical documentation across `docs/ROADMAP.md` (consolidating completed milestone subsections and matrix rows into summary blocks) and `docs/RELEASE_NOTES.md` (consolidating highlight sections into unified series blocks).

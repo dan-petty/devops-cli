@@ -905,12 +905,8 @@ DEFAULT_LOG_BUFFER_MAX_LINES: int = 10000
 DEFAULT_LOG_VIEWPORT_LINES: int = 50
 # Seconds between automatic dashboard refreshes.
 DEFAULT_DASHBOARD_REFRESH_SECONDS: int = 5
-DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS: int = 60
 # Age beyond which a domain snapshot is flagged as stale in the UI.
 DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
-DEFAULT_DASHBOARD_GITHUB_STALE_SECONDS: float = 120.0
-DEFAULT_DASHBOARD_GITHUB_PR_LIMIT: int = 50
-DEFAULT_DASHBOARD_GITHUB_MAX_PACING_SECONDS: float = 5.0
 # Minimum seconds between log-pane redraws. A busy stream produces lines far faster than
 # a terminal can usefully repaint; every line is still retained, only the drawing is
 # coalesced, which is what keeps the UI thread free under load.
