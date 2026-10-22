@@ -20,6 +20,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # No tool the jobs run reports usage: the runner's CI=true already stops OpenSpec's events, and
+  # this says so for every other tool that honors it.
+  DO_NOT_TRACK: "1"
   # uv runs only its own CPython builds, never the runner image's Python: setup-uv exports
   # UV_PYTHON=3.14, which a runner's own 3.14 would otherwise satisfy (#1494). Never also set
   # UV_PYTHON_PREFERENCE; uv refuses to run with both.

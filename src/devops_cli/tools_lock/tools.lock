@@ -2,8 +2,10 @@
 #
 # A binary tool's build for this platform is checked against its sha256 before it is unpacked. A
 # Python tool installs into a virtual environment of its own from its hashed requirements file,
-# with `uv pip sync --require-hashes`. No tool installs at any other version, and a build whose
-# bytes differ from the lock is refused.
+# with `uv pip sync --require-hashes`. A Node tool installs with `npm ci --ignore-scripts` from the
+# `package.json` and `package-lock.json` in the directory beside this file that is named for it,
+# and npm checks the sha512 of every package in that lockfile. No tool installs at any other
+# version, and a build whose bytes differ from the lock is refused.
 #
 # To bump a binary tool, set its `version` and each platform's `url`, and take each `sha256` from
 # the release asset's `digest` (`gh api repos/<owner>/<repo>/releases/tags/<tag>`), checked
@@ -17,6 +19,13 @@
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
 # Bandit's version is the project's dev dependency in pyproject.toml.
+#
+# To bump a Node tool, set its `version` here and its one dependency in `<name>/package.json`, and
+# in `<name>/` run `npm install --package-lock-only --ignore-scripts` with HOME set to an empty
+# scratch directory, so that a registry in your `~/.npmrc` cannot rewrite the lockfile's URLs.
+# Then, in a scratch copy of `<name>/`, run `npm ci --ignore-scripts` and `npm audit signatures`,
+# which reads installed packages, and in `<name>/` run
+#   osv-scanner scan source --lockfile package-lock.json
 #
 # Then run `uv run pytest tests/test_tools_lock.py tests/test_install_tools.py
 # tests/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by
@@ -392,3 +401,9 @@ description = "PyCQA Bandit Python security linter"
 source = "https://github.com/PyCQA/bandit"
 requirements = "bandit.txt"
 entry_points = ["bandit"]
+
+[npm.openspec]
+version = "1.14.3"
+description = "OpenSpec spec and change-proposal CLI"
+source = "https://github.com/Fission-AI/OpenSpec"
+bin = "openspec"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import importlib
 import os
 import re
@@ -18,9 +19,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typer.core import TyperGroup
 
+from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
@@ -31,7 +33,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_CANCELLED,
     CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
-    CONST_UV_EXIT_FAILURE,
+    CONST_TOOLS_LOCK_REPO_DIR,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
@@ -44,6 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
@@ -165,6 +168,17 @@ class CheckSpec(BaseModel):
     span_name: str
     metric_step: str
     fix_cmd: list[str] | None = None
+    # Commands the check runs after `cmd`, each as a process of its own and without a shell. The
+    # check passes only when `cmd` and every one of these exit 0.
+    also_cmds: list[list[str]] = Field(default_factory=list)
+    # Whether the commands are dependency audits, whose failure is read by the kind of command
+    # (`devops_cli.core.dependency_audit`) and reported as a finding or an audit that did not run.
+    dependency_audit: bool = False
+
+    @property
+    def commands(self) -> list[list[str]]:
+        """Every command the check runs, in order."""
+        return [self.cmd, *self.also_cmds]
 
 
 # =============================================================================
@@ -188,6 +202,14 @@ def _verify_python_314_environment() -> bool:
     return True
 
 
+def _with_uv_preview(cmd: Sequence[str]) -> list[str]:
+    """`cmd`, with uv's malware-check and check-command preview features on when it starts uv."""
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    return full_cmd
+
+
 def _planned_request_for_cmd(
     cmd: Sequence[str],
     *,
@@ -196,9 +218,7 @@ def _planned_request_for_cmd(
     repeat: str = "",
 ) -> PlannedRequest:
     """Construct a PlannedRequest for a command, inserting uv preview flags when needed."""
-    full_cmd = list(cmd)
-    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    full_cmd = _with_uv_preview(cmd)
     env_tuple = tuple((k, v) for k, v in sorted(env.items())) if env else ()
     return PlannedRequest(
         method="run",
@@ -293,9 +313,7 @@ def _returncode(
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
         return 0
     root = _get_project_root()
-    full_cmd = list(cmd)
-    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    full_cmd = _with_uv_preview(cmd)
     if own_session:
         return _session_returncode(full_cmd, root, timeout, capture_output, env)
     result = _get("run_subprocess")(
@@ -317,6 +335,48 @@ def _run(
         cmd, timeout=timeout, capture_output=capture_output, env=env, own_session=own_session
     )
     return code == 0
+
+
+def _audit_failure_line(cmd: Sequence[str], run: subprocess.CompletedProcess[str]) -> str | None:
+    """What a run of an audit command says went wrong, read by the kind of command; None when the
+    audit was clean."""
+    verdict = audit_verdict(cmd, run.returncode, run.stdout or "")
+    if verdict is AuditVerdict.CLEAN:
+        return None
+    template = (
+        MESSAGES.ci.audit_vulnerable
+        if verdict is AuditVerdict.VULNERABLE
+        else MESSAGES.ci.audit_not_run
+    )
+    return template.format(code=run.returncode, tool=cmd[0])
+
+
+def _report_audit(cmd: list[str]) -> bool:
+    """Run one audit command with its output captured, which its verdict reads. When it was not
+    clean, show the output and say why; whether it was clean."""
+    run: subprocess.CompletedProcess[str] = _get("run_subprocess")(
+        _with_uv_preview(cmd),
+        cwd=_get_project_root(),
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        capture_output=True,
+    )
+    failure = _audit_failure_line(cmd, run)
+    if failure is not None:
+        _write_process_output(run.stdout, run.stderr)
+        print_error(failure, prefix=False)
+    return failure is None
+
+
+def _run_audits() -> bool:
+    """Run every command of the `audit` check, as one plan in a dry run; whether all were clean.
+    A command that fails does not stop the ones after it, so one run reports every failure."""
+    commands = get_check_spec("audit").commands
+    if is_dry_run():
+        render_request_plan(
+            MESSAGES.ci.ci_dry_run_heading, [_planned_request_for_cmd(cmd) for cmd in commands]
+        )
+        return True
+    return all([_report_audit(cmd) for cmd in commands])
 
 
 def _section(title: str) -> None:
@@ -387,9 +447,69 @@ def _format_process_output(raw: str | bytes | None) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def _write_process_output(stdout: str | bytes | None, stderr: str | bytes | None) -> None:
+    """Write what a process printed, each stream to its own, when it printed anything."""
+    if out := _format_process_output(stdout):
+        _get("write_stdout")(out.rstrip() + "\n")
+    if err := _format_process_output(stderr):
+        _get("write_stderr")(err.rstrip() + "\n")
+
+
 def _format_check_badge(passed: bool) -> str:
     """Format rich terminal badge for check status."""
     return "[green]✓ pass[/green]" if passed else "[bold red]✗ fail[/bold red]"
+
+
+def _planned_requests(spec: CheckSpec) -> tuple[PlannedRequest, ...]:
+    """The request each command of the check would make."""
+    return tuple(_planned_request_for_cmd(cmd) for cmd in spec.commands)
+
+
+def _merged_run(
+    earlier: subprocess.CompletedProcess[str], later: subprocess.CompletedProcess[str]
+) -> subprocess.CompletedProcess[str]:
+    """One run for two: the first non-zero exit code, else 0, and the output of both in order."""
+    return subprocess.CompletedProcess(
+        earlier.args,
+        earlier.returncode or later.returncode,
+        (earlier.stdout or "") + (later.stdout or ""),
+        (earlier.stderr or "") + (later.stderr or ""),
+    )
+
+
+def _with_audit_failure_line(
+    cmd: Sequence[str], run: subprocess.CompletedProcess[str]
+) -> subprocess.CompletedProcess[str]:
+    """`run` of an audit command, with what it says went wrong at the end of its error output."""
+    failure = _audit_failure_line(cmd, run)
+    if failure is None:
+        return run
+    return subprocess.CompletedProcess(
+        run.args, run.returncode, run.stdout, (run.stderr or "") + failure + "\n"
+    )
+
+
+async def _run_check_commands(
+    spec: CheckSpec, root: Path, timeout: float, capture_output: bool
+) -> subprocess.CompletedProcess[str]:
+    """Run each command of the check in turn, even after one fails, and answer as a single run.
+    A dependency audit is run with its output captured, which its verdict reads, and a failed one
+    says what went wrong, as `devops ci audit` does."""
+    runs = [
+        await _get("run_subprocess_async")(
+            _with_uv_preview(cmd),
+            cwd=root,
+            timeout=timeout,
+            capture_output=capture_output or spec.dependency_audit,
+        )
+        for cmd in spec.commands
+    ]
+    if spec.dependency_audit:
+        runs = [
+            _with_audit_failure_line(cmd, run) for cmd, run in zip(spec.commands, runs, strict=True)
+        ]
+    first, *rest = runs
+    return functools.reduce(_merged_run, rest, first)
 
 
 async def _execute_check_async(
@@ -415,7 +535,6 @@ async def _execute_check_async(
         check_spec = spec
 
     if is_dry_run():
-        req = _planned_request_for_cmd(check_spec.cmd)
         return CheckResult(
             name=check_spec.name,
             display_title=check_spec.display_title,
@@ -424,24 +543,15 @@ async def _execute_check_async(
             duration_seconds=0.0,
             stdout="",
             stderr="",
-            requests=(req,),
+            requests=_planned_requests(check_spec),
         )
 
     start_time = time.perf_counter()
     root = _get_project_root()
 
-    full_cmd = list(check_spec.cmd)
-    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
-
     with _get("trace_span")(check_spec.span_name):
         try:
-            proc = await _get("run_subprocess_async")(
-                full_cmd,
-                cwd=root,
-                timeout=timeout,
-                capture_output=capture_output,
-            )
+            proc = await _run_check_commands(check_spec, root, timeout, capture_output)
             passed = proc.returncode == 0
             dur = time.perf_counter() - start_time
             _get("record_metric")(
@@ -525,6 +635,16 @@ def _bandit_cmd(severity: str) -> list[str]:
     ]
 
 
+def _npm_audit_cmds() -> list[list[str]]:
+    """`npm audit` of the lockfile of each Node tool in the tools lock, as the repository holds it,
+    which needs no install."""
+    from devops_cli.tools_lock import load_tools_lock
+
+    return [
+        build_npm_audit_cmd(f"{CONST_TOOLS_LOCK_REPO_DIR}/{name}") for name in load_tools_lock().npm
+    ]
+
+
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
     return [
@@ -568,8 +688,10 @@ def get_check_specs() -> list[CheckSpec]:
         ),
         CheckSpec(
             name="audit",
-            display_title=MESSAGES.ci.uv_audit,
+            display_title=MESSAGES.ci.dependency_audit,
             cmd=["uv", "audit"],
+            also_cmds=_npm_audit_cmds(),
+            dependency_audit=True,
             span_name="ci.step.audit",
             metric_step="audit",
         ),
@@ -895,7 +1017,7 @@ def _dry_run_all_checks(
     fix_requests = _collect_fix_requests(
         selected_specs, format_fix=format_fix, lint_fix=lint_fix, docs_fix=docs_fix
     )
-    check_requests = [_planned_request_for_cmd(s.cmd) for s in selected_specs]
+    check_requests = [request for s in selected_specs for request in _planned_requests(s)]
     render_request_plan(MESSAGES.ci.ci_dry_run_heading, [*fix_requests, *check_requests])
     py_result = CheckResult(
         name="python_version",
@@ -911,7 +1033,7 @@ def _dry_run_all_checks(
             passed=False,
             dry_run=True,
             duration_seconds=0.0,
-            requests=(_planned_request_for_cmd(spec.cmd),),
+            requests=_planned_requests(spec),
         )
         for spec in selected_specs
     ]
@@ -995,10 +1117,7 @@ def _print_failures(results: list[CheckResult]) -> None:
     for res in results:
         if not res.passed and (res.stdout or res.stderr):
             _section(res.display_title)
-            if res.stdout:
-                _get("write_stdout")(res.stdout.rstrip() + "\n")
-            if res.stderr:
-                _get("write_stderr")(res.stderr.rstrip() + "\n")
+            _write_process_output(res.stdout, res.stderr)
 
 
 def _print_summary(
@@ -1773,13 +1892,12 @@ def audit(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run uv audit to check for known package vulnerabilities."""
+    """Run uv audit and npm audit to check for known package vulnerabilities."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    spec = get_check_spec("audit")
-    if not _run(spec.cmd):
+    if not _run_audits():
         raise typer.Exit(1)
 
 
@@ -1971,12 +2089,8 @@ def maintain(
         )
         raise typer.Exit(1)
 
-    # 2. Dependency security audit, by the `audit` check's own command
-    audited = _returncode(get_check_spec("audit").cmd)
-    if audited != 0:
-        failed = audited == CONST_UV_EXIT_FAILURE
-        message = MESSAGES.ci.audit_vulnerable if failed else MESSAGES.ci.audit_not_run
-        print_error(message.format(code=audited), prefix=False)
+    # 2. Dependency security audit, by the `audit` check's own commands
+    if not _run_audits():
         raise typer.Exit(1)
 
     print_success("✓ Toolchain and lockfile maintenance checks passed.")

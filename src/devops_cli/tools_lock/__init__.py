@@ -2,9 +2,11 @@
 
 `tools.lock`, beside this module, names each tool's version and source. A binary tool lists, per
 platform, the URL of its build and that build's SHA-256; a Python tool names a requirements file
-compiled with `uv pip compile --generate-hashes`, installed into a virtual environment of its own.
-Each tool version installs under the user-level data root, and the commands it provides link
-there, so a command on PATH is at its pin exactly when its link resolves into that directory.
+compiled with `uv pip compile --generate-hashes`, installed into a virtual environment of its own;
+a Node tool has a directory beside the lock, named for it, whose `package.json` pins its one
+dependency and whose `package-lock.json` records the sha512 of every package, installed with
+`npm ci`. Each tool version installs under the user-level data root, and the commands it provides
+link there, so a command on PATH is at its pin exactly when its link resolves into that directory.
 
 A review records the lock's digest as one of its inputs: two reviews ran the same tools only when
 their digests match.
@@ -15,10 +17,11 @@ from __future__ import annotations
 import functools
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli.config.constants import CONST_NPM_PROJECT_FILES
 from devops_cli.core.repo import user_data_root
 
 LOCK_DIR = Path(__file__).resolve().parent
@@ -54,6 +57,9 @@ class BinaryTool(_LockEntry):
     # Builds by `<os>-<arch>`, such as `linux-amd64`.
     platforms: dict[str, Artifact]
 
+    # Where in the version directory the tool's commands are.
+    command_dir: ClassVar[tuple[str, ...]] = ()
+
     def format_of(self, artifact: Artifact) -> ArchiveFormat:
         """How `artifact` is packed: its own format, else the tool's."""
         return artifact.format or self.format
@@ -74,10 +80,36 @@ class PythonTool(_LockEntry):
     requirements: str
     entry_points: list[str]
 
+    # Where in the version directory the tool's commands are.
+    command_dir: ClassVar[tuple[str, ...]] = ("bin",)
+
     @property
     def commands(self) -> tuple[str, ...]:
         """The commands the tool puts on PATH."""
         return tuple(self.entry_points)
+
+
+class NpmTool(_LockEntry):
+    """A Node tool installed with `npm ci` from the `package.json` and `package-lock.json` in the
+    directory beside the lock that is named for it."""
+
+    version: str
+    description: str
+    source: str
+    # The command the tool's package links into `node_modules/.bin`.
+    bin: str
+
+    # Where in the version directory the tool's commands are.
+    command_dir: ClassVar[tuple[str, ...]] = ("node_modules", ".bin")
+
+    @property
+    def commands(self) -> tuple[str, ...]:
+        """The commands the tool puts on PATH."""
+        return (self.bin,)
+
+
+# Any of the three kinds of tool the lock holds.
+LockedTool = BinaryTool | PythonTool | NpmTool
 
 
 class ToolsLock(_LockEntry):
@@ -87,10 +119,12 @@ class ToolsLock(_LockEntry):
     python_version: str
     binary: dict[str, BinaryTool]
     python: dict[str, PythonTool]
+    npm: dict[str, NpmTool]
 
-    def tools(self) -> dict[str, BinaryTool | PythonTool]:
-        """Every tool by name, binaries first, in the order the lock lists them."""
-        return {**self.binary, **self.python}
+    def tools(self) -> dict[str, LockedTool]:
+        """Every tool by name, binaries first, then Python and Node tools, in the order the lock
+        lists them."""
+        return {**self.binary, **self.python, **self.npm}
 
 
 def read_tools_lock(lock_dir: Path) -> ToolsLock:
@@ -110,29 +144,32 @@ def reset_tools_lock_cache() -> None:
 
 
 def tools_lock_digest(lock_dir: Path = LOCK_DIR) -> str:
-    """A digest of the lock and its requirements files, in the form of the review prompt digest.
+    """A digest of the lock and its requirements and package files, in the form of the review
+    prompt digest.
 
-    Any change to a pin, a URL, a checksum or a hashed requirement changes it.
+    Any change to a pin, a URL, a checksum, a hashed requirement or a Node tool's manifest or
+    lockfile changes it.
     """
     from devops_cli.ai.run_store import digest
 
+    lock = read_tools_lock(lock_dir)
     names = [
         LOCK_FILENAME,
-        *(tool.requirements for tool in read_tools_lock(lock_dir).python.values()),
+        *(tool.requirements for tool in lock.python.values()),
+        *(f"{name}/{filename}" for name in lock.npm for filename in CONST_NPM_PROJECT_FILES),
     ]
     return digest({name: (lock_dir / name).read_text(encoding="utf-8") for name in names})
 
 
 def tool_install_dir(name: str, version: str) -> Path:
-    """Where version `version` of tool `name` installs: a binary tool's file, or a Python tool's
-    virtual environment."""
+    """Where version `version` of tool `name` installs: a binary tool's file, a Python tool's
+    virtual environment, or a Node tool's `node_modules`."""
     return user_data_root() / "tools" / name / version
 
 
-def installed_commands(name: str, tool: BinaryTool | PythonTool) -> dict[str, Path]:
+def installed_commands(name: str, tool: LockedTool) -> dict[str, Path]:
     """Each command `tool` puts on PATH, and the file in its version directory it links to."""
-    pinned = tool_install_dir(name, tool.version)
-    directory = pinned / "bin" if isinstance(tool, PythonTool) else pinned
+    directory = tool_install_dir(name, tool.version).joinpath(*tool.command_dir)
     return {command: directory / command for command in tool.commands}
 
 
@@ -141,6 +178,8 @@ __all__ = [
     "LOCK_FILENAME",
     "Artifact",
     "BinaryTool",
+    "LockedTool",
+    "NpmTool",
     "PythonTool",
     "ToolsLock",
     "installed_commands",

@@ -46,7 +46,7 @@ from tests.support.hung_children import (
     records_stop_signals,
     watching,
 )
-from tests.support.paths import REPO_ROOT
+from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -69,7 +69,158 @@ def test_ci_audit_command(monkeypatch) -> None:
 
     result = runner.invoke(app, ["audit"])
     assert result.exit_code == 0
+    assert [cmd[0] for cmd in called] == ["uv", "npm"]
     assert any("uv" in c and "audit" in c for c in called)
+
+
+def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_shell() -> None:
+    """One check carries both audits as argument lists, each started on its own: `uv audit` of
+    `uv.lock`, and `npm audit` of the lockfile in the repository's copy of the lock directory,
+    which needs no install."""
+    assert get_check_spec("audit").commands == [
+        ["uv", "audit"],
+        [
+            "npm",
+            "audit",
+            "--package-lock-only",
+            "--json",
+            "--no-update-notifier",
+            "--prefix",
+            "src/devops_cli/tools_lock/openspec",
+        ],
+    ]
+
+
+@pytest.mark.parametrize("failing", ["uv", "npm"])
+def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_other(
+    monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    """A vulnerable pin fails the command, and a vulnerable Python dependency does not hide it."""
+    called: list[str] = []
+
+    def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        called.append(cmd[0])
+        return subprocess.CompletedProcess(cmd, 1 if cmd[0] == failing else 0, "", "")
+
+    monkeypatch.setattr("subprocess.run", run)
+
+    result = runner.invoke(app, ["audit"])
+
+    assert (result.exit_code, called) == (1, ["uv", "npm"])
+
+
+_NPM_AUDIT_READINGS = [
+    ("vulnerable", "found vulnerabilities (npm audit exited 1)", "could not run"),
+    ("registry_unreachable", "could not run (npm audit exited 1)", "found vulnerabilities"),
+    ("advisory_endpoint_missing", "could not run (npm audit exited 1)", "found vulnerabilities"),
+]
+
+
+def _answer_npm_audit_with(monkeypatch: pytest.MonkeyPatch, recording: str) -> None:
+    """Answer `npm audit` with exit 1 and a report recorded from npm, every other command with
+    success."""
+    report = (FIXTURES / "npm_audit" / f"{recording}.json").read_text(encoding="utf-8")
+
+    def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return (
+            subprocess.CompletedProcess(cmd, 1, report, "")
+            if cmd[0] == "npm"
+            else subprocess.CompletedProcess(cmd, 0, "", "")
+        )
+
+    monkeypatch.setattr("subprocess.run", run)
+
+
+@pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
+def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could_not_run(
+    monkeypatch: pytest.MonkeyPatch, recording: str, reported: str, not_reported: str
+) -> None:
+    """The command reads npm's report as `devops ci maintain` does, so a registry that cannot be
+    reached is not reported as a vulnerable pin."""
+    _answer_npm_audit_with(monkeypatch, recording)
+
+    result = runner.invoke(app, ["audit"])
+
+    said = " ".join(result.output.split())
+    assert (result.exit_code, reported in said, not_reported in said) == (1, True, False)
+
+
+@pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
+def test_the_gate_row_of_the_audit_check_reads_npm_audit_as_the_audit_command_does(
+    monkeypatch: pytest.MonkeyPatch, recording: str, reported: str, not_reported: str
+) -> None:
+    """A single check run, `devops ci --only audit`, fails its row and gives the same reading
+    under the check's output."""
+    _answer_npm_audit_with(monkeypatch, recording)
+
+    result = runner.invoke(app, ["--only", "audit", "--check", "--no-cache"])
+
+    said = " ".join(result.output.split())
+    assert (result.exit_code, reported in said, not_reported in said) == (1, True, False)
+
+
+def test_the_audit_command_plans_both_audits_in_a_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--dry-run` lists both commands as one plan and starts neither."""
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: pytest.fail("started a process"))
+
+    result = runner.invoke(app, ["audit", "--dry-run"])
+
+    assert (
+        result.exit_code,
+        "1. uv --preview-features" in result.output,
+        "2. npm audit" in result.output,
+    ) == (
+        0,
+        True,
+        True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_check_with_two_commands_runs_both_and_fails_when_either_fails() -> None:
+    """The gate's row passes only when every command of its check exits 0, and reports the output
+    of all of them in the order they ran."""
+    import contextlib
+
+    ran: list[list[str]] = []
+
+    @contextlib.contextmanager
+    def dummy_span(*a: Any, **kw: Any) -> Any:
+        yield
+
+    async def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        ran.append(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 1 if cmd[0] == "npm" else 0, f"{cmd[0]} out\n", f"{cmd[0]} err\n"
+        )
+
+    def mock_get(key: str) -> Any:
+        if key == "trace_span":
+            return dummy_span
+        if key == "run_subprocess_async":
+            return run
+        return lambda *a, **kw: None
+
+    with patch("devops_cli.commands.ci._get", side_effect=mock_get):
+        result = await ci_module._execute_check_async(
+            CheckSpec(
+                name="pair",
+                display_title="pair",
+                cmd=["uv", "one"],
+                also_cmds=[["npm", "two"]],
+                span_name="ci.step.pair",
+                metric_step="pair",
+            )
+        )
+
+    assert (result.passed, result.stdout, result.stderr, [cmd[0] for cmd in ran]) == (
+        False,
+        "uv out\nnpm out\n",
+        "uv err\nnpm err\n",
+        ["uv", "npm"],
+    )
 
 
 def test_ci_coverage_command(monkeypatch) -> None:

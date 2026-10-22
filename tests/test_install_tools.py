@@ -6,8 +6,10 @@ import gzip
 import hashlib
 import io
 import os
+import shutil
 import subprocess
 import tarfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,15 +23,19 @@ from devops_cli.commands.install_tools import (
     _verify_sha256,
     install_binary,
     install_managed_tools,
+    install_npm_tool,
     install_python_tool,
 )
 from devops_cli.commands.install_tools import app as install_tools_app
+from devops_cli.config.constants import CONST_ERROR_CODE_TOOL
 from devops_cli.exceptions import (
     ChecksumMismatchError,
+    DependencyError,
     SSRFBlockedError,
     ToolDownloadError,
     ToolExecutionError,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.tools_lock import (
     LOCK_DIR,
     Artifact,
@@ -334,6 +340,281 @@ def test_a_failed_python_install_leaves_no_stage_and_no_link(
     ) == ([], False)
 
 
+# ── Node tools ────────────────────────────────────────────────────────────────
+
+# The stderr of `npm ci` 11.19.1 at log level `error` on a lockfile whose last package had one
+# character of its sha512 changed, recorded on 2026-10-22: the registry's bytes did not match the
+# lockfile.
+_NPM_INTEGRITY_FAILURE = (
+    "npm error code EINTEGRITY\n"
+    "npm error sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzP"
+    "f+3CGwA== integrity checksum failed when using sha512: wanted "
+    "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwA== "
+    "but got "
+    "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==. "
+    "(1141941 bytes)\n"
+    "npm error A complete log of this run can be found in: "
+    "/tmp/npm/_logs/2026-10-22T04_47_21_865Z-debug-0.log\n"
+)
+
+
+@dataclass(frozen=True)
+class NpmRun:
+    """One command the npm double answered, with what was in place when it was started."""
+
+    argv: list[str]
+    cwd: Path
+    env: dict[str, str]
+    # The files in the directory `npm ci` ran in, and the text of the user and global npm
+    # configuration files the environment names.
+    directory: list[str]
+    configuration: list[str]
+
+
+def _record_npm(
+    monkeypatch: pytest.MonkeyPatch, *, ci_fails: bool = False, npm_installed: bool = True
+) -> list[NpmRun]:
+    """Stand in for npm at the stdlib, as `run_subprocess` starts it: `shutil.which` finds npm, and
+    `subprocess.run` records each command. A successful `npm ci` writes the tree npm makes for
+    the OpenSpec lockfile, a package and its `.bin` link; a failed one answers with the real
+    tool's recorded integrity failure, after the partial `node_modules` it leaves."""
+    runs: list[NpmRun] = []
+
+    def run(
+        cmd: list[str], *, cwd: Path, env: dict[str, str], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        runs.append(
+            NpmRun(
+                cmd,
+                cwd,
+                env,
+                sorted(path.name for path in cwd.iterdir()),
+                [
+                    Path(env[key]).read_text("utf-8")
+                    for key in sorted(env)
+                    if key.endswith("config")
+                ],
+            )
+        )
+        if ci_fails:
+            (cwd / "node_modules" / "zod").mkdir(parents=True)
+            return subprocess.CompletedProcess(cmd, 1, "", _NPM_INTEGRITY_FAILURE)
+        script = cwd / "node_modules" / "@fission-ai" / "openspec" / "bin" / "openspec.js"
+        script.parent.mkdir(parents=True)
+        script.write_bytes(EXECUTABLE)
+        (cwd / "node_modules" / ".bin").mkdir()
+        (cwd / "node_modules" / ".bin" / "openspec").symlink_to(
+            "../@fission-ai/openspec/bin/openspec.js"
+        )
+        return subprocess.CompletedProcess(cmd, 0, "added 57 packages in 2s\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(
+        shutil, "which", lambda name, *args, **kwargs: f"/usr/bin/{name}" if npm_installed else None
+    )
+    return runs
+
+
+def test_a_node_tool_installs_with_npm_ci_in_a_stage_that_becomes_its_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """npm installs exactly what the lockfile records, with no package script, in a stage beside
+    the version directory, and only the two locked files go in beforehand. The environment names
+    an empty user and global configuration and a cache of its own, turns off npm's check for a
+    newer npm and sets its log level to `error`, and drops the npm settings of the caller: a
+    configured registry would rewrite the lockfile's URLs. The stage is renamed
+    into place, with the `.bin` link inside it, and the command links to the version directory."""
+    monkeypatch.setenv("npm_config_registry", "https://example.com/registry")
+    runs = _record_npm(monkeypatch)
+    target = tmp_path / "bin"
+    openspec = load_tools_lock().npm["openspec"]
+
+    install_npm_tool("openspec", openspec, target)
+
+    pinned = isolate_user_data_root / "tools" / "openspec" / openspec.version
+    (run,) = runs
+    npm_env = {key: value for key, value in run.env.items() if key.lower().startswith("npm_")}
+    assert (
+        run.argv,
+        run.cwd.parent,
+        run.cwd.name.startswith(".stage-"),
+        run.directory,
+        sorted(npm_env),
+        npm_env["npm_config_update_notifier"],
+        npm_env["npm_config_userconfig"] != npm_env["npm_config_globalconfig"],
+        run.configuration,
+        pinned in Path(npm_env["npm_config_cache"]).parents,
+    ) == (
+        [
+            "npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            "--engine-strict",
+            "--replace-registry-host=never",
+        ],
+        pinned.parent,
+        True,
+        ["package-lock.json", "package.json"],
+        [
+            "npm_config_cache",
+            "npm_config_globalconfig",
+            "npm_config_loglevel",
+            "npm_config_update_notifier",
+            "npm_config_userconfig",
+        ],
+        "false",
+        True,
+        ["", ""],
+        False,
+    )
+    assert (
+        sorted(path.name for path in pinned.iterdir()),
+        [(pinned / name).read_bytes() for name in ("package.json", "package-lock.json")],
+        sorted(path.name for path in pinned.parent.iterdir()),
+        (target / "openspec").is_symlink(),
+        (target / "openspec").resolve(),
+    ) == (
+        ["node_modules", "package-lock.json", "package.json"],
+        [
+            (LOCK_DIR / "openspec" / name).read_bytes()
+            for name in ("package.json", "package-lock.json")
+        ],
+        [openspec.version],
+        True,
+        (pinned / "node_modules" / "@fission-ai" / "openspec" / "bin" / "openspec.js").resolve(),
+    )
+
+
+def test_a_failed_npm_ci_leaves_no_stage_no_link_and_an_earlier_install_as_it_was(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """npm leaves a partial `node_modules` when a package fails its sha512, so the install fails
+    with npm's reason, removes the stage and links nothing, and an install of the same version that
+    an earlier run made is still there with its link."""
+    _record_npm(monkeypatch, ci_fails=True)
+    openspec = load_tools_lock().npm["openspec"]
+    earlier = isolate_user_data_root / "tools" / "openspec" / openspec.version
+    (earlier / "node_modules" / ".bin").mkdir(parents=True)
+    (earlier / "node_modules" / ".bin" / "openspec").write_bytes(EXECUTABLE)
+    target = tmp_path / "bin"
+    target.mkdir()
+    (target / "openspec").symlink_to(earlier / "node_modules" / ".bin" / "openspec")
+
+    with pytest.raises(ToolExecutionError) as raised:
+        install_npm_tool("openspec", openspec, target)
+
+    assert (
+        str(raised.value),
+        raised.value.exit_code,
+        raised.value.error_code,
+        sorted(path.name for path in earlier.parent.iterdir()),
+        (earlier / "node_modules" / ".bin" / "openspec").read_bytes(),
+        (target / "openspec").resolve(),
+    ) == (
+        f"npm could not install openspec: {_NPM_INTEGRITY_FAILURE[:256]}",
+        1,
+        CONST_ERROR_CODE_TOOL,
+        [openspec.version],
+        EXECUTABLE,
+        (earlier / "node_modules" / ".bin" / "openspec").resolve(),
+    )
+    assert sorted(path.name for path in earlier.iterdir()) == ["node_modules"]
+
+
+def test_a_failed_first_npm_ci_leaves_no_version_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """With nothing installed before, a lockfile npm refuses leaves no directory of the version
+    and no link."""
+    _record_npm(monkeypatch, ci_fails=True)
+
+    with pytest.raises(ToolExecutionError, match="EINTEGRITY"):
+        install_npm_tool("openspec", load_tools_lock().npm["openspec"], tmp_path / "bin")
+
+    assert (
+        list((isolate_user_data_root / "tools" / "openspec").iterdir()),
+        os.path.lexists(tmp_path / "bin" / "openspec"),
+    ) == ([], False)
+
+
+def test_a_node_tool_without_npm_fails_first_naming_npm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The installer provisions no runtime, Python's included: without npm it stops before it
+    stages anything, with the missing-dependency error that names npm."""
+    runs = _record_npm(monkeypatch, npm_installed=False)
+
+    with pytest.raises(DependencyError) as raised:
+        install_npm_tool("openspec", load_tools_lock().npm["openspec"], tmp_path / "bin")
+
+    assert (
+        raised.value.exit_code,
+        raised.value.error_code,
+        raised.value.details["tool_name"],
+        runs,
+        (isolate_user_data_root / "tools" / "openspec").exists(),
+    ) == (1, "DEPENDENCY_MISSING", "npm", [], False)
+
+
+def test_install_tools_installs_a_node_tool_and_check_finds_it_at_its_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """`devops install-tools --tool openspec` installs the pin from the lockfile and links
+    `openspec`, and `--check` then reports it at the pin."""
+    _record_npm(monkeypatch)
+    target = tmp_path / "bin"
+
+    installed = runner.invoke(
+        install_tools_app, ["--tool", "openspec", "--target-dir", str(target)]
+    )
+    checked = runner.invoke(
+        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
+    )
+
+    assert (installed.exit_code, checked.exit_code, "All 1 tools are linked" in checked.output) == (
+        0,
+        0,
+        True,
+    )
+
+
+def test_install_tools_without_npm_exits_1_naming_npm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The command that installs a Node tool is the hard failure when npm is missing."""
+    _record_npm(monkeypatch, npm_installed=False)
+
+    result = runner.invoke(
+        install_tools_app, ["--tool", "openspec", "--target-dir", str(tmp_path / "bin")]
+    )
+
+    assert (result.exit_code, "Required dependency 'npm' is not installed" in result.output) == (
+        1,
+        True,
+    )
+
+
+def test_install_managed_tools_warns_when_a_node_tool_cannot_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """Post-create's installer reports a missing npm as one warning line and carries on."""
+    _record_npm(monkeypatch, npm_installed=False)
+    lock = ToolsLock(
+        python_version="3.14",
+        binary={},
+        python={},
+        npm={"openspec": load_tools_lock().npm["openspec"]},
+    )
+    monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
+
+    actions = install_managed_tools(tmp_path / "bin")
+
+    missing = DependencyError("npm", install_hint=MESSAGES.install.npm_missing_hint)
+    assert actions == [f"Warning: Failed to install openspec ({missing})"]
+
+
 # ── The command ───────────────────────────────────────────────────────────────
 
 
@@ -399,7 +680,9 @@ def test_install_tools_exits_1_when_it_refuses_a_build(
     """A build refused for its checksum fails the command, so `install-tools && ...` stops there,
     and leaves no link."""
     stub_web.content(ASSET_URL, served)
-    lock = ToolsLock(python_version="3.14", binary={"mytool": _binary_entry(EXECUTABLE)}, python={})
+    lock = ToolsLock(
+        python_version="3.14", binary={"mytool": _binary_entry(EXECUTABLE)}, python={}, npm={}
+    )
     monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
     target = tmp_path / "bin"
 
@@ -461,6 +744,7 @@ def test_install_managed_tools_reports_one_line_per_tool(
             "broken": _binary_entry(EXECUTABLE, name="broken"),
         },
         python={},
+        npm={},
     )
     monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
 

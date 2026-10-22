@@ -31,6 +31,7 @@ BIN_KUBELINTER: str = "kube-linter"
 BIN_KUSTOMIZE: str = "kustomize"
 BIN_KYVERNO: str = "kyverno"
 BIN_MYPY: str = "mypy"
+BIN_NPM: str = "npm"
 BIN_OPA: str = "opa"
 BIN_OSV_SCANNER: str = "osv-scanner"
 BIN_PLUTO: str = "pluto"
@@ -197,6 +198,42 @@ def build_pluto_cmd(
 def build_uv_audit_cmd() -> list[str]:
     """Build a uv dependency audit command."""
     return [BIN_UV, "audit"]
+
+
+def build_npm_ci_cmd() -> list[str]:
+    """Build the npm command that installs exactly what a `package-lock.json` records.
+
+    `npm ci` refuses a manifest and lockfile that disagree and checks the sha512 of every package.
+    No package script runs, the engine range of every package is enforced, a configured registry
+    does not rewrite the lockfile's URLs, and neither the audit nor the funding request is sent.
+    """
+    return [
+        BIN_NPM,
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--engine-strict",
+        "--replace-registry-host=never",
+    ]
+
+
+def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
+    """Build the npm command that audits the `package-lock.json` in `project_dir` for known
+    vulnerabilities without installing anything, and checks for no newer npm.
+
+    npm exits 1 for a finding and for an audit that could not run alike, so it reports as JSON:
+    the report tells the two apart (`devops_cli.core.dependency_audit`).
+    """
+    return [
+        BIN_NPM,
+        "audit",
+        "--package-lock-only",
+        "--json",
+        "--no-update-notifier",
+        "--prefix",
+        str(project_dir),
+    ]
 
 
 def build_iac_cmd(binary: str, subcommand: str, args: Sequence[str] | None = None) -> list[str]:

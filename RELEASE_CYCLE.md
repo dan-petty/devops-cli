@@ -119,7 +119,7 @@ uv run devops ci
 4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
 5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
 6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
-7. **Dependency Audit (`uv audit`)**: Automated vulnerability scanning of lockfile packages against OSV.
+7. **Dependency Audit (`uv audit`, `npm audit`)**: Automated vulnerability scanning of lockfile packages against OSV, and of the lockfile of each Node tool in `tools.lock` against npm's advisory database.
 8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis of `src/` and `tests/`, the targets `.bandit` names, at medium severity and above.
 9. **Workflow Linting (`actionlint`)**: Validates GitHub Actions workflow schemas and script syntax.
 10. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.

@@ -216,6 +216,10 @@ class InstallMessages:
     not_installed: str = "not installed"
     check_off_pin: str = "{name} {version}: {installed}"
     check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
+    npm_missing_hint: str = (
+        "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
+        "the version in .node-version, which brings npm."
+    )
     path_hint: str = (
         'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
     )
@@ -1089,16 +1093,16 @@ class CIMessages:
     uv_check: str = "uv check"
     uv_lock: str = "uv lockfile freshness"
     uv_outdated: str = "uv tree --outdated"
-    uv_audit: str = "uv audit"
+    dependency_audit: str = "uv audit and npm audit"
     deptry: str = "deptry"
     deps: str = "deptry"
     constructs: str = "ast-grep scan (hand-rolled network constructs)"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     zizmor: str = "zizmor (github workflow security)"
-    audit_vulnerable: str = "Dependency audit found vulnerabilities (uv audit exited {code})."
+    audit_vulnerable: str = "Dependency audit found vulnerabilities ({tool} audit exited {code})."
     audit_not_run: str = (
-        "Dependency audit could not run (uv audit exited {code}); uv's error is above."
+        "Dependency audit could not run ({tool} audit exited {code}); {tool}'s error is above."
     )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
