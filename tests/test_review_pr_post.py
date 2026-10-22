@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +16,15 @@ from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import ReviewClients, format_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.commands.review import app as review_app
+from tests.support.fakes.github import (
+    github_json,
+    pull_request_file_payload,
+    pull_request_payload,
+    route_pull_request,
+)
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -169,16 +181,48 @@ def test_comment_with_findings_renders_findings_and_model_notes() -> None:
     ) == (True, False, False)
 
 
-def test_devops_review_pr_post_publishes_comment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _route_the_pull_request(
+    api: GitHubApiFake, *, files: list[dict[str, Any]], diff: str, comments: bool
 ) -> None:
-    """Verify devops review pr --post creates an issue comment on the PR."""
+    """Serve pull request 42 of org/repo, with `files` and `diff`; with `comments`, GitHub also
+    accepts a comment on it."""
+    route_pull_request(
+        api,
+        "org/repo",
+        42,
+        pull_request_payload(title="Test PR", head_repo="org/repo", base_repo="org/repo"),
+        files=files,
+        diff=diff,
+    )
+    if comments:
+        api.route("POST", "/repos/org/repo/issues/42/comments", github_json({"id": 1}, status=201))
+
+
+def _posted(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:
+    """Each POST the fake received, as its path and JSON body."""
+    return [
+        (request.url.path, json.loads(request.content))
+        for request in api.sent
+        if request.method == "POST"
+    ]
+
+
+def test_devops_review_pr_post_publishes_comment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+) -> None:
+    """Verify devops review pr --post creates one issue comment on the PR, through the session."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
-    mock_pull = MagicMock()
-    mock_pull.title = "Test PR"
-    mock_pull.get_files.return_value = [MagicMock(filename="src/app.py", status="modified")]
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("src/app.py")],
+        diff="diff --git a/src/app.py b/src/app.py\n+pass\n",
+        comments=True,
+    )
 
     p_qa = PERSONAS[Persona.QA]
     res_clean = ReviewResult(
@@ -191,40 +235,45 @@ def test_devops_review_pr_post_publishes_comment(
 
     with (
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch(
-            "devops_cli.commands.review._prepare_pr_content",
-            return_value=(
-                ["diff --git a/src/app.py b/src/app.py\n+pass\n"],
-                "PR 42: Test PR",
-                mock_pull,
-                "org/repo",
-                None,
-            ),
-        ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),
     ):
-        result = runner.invoke(review_app, ["pr", "42", "--post"])
+        result = runner.invoke(review_app, ["pr", "42", "--repo", "org/repo", "--post"])
 
-    posted_body = mock_pull.create_issue_comment.call_args[0][0]
+    posts = _posted(github_api)
+    posted_body = posts[0][1]["body"]
     assert (
         result.exit_code,
-        mock_pull.create_issue_comment.call_count,
+        [path for path, _ in posts],
         "Zero findings identified." in posted_body,
         "- **Files checked:** `src/app.py`" in posted_body,
         f"- **Personas:** {p_qa.title}" in posted_body,
         "## Model Notes (Not Verified)" in posted_body,
-    ) == (0, 1, True, True, True, True)
+        {request.headers["authorization"] for request in github_api.sent},
+    ) == (
+        0,
+        ["/repos/org/repo/issues/42/comments"],
+        True,
+        True,
+        True,
+        True,
+        {f"token {pin_github_session}"},
+    )
 
 
 def test_devops_review_pr_post_dry_run_skips_comment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
 ) -> None:
-    """Verify devops review pr --post --dry-run does not invoke GitHub API."""
+    """Verify devops review pr --post --dry-run posts no comment to GitHub."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
-    mock_pull = MagicMock()
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("src/app.py")],
+        diff="diff --git a/src/app.py b/src/app.py\n+pass\n",
+        comments=True,
+    )
     p_qa = PERSONAS[Persona.QA]
     res_clean = ReviewResult(
         persona=Persona.QA,
@@ -236,31 +285,37 @@ def test_devops_review_pr_post_dry_run_skips_comment(
 
     with (
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch(
-            "devops_cli.commands.review._prepare_pr_content",
-            return_value=(["diff content"], "PR 42", mock_pull, "org/repo", None),
-        ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),
     ):
-        result = runner.invoke(review_app, ["pr", "42", "--post", "--dry-run"])
+        result = runner.invoke(
+            review_app, ["pr", "42", "--repo", "org/repo", "--post", "--dry-run"]
+        )
 
     assert (
         result.exit_code,
-        mock_pull.create_issue_comment.call_count,
+        _posted(github_api),
         "Would post PR comment on #42" in result.output,
-    ) == (0, 0, True)
+    ) == (
+        0,
+        [],
+        True,
+    )
 
 
 def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
 ) -> None:
-    """Verify empty PR diff with --post calls _review_routed_files_only with zero model calls and exits 0 (#995)."""
+    """Verify a PR diff of routed files only, with --post, makes zero model calls and exits 0 (#995)."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
-    mock_pull = MagicMock()
-    mock_pull.get_files.return_value = []
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("changelog.d/1.md", "added")],
+        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        comments=True,
+    )
     mock_client = MagicMock(spec=ReviewLLMClient)
     mock_client.backend_info = "mock-llm"
     review_clients = ReviewClients(analysis=mock_client)
@@ -268,17 +323,70 @@ def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
     with (
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
         patch("devops_cli.commands.review._make_review_clients", return_value=review_clients),
-        patch(
-            "devops_cli.commands.review._prepare_pr_content",
-            return_value=([], "PR 42", mock_pull, "org/repo", None),
-        ),
         patch("devops_cli.commands.review.load_settings"),
     ):
-        result = runner.invoke(review_app, ["pr", "42", "--post"])
+        result = runner.invoke(review_app, ["pr", "42", "--repo", "org/repo", "--post"])
 
     assert (
         result.exit_code,
         mock_client.chat.called,
         mock_client.chat_messages.called,
-        mock_pull.create_issue_comment.call_count,
-    ) == (0, False, False, 1)
+        [path for path, _ in _posted(github_api)],
+    ) == (0, False, False, ["/repos/org/repo/issues/42/comments"])
+
+
+def _post_the_review_without_a_model(cli: Callable[..., Any]) -> Any:
+    """Review pull request 42 of org/repo with no model stage, and post the review as a comment."""
+    return cli("review", "pr", "42", "--repo", "org/repo", "--post", "--no-group-analysis")
+
+
+def test_devops_review_pr_post_stops_when_the_files_of_the_pull_request_cannot_be_read(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """A diff of routed files names no file, so the comment lists the pull request's files. When
+    GitHub fails that second read, the command exits 1 and posts nothing: a comment that names
+    no file would look like a review of an empty change."""
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("changelog.d/1.md", "added")],
+        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        comments=True,
+    )
+    files = "/repos/org/repo/pulls/42/files?per_page=100"
+    github_api.route(
+        "GET",
+        files,
+        github_json([pull_request_file_payload("changelog.d/1.md", "added")]),
+        github_json({"message": "Server Error"}, status=500),
+    )
+
+    result = _post_the_review_without_a_model(cli)
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        _posted(github_api),
+        "(HTTP 500)" in result.output,
+    ) == (1, True, [], True)
+
+
+def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """A diff of routed files names no file, so the comment lists the pull request's files, and a
+    file the pull request removes is not one of the files checked."""
+    _route_the_pull_request(
+        github_api,
+        files=[
+            pull_request_file_payload("changelog.d/1.md", "added"),
+            pull_request_file_payload("changelog.d/2.md", "removed"),
+        ],
+        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        comments=True,
+    )
+
+    result = _post_the_review_without_a_model(cli)
+
+    posted = _posted(github_api)
+    assert (result.exit_code, len(posted)) == (0, 1)
+    assert "- **Files checked:** `changelog.d/1.md`\n" in posted[0][1]["body"]

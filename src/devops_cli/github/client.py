@@ -1,27 +1,26 @@
-"""GitHub API client wrapping PyGithub."""
+"""The typed GitHub calls devops-cli makes through the GitHub session, and the gh label client."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
-import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode
 
-from pydantic import BaseModel
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
-from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
-from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_GH_REST_PER_PAGE
+from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.github.session import get_github_session
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from github.PullRequest import PullRequest
+    from devops_cli.github.session import GitHubSession
 
 
 class RepoInfo(BaseModel):
@@ -34,13 +33,80 @@ class RepoInfo(BaseModel):
     archived: bool
 
 
+class CommitRef(BaseModel):
+    """One side of a pull request: a commit, the branch it is on and the repository that holds it.
+
+    `repository` is the repository's full name, or None when GitHub reports the repository as
+    null, which it does for the head of a pull request whose fork was deleted.
+    """
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
+    sha: str
+    ref: str
+    repository: str | None = Field(default=None, validation_alias=AliasPath("repo", "full_name"))
+
+
+class PullRequest(BaseModel):
+    """The fields of a pull request that devops-cli reads."""
+
+    title: str
+    head: CommitRef
+    base: CommitRef
+
+
+class PullRequestFile(BaseModel):
+    """One file a pull request changes; `previous_filename` is set for a renamed file only."""
+
+    filename: str
+    status: str
+    previous_filename: str | None = None
+    additions: int
+    changes: int
+
+
+class _FileContents(BaseModel):
+    """What the contents endpoint says of a path that is not a directory: GitHub gives a file its
+    content in base64, and one over 1 MB an empty content with the encoding `none`."""
+
+    type: str
+    encoding: str = ""
+    content: str = ""
+
+
+class _Comparison(BaseModel):
+    """What the compare endpoint says of two commits that devops-cli reads: their merge base."""
+
+    merge_base: str = Field(validation_alias=AliasPath("merge_base_commit", "sha"))
+
+
+def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
+    """`answer` as a `model`, raising `GitHubUnreadError` naming `path` when it is none."""
+    try:
+        return model.model_validate(answer)
+    except ValidationError as exc:
+        bounded = path[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        raise GitHubUnreadError(
+            f"GitHub's answer to GET {bounded} is no {model.__name__}: "
+            f"{exc.error_count()} invalid field(s)",
+            details={"path": bounded},
+        ) from exc
+
+
+def _repo_path(repo: str, tail: str) -> str:
+    """The REST path of `tail` under `repo`, with a character that is no part of a path encoded."""
+    return f"/repos/{quote(repo, safe='/')}/{tail}"
+
+
 class GitHubClient:
-    """PyGithub with the session's token; `github.session` builds the only one (#767)."""
+    """The typed calls devops-cli makes to GitHub, each one a request of the session it holds (#891).
 
-    def __init__(self, token: str) -> None:
-        from github import Auth, Github
+    The session paces, charges and retries every request and names every failure with its error
+    class, so a call here returns what GitHub said or raises why it did not.
+    """
 
-        self._gh = Github(auth=Auth.Token(token))
+    def __init__(self, session: GitHubSession) -> None:
+        self._session = session
 
     def get_org_repos(
         self,
@@ -49,69 +115,84 @@ class GitHubClient:
         include_forks: bool = False,
         include_archived: bool = True,
     ) -> list[RepoInfo]:
-        from github.GithubException import UnknownObjectException
-
+        """The repositories of an organization, or of the session's own account when GitHub says
+        `org_name` is no organization and it is the account's login (the ones it owns)."""
+        visibility = "all" if include_private else "public"
+        per_page = f"per_page={DEFAULT_GH_REST_PER_PAGE}"
+        listed_from = f"/orgs/{quote(org_name, safe='')}/repos?type={visibility}&{per_page}"
         try:
-            org = self._gh.get_organization(org_name)
-            repos = org.get_repos(type="all" if include_private else "public")
-        except UnknownObjectException:
-            user = self._gh.get_user()
-            if user.login != org_name:
+            listing = list(self._session.paginate(listed_from))
+        except GitHubNotFoundError:
+            if org_name != self._session.login:
                 raise
-            repos = user.get_repos()
-
-        result: list[RepoInfo] = []
-        for repo in repos:
-            if not include_private and repo.private:
-                continue
-            if not include_forks and repo.fork:
-                continue
-            if not include_archived and getattr(repo, "archived", False):
-                continue
-            result.append(
-                RepoInfo(
-                    name=repo.name,
-                    full_name=repo.full_name,
-                    ssh_url=repo.ssh_url,
-                    clone_url=repo.clone_url,
-                    private=repo.private,
-                    fork=repo.fork,
-                    archived=getattr(repo, "archived", False),
-                )
-            )
-        return result
+            listed_from = f"/user/repos?affiliation=owner&visibility={visibility}&{per_page}"
+            listing = list(self._session.paginate(listed_from))
+        repos = [_read_as(RepoInfo, item, path=listed_from) for item in listing]
+        return [
+            repo
+            for repo in repos
+            if (include_private or not repo.private)
+            and (include_forks or not repo.fork)
+            and (include_archived or not repo.archived)
+        ]
 
     # ── Pull requests ─────────────────────────────────────────────────────────
 
     def get_pull(self, repo: str, number: int) -> PullRequest:
-        """Return a PyGithub PullRequest object."""
-        return self._gh.get_repo(repo).get_pull(number)
+        """The pull request's title, and the commit, branch and repository of its head and base."""
+        path = _repo_path(repo, f"pulls/{number}")
+        return _read_as(PullRequest, self._session.rest("GET", path), path=path)
+
+    def get_pull_files(self, repo: str, number: int) -> list[PullRequestFile]:
+        """Every file the pull request changes, read page by linked page."""
+        path = _repo_path(repo, f"pulls/{number}/files?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        return [_read_as(PullRequestFile, item, path=path) for item in self._session.paginate(path)]
 
     def get_file_at(self, repo: str, path: str, ref: str) -> str | None:
-        """A file's text at a commit; None when it is absent, binary or too large to fetch."""
+        """A file's text at a commit; None when it is absent, binary or too large to fetch.
+
+        Only what GitHub says of the path reads as None: a 404, a directory, a link or submodule,
+        a file over 1 MB and bytes that are not UTF-8. A request that fails otherwise, or an
+        answer that is no file, raises the session's error.
+        """
+        endpoint = _repo_path(repo, f"contents/{quote(path, safe='/')}?{urlencode({'ref': ref})}")
         try:
-            content = self._gh.get_repo(repo).get_contents(path, ref=ref)
-            if isinstance(content, list):
-                return None
-            return content.decoded_content.decode("utf-8")
-        except Exception as exc:
-            logger.debug("Could not fetch %s@%s from %s: %s", path, ref, repo, exc)
+            answer = self._session.rest("GET", endpoint)
+        except GitHubNotFoundError:
             return None
+        if isinstance(answer, list):
+            return None
+        contents = _read_as(_FileContents, answer, path=endpoint)
+        if contents.type != "file" or contents.encoding != "base64":
+            return None
+        try:
+            return base64.b64decode(contents.content).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        except binascii.Error as exc:
+            raise GitHubUnreadError(
+                f"GitHub's answer to GET {endpoint[:CONST_MAX_ERROR_DETAIL_LENGTH]} is not base64",
+                details={"path": endpoint[:CONST_MAX_ERROR_DETAIL_LENGTH]},
+            ) from exc
 
     def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
-        """The merge base of two commits from the compare endpoint; None when it cannot be read.
+        """The merge base of two commits from the compare endpoint; None when GitHub has none.
 
         A pull request's `base.sha` is the base branch's tip, which moves on after the branch
-        point; its diff starts here instead.
+        point; its diff starts here instead. Only a 404 reads as None: any other failure raises
+        the session's error.
         """
+        endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
         try:
-            comparison = self._gh.get_repo(repo, lazy=True).compare(
-                base, head, comparison_commits_per_page=1
-            )
-            return str(comparison.merge_base_commit.sha)
-        except Exception as exc:
-            logger.debug("Could not compare %s...%s in %s: %s", base, head, repo, exc)
+            comparison = self._session.rest("GET", endpoint)
+        except GitHubNotFoundError:
             return None
+        return _read_as(_Comparison, comparison, path=endpoint).merge_base
+
+    def create_issue_comment(self, repo: str, number: int, body: str) -> None:
+        """Post `body` as a comment on the issue or pull request `number`."""
+        path = _repo_path(repo, f"issues/{number}/comments")
+        self._session.rest("POST", path, body={"body": body})
 
     def get_pr_diff(self, repo: str, number: int) -> str:
         """The pull request's unified diff, read through the GitHub session.
@@ -119,45 +200,14 @@ class GitHubClient:
         GitHub sends a diff as text; any other answer, JSON or a body without a content type,
         raises `GitHubUnreadError`.
         """
-        path = f"/repos/{repo}/pulls/{number}"
-        diff = get_github_session().rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+        path = _repo_path(repo, f"pulls/{number}")
+        diff = self._session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
         if not isinstance(diff, str):
             raise GitHubUnreadError(
                 f"GitHub's answer to GET {path} is no diff: {type(diff).__name__}",
                 details={"path": path[:CONST_MAX_ERROR_DETAIL_LENGTH]},
             )
         return diff
-
-    # ── Labels ───────────────────────────────────────────────────────────────
-
-    def get_labels(self, repo: str) -> list[dict[str, Any]]:
-        """Fetch all labels for a repository."""
-        labels = self._gh.get_repo(repo).get_labels()
-        return [
-            {
-                "name": lbl.name,
-                "color": lbl.color,
-                "description": lbl.description or "",
-            }
-            for lbl in labels
-        ]
-
-    def create_label(self, repo: str, name: str, color: str, description: str = "") -> Any:
-        """Create a new label in the specified repository."""
-        return self._gh.get_repo(repo).create_label(
-            name=name,
-            color=color.lstrip("#"),
-            description=description,
-        )
-
-    def edit_label(self, repo: str, name: str, color: str, description: str = "") -> Any:
-        """Update an existing label's color and description."""
-        label = self._gh.get_repo(repo).get_label(name)
-        return label.edit(
-            name=name,
-            color=color.lstrip("#"),
-            description=description,
-        )
 
 
 class GhCliClient:

@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,64 +22,65 @@ from devops_cli.ai.review.runner import (
     _run_orchestrator_review,
 )
 from devops_cli.ai.review_schema import SavedFinding
+from devops_cli.github.client import CommitRef, PullRequest, PullRequestFile
+from devops_cli.github.session import get_github_session
+from devops_cli.models.git import ChangedFile
+from tests.support.fakes.github import (
+    github_json,
+    github_text,
+    pull_request_file_payload,
+    pull_request_payload,
+    route_file,
+    route_merge_base,
+    route_pull_request,
+)
+from tests.support.paths import FIXTURES
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 _MERGE_BASE = "merge789"
+_HEAD_OF_158 = "ec18ca7bca5202d8e139a58b25757dc161255245"
 
 
-class _FakeGitHub:
-    """GitHub as a PR review reads it: file texts by (path, ref), the merge base of the pull
-    request's base and head, and the pull request itself. Every read is logged."""
-
-    def __init__(self, files: dict[tuple[str, str], str], pull: Any = None, diff: str = "") -> None:
-        self.files = files
-        self.pull = pull
-        self.diff = diff
-        self.fetched: list[tuple[str, str, str]] = []
-        self.compared: list[tuple[str, str, str]] = []
-
-    def get_file_at(self, repo: str, path: str, ref: str) -> str | None:
-        self.fetched.append((repo, path, ref))
-        return self.files.get((path, ref))
-
-    def get_merge_base(self, repo: str, base: str, head: str) -> str:
-        self.compared.append((repo, base, head))
-        return _MERGE_BASE
-
-    def get_pull(self, repo: str, number: int) -> Any:
-        return self.pull
-
-    def get_pr_diff(self, repo: str, number: int) -> str:
-        return self.diff
-
-
-def _pull(*changed: tuple[str, str], renamed_from: dict[str, str] | None = None) -> Any:
-    old_paths = renamed_from or {}
-    return SimpleNamespace(
+def _pull() -> PullRequest:
+    """A pull request from `fork/app` into `base/app`, whose base branch has moved on since."""
+    return PullRequest(
         title="Change the app",
-        head=SimpleNamespace(sha="abc123", repo=SimpleNamespace(full_name="fork/app")),
-        base=SimpleNamespace(sha="base456", ref="main", repo=SimpleNamespace(full_name="base/app")),
-        get_files=lambda: [
-            SimpleNamespace(filename=name, status=status, previous_filename=old_paths.get(name))
-            for name, status in changed
-        ],
+        head=CommitRef(sha="abc123", ref="feature", repository="fork/app"),
+        base=CommitRef(sha="base456", ref="main", repository="base/app"),
     )
 
 
-def test_a_pr_review_reads_the_pr_heads_files_and_conventions(tmp_path: Path) -> None:
+def _read_in(api: GitHubApiFake, repo: str) -> list[tuple[str, str]]:
+    """The path and ref of each file of `repo` the fake was asked for, in order."""
+    contents = f"/repos/{repo}/contents/"
+    return [
+        (request.url.path.removeprefix(contents), request.url.params["ref"])
+        for request in api.sent
+        if request.url.path.startswith(contents)
+    ]
+
+
+def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
+    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+) -> None:
     """Verify changed files are written from head repo, and conventions are safely loaded from base (#658)."""
-    gh = _FakeGitHub(
-        {
-            ("src/app.py", "abc123"): "print('head version')\n",
-            ("AGENTS.md", "base456"): "# Conventions\n",
-            (".devops/review.md", "base456"): "# Review rules\n",
-        }
+    route_file(github_api, "fork/app", "src/app.py", "abc123", "print('head version')\n")
+    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
+    route_file(github_api, "base/app", ".devops/review.md", "base456", "# Review rules\n")
+    files = [
+        PullRequestFile(filename=name, status=status, additions=1, changes=1)
+        for name, status in (
+            ("src/app.py", "modified"),
+            ("old.py", "removed"),
+            ("../escape.py", "added"),
+        )
+    ]
+
+    written = _materialize_pr_head(
+        get_github_session().client, "base/app", _pull(), tmp_path, files
     )
-    pull = _pull(("src/app.py", "modified"), ("old.py", "removed"), ("../escape.py", "added"))
-
-    written = _materialize_pr_head(gh, "base/app", pull, tmp_path, pull.get_files())
-
-    head_fetches = {(repo, path, ref) for repo, path, ref in gh.fetched if repo == "fork/app"}
-    base_fetches = {(repo, path, ref) for repo, path, ref in gh.fetched if repo == "base/app"}
 
     assert (
         written,
@@ -86,16 +88,18 @@ def test_a_pr_review_reads_the_pr_heads_files_and_conventions(tmp_path: Path) ->
         (tmp_path / ".devops/review.md").exists(),
         (tmp_path / "old.py").exists(),
         (tmp_path.parent / "escape.py").exists(),
-        head_fetches,
-        ("base/app", ".devops/review.md", "base456") in base_fetches,
+        _read_in(github_api, "fork/app"),
+        (".devops/review.md", "base456") in _read_in(github_api, "base/app"),
+        {request.headers["authorization"] for request in github_api.sent},
     ) == (
         3,
         "print('head version')\n",
         True,
         False,
         False,
-        {("fork/app", "src/app.py", "abc123")},
+        [("src/app.py", "abc123")],
         True,
+        {f"token {pin_github_session}"},
     )
 
 
@@ -109,7 +113,7 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
 
     def prepare(number: int, repo: Any, head_dir: Path) -> Any:
         (head_dir / "app.py").write_text("head\n", encoding="utf-8")
-        return (["page"], "PR #7", MagicMock(), "base/app", None)
+        return (["page"], "PR #7", _pull(), "base/app", None)
 
     def run(*args: Any, **kwargs: Any) -> list[Any]:
         target = kwargs["target_dir"]
@@ -127,8 +131,60 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
     assert (result.exit_code, seen) == (0, {"content": "head\n", "local": False})
 
 
+def test_a_pr_review_of_the_recorded_pull_request_reads_both_pages_of_files(
+    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The recorded pull request lists its files on two pages, and its fork was deleted, so GitHub
+    reports its head repository as null: the review has the title and both files, and reads the
+    head's text from the base repository, at the head commit."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
+    )
+    first, second = recorded["files_pages"]
+    repo = "octocat/Hello-World"
+    github_api.route(
+        "GET",
+        f"/repos/{repo}/pulls/158",
+        github_json(recorded["pull_request"]),
+        github_text("diff --git a/README.md b/README.md\n+x\n", media_type="text/plain"),
+    )
+    github_api.route(
+        "GET",
+        f"/repos/{repo}/pulls/158/files?per_page=100",
+        github_json(first["body"], headers={"link": first["link"]}),
+    )
+    github_api.route(
+        "GET",
+        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
+        github_json(second["body"], headers={"link": second["link"]}),
+    )
+    route_file(github_api, repo, "README.md", _HEAD_OF_158, "**Hello World!**\n")
+
+    _pages, title, pull, _repo, base_revision = _prepare_pr_content(158, repo, head_dir=tmp_path)
+
+    assert base_revision is not None
+    assert (
+        title,
+        pull.head.repository,
+        base_revision.changes,
+        (tmp_path / "README.md").read_text(encoding="utf-8"),
+        [path for path, ref in _read_in(github_api, repo) if ref == _HEAD_OF_158],
+        {request.headers["authorization"] for request in github_api.sent},
+    ) == (
+        "PR #158: Update and rename README to README.md. Also Added Bolding",
+        None,
+        (
+            ChangedFile(change_type="deleted", path="README"),
+            ChangedFile(change_type="added", path="README.md"),
+        ),
+        "**Hello World!**\n",
+        ["README.md"],
+        {f"token {pin_github_session}"},
+    )
+
+
 def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
 ) -> None:
     """Verify a PR review reads each modified or renamed Python file from the base repository at
     the merge base, a renamed one at its old path, and records the delta in the session (#593).
@@ -137,42 +193,53 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     branch point would count as removed by the PR.
     """
     monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
-    pull = _pull(
-        ("mod.py", "modified"),
-        ("new_name.py", "renamed"),
-        ("added.py", "added"),
-        ("gone.py", "removed"),
-        renamed_from={"new_name.py": "old_name.py"},
-    )
-    gh = _FakeGitHub(
-        {
-            ("mod.py", "abc123"): "def keep():\n    return 1\n",
-            (
-                "new_name.py",
-                "abc123",
-            ): "def moved():\n    return 2\n\n\ndef fresh():\n    return 3\n",
-            ("added.py", "abc123"): "def brand_new():\n    return 4\n",
-            (
-                "mod.py",
-                _MERGE_BASE,
-            ): "def legacy_helper():\n    return 0\n\n\ndef keep():\n    return 1\n",
-            (
-                "old_name.py",
-                _MERGE_BASE,
-            ): "def moved():\n    return 2\n\n\ndef dropped():\n    return 5\n",
-            (
-                "mod.py",
-                "base456",
-            ): "def main_only():\n    return 6\n\n\ndef keep():\n    return 1\n",
-        },
-        pull=pull,
+    route_pull_request(
+        github_api,
+        "base/app",
+        7,
+        pull_request_payload(),
+        files=[
+            pull_request_file_payload("mod.py", "modified"),
+            pull_request_file_payload("new_name.py", "renamed", previous_filename="old_name.py"),
+            pull_request_file_payload("added.py", "added"),
+            pull_request_file_payload("gone.py", "removed"),
+        ],
         diff="diff --git a/mod.py b/mod.py\n@@ -1,5 +1,2 @@\n-def legacy_helper():\n",
     )
+    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
+    for repo, path, ref, text in (
+        ("fork/app", "mod.py", "abc123", "def keep():\n    return 1\n"),
+        (
+            "fork/app",
+            "new_name.py",
+            "abc123",
+            "def moved():\n    return 2\n\n\ndef fresh():\n    return 3\n",
+        ),
+        ("fork/app", "added.py", "abc123", "def brand_new():\n    return 4\n"),
+        (
+            "base/app",
+            "mod.py",
+            _MERGE_BASE,
+            "def legacy_helper():\n    return 0\n\n\ndef keep():\n    return 1\n",
+        ),
+        (
+            "base/app",
+            "old_name.py",
+            _MERGE_BASE,
+            "def moved():\n    return 2\n\n\ndef dropped():\n    return 5\n",
+        ),
+        (
+            "base/app",
+            "mod.py",
+            "base456",
+            "def main_only():\n    return 6\n\n\ndef keep():\n    return 1\n",
+        ),
+    ):
+        route_file(github_api, repo, path, ref, text)
     head_dir = tmp_path / "head"
     head_dir.mkdir()
 
-    with patch("devops_cli.github.client.GitHubClient", return_value=gh):
-        *_, base_revision = _prepare_pr_content(7, "base/app", head_dir=head_dir)
+    *_, base_revision = _prepare_pr_content(7, "base/app", head_dir=head_dir)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="pr-7",
         llm_client=MagicMock(),
@@ -185,15 +252,16 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     )
 
     source_base_reads = sorted(
-        (path, ref) for repo, path, ref in gh.fetched if repo == "base/app" and path.endswith(".py")
+        (path, ref) for path, ref in _read_in(github_api, "base/app") if path.endswith(".py")
     )
     deltas = {
         path: (m.symbols_added, m.symbols_removed, m.symbols_retained)
         for path, m in metadata.items()
         if path.endswith(".py")
     }
-    assert (gh.compared, source_base_reads, deltas) == (
-        [("base/app", "base456", "abc123")],
+    compared = [r for r in github_api.requested if "/compare/" in r]
+    assert (compared, source_base_reads, deltas) == (
+        ["GET https://api.github.com/repos/base/app/compare/base456...abc123?per_page=1"],
         [("mod.py", _MERGE_BASE), ("old_name.py", _MERGE_BASE)],
         {
             "mod.py": ([], ["legacy_helper"], ["keep"]),
@@ -201,6 +269,95 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
             "added.py": (["brand_new"], [], []),
         },
     )
+
+
+def test_a_pr_review_reads_the_merge_base_from_the_base_repository_the_pull_request_names(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
+    """GitHub serves a pull request under the old name of a renamed repository, and reports the
+    base repository by its full name: the merge base and the base files are read there, not under
+    the name the review was asked for."""
+    route_pull_request(
+        github_api,
+        "old/app",
+        7,
+        pull_request_payload(),
+        files=[pull_request_file_payload("mod.py")],
+        diff="diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n",
+    )
+    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
+    route_file(github_api, "fork/app", "mod.py", "abc123", "x = 2\n")
+    route_file(github_api, "base/app", "mod.py", _MERGE_BASE, "x = 1\n")
+
+    *_, base_revision = _prepare_pr_content(7, "old/app", head_dir=tmp_path)
+
+    assert base_revision is not None
+    assert (
+        base_revision.read("mod.py"),
+        [request for request in github_api.requested if "/compare/" in request],
+        _read_in(github_api, "old/app"),
+    ) == (
+        "x = 1\n",
+        ["GET https://api.github.com/repos/base/app/compare/base456...abc123?per_page=1"],
+        [],
+    )
+
+
+def _route_a_modified_python_file(api: GitHubApiFake) -> None:
+    """Serve pull request 7 of base/app, which modifies mod.py, with its head text and merge base."""
+    route_pull_request(
+        api,
+        "base/app",
+        7,
+        pull_request_payload(),
+        files=[pull_request_file_payload("mod.py")],
+        diff="diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n",
+    )
+    route_merge_base(api, "base/app", "base456", "abc123", _MERGE_BASE)
+    route_file(api, "fork/app", "mod.py", "abc123", "x = 2\n")
+
+
+def test_a_pr_review_ends_with_the_github_error_when_the_pull_request_cannot_be_read(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """A 500 that outlasts the retries ends the command with the session's message and status 1,
+    and prints no traceback."""
+    github_api.route(
+        "GET", "/repos/base/app/pulls/7", github_json({"message": "Server Error"}, status=500)
+    )
+
+    result = cli("review", "pr", "7", "--repo", "base/app", "--pre-analysis-only")
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        "HTTP 500" in result.output,
+        "Traceback" in result.output,
+    ) == (1, True, True, False)
+
+
+@pytest.mark.parametrize("unreadable", ["mod.py", ".devops/review.toml"])
+def test_a_pr_review_ends_with_the_github_error_when_a_file_of_the_base_cannot_be_read(
+    cli: Callable[..., Any], github_api: GitHubApiFake, unreadable: str
+) -> None:
+    """A failed read of a file at the merge base is no absent file: the modified Python file
+    would have no symbol delta, and the review configuration would be the default one. The
+    command ends with the session's message and status 1, and prints no traceback."""
+    _route_a_modified_python_file(github_api)
+    github_api.route(
+        "GET",
+        f"/repos/base/app/contents/{unreadable}?ref={_MERGE_BASE}",
+        github_json({"message": "Server Error"}, status=500),
+    )
+
+    result = cli("review", "pr", "7", "--repo", "base/app", "--pre-analysis-only")
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        f"contents/{unreadable}?ref={_MERGE_BASE} (HTTP 500)" in result.output,
+        "Traceback" in result.output,
+    ) == (1, True, True, False)
 
 
 def test_each_file_is_reviewed_with_its_own_pages_only() -> None:
