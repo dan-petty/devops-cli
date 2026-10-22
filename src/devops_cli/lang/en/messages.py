@@ -1279,6 +1279,9 @@ class ServeMessages:
     openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
     health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
     metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    # Logged once for each webhook delivery, whatever came of it; its record carries the provider,
+    # event, action, delivery, repository and outcome (#1386).
+    webhook_delivery: str = "Webhook delivery handled."
     # Logged once for each new time a failed Service round names (#1400).
     rounds_paused: str = (
         "No repository starts a Service round before {until}, the time the failed round for "

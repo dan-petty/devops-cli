@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -1632,6 +1633,8 @@ CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS: Final[float] = 5.0
 # so none of them reads as a refusal.
 CONST_GRAPHQL_REFUSAL_RESET_KEY: Final[str] = "reset_at"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
+# What GitHub writes before the hex digest in that header.
+CONST_GH_WEBHOOK_SIGNATURE_PREFIX: Final[str] = "sha256="
 CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
 CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"
 CONST_SERVICE_MAX_BODY_BYTES: Final[int] = 25 * 1024 * 1024
@@ -1639,6 +1642,31 @@ CONST_SERVICE_DELIVERY_LRU_CAPACITY: Final[int] = 10_000
 CONST_SERVICE_SOURCE_WEBHOOK: Final[str] = "webhook"
 CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
 CONST_SERVICE_PING_EVENT: Final[str] = "ping"
+
+
+class WebhookProviderName(StrEnum):
+    """The providers whose webhooks the Service receives, each at `POST /webhooks/<provider>`
+    (#1386). A sender gets a member once a consumer or a responder acts on its events."""
+
+    GITHUB = "github"
+
+
+class WebhookExposure(StrEnum):
+    """How a webhook provider is reached: `TUNNEL` through the public Ingress, `CLUSTER` only at
+    the Service's cluster DNS name (#1386)."""
+
+    TUNNEL = "tunnel"
+    CLUSTER = "cluster"
+
+
+# What a delivery came to, the `outcome` of its log record and of the deliveries counter (#1386).
+CONST_SERVICE_OUTCOME_ACCEPTED: Final[str] = "accepted"
+CONST_SERVICE_OUTCOME_IGNORED: Final[str] = "ignored"
+CONST_SERVICE_OUTCOME_REJECTED: Final[str] = "rejected"
+CONST_SERVICE_OUTCOME_NO_SUBSCRIBER: Final[str] = "no_subscriber"
+# The deliveries counter's `event` for an event no consumer subscribes to, so a sender's choice of
+# event name can't grow the series (#1386).
+CONST_SERVICE_EVENT_OTHER: Final[str] = "other"
 CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhook_deliveries_total"
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
@@ -3012,6 +3040,17 @@ CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
 CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "milestone", "closed"),
     ("webhook", "release", "published"),
+)
+# The webhook events the roadmap jobs' batch keys name, the events the Service's roadmap consumer
+# takes (#1386).
+CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
+    event
+    for source, event, _action in (
+        *CONST_ROADMAP_INTAKE_BATCH_KEYS,
+        *CONST_ROADMAP_CLOSURE_BATCH_KEYS,
+        *CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
+    )
+    if source == CONST_SERVICE_SOURCE_WEBHOOK
 )
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
