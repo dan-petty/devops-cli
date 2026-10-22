@@ -1087,11 +1087,11 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     """Verify the controller's checkpoints and the sandbox registry and incidents use the main
     worktree's data directory from a linked worktree outside it, by default and with a relative
     `DEVOPS_CLI_DATA_DIR`, not a `.data` lost with the worktree; and that the dashboard's review
-    list reads the reviews under the user-level data root, where a review writes them (#972)."""
+    summary reads the reviews under the user-level data root, where a review writes them (#972)."""
     from devops_cli.ai.controller.manager import ConstellationManager
     from devops_cli.sandbox.logs import resolve_incident_dir
     from devops_cli.sandbox.registry import get_default_sandbox_registry_path
-    from devops_cli.ui.data_providers import list_review_sessions
+    from devops_cli.ui.data_providers import fetch_review_status
 
     main, linked = repo_with_worktree
     data = main / (configured or ".data")
@@ -1106,7 +1106,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
 
     resolved = (
         ReviewSessionStore.root(),
-        [session.name for session in list_review_sessions()],
+        fetch_review_status().session_name,
         ConstellationManager().data_dir,
         get_default_sandbox_registry_path(),
         resolve_incident_dir(),
@@ -1115,7 +1115,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     data = data.resolve()
     assert resolved == (
         reviews,
-        ["20261003-120000"],
+        "20261003-120000",
         data,
         data / "sandbox" / "instances.json",
         data / "sandbox" / "incidents",

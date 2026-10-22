@@ -3542,13 +3542,11 @@ CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
 CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
 CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
 CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
-CONST_DASHBOARD_DOMAIN_AI: Final[str] = "ai"
 CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
 CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_VALKEY,
 )
 # Human-readable labels used for tab titles and status banners.
@@ -3556,7 +3554,6 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
     CONST_DASHBOARD_DOMAIN_K8S: "Kubernetes",
     CONST_DASHBOARD_DOMAIN_DOCKER: "Docker",
     CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
-    CONST_DASHBOARD_DOMAIN_AI: "AI Review",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
 }
 
@@ -3593,41 +3590,6 @@ CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
     f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
     CONST_LOGS_TAB_ID: "#log-pane",
 }
-
-# ── Dashboard Finding Detail ─────────────────────────────────────────────────
-# The AI Review pane beside the findings table: these short fields as `label: value`
-# lines, in this order, then each long field as a titled section. Every other finding
-# field is left out on purpose: `recommendation` is the persona's merge verdict, not
-# advice about the finding, `thinking` is the model's scratchpad, and the rest are
-# verification bookkeeping.
-CONST_FINDING_DETAIL_HEADER_FIELDS: Final[tuple[tuple[str, str], ...]] = (
-    ("title", "Title"),
-    ("severity", "Severity"),
-    ("status", "Status"),
-    ("persona_title", "Persona"),
-    ("category", "Category"),
-    ("confidence_score", "Confidence"),
-    ("location", "Location"),
-    ("citation_line", "Citation line"),
-    ("verified_by", "Verified by"),
-)
-CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
-    ("description", "Description"),
-    ("observed_value", "Observed value"),
-    ("expected_value", "Expected value"),
-    ("fix", "Fix"),
-    ("references", "References"),
-    ("invalidation_reason", "Invalidation reason"),
-    ("mitigating_mechanism", "Mitigating mechanism"),
-)
-# A field read in place of a blank one: an untitled persona is named by its key, as
-# `review findings --details` names it.
-CONST_FINDING_DETAIL_FIELD_FALLBACKS: Final[dict[str, str]] = {"persona_title": "persona"}
-# Finding text is model output, so every Unicode control character (general category Cc)
-# is written as a visible escape before it reaches the terminal, except line breaks and
-# tabs, which lay the text out.
-CONST_UNICODE_CONTROL_CATEGORY: Final[str] = "Cc"
-CONST_FINDING_DETAIL_KEPT_CONTROLS: Final[frozenset[str]] = frozenset({"\n", "\t"})
 
 # ── W3C Trace Context ────────────────────────────────────────────────────────
 # https://www.w3.org/TR/trace-context/

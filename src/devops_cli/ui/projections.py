@@ -12,15 +12,11 @@ enough to be obviously correct.
 from __future__ import annotations
 
 import json
-import textwrap
-import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from devops_cli.ai.review_schema import format_clean_text_field
 from devops_cli.config.constants import (
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
@@ -32,19 +28,13 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCE_NETWORKS,
     CONST_DOCKER_RESOURCE_REGISTRIES,
     CONST_DOCKER_RESOURCE_VOLUMES,
-    CONST_FINDING_DETAIL_FIELD_FALLBACKS,
-    CONST_FINDING_DETAIL_HEADER_FIELDS,
-    CONST_FINDING_DETAIL_KEPT_CONTROLS,
-    CONST_FINDING_DETAIL_SECTION_FIELDS,
     CONST_K8S_CONTAINER_TERMINATED,
-    CONST_UNICODE_CONTROL_CATEGORY,
 )
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
 from devops_cli.output import escape_text, format_timestamp_age
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
-    ReviewSummary,
     TelemetrySummary,
     ValkeySummary,
 )
@@ -53,10 +43,6 @@ from devops_cli.ui.state import DomainSnapshot
 CONST_STATUS_DOT_OK = "[green]●[/green]"
 CONST_STATUS_DOT_WARN = "[yellow]●[/yellow]"
 CONST_STATUS_DOT_ERROR = "[red]●[/red]"
-
-CONST_AI_TITLE_MAX_CHARS = 45
-
-CONST_FINDING_DETAIL_EMPTY = "No finding selected."
 
 # Rows of pods that need attention are drawn in this colour.
 CONST_K8S_UNHEALTHY_STYLE = "red"
@@ -71,7 +57,6 @@ DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DASHBOARD_DOMAIN_K8S: ("Namespace", "Pod Name", "Status", "Ready", "Restarts"),
     CONST_DASHBOARD_DOMAIN_DOCKER: ("Container ID", "Name", "Image", "Status"),
     CONST_DASHBOARD_DOMAIN_TELEMETRY: ("Metric Name", "Type", "Value / Count"),
-    CONST_DASHBOARD_DOMAIN_AI: ("Severity", "Title", "Location", "Status"),
     CONST_DASHBOARD_DOMAIN_VALKEY: ("Metric Property", "Value"),
 }
 
@@ -179,27 +164,6 @@ def telemetry_banner(summary: TelemetrySummary) -> str:
     return f"{_dot(True)} Telemetry ({summary.source}): {counts}"
 
 
-def ai_banner(summary: ReviewSummary) -> str:
-    """Render the review session banner.
-
-    The session shown is the newest **completed** one. A review that is still running
-    creates its directory before it writes any findings, so the newest directory was being
-    presented as the latest result with zero findings, hiding the last real review.
-    """
-    if not summary.has_session:
-        return "No active or past AI code review sessions found."
-    pending = f" | {len(summary.incomplete)} incomplete" if summary.incomplete else ""
-    distribution = (
-        " | ".join(f"{name}: {count}" for name, count in summary.severity_distribution.items())
-        or "None"
-    )
-    return (
-        f"Review {summary.session_name} | "
-        f"Total: {summary.total_findings} (Verified: {summary.verified_count}) | "
-        f"{distribution}{pending}"
-    )
-
-
 def valkey_banner(summary: ValkeySummary) -> str:
     """Render the Valkey cache banner.
 
@@ -265,19 +229,6 @@ def telemetry_rows(summary: TelemetrySummary) -> list[tuple[str, ...]]:
     return rows
 
 
-def ai_rows(summary: ReviewSummary) -> list[tuple[str, ...]]:
-    """Project review findings into table rows."""
-    return [
-        (
-            str(finding.get("severity", "MEDIUM")),
-            str(finding.get("title", "Untitled"))[:CONST_AI_TITLE_MAX_CHARS],
-            str(finding.get("location", "—")),
-            str(finding.get("status", "UNVERIFIED")),
-        )
-        for finding in summary.findings
-    ]
-
-
 def images_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
     """Project Docker images into table rows."""
     return _records(summary.images, ("id", "tag", "size", "created"))
@@ -332,15 +283,6 @@ def docker_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
 def telemetry_identities(summary: TelemetrySummary) -> list[tuple[str, ...]]:
     """Identify instruments by kind and name: a counter and a gauge may share a name."""
     return [(kind, name) for name, kind, _value in telemetry_rows(summary)]
-
-
-def ai_identities(summary: ReviewSummary) -> list[tuple[str, ...]]:
-    """Identify findings by persona, location and full title.
-
-    Findings carry no id in practice, and the row shows neither the persona nor more than
-    the start of the title, so the identity is built from the record.
-    """
-    return _records(summary.findings, ("persona", "location", "title"))
 
 
 def images_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
@@ -509,99 +451,6 @@ def pod_event_rows(events: Iterable[PodEventInfo]) -> list[tuple[str, ...]]:
 
 
 # =============================================================================
-# Finding detail
-# =============================================================================
-
-
-def _confidence(score: Any) -> str:
-    """Render a confidence score to two decimals, as `review findings` does."""
-    try:
-        return f"{float(score):.2f}"
-    except TypeError, ValueError:
-        return str(score)
-
-
-def _one_per_line(values: Any) -> str:
-    """Render a list one item per line."""
-    return "\n".join(map(str, values)) if isinstance(values, list) else str(values)
-
-
-_DETAIL_FORMATTERS: dict[str, Callable[[Any], str]] = {
-    "confidence_score": _confidence,
-    "description": format_clean_text_field,
-    "fix": format_clean_text_field,
-    "references": _one_per_line,
-}
-
-
-def _escape_controls(text: str) -> str:
-    """Write control characters as visible escapes, keeping line breaks and tabs.
-
-    Textual strips only a handful of control characters, so a raw ESC in model-written
-    text would otherwise reach the terminal as the start of an escape sequence.
-    """
-    return "".join(
-        char.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(char) == CONST_UNICODE_CONTROL_CATEGORY
-        and char not in CONST_FINDING_DETAIL_KEPT_CONTROLS
-        else char
-        for char in text
-    )
-
-
-def _trim(text: str) -> str:
-    """Drop the blank lines around a value and its trailing whitespace.
-
-    The first line keeps its indentation: stripping it alone would set quoted code's first
-    line left of the lines below it.
-    """
-    body = text.rstrip()
-    start = body.rfind("\n", 0, len(body) - len(body.lstrip())) + 1
-    return body[start:]
-
-
-def _detail_value(record: dict[str, Any], field: str) -> str:
-    """Render one field of a finding, or an empty string when it holds nothing.
-
-    Only None, a blank string and an empty list count as nothing: a confidence of 0.0 or a
-    citation on line 0 is a value. Indentation every line of a text shares is removed
-    first, so quoted code starts at the margin with its own structure intact.
-    """
-    value = record.get(field)
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        value = textwrap.dedent(value)
-    return _trim(_escape_controls(_DETAIL_FORMATTERS.get(field, str)(value)))
-
-
-def _detail_field(record: dict[str, Any], field: str) -> str:
-    """Render a field, reading its fallback when the field itself is blank."""
-    fallback = CONST_FINDING_DETAIL_FIELD_FALLBACKS.get(field)
-    text = _detail_value(record, field)
-    return text or (_detail_value(record, fallback) if fallback else "")
-
-
-def finding_detail(record: dict[str, Any]) -> str:
-    """Render a finding's full record as plain labelled text for the detail pane.
-
-    The text is model output quoting repository content, so it is returned as-is for a
-    widget with markup off, with control characters already escaped.
-    """
-    header = "\n".join(
-        f"{label}: {text}"
-        for field, label in CONST_FINDING_DETAIL_HEADER_FIELDS
-        if (text := _detail_field(record, field))
-    )
-    sections = [
-        f"{label}:\n{text}"
-        for field, label in CONST_FINDING_DETAIL_SECTION_FIELDS
-        if (text := _detail_field(record, field))
-    ]
-    return "\n\n".join(block for block in (header, *sections) if block)
-
-
-# =============================================================================
 # Snapshot rendering
 # =============================================================================
 
@@ -609,7 +458,6 @@ _BANNERS: dict[str, Callable[[Any], str]] = {
     CONST_DASHBOARD_DOMAIN_K8S: k8s_banner,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_banner,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_banner,
-    CONST_DASHBOARD_DOMAIN_AI: ai_banner,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_banner,
 }
 
@@ -617,7 +465,6 @@ _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_K8S: k8s_rows,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_rows,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_rows,
-    CONST_DASHBOARD_DOMAIN_AI: ai_rows,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
 }
 
@@ -625,7 +472,6 @@ _IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_K8S: k8s_identities,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_identities,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_identities,
-    CONST_DASHBOARD_DOMAIN_AI: ai_identities,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_identities,
 }
 
@@ -685,34 +531,6 @@ def docker_resource_label(resource: str, snapshot: Any) -> str:
     return f"{label} ({DOCKER_RESOURCE_COUNTS[resource](snapshot.data)})"
 
 
-REVIEW_SESSION_COLUMNS: tuple[str, ...] = ("Session", "Status", "Findings")
-
-
-def review_session_rows(snapshot: Any) -> list[tuple[str, ...]]:
-    """Project review sessions into table rows, newest first.
-
-    Sessions are already ordered newest-first by the provider; re-sorting here would let
-    the two disagree.
-    """
-    if snapshot.data is None:
-        return []
-    return [
-        (
-            info.name,
-            "complete" if info.completed else "incomplete",
-            str(info.finding_count) if info.completed else "-",
-        )
-        for info in snapshot.data.sessions
-    ]
-
-
-def review_session_keys(snapshot: Any) -> list[str]:
-    """Key each review session row by its name."""
-    if snapshot.data is None:
-        return []
-    return row_keys((info.name,) for info in snapshot.data.sessions)
-
-
 def render_banner(snapshot: DomainSnapshot, *, stale_after: float | None = None) -> str:
     """Render the banner line for a domain snapshot.
 
@@ -748,17 +566,6 @@ def render_keys(snapshot: DomainSnapshot) -> list[str]:
     return row_keys(_IDENTITIES[snapshot.domain](snapshot.data))
 
 
-def finding_records(snapshot: DomainSnapshot, keys: list[str]) -> dict[str, dict[str, Any]]:
-    """Map each findings table row key to the finding record that row shows.
-
-    The keys are the ones the table was drawn with, from `render_keys(snapshot)`, so the
-    map and the table cannot disagree about which key names which finding.
-    """
-    if snapshot.data is None:
-        return {}
-    return dict(zip(keys, snapshot.data.findings, strict=True))
-
-
 def render_domain(
     snapshot: DomainSnapshot, *, stale_after: float | None = None
 ) -> tuple[str, list[tuple[str, ...]]]:
@@ -767,7 +574,6 @@ def render_domain(
 
 
 __all__ = [
-    "CONST_FINDING_DETAIL_EMPTY",
     "CONST_K8S_ALL_NAMESPACES",
     "CONST_K8S_ALL_NAMESPACES_LABEL",
     "DOCKER_RESOURCE_COLUMNS",
@@ -776,10 +582,6 @@ __all__ = [
     "DOMAIN_COLUMNS",
     "POD_CONTAINER_COLUMNS",
     "POD_EVENT_COLUMNS",
-    "REVIEW_SESSION_COLUMNS",
-    "ai_banner",
-    "ai_identities",
-    "ai_rows",
     "docker_banner",
     "docker_identities",
     "docker_resource_keys",
@@ -788,8 +590,6 @@ __all__ = [
     "docker_rows",
     "error_banner",
     "filter_pods",
-    "finding_detail",
-    "finding_records",
     "images_banner",
     "images_identities",
     "images_rows",
@@ -816,8 +616,6 @@ __all__ = [
     "render_domain",
     "render_keys",
     "render_rows",
-    "review_session_keys",
-    "review_session_rows",
     "row_keys",
     "stale_banner",
     "telemetry_banner",
