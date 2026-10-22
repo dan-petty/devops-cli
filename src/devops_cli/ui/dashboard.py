@@ -9,7 +9,6 @@ the sum of five network round trips and one unreachable cluster froze every unre
 from __future__ import annotations
 
 import contextlib
-import time
 from functools import partial
 from typing import Any, ClassVar
 
@@ -33,7 +32,6 @@ from textual.widgets import (
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
-    CONST_DASHBOARD_DOMAIN_GITHUB,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAINS,
@@ -42,7 +40,6 @@ from devops_cli.config.constants import (
     CONST_LOGS_TAB_ID,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS,
     DEFAULT_DASHBOARD_REFRESH_SECONDS,
     DEFAULT_DASHBOARD_STALE_SECONDS,
 )
@@ -51,14 +48,7 @@ from devops_cli.ui.data_providers import fetch_review_status
 from devops_cli.ui.projections import log_title, next_container
 from devops_cli.ui.refresh import DOMAIN_FETCHERS, pod_log_source, refresh_domain
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import (
-    DockerPanel,
-    DomainPanel,
-    GitHubPanel,
-    K8sPanel,
-    LogPane,
-    ReviewPanel,
-)
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
 
 
 def _tab_id(domain: str) -> str:
@@ -66,15 +56,14 @@ def _tab_id(domain: str) -> str:
     return f"tab-{domain}"
 
 
-_PANELS: dict[str, type[DockerPanel | ReviewPanel | K8sPanel | GitHubPanel]] = {
+_PANELS: dict[str, type[DockerPanel | ReviewPanel | K8sPanel]] = {
     CONST_DASHBOARD_DOMAIN_DOCKER: DockerPanel,
     CONST_DASHBOARD_DOMAIN_AI: ReviewPanel,
     CONST_DASHBOARD_DOMAIN_K8S: K8sPanel,
-    CONST_DASHBOARD_DOMAIN_GITHUB: GitHubPanel,
 }
 
 
-def _panel_for(domain: str) -> DomainPanel | DockerPanel | ReviewPanel | K8sPanel | GitHubPanel:
+def _panel_for(domain: str) -> DomainPanel | DockerPanel | ReviewPanel | K8sPanel:
     """Build the panel a domain renders into.
 
     Most domains are a banner over one table. Docker and AI Review carry several views of
@@ -150,10 +139,6 @@ class HelpScreen(ModalScreen[None]):
             "  ctrl+p : Command palette\n"
             "  ?   : Open this help dialog\n"
             "  q   : Quit the dashboard\n\n"
-            "In the GitHub tab:\n\n"
-            "  enter : Inspect highlighted PR\n"
-            "  v     : View failing check logs in Logs tab\n"
-            "  o     : Open PR in browser\n\n"
             "In the log pane:\n\n"
             "  up/down   : Scroll one line\n"
             "  pgup/pgdn : Scroll one page\n"
@@ -224,7 +209,6 @@ class DashboardApp(App[None]):
         self._review_session: str | None = None
         # The pod and container the log pane is tailing, so `c` can move to the next one.
         self._tailing: tuple[PodInfo, str] | None = None
-        self._last_github_refresh_epoch: float | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -240,20 +224,7 @@ class DashboardApp(App[None]):
     def on_mount(self) -> None:
         self.action_refresh_data()
         if self._refresh_interval > 0:
-            self.set_interval(self._refresh_interval, self._refresh_base_domains)
-            github_interval = max(self._refresh_interval, DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS)
-            self.set_interval(github_interval, self._refresh_github)
-
-    def _refresh_base_domains(self) -> None:
-        """Refresh non-GitHub dashboard domains."""
-        for domain in CONST_DASHBOARD_DOMAINS:
-            if domain != CONST_DASHBOARD_DOMAIN_GITHUB:
-                self._refresh_worker(domain)
-
-    def _refresh_github(self) -> None:
-        """Refresh the GitHub domain."""
-        self._last_github_refresh_epoch = time.monotonic()
-        self._refresh_worker(CONST_DASHBOARD_DOMAIN_GITHUB)
+            self.set_interval(self._refresh_interval, self.action_refresh_data)
 
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch the active TabPane by id."""
@@ -279,25 +250,14 @@ class DashboardApp(App[None]):
         self.push_screen(HelpScreen())
 
     def action_refresh_data(self) -> None:
-        """Start a background refresh for active data sources.
+        """Start a background refresh for every domain.
 
-        Refreshes base domains immediately. Refreshes GitHub only if at least
-        DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS has elapsed since the last read started,
-        otherwise shows a notification.
+        Returns immediately. Each domain is fetched on its own worker thread and renders as
+        soon as it arrives, so a fast subsystem is not held behind a slow one and the key
+        that triggered the refresh is never what makes the interface hang.
         """
-        self._refresh_base_domains()
-        now = time.monotonic()
-        if (
-            self._last_github_refresh_epoch is None
-            or (now - self._last_github_refresh_epoch) >= DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS
-        ):
-            self._last_github_refresh_epoch = now
-            self._refresh_worker(CONST_DASHBOARD_DOMAIN_GITHUB)
-        else:
-            remaining = int(
-                DEFAULT_DASHBOARD_GITHUB_REFRESH_SECONDS - (now - self._last_github_refresh_epoch)
-            )
-            self.notify(f"GitHub refreshed recently; wait {remaining}s", severity="information")
+        for domain in CONST_DASHBOARD_DOMAINS:
+            self._refresh_worker(domain)
 
     def _fetchers_for(self, domain: str) -> dict[str, Any] | None:
         """Return a fetcher override for a domain, or None to use the registered one.
@@ -340,7 +300,6 @@ class DashboardApp(App[None]):
                 *self.query(f"#panel-{snapshot.domain}").results(DockerPanel),
                 *self.query(f"#panel-{snapshot.domain}").results(ReviewPanel),
                 *self.query(f"#panel-{snapshot.domain}").results(K8sPanel),
-                *self.query(f"#panel-{snapshot.domain}").results(GitHubPanel),
             ]
         except ScreenStackError:
             return

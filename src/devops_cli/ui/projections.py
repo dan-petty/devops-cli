@@ -22,7 +22,6 @@ from devops_cli.ai.review_schema import format_clean_text_field
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
-    CONST_DASHBOARD_DOMAIN_GITHUB,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
@@ -40,12 +39,10 @@ from devops_cli.config.constants import (
     CONST_K8S_CONTAINER_TERMINATED,
     CONST_UNICODE_CONTROL_CATEGORY,
 )
-from devops_cli.github.check_verdict import CheckBucket, PRCheckItem
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
 from devops_cli.output import escape_text, format_timestamp_age
 from devops_cli.ui.data_providers import (
     DockerSummary,
-    GitHubSummary,
     K8sSummary,
     ReviewSummary,
     TelemetrySummary,
@@ -76,16 +73,6 @@ DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: ("Metric Name", "Type", "Value / Count"),
     CONST_DASHBOARD_DOMAIN_AI: ("Severity", "Title", "Location", "Status"),
     CONST_DASHBOARD_DOMAIN_VALKEY: ("Metric Property", "Value"),
-    CONST_DASHBOARD_DOMAIN_GITHUB: (
-        "#",
-        "Title",
-        "Base",
-        "Age",
-        "Checks",
-        "Review",
-        "Threads",
-        "Diff",
-    ),
 }
 
 
@@ -230,21 +217,6 @@ def valkey_banner(summary: ValkeySummary) -> str:
     )
 
 
-def github_banner(summary: GitHubSummary) -> str:
-    """Render the GitHub pull requests and quota banner."""
-    quota_str = summary.quota.format_banner() if summary.quota is not None else "quota unread"
-    if summary.total_count == 0:
-        return f"{_dot(True)} GitHub: No open pull requests | {quota_str}"
-
-    count_str = (
-        f"showing oldest {len(summary.prs)} of {summary.total_count}"
-        if len(summary.prs) < summary.total_count
-        else f"{summary.total_count} open PRs"
-    )
-    failing = summary.failing_prs
-    return f"{_dot(True)} GitHub: {count_str} | {failing} with failing checks | {quota_str}"
-
-
 def loading_banner(domain: str) -> str:
     """Render the banner shown before a domain has produced its first result."""
     return f"{CONST_STATUS_DOT_WARN} {_label(domain)}: loading…"
@@ -339,29 +311,6 @@ def valkey_rows(summary: ValkeySummary) -> list[tuple[str, ...]]:
     ]
 
 
-def github_rows(summary: GitHubSummary) -> list[tuple[str, ...]]:
-    """Project pull requests into queue table rows."""
-    rows: list[tuple[str, ...]] = []
-    for pr in summary.prs:
-        title = f"[Draft] {pr.title}" if pr.is_draft else pr.title
-        age = format_timestamp_age(pr.created_at) if pr.created_at else "—"
-        review = pr.review_decision.lower().replace("_", " ") if pr.review_decision else "—"
-        diff = f"+{pr.additions}/-{pr.deletions} ({pr.changed_files})"
-        rows.append(
-            (
-                f"#{pr.number}",
-                title,
-                pr.base_ref_name or "—",
-                age,
-                pr.checks.format_counts(),
-                review,
-                pr.threads_display,
-                diff,
-            )
-        )
-    return rows
-
-
 # =============================================================================
 # Row identities
 # =============================================================================
@@ -417,11 +366,6 @@ def registries_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
 def valkey_identities(summary: ValkeySummary) -> list[tuple[str, ...]]:
     """Identify cache properties by their name."""
     return [(name,) for name, _value in valkey_rows(summary)]
-
-
-def github_identities(summary: GitHubSummary) -> list[tuple[str, ...]]:
-    """Identify pull requests by their number."""
-    return [(str(pr.number),) for pr in summary.prs]
 
 
 def row_keys(identities: Iterable[tuple[str, ...]]) -> list[str]:
@@ -667,7 +611,6 @@ _BANNERS: dict[str, Callable[[Any], str]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_banner,
     CONST_DASHBOARD_DOMAIN_AI: ai_banner,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_banner,
-    CONST_DASHBOARD_DOMAIN_GITHUB: github_banner,
 }
 
 _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
@@ -676,7 +619,6 @@ _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_rows,
     CONST_DASHBOARD_DOMAIN_AI: ai_rows,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
-    CONST_DASHBOARD_DOMAIN_GITHUB: github_rows,
 }
 
 _IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
@@ -685,31 +627,7 @@ _IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_identities,
     CONST_DASHBOARD_DOMAIN_AI: ai_identities,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_identities,
-    CONST_DASHBOARD_DOMAIN_GITHUB: github_identities,
 }
-
-
-GITHUB_CHECKS_COLUMNS: tuple[str, ...] = ("Name", "Workflow", "Bucket", "Link")
-
-
-def github_check_rows(items: list[PRCheckItem]) -> list[tuple[str, ...]]:
-    """Project PR check items into inspector checks table rows, non-passing first."""
-    sorted_items = sorted(items, key=lambda c: 0 if c.bucket != CheckBucket.PASS else 1)
-    return [
-        (
-            item.name,
-            item.workflow or "—",
-            item.bucket.value,
-            item.link or "—",
-        )
-        for item in sorted_items
-    ]
-
-
-def github_check_identities(items: list[PRCheckItem]) -> list[tuple[str, ...]]:
-    """Identify check rows by name, workflow, and link."""
-    sorted_items = sorted(items, key=lambda c: 0 if c.bucket != CheckBucket.PASS else 1)
-    return [(item.name, item.workflow, item.link) for item in sorted_items]
 
 
 DOCKER_RESOURCE_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -856,7 +774,6 @@ __all__ = [
     "DOCKER_RESOURCE_IDENTITIES",
     "DOCKER_RESOURCE_ROWS",
     "DOMAIN_COLUMNS",
-    "GITHUB_CHECKS_COLUMNS",
     "POD_CONTAINER_COLUMNS",
     "POD_EVENT_COLUMNS",
     "REVIEW_SESSION_COLUMNS",
@@ -873,11 +790,6 @@ __all__ = [
     "filter_pods",
     "finding_detail",
     "finding_records",
-    "github_banner",
-    "github_check_identities",
-    "github_check_rows",
-    "github_identities",
-    "github_rows",
     "images_banner",
     "images_identities",
     "images_rows",
