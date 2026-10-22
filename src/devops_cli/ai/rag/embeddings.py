@@ -14,6 +14,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx2
@@ -424,20 +425,20 @@ class EmbeddingsEngine:
 
             settings = load_settings()
             cfg = settings.valkey
-            pwd = get_valkey_password(settings)
-            client: Any = ValkeyClient(
+            connect = partial(
+                ValkeyClient,
                 host=cfg.host,
                 port=cfg.port,
-                password=pwd,
+                password=get_valkey_password(settings),
                 db=cfg.db,
-                timeout=min(float(cfg.timeout), 0.1),
             )
-            if not client.ping():
-                return None
-            client.timeout = float(cfg.timeout)
-            if getattr(client, "_sock", None) is not None:
-                client._sock.settimeout(client.timeout)
-            return client
+            probe = connect(timeout=min(float(cfg.timeout), 0.1))
+            try:
+                if not probe.ping():
+                    return None
+            finally:
+                probe.close()
+            return connect(timeout=float(cfg.timeout))
         except Exception:
             return None
 

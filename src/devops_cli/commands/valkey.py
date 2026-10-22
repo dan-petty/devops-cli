@@ -194,7 +194,7 @@ def valkey_set(
     """Set string value of key with optional expiration TTL."""
     try:
         client = _resolve_client(host=host, port=port)
-        client.set(key, value, ex_seconds=ex)
+        client.set(key, value, ex=ex)
         ttl_msg = f" (TTL: {ex}s)" if ex else ""
         print_success(f"Set '{key}' successfully{ttl_msg}.")
     except ValkeyError as exc:

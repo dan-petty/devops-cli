@@ -72,6 +72,7 @@ dependencies = [
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
     "cachetools==7.1.8",
+    "valkey==6.2.0",
 ]
 
 [project.scripts]
@@ -101,6 +102,7 @@ dev = [
     "syrupy==6.1.1",
     "ast-grep-cli==0.51.0",
     "time-machine==3.5.1",
+    "fakeredis[valkey]==2.40.0",
 ]
 
 [tool.hatch.build.targets.wheel]
