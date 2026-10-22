@@ -10,7 +10,6 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
     CONST_ERROR_CODE_CONSTELLATION_RESUME,
     CONST_ERROR_CODE_DOCS_INGESTION,
-    CONST_ERROR_CODE_HARNESS_EXECUTION,
     CONST_ERROR_CODE_HARNESS_VALIDATION,
     CONST_ERROR_CODE_LIBRARY_INGESTION,
     CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
@@ -179,24 +178,6 @@ class HarnessValidationError(DevOpsCLIError, ValueError):
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"field_name": field_name}
-        if details:
-            err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
-class HarnessExecutionError(DevOpsCLIError, RuntimeError):
-    """Raised when execution of an AI test harness or benchmark fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        harness_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_HARNESS_EXECUTION,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"harness_name": harness_name}
         if details:
             err_details.update(details)
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
@@ -439,7 +420,6 @@ __all__ = [
     "CostNotFoundWarning",
     "DocsIngestionError",
     "FallbackExceptionGroup",
-    "HarnessExecutionError",
     "HarnessValidationError",
     "IncompleteToolCall",
     "LLMInferenceError",

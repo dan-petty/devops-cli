@@ -98,7 +98,6 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.concurrency": ("reset_shared_limiters",),
     "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),
     "devops_cli.ai.gateway": ("clear_gateway_reasoning_cache",),
-    "devops_cli.ai.harness.compaction": ("reset_overflow_memory_fallback",),
     "devops_cli.ai.kb": ("reset_uv_lock_cache",),
     "devops_cli.ai.mcp.dispatcher": ("reset_mcp_dispatcher",),
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),

@@ -2,18 +2,15 @@
 
 Tests cover:
 
-1. FileSystem._resolve_safe_path prefix collision prevention.
-2. NativeTool and MCP authorization token redaction.
-3. Repomap symlink skipping, directory containment, and file size limits.
-4. Reporting stage session_dir containment verification.
-5. Static scan target path resolution containment & thread safety.
-6. Context path traversal and absolute path rejection.
-7. Console print_dry_run_result output secret sanitization.
-8. Vault command secret path validation.
-9. Telemetry probe latency & endpoint sanitization.
-10. Docker sandbox container wait timeout.
-11. OpenWebUI bootstrap account credential configuration.
-12. Exception tuple parenthesization across modules.
+1. Repomap symlink skipping, directory containment, and file size limits.
+2. Reporting stage session_dir containment verification.
+3. Static scan target path resolution containment & thread safety.
+4. Context path traversal and absolute path rejection.
+5. Console print_dry_run_result output secret sanitization.
+6. Vault command secret path validation.
+7. Telemetry probe latency & endpoint sanitization.
+8. Docker sandbox container wait timeout.
+9. OpenWebUI bootstrap account credential configuration.
 """
 
 from __future__ import annotations
@@ -25,11 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.ai.agents.capabilities import (
-    NativeTool,
-)
 from devops_cli.ai.agents.context import _check_path_traversal
-from devops_cli.ai.harness.filesystem import FileSystem
 from devops_cli.ai.repomap import generate_repo_map, parse_file_symbols
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.commands.vault import _validate_vault_path
@@ -37,47 +30,7 @@ from devops_cli.exceptions import SecurityError
 from devops_cli.output.console import print_dry_run_result
 
 
-# 1. FileSystem._resolve_safe_path prefix collision prevention
-def test_filesystem_resolve_safe_path_prefix_collision(tmp_path: Path) -> None:
-    root_dir = tmp_path / "allowed_root"
-    root_dir.mkdir()
-    sibling_dir = tmp_path / "allowed_root_extra"
-    sibling_dir.mkdir()
-    secret_file = sibling_dir / "secret.txt"
-    secret_file.write_text("classified", encoding="utf-8")
-
-    fs = FileSystem(root=root_dir)
-
-    # Legitimate subpath should resolve
-    valid_sub = root_dir / "file.txt"
-    valid_sub.write_text("hello", encoding="utf-8")
-    assert fs._resolve_safe_path("file.txt") == valid_sub.resolve()
-
-    # Prefix collision (../allowed_root_extra/secret.txt) starts with str(root_dir) if not checked with is_relative_to
-    with pytest.raises(PermissionError, match="outside root"):
-        fs._resolve_safe_path("../allowed_root_extra/secret.txt")
-
-
-# 2. NativeTool generic tool authorization token redaction
-def test_native_tool_token_redaction() -> None:
-    from pydantic import BaseModel
-
-    class CustomToolModel(BaseModel):
-        id: str = "custom_tool"
-        endpoint: str = "https://example.com"
-        authorization_token: str = "ghp_SUPERSECRET1234567890"
-
-    custom_tool = CustomToolModel()
-    native_tool = NativeTool(tool=custom_tool)
-    settings = native_tool.get_model_settings()
-
-    config = settings.get("native_tool", {})
-    assert "authorization_token" not in config
-    assert config.get("id") == "custom_tool"
-    assert config.get("endpoint") == "https://example.com"
-
-
-# 3. Repomap symlink skipping, containment, and file size limits
+# 1. Repomap symlink skipping, containment, and file size limits
 def test_repomap_skips_symlinks_and_verifies_containment(tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     src_dir.mkdir()
@@ -114,7 +67,7 @@ def test_parse_file_symbols_skips_giant_files(tmp_path: Path) -> None:
         assert node is None or len(node.symbols) == 0
 
 
-# 4. Reporting stage session_dir containment verification
+# 2. Reporting stage session_dir containment verification
 def test_review_session_dir_outside_root_is_refused(tmp_path: Path) -> None:
     """A session directory outside the reviews, working or temporary directory, or through
     `..`, is refused before anything is written there."""
@@ -133,7 +86,7 @@ def test_review_session_dir_outside_root_is_refused(tmp_path: Path) -> None:
         )
 
 
-# 5. Review file path resolution containment
+# 3. Review file path resolution containment
 def test_review_file_paths_stay_inside_the_target_and_repository(tmp_path: Path) -> None:
     """Files named outside the review target and its repository, absolute or through `..`,
     resolve to a missing in-target path rather than being read."""
@@ -161,7 +114,7 @@ def test_review_file_paths_stay_inside_the_target_and_repository(tmp_path: Path)
     assert not resolved[1].exists()
 
 
-# 6. Context path traversal sequence rejection
+# 4. Context path traversal sequence rejection
 def test_check_path_traversal_rejects_relative_sequences() -> None:
     with pytest.raises(SecurityError, match="Path traversal sequence detected"):
         _check_path_traversal("file_path", "../secrets.txt")
@@ -177,7 +130,7 @@ def test_check_path_traversal_rejects_relative_sequences() -> None:
     _check_path_traversal("dest_path", "./config.yaml")
 
 
-# 7. Console print_dry_run_result output secret sanitization
+# 5. Console print_dry_run_result output secret sanitization
 def test_print_dry_run_result_masks_secrets() -> None:
     secret_payload = {
         "command": "devops auth login",
@@ -194,7 +147,7 @@ def test_print_dry_run_result_masks_secrets() -> None:
     assert "<masked-github-token>" in printed_str
 
 
-# 8. Vault command secret path validation
+# 6. Vault command secret path validation
 def test_validate_vault_path() -> None:
     _validate_vault_path("secret/data/myapp")
     _validate_vault_path("auth/tokens/ci_bot")
@@ -209,7 +162,7 @@ def test_validate_vault_path() -> None:
         _validate_vault_path("")
 
 
-# 9. Telemetry probe latency & endpoint sanitization
+# 7. Telemetry probe latency & endpoint sanitization
 def test_telemetry_endpoint_sanitization() -> None:
     from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 
@@ -226,7 +179,7 @@ def test_telemetry_endpoint_sanitization() -> None:
     )
 
 
-# 10. Docker sandbox container wait timeout
+# 8. Docker sandbox container wait timeout
 def test_docker_sandbox_wait_timeout(tmp_path: Path, docker_engine: Any) -> None:
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
@@ -250,7 +203,7 @@ def test_docker_sandbox_wait_timeout(tmp_path: Path, docker_engine: Any) -> None
         assert kwargs["timeout"] > 0
 
 
-# 11. OpenWebUI bootstrap account credential configuration
+# 9. OpenWebUI bootstrap account credential configuration
 def test_bootstrap_openwebui_account_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     from devops_cli.commands.k8s.stack_lifecycle import _get_openwebui_bootstrap_credentials
 

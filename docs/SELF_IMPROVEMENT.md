@@ -1104,7 +1104,6 @@ prompts from two task files that never existed and scored the fix as the code un
 The DevSecOps and robustness review session `20260913-231617` produced 13 findings. 11 findings were confirmed and remediated with test-first fixes; 2 findings were classified as false-positive hallucinations and disarmed:
 
 1. **Path Containment & Traversal Hardening**:
-   - `SqlitePlanStore`: Constrained database paths to project roots, temp paths, or user home; blocked arbitrary system paths.
    - `DEVOPS_CLI_CONFIG`: Validated path traversal and forbidden system paths when loading config from environment.
    - `run_subprocess` / `run_subprocess_async`: Enforced path containment and system path rejection on caller-supplied `cwd`.
    - `devcontainer` mounts: Enforced path traversal checks on volume mount targets.
@@ -1144,7 +1143,6 @@ The DevSecOps and Architecture review session `20260915-124521` produced 22 find
 3. **Symlink Traversal & Path Containment Hardening (CWE-22 / CWE-59)**:
    - `argo/gitops.py` (`_scan_directory_manifests`): Explicitly skipped symlinks (`is_symlink()`) and enforced repository root containment (`resolved.is_relative_to(repo_root)`).
    - `security/gitleaks.py` (`_resolve_scan_files`): Enforced `_is_safe_file` validation across candidate lists, individual files, and directory trees, skipping symlinks and out-of-bounds files.
-   - `ai/harness/filesystem.py` (`_list_directory`): Added symlink skipping guard.
    - `ai/rag/indexer.py` (`_is_indexable_file`): Skipped symlinks and verified root containment.
    - `config/settings.py` (`_find_project_config_path`): Disallowed symlinks and forbidden system paths.
 

@@ -769,13 +769,12 @@ def test_configuration_and_error_catalog_docs_describe_real_surface(
             f"(`{field}`)" in config_md or f"| `{field}` |" in config_md
             for field in Settings.model_fields
         ),
-        "| `MemoryOperationConflictError` | `HARNESS_EXECUTION_ERROR` | `1` |" in errors_md,
         "| `ChecksumMismatchError` | `CHECKSUM_MISMATCH` | `1` |" in errors_md,
         "| `SecretExposureError` | `SECRET_EXPOSURE_DETECTED` | `4` |" in errors_md,
         "| `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` |" in errors_md,
         "Only `devops cloudflare`, `devops valkey` and `devops sandbox` exit with it today"
         in errors_md,
-    ) == (2, 130, True, True, True, True, True, True, True, True, True)
+    ) == (2, 130, True, True, True, True, True, True, True, True)
 
 
 def _unwrap_settings_model(annotation: object) -> type | None:

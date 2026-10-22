@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import inspect
 import re
 from collections import Counter
 from pathlib import Path
@@ -12,8 +11,6 @@ from pathlib import Path
 from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.context import RunContext
-from devops_cli.ai.harness.compaction import WarnOnCacheBusts
-from devops_cli.ai.harness.shell import Shell
 from devops_cli.ai.mcp.server import list_mcp_tools
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.rag.chunker import SemanticChunker
@@ -158,23 +155,6 @@ def test_rag_app_has_no_reset_alias() -> None:
     cmd_names = [cmd.name for cmd in rag_app.registered_commands if cmd.name]
     assert "clear" in cmd_names
     assert "reset" not in cmd_names, "rag reset alias should be removed"
-
-
-def test_shell_execution_has_no_run_shell_alias() -> None:
-    """Shell.get_tools() should provide canonical run_command, not run_shell alias."""
-    shell = Shell()
-    tool_names = [t.name for t in shell.get_tools() if hasattr(t, "name")]
-    assert "run_command" in tool_names
-    assert "run_shell" not in tool_names, "Duplicate run_shell alias should be removed"
-
-
-def test_compaction_cache_monitor_consolidated_parameters() -> None:
-    """WarnOnCacheBusts.record_request should use consolidated 'now' parameter without 'current_time'."""
-    monitor = WarnOnCacheBusts()
-    sig = inspect.signature(monitor.record_request)
-    assert "now" in sig.parameters
-    assert "current_time" not in sig.parameters
-    assert not hasattr(monitor, "record_usage"), "Legacy record_usage alias should be removed"
 
 
 def test_chunker_no_hardcoded_extension_sets(tmp_path: Path) -> None:

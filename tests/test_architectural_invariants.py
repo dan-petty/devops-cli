@@ -105,7 +105,6 @@ def test_domain_specific_exceptions_exist() -> None:
     """Ensure newly established domain exceptions are defined with correct error codes."""
     from devops_cli.exceptions.ai import (
         DocsIngestionError,
-        HarnessExecutionError,
         HarnessValidationError,
         LibraryIngestionError,
         LibraryNotFoundError,
@@ -133,7 +132,6 @@ def test_domain_specific_exceptions_exist() -> None:
     assert issubclass(ChaosExecutionError, KubernetesError)
     assert issubclass(ModelBundleError, DevOpsCLIError)
     assert issubclass(HarnessValidationError, DevOpsCLIError)
-    assert issubclass(HarnessExecutionError, DevOpsCLIError)
     assert issubclass(LibraryIngestionError, DevOpsCLIError)
     assert issubclass(LibraryNotFoundError, LibraryIngestionError)
     assert issubclass(DocsIngestionError, DevOpsCLIError)
@@ -163,10 +161,6 @@ def test_domain_specific_exceptions_exist() -> None:
     h_val = HarnessValidationError("invalid harness schema")
     assert h_val.error_code == "HARNESS_VALIDATION_ERROR"
     assert h_val.exit_code == 1
-
-    h_exec = HarnessExecutionError("harness run failed")
-    assert h_exec.error_code == "HARNESS_EXECUTION_ERROR"
-    assert h_exec.exit_code == 1
 
     from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.exceptions.telemetry import LogfireConfigurationError, TelemetryError
@@ -262,11 +256,6 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
         Path("src/devops_cli/ai/model_bundler.py"),
         Path("src/devops_cli/ai/durable.py"),
         Path("src/devops_cli/ai/harness/skills.py"),
-        Path("src/devops_cli/ai/harness/workflow.py"),
-        Path("src/devops_cli/ai/harness/planning.py"),
-        Path("src/devops_cli/ai/harness/shell.py"),
-        Path("src/devops_cli/ai/harness/memory.py"),
-        Path("src/devops_cli/ai/harness/compaction.py"),
         Path("src/devops_cli/ai/harness/slots.py"),
     ]
 

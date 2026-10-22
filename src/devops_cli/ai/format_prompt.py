@@ -22,8 +22,6 @@ from devops_cli.config.defaults import (
     DEFAULT_XML_ITEM_TAG,
     DEFAULT_XML_METADATA_ROOT_TAG,
     DEFAULT_XML_NONE_STR,
-    DEFAULT_XML_PLAN_REMINDER_ITEM_TAG,
-    DEFAULT_XML_PLAN_REMINDER_ROOT_TAG,
     DEFAULT_XML_RAG_ITEM_TAG,
     DEFAULT_XML_RAG_ROOT_TAG,
 )
@@ -34,7 +32,6 @@ __all__ = (
     "format_examples_as_xml",
     "format_findings_as_xml",
     "format_metadata_as_xml",
-    "format_plan_reminder_as_xml",
     "format_prompt_data",
     "format_rag_context_as_xml",
 )
@@ -126,22 +123,6 @@ def format_findings_as_xml(
         root_tag=root_tag,
         item_tag=item_tag,
         include_field_info=include_field_info,
-        indent=indent,
-    )
-
-
-def format_plan_reminder_as_xml(
-    items: Iterable[Any],
-    root_tag: str = DEFAULT_XML_PLAN_REMINDER_ROOT_TAG,
-    item_tag: str = DEFAULT_XML_PLAN_REMINDER_ITEM_TAG,
-    indent: str | None = DEFAULT_XML_INDENT,
-) -> str:
-    """Format plan task items into a structured XML reminder block."""
-    task_list = list(items)
-    return format_as_xml(
-        obj=task_list,
-        root_tag=root_tag,
-        item_tag=item_tag,
         indent=indent,
     )
 

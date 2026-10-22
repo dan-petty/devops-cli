@@ -124,7 +124,6 @@ CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.agents.testing",
     "devops_cli.ai.client.models",
     "devops_cli.ai.gateway_tune",
-    "devops_cli.ai.harness.memory",
     "devops_cli.ai.pool_load",
     "devops_cli.ai.rag.embeddings",
     "devops_cli.ai.rag.qdrant",
@@ -1831,7 +1830,6 @@ CONST_ERROR_CODE_ARGO_RESOURCE_NOT_FOUND = "ARGO_RESOURCE_NOT_FOUND"
 CONST_ERROR_CODE_MODEL_BUNDLE = "MODEL_BUNDLE_ERROR"
 CONST_ERROR_CODE_HARNESS = "HARNESS_ERROR"
 CONST_ERROR_CODE_HARNESS_VALIDATION = "HARNESS_VALIDATION_ERROR"
-CONST_ERROR_CODE_HARNESS_EXECUTION = "HARNESS_EXECUTION_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_QUIESCE = "CONSTELLATION_QUIESCE_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_FAILOVER = "CONSTELLATION_FAILOVER_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_RESUME = "CONSTELLATION_RESUME_ERROR"
@@ -4661,13 +4659,6 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     529,  # Site Is Overloaded (Anthropic / OpenAI)
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
-
-# ── SQLite Database Names ────────────────────────────────────────────────────
-# The names `sqlite3.connect` opens as a database private to that one connection (#958):
-# `:memory:` is held in memory and the empty name is a temporary file, and each is gone when the
-# connection closes. Without `uri=True` no other name does that, so the set is complete. A store
-# that opens a connection per call loses every write to either.
-CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})
 
 # ── Swallowed Failures Ratchet Invariant ───────────────────────────────────────
 # Ruff rule codes and process return object attributes inspected by the ratchet (#1347).

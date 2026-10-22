@@ -12,7 +12,6 @@ from devops_cli.ai.agents.capabilities import (
     DeferredToolRequests,
     DeferredToolResults,
     HandleDeferredToolCalls,
-    Thinking,
     ToolApproved,
     ToolCallPart,
     ToolDenied,
@@ -217,8 +216,8 @@ def test_find_deferred_tool_handler_calls_each_hook_with_the_run_context() -> No
         return _decisions(_find_deferred_tool_handler(capabilities, reqs, ctx))
 
     assert (
-        resolve([Thinking(), approve], "user"),
-        resolve([Thinking()], "user"),
+        resolve([BaseCapability(), approve], "user"),
+        resolve([BaseCapability()], "user"),
         resolve([_NativeHookCapability(), approve], "admin"),
         resolve([_NativeHookCapability(), approve], "user"),
         resolve([_MethodHookCapability(), approve], "guest"),

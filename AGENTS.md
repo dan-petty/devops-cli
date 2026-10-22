@@ -37,7 +37,7 @@ This document provides foundational context, architectural principles, and opera
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination endpoints.
   - **Defensive Subprocess Management & Process Group Isolation**:
     - When invoking external commands or background workers via `subprocess.Popen`, never terminate processes using simple `proc.kill()`, which leaves spawned subshells as zombies adopted by PID 1.
-    - Isolate execution into a dedicated POSIX process group (`start_new_session=True` on `subprocess.Popen`) and terminate the entire hierarchy by signalling the group by its id (`os.killpg(proc.pid, signal.SIGTERM)`). See `Shell._terminate_process_group` in `src/devops_cli/ai/harness/shell.py`.
+    - Isolate execution into a dedicated POSIX process group (`start_new_session=True` on `subprocess.Popen`) and terminate the entire hierarchy by signalling the group by its id (`os.killpg(proc.pid, signal.SIGTERM)`). See `_terminate_process_group` in `src/devops_cli/sandbox/host.py`.
     - **Protection Against Container Starvation & Killing**:
       - **Prohibition of `RLIMIT_NPROC`**: In Linux, `setrlimit(RLIMIT_NPROC, ...)` applies per-real-UID across the entire container, NOT per-process tree. Setting `RLIMIT_NPROC` inside child hooks or tests starves ambient container processes (VS Code Server, shells), causing `os.fork()` to fail with `EAGAIN`. Never enforce process caps via `RLIMIT_NPROC` or execute fork bombs in tests.
       - **Terminal File Descriptor Safety**: Never call `os.set_blocking(fd, False)` or set `O_NONBLOCK` on standard descriptors `{0, 1, 2}`. Setting non-blocking mode on STDOUT/PTY corrupts terminal I/O for VS Code Server.

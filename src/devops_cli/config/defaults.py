@@ -223,11 +223,6 @@ DEFAULT_TOOL_DIFF_MAX_CHARS: int = 4000
 DEFAULT_TOOL_MAX_FILES: int = 100
 DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
 DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = 65536
-# Bounds the per-stream ring buffer that drains a backgrounded command's pipes. The pipes
-# must be drained continuously or the child blocks once the kernel buffer fills, and an
-# unbounded sink would then trade that deadlock for unbounded memory growth on a chatty
-# long-running process, so the retained window is capped instead.
-DEFAULT_SHELL_BG_OUTPUT_LINES: int = 1000
 DEFAULT_AGENT_MAX_TURNS: int = 10
 DEFAULT_MCP_SERVER_PORT: int = 8000
 DEFAULT_MCP_TRANSPORT = "stdio"
@@ -563,8 +558,6 @@ DEFAULT_XML_RAG_ROOT_TAG: str = "rag_context"
 DEFAULT_XML_RAG_ITEM_TAG: str = "chunk"
 DEFAULT_XML_FINDINGS_ROOT_TAG: str = "findings"
 DEFAULT_XML_FINDING_ITEM_TAG: str = "finding"
-DEFAULT_XML_PLAN_REMINDER_ROOT_TAG: str = "plan_reminder"
-DEFAULT_XML_PLAN_REMINDER_ITEM_TAG: str = "task"
 DEFAULT_XML_METADATA_ROOT_TAG: str = "metadata"
 
 # ── AI Context Packing & AST Defaults ────────────────────────────────────────
@@ -620,17 +613,6 @@ DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
     "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
     "Never push before uv run devops ci passes locally, and never commit or push directly to main or any release/* branch.",
 )
-DEFAULT_THREAD_EXECUTOR_MAX_WORKERS: int = 16
-DEFAULT_THREAD_EXECUTOR_PREFIX: str = "agent-worker"
-DEFAULT_THREAD_EXECUTOR_ID: str = "use_thread_executor"
-DEFAULT_SELECT_MODEL_ID: str = "select_model"
-DEFAULT_RESOLVE_MODEL_ID: str = "resolve_model_id"
-DEFAULT_PREPARE_TOOLS_ID: str = "prepare_tools"
-DEFAULT_PREFIX_TOOLS_ID: str = "prefix_tools"
-DEFAULT_INCLUDE_RETURN_SCHEMAS_ID: str = "include_tool_return_schemas"
-DEFAULT_SET_TOOL_METADATA_ID: str = "set_tool_metadata"
-DEFAULT_RAISE_CONTENT_FILTER_ID: str = "raise_content_filter_error"
-DEFAULT_REINJECT_SYSTEM_PROMPT_ID: str = "reinject_system_prompt"
 DEFAULT_GUARDRAIL_BLOCK_MESSAGE: str = "Blocked by safety guardrail"
 DEFAULT_GUARDRAIL_RETRY_MESSAGE: str = "Validation failed. Please correct and retry."
 DEFAULT_INPUT_GUARDRAIL_NAME: str = "input_guardrail"
@@ -653,14 +635,9 @@ DEFAULT_PROMPT_INJECTION_PATTERNS: tuple[str, ...] = (
     "reveal your system prompt",
     "bypass safety filters",
 )
-DEFAULT_PROCESS_HISTORY_ID: str = "process_history"
-DEFAULT_AGENT_STREAM_EVENT_KIND: str = "token"
-DEFAULT_PROCESS_EVENT_STREAM_ID: str = "process_event_stream"
 DEFAULT_MEDIA_EXTERNALIZER_ID: str = "media"
 DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
-DEFAULT_THINKING_EFFORT: str = "medium"
-DEFAULT_REASONING_FORMAT: str = "parsed"
 DEFAULT_PROMPT_INJECTION_DEFENDER_ID: str = "prompt_injection_defender"
 DEFAULT_GUARDRAIL_CAPABILITY_ID: str = "guardrails"
 
@@ -737,14 +714,14 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 47
+DEFAULT_C901_SUPPRESSION_CEILING: int = 28
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
 DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 89,
+    "src type: ignore": 71,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
     "src noqa: F401": 22,
@@ -755,8 +732,8 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
     "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
-    "tests type: ignore": 228,
-    "tests noqa: F401": 4,
+    "tests type: ignore": 139,
+    "tests noqa: F401": 3,
     "tests noqa: N803": 1,
     "tests nosec": 17,
     "tests pragma: no cover": 0,
@@ -1028,10 +1005,6 @@ DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 # session file and dataset record.
 DEFAULT_CITED_EXCERPT_MAX_LINES: Final[int] = 40
 
-# How long a finished background command waits for its reader threads to bank the rest of
-# the pipe before its output is reported. `poll()` returns an exit status before the
-# readers have necessarily drained, so rendering immediately truncated the output.
-DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0
 # How long a stopped background command's process group has to exit after SIGTERM before its
 # remaining members get SIGKILL, and how often the group is probed meanwhile (#958).
 DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0

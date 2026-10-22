@@ -366,41 +366,44 @@ def test_pydantic_agent_hooks() -> None:
 
 
 def test_pydantic_agent_capabilities_and_on_demand() -> None:
-    """Verify BaseCapability, Capability, and on-demand deferred loading."""
-    from devops_cli.ai.agents.capabilities import Capability
+    """Verify BaseCapability subclasses load eagerly, or on demand when deferred."""
+    from devops_cli.ai.agents.capabilities import BaseCapability
 
-    # 1. Non-deferred capability
-    monitoring_cap = Capability(
-        id="monitoring",
-        description="Grafana and Prometheus monitoring queries",
-        instructions="Always include time range in queries.",
-        defer_loading=False,
-    )
-
-    @monitoring_cap.tool
     def query_metric(metric: str) -> str:
         return f"Metric {metric} value: 42"
 
-    # 2. Deferred on-demand capability
-    k8s_cap = Capability(
-        id="k8s_tools",
-        description="Kubernetes cluster operations and pod inspection",
-        instructions="Never delete production pods without confirmation.",
-        defer_loading=True,
-        model_settings={"enable_thinking": True},
-    )
-
-    @k8s_cap.tool
     def get_pods(namespace: str) -> str:
         return f"Pods in {namespace}: pod-1, pod-2"
 
+    class MonitoringCapability(BaseCapability):
+        id: str = "monitoring"
+        description: str = "Grafana and Prometheus monitoring queries"
+
+        def get_tools(self) -> list[Any]:
+            return [query_metric]
+
+        def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+            return ["Always include time range in queries."]
+
+    class KubernetesCapability(BaseCapability):
+        id: str = "k8s_tools"
+        description: str = "Kubernetes cluster operations and pod inspection"
+        defer_loading: bool = True
+
+        def get_tools(self) -> list[Any]:
+            return [get_pods]
+
+        def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+            return {"enable_thinking": True}
+
+    k8s_cap = KubernetesCapability()
     mock_client = MagicMock()
     mock_client.model = "test-model"
 
     agent = PydanticAgent(
         client=mock_client,
         name="CapabilityAgent",
-        capabilities=[monitoring_cap, k8s_cap],
+        capabilities=[MonitoringCapability(), k8s_cap],
     )
 
     # Initial state: monitoring tool is loaded, k8s_cap is deferred (load_capability tool available)
@@ -931,326 +934,6 @@ def test_deferred_tools_stop_the_world_and_resume() -> None:
     assert res2.content == "Backup job #42 finished successfully."
     assert len(res2.tool_calls) == 1
     assert "snapshot-123" in str(res2.tool_calls[0].result)
-
-
-def test_native_tools_web_search_and_code_execution() -> None:
-    """Verify NativeTool capability with WebSearchTool and CodeExecutionTool configurations."""
-    from devops_cli.ai.agents.capabilities import (
-        CodeExecutionTool,
-        NativeTool,
-        WebSearchTool,
-        WebSearchUserLocation,
-    )
-
-    loc = WebSearchUserLocation(city="San Francisco", country="US", timezone="America/Los_Angeles")
-    search_tool = WebSearchTool(
-        search_context_size="high",
-        user_location=loc,
-        blocked_domains=["example.com"],
-        max_uses=5,
-    )
-    native_search_cap = NativeTool(tool=search_tool)
-    settings = native_search_cap.get_model_settings()
-    assert settings["native_web_search"] is True
-    assert settings["web_search_config"]["search_context_size"] == "high"
-    assert settings["web_search_config"]["user_location"]["city"] == "San Francisco"
-    assert settings["web_search_config"]["blocked_domains"] == ["example.com"]
-
-    code_tool = CodeExecutionTool(language="python", timeout=30.0)
-    native_code_cap = NativeTool(tool=code_tool)
-    code_settings = native_code_cap.get_model_settings()
-    assert code_settings["native_code_execution"] is True
-    assert code_settings["code_execution_config"]["language"] == "python"
-
-    mock_client = MagicMock()
-    mock_client.model = "test-model"
-
-    agent = PydanticAgent(
-        client=mock_client,
-        name="SearchAgent",
-        capabilities=[native_search_cap],
-    )
-    prompt = agent._build_system_prompt_with_tools()
-    assert "Provider-native web search capability is enabled." in prompt
-
-
-def test_mcp_capability_and_native_server_tool() -> None:
-    """Verify MCP capability and MCPServerTool integration."""
-    from devops_cli.ai.agents.capabilities import (
-        MCP,
-        MCPServerTool,
-        NativeTool,
-    )
-    from devops_cli.ai.agents.tools import Tool
-
-    # 1. Native MCP server tool
-    mcp_tool = MCPServerTool(
-        id="cluster-mcp",
-        url="https://example.com/sse",
-        authorization_token="bearer-token-123",
-        description="Kubernetes cluster MCP server",
-    )
-    native_cap = NativeTool(tool=mcp_tool)
-    settings = native_cap.get_model_settings()
-    assert settings["native_mcp_server"] is True
-    assert settings["mcp_server_config"]["id"] == "cluster-mcp"
-    assert settings["mcp_server_config"]["authorization_token"] == "bearer-token-123"
-
-    # 2. Adaptive MCP capability with local tools
-    def sample_mcp_tool(x: int) -> int:
-        return x * 2
-
-    local_t = Tool.from_function(sample_mcp_tool, name="calc_double")
-    mcp_cap = MCP(
-        url="https://example.com/sse",
-        native=True,
-        local=[local_t],
-    )
-    mcp_tools = mcp_cap.get_tools()
-    assert len(mcp_tools) == 1
-    assert mcp_tools[0].name == "calc_double"
-
-    mcp_settings = mcp_cap.get_model_settings()
-    assert mcp_settings["native_mcp_server"] is True
-    assert mcp_settings["mcp_server_config"]["url"] == "https://example.com/sse"
-
-    # 3. Strict native mode (local=False)
-    strict_native = MCP("https://example.com/sse", native=True, local=False)
-    assert strict_native.get_tools() == []
-
-
-def test_web_search_capability_adaptive() -> None:
-    """Verify WebSearch adaptive capability with native and local fallbacks."""
-    from devops_cli.ai.agents.capabilities import (
-        WebSearch,
-        WebSearchTool,
-    )
-
-    # 1. Native-only
-    cap_native = WebSearch(native=WebSearchTool(search_context_size="high"))
-    assert cap_native.get_tools() == []
-    settings = cap_native.get_model_settings()
-    assert settings["native_web_search"] is True
-    assert settings["web_search_config"]["search_context_size"] == "high"
-
-    # 2. DuckDuckGo local fallback
-    cap_ddg = WebSearch(local="duckduckgo", native=False)
-    tools = cap_ddg.get_tools()
-    assert len(tools) == 1
-    assert tools[0].name == "duckduckgo_search"
-    assert cap_ddg.get_model_settings() == {}
-
-    # 3. Custom callable local fallback
-    def custom_search(q: str) -> str:
-        return f"result for {q}"
-
-    cap_custom = WebSearch(local=custom_search)
-    custom_tools = cap_custom.get_tools()
-    assert len(custom_tools) == 1
-    assert custom_tools[0].name == "custom_search"
-
-
-def test_web_fetch_capability_adaptive() -> None:
-    """Verify WebFetch adaptive capability with native and local fallbacks."""
-    from devops_cli.ai.agents.capabilities import (
-        WebFetch,
-        WebFetchTool,
-    )
-
-    # 1. Native-only
-    cap_native = WebFetch(
-        native=WebFetchTool(
-            allowed_domains=["example.com"],
-            max_uses=3,
-        )
-    )
-    assert cap_native.get_tools() == []
-    settings = cap_native.get_model_settings()
-    assert settings["native_web_fetch"] is True
-    assert settings["web_fetch_config"]["allowed_domains"] == ["example.com"]
-    assert settings["web_fetch_config"]["max_uses"] == 3
-
-    # 2. Local fallback
-    cap_local = WebFetch(allowed_domains=["docs.python.org"], local=True, native=False)
-    tools = cap_local.get_tools()
-    assert len(tools) == 1
-    assert tools[0].name == "web_fetch"
-    assert cap_local.get_model_settings() == {}
-
-    # 3. Custom callable local fallback
-    def custom_fetch(url: str) -> str:
-        return f"content for {url}"
-
-    cap_custom = WebFetch(local=custom_fetch)
-    custom_tools = cap_custom.get_tools()
-    assert len(custom_tools) == 1
-    assert custom_tools[0].name == "custom_fetch"
-
-
-def test_thinking_capability_and_parts() -> None:
-    from devops_cli.ai.agents.capabilities import (
-        Thinking,
-        ThinkingPart,
-    )
-
-    part = ThinkingPart(content="Step-by-step reasoning...", encrypted_content="enc_123")
-    assert part.content == "Step-by-step reasoning..."
-    assert part.encrypted_content == "enc_123"
-    assert part.part_kind == "thinking"
-
-    thinking_cap = Thinking(
-        effort="high",
-        budget_tokens=8192,
-        include_thoughts=True,
-        include_encrypted_content=True,
-    )
-
-    prompt_additions = thinking_cap.get_system_prompt_additions()
-    assert "Thinking capability is enabled (effort=high)." in prompt_additions[0]
-
-    settings = thinking_cap.get_model_settings()
-    assert settings["thinking"] == "high"
-    assert settings["budget_tokens"] == 8192
-    assert settings["include_thoughts"] is True
-    assert settings["include_encrypted_content"] is True
-    assert settings["xai_include_encrypted_content"] is True
-
-
-def test_native_tool_all_variants() -> None:
-    from pydantic import BaseModel
-
-    from devops_cli.ai.agents.capabilities import (
-        CodeExecutionTool,
-        MCPServerTool,
-        NativeTool,
-        WebFetchTool,
-        WebSearchTool,
-    )
-
-    # 1. WebSearchTool
-    nt_search = NativeTool(tool=WebSearchTool(max_uses=5, search_context_size="large"))
-    assert nt_search.get_model_settings()["native_web_search"] is True
-    assert "Provider-native web search" in nt_search.get_system_prompt_additions()[0]
-
-    # 2. WebFetchTool
-    nt_fetch = NativeTool(tool=WebFetchTool(max_uses=3, enable_citations=True))
-    assert nt_fetch.get_model_settings()["native_web_fetch"] is True
-    assert "Provider-native web fetch" in nt_fetch.get_system_prompt_additions()[0]
-
-    # 3. CodeExecutionTool
-    nt_code = NativeTool(tool=CodeExecutionTool())
-    assert nt_code.get_model_settings()["native_code_execution"] is True
-    assert "sandboxed code execution" in nt_code.get_system_prompt_additions()[0]
-
-    # 4. MCPServerTool
-    nt_mcp = NativeTool(tool=MCPServerTool(id="mcp-srv", url="http://localhost:8080"))
-    assert nt_mcp.get_model_settings()["native_mcp_server"] is True
-    assert "Provider-native MCP server" in nt_mcp.get_system_prompt_additions()[0]
-
-    # 5. Generic BaseModel
-    class GenericTool(BaseModel):
-        foo: str = "bar"
-
-    nt_gen = NativeTool(tool=GenericTool())
-    assert nt_gen.get_model_settings()["native_tool"]["foo"] == "bar"
-    assert nt_gen.get_system_prompt_additions() == []
-
-
-def test_mcp_capability_variants() -> None:
-    from devops_cli.ai.agents.capabilities import (
-        MCP,
-        MCPServerTool,
-    )
-    from devops_cli.ai.agents.tools import Tool
-
-    # 1. Native MCPServerTool
-    mcp_native = MCP(native=MCPServerTool(id="srv-1", url="http://example.com"))
-    settings = mcp_native.get_model_settings()
-    assert settings["native_mcp_server"] is True
-    assert settings["mcp_server_config"]["id"] == "srv-1"
-    native_additions = mcp_native.get_system_prompt_additions()
-    assert len(native_additions) > 0
-    assert native_additions[0].startswith("Model Context Protocol (MCP) capability active")
-
-    # 2. Native with URL
-    mcp_url = MCP(url="http://localhost:3000", native=True)
-    assert mcp_url.get_model_settings()["native_mcp_server"] is True
-    url_additions = mcp_url.get_system_prompt_additions()
-    assert len(url_additions) > 0
-    assert url_additions[0].startswith("Model Context Protocol (MCP) capability active")
-
-    # 3. Local tools list
-    def dummy_fn() -> str:
-        return "dummy"
-
-    t = Tool.from_function(dummy_fn)
-    mcp_local_list = MCP(local=[t])
-    assert len(mcp_local_list.get_tools()) == 1
-
-    # 4. Local object with get_tools
-    class CustomLocal:
-        def get_tools(self) -> list[Any]:
-            return [dummy_fn]
-
-    mcp_custom = MCP(local=CustomLocal())
-    assert len(mcp_custom.get_tools()) == 1
-
-    # 5. Local is False
-    mcp_no_local = MCP(local=False)
-    assert mcp_no_local.get_tools() == []
-
-
-def test_web_search_and_web_fetch_full_branches() -> None:
-    from devops_cli.ai.agents.capabilities import (
-        WebFetch,
-        WebFetchTool,
-        WebSearch,
-    )
-    from devops_cli.ai.agents.tools import Tool
-
-    # WebSearch native=True, local=False
-    ws_native = WebSearch(native=True, local=False)
-    assert ws_native.get_model_settings()["native_web_search"] is True
-    assert "Provider-native web search" in ws_native.get_system_prompt_additions()[0]
-    assert ws_native.get_tools() == []
-
-    # WebSearch local=Tool
-    def search_fn(q: str) -> str:
-        return f"result: {q}"
-
-    ws_tool = WebSearch(native=False, local=Tool.from_function(search_fn))
-    assert len(ws_tool.get_tools()) == 1
-    assert "Local web search" in ws_tool.get_system_prompt_additions()[0]
-
-    # WebSearch local=list
-    ws_list = WebSearch(native=False, local=[search_fn])
-    assert len(ws_list.get_tools()) == 1
-
-    # WebFetch native=WebFetchTool, local=False
-    wf_tool_obj = WebFetchTool(allowed_domains=["example.com"], max_uses=2)
-    wf_native = WebFetch(native=wf_tool_obj, local=False)
-    assert wf_native.get_model_settings()["native_web_fetch"] is True
-    assert "Provider-native web fetch" in wf_native.get_system_prompt_additions()[0]
-
-    # WebFetch native=True with domains
-    wf_domains = WebFetch(
-        native=True, allowed_domains=["example.com"], blocked_domains=["evil.com"], local=False
-    )
-    settings = wf_domains.get_model_settings()
-    assert settings["web_fetch_config"]["allowed_domains"] == ["example.com"]
-    assert settings["web_fetch_config"]["blocked_domains"] == ["evil.com"]
-
-    # WebFetch local=Tool
-    def fetch_fn(u: str) -> str:
-        return f"body: {u}"
-
-    wf_tool = WebFetch(native=False, local=Tool.from_function(fetch_fn))
-    assert len(wf_tool.get_tools()) == 1
-    assert "Local web fetch" in wf_tool.get_system_prompt_additions()[0]
-
-    # WebFetch local=list
-    wf_list = WebFetch(native=False, local=[fetch_fn])
-    assert len(wf_list.get_tools()) == 1
 
 
 def test_resolve_pydantic_ai_model() -> None:
