@@ -405,7 +405,6 @@ class AIRAGConfig(BaseModel):
 class AICacheConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = DEFAULT_LLM_CACHE_ENABLED
-    backend: str = "file"  # "file" | "valkey" | "memory"
     dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
     max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES

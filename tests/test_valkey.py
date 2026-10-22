@@ -1,4 +1,4 @@
-"""Tests of the Valkey client, the AI cache provider on top of it, and the `devops valkey` commands."""
+"""Tests of the Valkey client and the `devops valkey` commands."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ import valkey.client
 from fakeredis import FakeServer
 from typer.testing import CliRunner
 
-from devops_cli.ai.cache.valkey_cache import ValkeyCacheProvider
 from devops_cli.commands.valkey import app
 from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
 from devops_cli.exceptions.valkey import (
@@ -160,13 +159,12 @@ class TestValkeyClientDestination:
 class TestValkeyClientCommands:
     """The commands devops-cli sends, against an in-memory server."""
 
-    def test_a_value_is_set_read_and_deleted(self, valkey_client: ValkeyClient) -> None:
+    def test_a_value_is_set_and_read(self, valkey_client: ValkeyClient) -> None:
         assert (
+            valkey_client.get("session"),
             valkey_client.set("session", "token"),
             valkey_client.get("session"),
-            valkey_client.delete("session", "absent"),
-            valkey_client.get("session"),
-        ) == (True, "token", 1, None)
+        ) == (None, True, "token")
 
     def test_a_value_set_with_an_expiry_carries_that_lifetime(
         self, valkey_client: ValkeyClient
@@ -174,16 +172,15 @@ class TestValkeyClientCommands:
         valkey_client.set("session", "token", ex=60)
         assert 0 < valkey_client.execute("TTL", "session") <= 60
 
-    def test_keys_are_listed_scanned_counted_and_flushed(self, valkey_client: ValkeyClient) -> None:
+    def test_keys_are_listed_counted_and_flushed(self, valkey_client: ValkeyClient) -> None:
         for name in ("run:1", "run:2", "other"):
             valkey_client.set(name, "x")
         assert (
             sorted(valkey_client.keys("run:*")),
-            sorted(valkey_client.scan_iter(match="run:*")),
             valkey_client.dbsize(),
             valkey_client.flushdb(),
             valkey_client.dbsize(),
-        ) == (["run:1", "run:2"], ["run:1", "run:2"], 3, True, 0)
+        ) == (["run:1", "run:2"], 3, True, 0)
 
     def test_flushall_empties_every_database(self, valkey_client: ValkeyClient) -> None:
         valkey_client.set("a", "1")
@@ -335,7 +332,7 @@ class TestValkeyClientFailures:
             valkey_client.ping,
             lambda: valkey_client.execute("GET", "k"),
             lambda: valkey_client.pipeline([["GET", "k"]]),
-            lambda: list(valkey_client.scan_iter()),
+            lambda: valkey_client.keys("*"),
         ):
             with pytest.raises(ValkeyConnectionError, match="Failed to connect to Valkey"):
                 call()
@@ -360,124 +357,7 @@ class TestValkeyClientFailures:
 
 
 # =============================================================================
-# 2. Distributed AI Cache Provider Tests
-# =============================================================================
-
-
-class TestValkeyCacheProvider:
-    """Tests for ValkeyCacheProvider embedding and finding cache."""
-
-    def test_cache_provider_availability(self) -> None:
-        mock_client = MagicMock()
-        mock_client.ping.return_value = True
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.is_available() is True
-
-        mock_client.ping.side_effect = ValkeyConnectionError("Offline")
-        assert provider.is_available() is False
-
-    def test_embedding_caching_roundtrip(self) -> None:
-        """Embeddings round-trip through the tiered cache under a namespaced key."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = "[0.12, 0.34, 0.56]"
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.get_embedding("hello world", "bge-m3") == [0.12, 0.34, 0.56]
-
-        assert provider.set_embedding("hello world", "bge-m3", [0.12, 0.34, 0.56]) is True
-        write = mock_client.execute.call_args[0]
-        assert (write[0], write[1].startswith("devops-cli:ai:embedding:")) == ("SET", True)
-
-    def test_embedding_reads_are_served_from_l1_on_repeat(self) -> None:
-        """A repeated lookup within one command is answered without a second round trip.
-
-        This is the point of the in-process tier: bulk embedding work re-requests the same
-        vectors, and each repeat previously cost a full network round trip.
-        """
-        mock_client = MagicMock()
-        mock_client.execute.return_value = "[0.1, 0.2]"
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        first = provider.get_embedding("repeat me", "bge-m3")
-        reads_after_first = mock_client.execute.call_count
-        second = provider.get_embedding("repeat me", "bge-m3")
-
-        assert (first, second) == ([0.1, 0.2], [0.1, 0.2])
-        assert mock_client.execute.call_count == reads_after_first
-
-    def test_batch_embedding_lookup_uses_one_round_trip(self) -> None:
-        """Many embeddings are fetched with a single MGET rather than N GETs."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = ["[0.1]", None, "[0.3]"]
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        found = provider.get_embeddings(["a", "b", "c"], "bge-m3")
-
-        assert (found["a"], found["c"], "b" in found) == ([0.1], [0.3], False)
-        assert mock_client.execute.call_args[0][0] == "MGET"
-        assert mock_client.execute.call_count == 1
-
-    def test_review_findings_caching(self) -> None:
-        """Review findings round-trip under their own namespace."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = '[{"rule_id": "SEC-01", "severity": "HIGH"}]'
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        findings = provider.get_review_findings("src/main.py", "abc123hash", "devsecops")
-        assert findings == [{"rule_id": "SEC-01", "severity": "HIGH"}]
-
-        assert (
-            provider.set_review_findings("src/main.py", "abc123hash", "devsecops", findings) is True
-        )
-        assert mock_client.execute.call_args[0][1].startswith("devops-cli:ai:finding:")
-
-    def test_llm_response_caching(self) -> None:
-        """LLM responses round-trip under their own namespace."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = '{"response": "Cached answer"}'
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.get_llm_response("query_hash") == {"response": "Cached answer"}
-        assert provider.set_llm_response("query_hash", {"response": "Cached answer"}) is True
-        assert mock_client.execute.call_args[0][1] == "devops-cli:ai:llm:query_hash"
-
-    def test_cache_write_failure_is_reported_not_raised(self) -> None:
-        """A failed cache write is reported, never allowed to fail the caller.
-
-        Caching is an optimisation; losing an entry must not break the operation that
-        produced the value.
-        """
-        mock_client = MagicMock()
-        mock_client.execute.side_effect = TypeError("unserializable")
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.set_llm_response("k", {"a": 1}) is True
-
-    def test_flush_ai_cache(self) -> None:
-        mock_client = MagicMock()
-        mock_client.scan_iter.return_value = ["devops:ai:embedding:1", "devops:ai:finding:2"]
-        mock_client.delete.return_value = 2
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.flush_ai_cache() == 2
-
-    def test_get_stats(self) -> None:
-        mock_client = MagicMock()
-        mock_client.info.return_value = {
-            "used_memory_human": "2.4M",
-            "total_system_memory_human": "16G",
-        }
-        mock_client.scan_iter.return_value = ["key1", "key2"]
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        stats = provider.get_stats()
-        assert stats["available"] is True
-        assert stats["ai_keys_count"] == 2
-        assert stats["used_memory_human"] == "2.4M"
-
-
-# =============================================================================
-# 3. CLI Command Tests
+# 2. CLI Command Tests
 # =============================================================================
 
 

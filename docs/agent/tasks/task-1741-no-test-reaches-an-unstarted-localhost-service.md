@@ -33,4 +33,4 @@
 - Left to other items:
   - real connects to the Docker socket in 13 tests (#1316);
   - a seam for retry sleeps (#1320);
-  - `TieredCache` dialling `localhost:6379` whatever Valkey is configured (#1165).
+  - `TieredCache` dialling `localhost:6379` whatever Valkey is configured (#1165). Item #1113 deleted `TieredCache`, so that dial no longer exists.

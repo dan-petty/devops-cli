@@ -2398,19 +2398,10 @@ CONST_PROMQL_KEYWORDS: Final[frozenset[str]] = CONST_PROMQL_GROUPING_KEYWORDS | 
     {"and", "or", "unless", "atan2", "bool", "offset", "inf", "nan"}
 )
 
-# ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
+# ── Cache Key Namespacing ────────────────────────────────────────────────────
 # Root prefix for every cache key this project writes, so a shared Valkey instance can
 # be swept per-project and keys never collide with another tenant's.
 CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
-CONST_CACHE_KEY_SEPARATOR: Final[str] = ":"
-
-# Cache tiers. Closed set: L1 is the in-process LRU, L2 is Valkey, and L1_L2 writes both.
-CONST_CACHE_TIER_L1: Final[str] = "l1"
-CONST_CACHE_TIER_L2: Final[str] = "l2"
-CONST_CACHE_TIER_L1_L2: Final[str] = "l1_l2"
-CONST_CACHE_TIERS: Final[frozenset[str]] = frozenset(
-    {CONST_CACHE_TIER_L1, CONST_CACHE_TIER_L2, CONST_CACHE_TIER_L1_L2}
-)
 
 # ── Source & Test Tree Layout ────────────────────────────────────────────────
 # Repository layout conventions used to map changed sources onto covering tests.
