@@ -233,10 +233,6 @@ class GeneralMessages:
     no_ssh_key_found: str = "No managed SSH key found. Run 'devops ssh generate' first."
     public_key_not_found: str = "Public key not found: {pub_path}"
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
-    gh_auth_refresh_tip: str = (
-        "Tip: run 'gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key' "
-        "and retry."
-    )
     vscode_cli_unavailable: str = "Workspace updated, but VS Code CLI is not available to reload."
     invalid_url_scheme: str = "Invalid {purpose} URL: must use http:// or https:// with a hostname."
     refusing_non_public_url: str = (

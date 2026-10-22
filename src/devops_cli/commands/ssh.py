@@ -205,7 +205,6 @@ def register(
 
         masked_err = mask_secrets(str(exc))
         print_error(MESSAGES.messages.failed_to_register_key.format(error=masked_err), prefix=False)
-        print_warning(MESSAGES.messages.gh_auth_refresh_tip, prefix=False)
         raise typer.Exit(1) from exc
 
     _configure_git_signing(key_file)

@@ -1138,6 +1138,16 @@ CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
 CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
 # The scope gh project's commands need to create and edit boards; it includes read:project.
 CONST_GH_PROJECT_SCOPE: Final[str] = "project"
+# The OAuth scope GitHub's REST documentation requires to add a key at each SSH key endpoint, in
+# the order `devops ssh register` posts to them.
+CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES: Final[dict[str, str]] = {
+    "/user/keys": "admin:public_key",
+    "/user/ssh_signing_keys": "write:ssh_signing_key",
+}
+# The scopes registering a key needs, as `gh auth refresh -s` takes them.
+CONST_GITHUB_SSH_KEY_REFRESH_SCOPES: Final[str] = ",".join(
+    CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES.values()
+)
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"

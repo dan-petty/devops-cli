@@ -105,7 +105,7 @@
   "src/devops_cli/docker/sandbox.py": 2,
   "src/devops_cli/git/operations.py": 8,
   "src/devops_cli/git/worktree.py": 4,
-  "src/devops_cli/github/client.py": 3,
+  "src/devops_cli/github/client.py": 2,
   "src/devops_cli/github/issues.py": 2,
   "src/devops_cli/github/metrics.py": 8,
   "src/devops_cli/github/pages.py": 3,
