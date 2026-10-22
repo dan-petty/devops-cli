@@ -84,11 +84,6 @@ model_list:
       api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
       weight: 6
       num_retries: 0
-
-  - model_name: embeddinggemma:300m
-    litellm_params:
-      model: ollama/embeddinggemma:300m
-      api_base: http://ollama-16gib.llm.svc.cluster.local:11434
 ```
 
 ---
