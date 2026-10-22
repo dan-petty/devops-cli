@@ -24,7 +24,7 @@ data:
         chat:
           model: devops-background
         embedding:
-          model: bge-m3:latest
+          model: qwen3-embedding:0.6b
     telemetry:
       enabled: true
       endpoint: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318
