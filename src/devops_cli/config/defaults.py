@@ -668,7 +668,7 @@ DEFAULT_PROJECT_NAME: str = "devops-cli"
 DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
 DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
-# The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
+# The C901 markers src/ may carry, and tests/ none: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
 DEFAULT_C901_SUPPRESSION_CEILING: int = 25
 # The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).

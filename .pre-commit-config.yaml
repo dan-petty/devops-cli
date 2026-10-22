@@ -39,8 +39,10 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:
+      # `--config pyproject.toml` makes this file the only Ruff configuration, so a nested
+      # ruff.toml cannot outrank the complexity cap of 10 (C901).
       - id: ruff-check
-        args: [--fix]
+        args: [--config, pyproject.toml, --fix]
         stages: [pre-commit]
       - id: ruff-format
         stages: [pre-commit]

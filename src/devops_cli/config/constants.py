@@ -4128,65 +4128,26 @@ CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
 # The Ruff rules that govern suppression integrity: PGH003 bans blanket type ignores
 # without a specific error code, and RUF100 removes unused noqa directives.
 CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
+# The only flags a `ruff check` of the gate may pass: `--config` pins `pyproject.toml`, so a
+# nested Ruff configuration cannot outrank it, and `--fix` applies fixes. Any other flag can
+# select, ignore, extend or isolate the configuration, so the list admits nothing else.
+CONST_RUFF_CHECK_GATE_FLAGS: Final[frozenset[str]] = frozenset({"--config", "--fix"})
 # The Ruff rules that hold the complexity cap of 10 (#586): C901 is the cap (standard McCabe),
 # RUF100 reports a C901 marker left on a function back under the cap, and PGH004 bans the
 # blanket noqa that would silence C901 without naming it.
 CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset({"C901", "PGH004", "RUF100"})
-# The keys `[tool.ruff]`, `[tool.ruff.lint]` and `[tool.ruff.lint.mccabe]` may hold (#586). Any
-# other key can take a file out of the cap: Ruff 0.16 still honours the deprecated top-level
-# `per-file-ignores` and `extend-ignore`, `include` and `extend` change which files or which
-# settings apply, and `lint.exclude` drops files from linting. A key Ruff adds later stays out
-# until a reviewed change admits it.
-CONST_RUFF_TOP_LEVEL_KEYS: Final[frozenset[str]] = frozenset(
-    {"target-version", "line-length", "exclude", "lint"}
-)
+# The two tables that waive rules for the files they match; the suppression counters count each.
 CONST_RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
     "per-file-ignores",
     "extend-per-file-ignores",
 )
-CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
-    {
-        "select",
-        "extend-select",
-        "ignore",
-        "extend-ignore",
-        "allowed-confusables",
-        "mccabe",
-        "flake8-tidy-imports",
-        *CONST_RUFF_PER_FILE_IGNORE_KEYS,
-    }
-)
-CONST_RUFF_MCCABE_KEYS: Final[frozenset[str]] = frozenset({"max-complexity"})
-# `[tool.ruff] exclude` replaces Ruff's default exclusions, so any other value can drop a source.
-CONST_RUFF_EXCLUDE: Final[tuple[str, ...]] = ("repos",)
-# Where the cap holds, the suffixes Ruff lints there by default, and the config file names Ruff
-# reads in any directory; one under a covered root outranks pyproject.toml for the files below it.
+# The roots the suppression counters read, and the suffixes Ruff lints there by default.
 CONST_COMPLEXITY_CAP_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
 CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
-CONST_RUFF_CONFIG_FILE_NAMES: Final[frozenset[str]] = frozenset(
-    {"pyproject.toml", "ruff.toml", ".ruff.toml"}
-)
 # The ignore files Ruff's file walk honours by default (`respect-gitignore`). One under a covered
 # root, or a `.ignore` beside pyproject.toml, drops the files it lists from every rule.
 CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
     {CONST_GITIGNORE_FILENAME, ".ignore"}
-)
-# The suppression comments below are matched on the raw text, not on comment tokens, so a string
-# literal that looks like one overcounts, which fails safe. Ruff reads any whitespace but a
-# newline as a separator inside them, form feed and no-break space included, hence `[^\S\n]`.
-# A file-level exemption, Ruff's or the flake8 spelling Ruff honours, with or without codes.
-CONST_RUFF_FILE_EXEMPTION: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b", re.IGNORECASE
-)
-# One line-level noqa comment naming C901 among any codes: the marker the ceiling counts.
-CONST_C901_SUPPRESSION: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*noqa[^\S\n]*:(?:[A-Z0-9,]|[^\S\n])*?\bC901\b", re.IGNORECASE
-)
-# Ruff's own bracketed suppression comment naming C901, whatever its verb: a line `ignore`, a
-# `disable` that holds until its `enable` or the end of the file, or a `file-ignore`. One such
-# comment can hide any number of functions without a marker to count, so each is an escape.
-CONST_RUFF_C901_SUPPRESSION_COMMENT: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*ruff[^\S\n]*:[^\S\n]*[\w-]+[^\S\n]*\[[^\]\n]*\bC901\b", re.IGNORECASE
 )
 # Suppression comment and configuration kinds tracked against ceilings (#849).
 CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"

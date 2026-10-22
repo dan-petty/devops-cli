@@ -40,7 +40,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 def test_ci_lint_dry_run(recorder: list[list[str]]) -> None:
     """devops ci lint --dry-run prints a one-request plan and starts zero processes."""
     res = runner.invoke(app, ["lint", "--dry-run"])
-    expected_cmd = "uv --preview-features malware-check,check-command run ruff check --fix ."
+    expected_cmd = "uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
     assert (res.exit_code, len(recorder), is_dry_run()) == (0, 0, True)
     assert f"1. {expected_cmd}" in res.stdout
 
@@ -94,7 +94,8 @@ def test_ci_all_checks_dry_run(recorder: list[list[str]]) -> None:
     # 3 fix steps (format, lint, docs) + 12 check spec rows
     assert (
         "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
-        "2. uv --preview-features malware-check,check-command run ruff check --fix ." in res.stdout,
+        "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+        in res.stdout,
         "3. uv --preview-features malware-check,check-command run devops docs generate --sync-readme"
         in res.stdout,
     ) == (True, True, True)
@@ -111,7 +112,8 @@ def test_ci_run_command_dry_run(recorder: list[list[str]]) -> None:
     assert (res.exit_code, len(recorder), is_dry_run()) == (0, 0, True)
     assert (
         "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
-        "2. uv --preview-features malware-check,check-command run ruff check --fix ." in res.stdout,
+        "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+        in res.stdout,
         "3. uv --preview-features malware-check,check-command run devops docs generate --sync-readme"
         in res.stdout,
     ) == (True, True, True)
@@ -152,6 +154,8 @@ def test_ci_live_control(recorder: list[list[str]], tmp_path: Path) -> None:
         "run",
         "ruff",
         "check",
+        "--config",
+        "pyproject.toml",
         "--fix",
         ".",
     ]
