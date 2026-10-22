@@ -143,6 +143,14 @@ class ReviewMessages:
         "The answer from {url} is not a Semgrep ruleset: it needs a `rules` list of at least one "
         "rule, each with an id."
     )
+    registry_not_cached: str = (
+        "The registry rules {ruleset} are not cached, or the cached file is not a Semgrep "
+        "ruleset. Run `devops review rules fetch --ruleset {ruleset}`."
+    )
+    registry_cache_old: str = (
+        "The cached registry rules {ruleset} are {hours} hours old, and the scan uses them. "
+        "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
+    )
 
 
 @dataclass(frozen=True)

@@ -994,8 +994,8 @@ devops ai review rules test [OPTIONS]
 
 Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
 
-This is the one step that reaches the registry, and a review never runs it. A later part of
-#1144 makes the review read the cached ruleset offline.
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
 
 ```bash
 devops ai review rules fetch [OPTIONS]

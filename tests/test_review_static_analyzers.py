@@ -7,7 +7,9 @@ Gitleaks fell back to its built-in patterns. A reader took that for a clean scan
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -26,6 +28,9 @@ from devops_cli.commands import review as review_commands
 from devops_cli.review.session import ReviewSession
 from devops_cli.security import is_kubernetes_manifest
 from devops_cli.security.base import ScanOutcome
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.registry_cache import CACHED_RULESET_DIGEST, CACHED_RULESET_WORKDIR_NAME
 
 _ONLY_BANDIT = {
     "Bandit": "ran",
@@ -351,3 +356,69 @@ def test_scan_kubernetes_manifests_skips_non_k8s_and_deleted_files(
         "ran",
         "ran",
     )
+
+
+def _static_scan(tmp_path: Path) -> tuple[ReviewPipelineOrchestrator, ReviewProfile]:
+    """Run a review's static scanners over one Python file, under a profiler."""
+    (tmp_path / "app.py").write_text('print("hello")\n', encoding="utf-8")
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1144", target_dir=tmp_path)
+    with profiling() as profiler:
+        orchestrator._run_static_scanners(["app.py"])
+    return orchestrator, profiler.build(session_id="s1144", target=str(tmp_path))
+
+
+def test_a_review_scans_with_the_cached_registry_ruleset_and_records_its_digest(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    """The ruleset is an input of the review as the tools lock is: the profile keeps its digest
+    (#1144)."""
+    orchestrator, profile = _static_scan(tmp_path)
+
+    (semgrep_run,) = (run for run in scanner_fake.runs if run.argv[0] == "semgrep")
+    assert (
+        orchestrator.static_analyzers["Semgrep"],
+        profile.semgrep_registry_digest,
+        semgrep_run.argv[semgrep_run.argv.index("--config") + 1],
+    ) == ("ran", CACHED_RULESET_DIGEST, f"./{CACHED_RULESET_WORKDIR_NAME}")
+
+
+def test_a_review_without_the_cached_ruleset_reports_a_coverage_gap_in_the_report_and_profile(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    reason = (
+        "The registry rules p/default are not cached, or the cached file is not a Semgrep "
+        "ruleset. Run `devops review rules fetch --ruleset p/default`."
+    )
+
+    orchestrator, profile = _static_scan(tmp_path)
+    report = orchestrator._build_consolidated_markdown_report("s1144", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        [row for row in section.splitlines() if row.startswith("| Semgrep ")],
+        profile.static_analyzers["Semgrep"],
+        profile.static_analyzer_reasons["Semgrep"],
+        profile.semgrep_registry_digest,
+    ) == ([f"| Semgrep | coverage_gap: {reason} |"], "coverage_gap", reason, "")
+
+
+def test_a_review_warns_when_the_cached_registry_ruleset_is_older_than_a_day_and_uses_it(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    clock: ClockFake,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    aged = time.time() - 25 * 3600
+    os.utime(cached_default_ruleset, (aged, aged))
+
+    orchestrator, profile = _static_scan(tmp_path)
+
+    assert (orchestrator.static_analyzers["Semgrep"], profile.semgrep_registry_digest) == (
+        "ran",
+        CACHED_RULESET_DIGEST,
+    )
+    assert (
+        "! The cached registry rules p/default are 25 hours old, and the scan uses them. "
+        "Run `devops review rules fetch --ruleset p/default` to refresh them.\n"
+    ) in capsys.readouterr().out

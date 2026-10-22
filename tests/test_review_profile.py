@@ -511,3 +511,14 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
         saved.code_changed_during_run if saved else None,
         warnings,
     ) == (changed, changed, [MESSAGES.review.code_changed_during_run] if changed else [])
+
+
+def test_the_profile_records_the_digest_of_the_registry_ruleset_a_review_scanned_with() -> None:
+    """Semgrep's registry rules are an input of a review as the tools lock is, so the profile
+    keeps their digest, empty when the review read none (#1144)."""
+    with profiling() as profiler:
+        none_read = profiler.build(session_id="s", target="t").semgrep_registry_digest
+        profiler.set_semgrep_registry_digest("sha256:feedface")
+        profile = profiler.build(session_id="s", target="t")
+
+    assert (none_read, profile.semgrep_registry_digest) == ("", "sha256:feedface")

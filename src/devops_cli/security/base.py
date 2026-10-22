@@ -485,8 +485,11 @@ class BaseSecurityScanner(ABC):
                 return mock_proc(cmd, **kwargs)
         return run_subprocess(cmd, **kwargs)
 
-    def _resolve_cwd(self, target_path: Any) -> Path:
-        """Safely resolve working directory for subprocess execution."""
+    def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
+        """Safely resolve working directory for subprocess execution: the target's.
+
+        A scanner that must run elsewhere reads its scan's `kwargs` here, as Semgrep does (#1144).
+        """
         try:
             if isinstance(target_path, Path) and target_path.exists():
                 return target_path if target_path.is_dir() else target_path.parent
@@ -576,7 +579,7 @@ class BaseSecurityScanner(ABC):
             return preflight
         if not isolated:
             return self._run_built_command(
-                target_path, self._resolve_cwd(target_path), timeout, [], **kwargs
+                target_path, self._resolve_cwd(target_path, **kwargs), timeout, [], **kwargs
             )
         with tempfile.TemporaryDirectory(prefix=f"devops-scan-{self.name}-") as scan_dir:
             workdir = Path(scan_dir)

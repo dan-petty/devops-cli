@@ -2107,7 +2107,7 @@ Run static application security testing (SAST) via Semgrep.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or file to scan with Semgrep AST rules. |
-| `config` | `string` | No | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). devops-cli's own rule pack runs with it. |
+| `config` | `string` | No | `p/default` | Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of devops-cli runs with it. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |

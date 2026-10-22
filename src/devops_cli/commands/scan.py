@@ -45,6 +45,12 @@ from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
 from devops_cli.security.sbom import generate_cyclonedx_sbom, generate_spdx_sbom
 from devops_cli.security.semgrep import run_semgrep_scan
+from devops_cli.security.semgrep_registry import (
+    CachedRuleset,
+    cached_ruleset,
+    is_registry_id,
+    warn_of_old_cache,
+)
 from devops_cli.security.suppression import (
     SuppressionPolicy,
     SuppressionPolicyError,
@@ -361,6 +367,22 @@ def scan_workflows(
 # =============================================================================
 
 
+def _registry_ruleset_for(config: str) -> CachedRuleset | None:
+    """The cached ruleset of a registry-id `config`, which the scan reads offline (#1144).
+
+    An old cache is used with a warning on stderr. A registry id that has no cached ruleset
+    exits 1 with the fetch command: nothing here reaches the registry. A dry run reads no cache.
+    """
+    if is_dry_run() or not is_registry_id(config):
+        return None
+    cached = cached_ruleset(config)
+    if cached is None:
+        print_error(MESSAGES.review.registry_not_cached.format(ruleset=config))
+        raise typer.Exit(1)
+    warn_of_old_cache(config, cached)
+    return cached
+
+
 @app.command("sast")
 def scan_sast(
     target: Annotated[
@@ -387,11 +409,12 @@ def scan_sast(
     """Run static application security testing (SAST) via Semgrep."""
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
+    ruleset = _registry_ruleset_for(config)
 
     if not is_dry_run():
         print_muted(MESSAGES.scan.semgrep_executing.format(target=target_abs, config=config))
 
-    findings = run_semgrep_scan(target=target_abs, config=config)
+    findings = run_semgrep_scan(target=target_abs, config=config, ruleset=ruleset)
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

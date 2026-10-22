@@ -31,10 +31,14 @@ tags:
 
 ### DevOps CLI Semgrep Invocations
 ```bash
+# Cache the registry ruleset once; scans and reviews read it offline
+devops review rules fetch
+
 # Run Semgrep AST scan on current workspace with default rules
 devops scan sast
 
-# Scan with custom security ruleset and JSON output
+# Cache and scan with another ruleset, with JSON output
+devops review rules fetch --ruleset p/security-audit
 devops scan sast src/ --config p/security-audit --json
 
 # Run dry-run simulated AST scan

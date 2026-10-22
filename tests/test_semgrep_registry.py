@@ -7,7 +7,10 @@ recorded; the stub answers what a route says, so a test that wants a 304 sets th
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,7 +22,15 @@ import yaml
 from devops_cli.config.defaults import DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS
 from devops_cli.exceptions import ToolDownloadError
 from devops_cli.exceptions.validation import ValidationError
-from devops_cli.security.semgrep_registry import fetch_registry_ruleset, registry_cache_paths
+from devops_cli.security.semgrep_registry import (
+    CachedRuleset,
+    cached_ruleset,
+    fetch_registry_ruleset,
+    is_registry_id,
+    registry_cache_paths,
+    registry_cache_warning,
+)
+from tests.support.fakes.clock import ClockFake
 from tests.web_fakes import StubWeb
 
 DEFAULT_RULESET_URL = "https://semgrep.dev/c/p/default"
@@ -285,14 +296,16 @@ def test_an_unchanged_ruleset_answers_not_modified_and_nothing_is_rewritten(
     serve(stub_web, FIRST_RULESET)
     fetch_registry_ruleset("p/default")
     paths = registry_cache_paths("p/default")
-    written = [(path.stat().st_ino, path.stat().st_mtime_ns) for path in paths]
+    written = [path.stat().st_ino for path in paths]
+    etag_written = paths.etag.stat().st_mtime_ns
     stub_web.routes[DEFAULT_RULESET_URL] = (304, {"etag": FIRST_ETAG}, b"")
 
     cached = fetch_registry_ruleset("p/default")
 
     assert cached is None
     assert validators_sent(stub_web) == [None, FIRST_ETAG]
-    assert [(path.stat().st_ino, path.stat().st_mtime_ns) for path in paths] == written
+    assert [path.stat().st_ino for path in paths] == written
+    assert paths.etag.stat().st_mtime_ns == etag_written
     assert (paths.rules.read_bytes(), paths.etag.read_text(encoding="utf-8")) == (
         FIRST_RULESET,
         FIRST_ETAG,
@@ -415,3 +428,136 @@ def test_the_fetch_command_refuses_a_ruleset_outside_the_registry_grammar(
         "with no path, query or fragment in it, such as p/default.\n"
     )
     assert stub_web.requested == []
+
+
+# =============================================================================
+# The cache as a scan reads it: digest, age, and what counts as a ruleset (#1144)
+# =============================================================================
+
+HOUR_SECONDS = 3600
+
+
+def age_the_cache(ruleset: str, hours: int) -> Path:
+    """Set the modification time of the cached `ruleset` to `hours` before the frozen now."""
+    rules = registry_cache_paths(ruleset).rules
+    modified = time.time() - hours * HOUR_SECONDS
+    os.utime(rules, (modified, modified))
+    return rules
+
+
+def test_a_cached_ruleset_is_read_with_the_digest_of_its_bytes_and_the_age_of_its_file(
+    stub_web: StubWeb, clock: ClockFake
+) -> None:
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    rules = age_the_cache("p/default", hours=25)
+
+    cached = cached_ruleset("p/default")
+
+    assert cached is not None
+    assert (cached.path, cached.digest, round(cached.age_seconds)) == (
+        rules,
+        f"sha256:{hashlib.sha256(FIRST_RULESET).hexdigest()}",
+        25 * HOUR_SECONDS,
+    )
+
+
+def test_no_ruleset_is_cached_before_a_fetch(isolate_user_data_root: Path) -> None:
+    assert cached_ruleset("p/default") is None
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(b"", id="emptied"),
+        pytest.param(b"rules: [", id="cut-short"),
+        pytest.param(b"<html><body>Sign in</body></html>", id="replaced-by-a-page"),
+        pytest.param(b"rules: []\n", id="every-rule-deleted"),
+        pytest.param(b"rules:\n- pattern: no_id(...)\n", id="rule-without-id"),
+        pytest.param(b"\xff\xfe", id="not-text"),
+    ],
+)
+def test_a_cached_file_edited_until_it_is_no_ruleset_is_not_used(
+    edit: bytes, stub_web: StubWeb
+) -> None:
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    registry_cache_paths("p/default").rules.write_bytes(edit)
+
+    assert cached_ruleset("p/default") is None
+
+
+def test_an_edit_that_leaves_a_ruleset_is_used_and_shows_in_the_digest(stub_web: StubWeb) -> None:
+    """The cache keeps no digest of its own, so an edit that leaves a ruleset cannot be told from
+    a fetch; the digest a review records shows that the rules changed."""
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    registry_cache_paths("p/default").rules.write_bytes(SECOND_RULESET)
+
+    cached = cached_ruleset("p/default")
+
+    assert cached is not None
+    assert cached.digest == f"sha256:{hashlib.sha256(SECOND_RULESET).hexdigest()}"
+
+
+@pytest.mark.parametrize(
+    ("config", "is_id"),
+    [
+        ("p/default", True),
+        ("r/python.lang.security.audit.eval-detected.eval-detected", True),
+        ("s/some-snippet", True),
+        ("auto", False),
+        ("./local-rules", False),
+        ("rules/security.yaml", False),
+        ("p/..", False),
+        ("p/a/b", False),
+        ("https://example.com/rules.yaml", False),
+        ("", False),
+    ],
+)
+def test_a_config_is_a_registry_id_when_it_has_the_registry_grammar(
+    config: str, is_id: bool
+) -> None:
+    assert is_registry_id(config) is is_id
+
+
+def test_a_cache_older_than_a_day_gets_a_warning_that_names_its_age_and_the_fetch_command(
+    stub_web: StubWeb, clock: ClockFake
+) -> None:
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    age_the_cache("p/default", hours=25)
+    cached = cached_ruleset("p/default")
+    assert cached is not None
+
+    assert registry_cache_warning("p/default", cached) == (
+        "The cached registry rules p/default are 25 hours old, and the scan uses them. "
+        "Run `devops review rules fetch --ruleset p/default` to refresh them."
+    )
+
+
+def test_a_cache_of_less_than_a_day_gets_no_warning(stub_web: StubWeb, clock: ClockFake) -> None:
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    age_the_cache("p/default", hours=23)
+    cached = cached_ruleset("p/default")
+    assert cached is not None
+
+    assert registry_cache_warning("p/default", cached) == ""
+
+
+def test_a_fetch_that_finds_the_ruleset_current_makes_the_cache_new_again(
+    stub_web: StubWeb, clock: ClockFake
+) -> None:
+    """A 304 rewrites nothing, but the registry has just confirmed the ruleset, so the file's
+    modification time, which is the cache's age, moves to now."""
+    serve(stub_web, FIRST_RULESET)
+    fetch_registry_ruleset("p/default")
+    age_the_cache("p/default", hours=25)
+    stub_web.routes[DEFAULT_RULESET_URL] = (304, {"etag": FIRST_ETAG}, b"")
+
+    assert fetch_registry_ruleset("p/default") is None
+
+    cached = cached_ruleset("p/default")
+    assert isinstance(cached, CachedRuleset)
+    assert registry_cache_warning("p/default", cached) == ""

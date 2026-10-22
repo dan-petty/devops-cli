@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from itertools import batched
 from pathlib import Path
@@ -31,6 +32,12 @@ from devops_cli.security.base import (
     relativize_scan_path,
 )
 from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.semgrep_registry import (
+    CachedRuleset,
+    cached_ruleset,
+    is_registry_id,
+    warn_of_old_cache,
+)
 
 _SEMGREP_SEVERITY_MAP: dict[str, str] = {
     "ERROR": "HIGH",
@@ -125,33 +132,55 @@ def _scannable_files(targets: list[Path]) -> list[Path]:
     ]
 
 
-def semgrep_scan_command(
-    targets: Sequence[Path | str], config: str, exclude_paths: Sequence[str] = ()
+def rules_configs(
+    config: str, ruleset: CachedRuleset | None, *, in_workdir: bool = False
 ) -> list[str]:
-    """The Semgrep scan of `targets` with `config` and devops-cli's rule pack, which runs with
-    whatever config a scan names (#1144)."""
+    """The `--config` values a scan of `config` takes besides the rule pack (#1144).
+
+    A config that is no registry id is its own value. A registry id is read offline from its
+    cached file `ruleset`, named as `./<file>` in the scan's working directory: the cache
+    directory, or, `in_workdir`, a review's working directory that holds the ruleset's bytes.
+    Semgrep returns plain rule ids for a config in its working directory and ids led by the
+    dotted path of the directory for any other. A registry id with no cached file leaves the
+    rule pack alone.
+    """
+    if not is_registry_id(config):
+        return [config]
+    if ruleset is None:
+        return []
+    return [os.path.join(os.curdir, ruleset.workdir_name if in_workdir else ruleset.path.name)]
+
+
+def semgrep_scan_command(
+    targets: Sequence[Path | str], configs: Sequence[str], exclude_paths: Sequence[str] = ()
+) -> list[str]:
+    """The Semgrep scan of `targets` with `configs` and devops-cli's rule pack, which runs with
+    whatever configs a scan names (#1144)."""
     from devops_cli.review.rules_pack import RULE_PACK_DIR
 
-    return build_semgrep_cmd(targets, [config, str(RULE_PACK_DIR)], exclude_paths)
+    return build_semgrep_cmd(targets, [*configs, str(RULE_PACK_DIR)], exclude_paths)
 
 
-def _files_command(names: list[str], config: str) -> list[str] | None:
+def _files_command(names: list[str], configs: list[str]) -> list[str] | None:
     """The command that scans the named files; None when none is named."""
-    return semgrep_scan_command(names, config) if names else None
+    return semgrep_scan_command(names, configs) if names else None
 
 
 def _build_scan_command(
-    target: Path | list[Path] | MaterializedTargets, config: str
+    target: Path | list[Path] | MaterializedTargets,
+    config: str,
+    ruleset: CachedRuleset | None = None,
 ) -> list[str] | None:
     """Construct subprocess command for materialized targets, a file list or a directory."""
     if isinstance(target, MaterializedTargets):
-        return _files_command(target.names, config)
+        return _files_command(target.names, rules_configs(config, ruleset, in_workdir=True))
+    configs = rules_configs(config, ruleset)
     if isinstance(target, list):
-        return _files_command([str(p.resolve()) for p in _scannable_files(target)], config)
+        return _files_command([str(p.resolve()) for p in _scannable_files(target)], configs)
 
     if not target.exists():
         return None
-    return semgrep_scan_command([target.resolve()], config, CONST_SEMGREP_EXCLUDED_DIRECTORIES)
+    return semgrep_scan_command([target.resolve()], configs, CONST_SEMGREP_EXCLUDED_DIRECTORIES)
 
 
 def _build_dry_run_finding(target_str: str) -> Finding:
@@ -166,6 +195,19 @@ def _build_dry_run_finding(target_str: str) -> Finding:
     )
 
 
+def _registry_rules_missing(outcome: ScanOutcome, config: str) -> ScanOutcome:
+    """The outcome of a scan that ran on the rule pack alone for want of the cached registry
+    ruleset `config`: a coverage gap that names the fetch command. A scan that did not run, as in
+    a dry run, keeps its outcome."""
+    if outcome.status != "ran":
+        return outcome
+    gap = ScanOutcome(
+        "coverage_gap", outcome.findings, MESSAGES.review.registry_not_cached.format(ruleset=config)
+    )
+    gap.started_utc, gap.ended_utc = outcome.started_utc, outcome.ended_utc
+    return gap
+
+
 class SemgrepScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Semgrep static AST pattern matcher."""
 
@@ -174,14 +216,51 @@ class SemgrepScanner(BaseSecurityScanner):
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
 
+    def scan(
+        self,
+        target_path: Any,
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+        *,
+        isolated: bool = False,
+        **kwargs: Any,
+    ) -> ScanOutcome:
+        """Scan with `config`, a registry id such as `p/default` read offline from the cached
+        ruleset (#1144): `ruleset` when the caller passes the one it read, else the one this reads,
+        with a warning on stderr when it is older than a day.
+
+        With no cached ruleset the scan runs on devops-cli's rule pack alone, and its outcome is a
+        coverage gap that names `devops review rules fetch`.
+        """
+        config = kwargs.get("config", DEFAULT_SEMGREP_CONFIG)
+        ruleset = kwargs.pop("ruleset", None)
+        if not is_registry_id(config):
+            return super().scan(target_path, timeout, isolated=isolated, **kwargs)
+        if ruleset is None:
+            ruleset = cached_ruleset(config)
+            if ruleset is not None:
+                warn_of_old_cache(config, ruleset)
+        outcome = super().scan(target_path, timeout, isolated=isolated, ruleset=ruleset, **kwargs)
+        return outcome if ruleset else _registry_rules_missing(outcome, config)
+
+    def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
+        """The directory that holds the cached ruleset a scan reads, else the target's.
+
+        Semgrep returns plain rule ids for a config in its working directory, so a scan outside a
+        review runs from the cache directory and names every target by its absolute path. It
+        still reads the target's own `.semgrepignore` and `.gitignore` (#1144).
+        """
+        ruleset = kwargs.get("ruleset")
+        return ruleset.path.parent if ruleset else super()._resolve_cwd(target_path)
+
     def build_command(
         self,
         target_path: Path | list[Path] | MaterializedTargets,
         config: str = DEFAULT_SEMGREP_CONFIG,
+        ruleset: CachedRuleset | None = None,
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Semgrep."""
-        cmd = _build_scan_command(target_path, config)
+        cmd = _build_scan_command(target_path, config, ruleset)
         return cmd or []
 
     def parse_output(
@@ -196,16 +275,28 @@ class SemgrepScanner(BaseSecurityScanner):
         return parse_semgrep_json(data, target_path=tgt_str)
 
     def isolated_targets(
-        self, target_path: Any, workdir: Path, *, tree: Path | None = None, **kwargs: Any
+        self,
+        target_path: Any,
+        workdir: Path,
+        *,
+        tree: Path | None = None,
+        ruleset: CachedRuleset | None = None,
+        **kwargs: Any,
     ) -> Any:
-        """A review's targets, linked or copied from `tree` under `workdir` (#1079).
+        """A review's targets, linked or copied from `tree` under `workdir` (#1079), and the
+        cached registry ruleset `ruleset`, written there to be read as a local config (#1144).
 
         Semgrep 1.178.0 takes a target that is a regular file under its working directory as
         it is; for any other it starts a `semgrep-core` process that walks the target's whole
-        checkout, so a review's 333 targets named from outside ran past the timeout.
+        checkout, so a review's 333 targets named from outside ran past the timeout. The ruleset
+        is written first, under a name made of its digest, so that no file of the tree can take
+        its place as the config. The file holds the bytes that were read and hashed, not the
+        cached file, which a fetch can replace while the review runs.
         """
         if tree is None or not isinstance(target_path, list):
             return target_path
+        if ruleset is not None:
+            (workdir / ruleset.workdir_name).write_bytes(ruleset.body)
         return materialize_targets(_scannable_files(target_path), tree, workdir)
 
     def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
@@ -253,14 +344,21 @@ def _batch_outcome(outcome: ScanOutcome, batch: int, batches: int, files: int) -
 
 
 def _scan_reviewed_files(
-    scanner: SemgrepScanner, files: list[Path], tree: Path, config: str, timeout: float
+    scanner: SemgrepScanner,
+    files: list[Path],
+    tree: Path,
+    config: str,
+    ruleset: CachedRuleset | None,
+    timeout: float,
 ) -> ScanOutcome:
     """Scan a review's files in batches, each isolated and under its own timeout (#1079)."""
     batches = [
         list(batch) for batch in batched(files, DEFAULT_SEMGREP_REVIEW_BATCH_FILES, strict=False)
     ] or [[]]
     outcomes = [
-        scanner.scan(batch, timeout=timeout, isolated=True, config=config, tree=tree)
+        scanner.scan(
+            batch, timeout=timeout, isolated=True, config=config, tree=tree, ruleset=ruleset
+        )
         for batch in batches
     ]
     return merge_outcomes(
@@ -277,8 +375,14 @@ def run_semgrep_scan(
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     *,
     reviewed_tree: Path | None = None,
+    ruleset: CachedRuleset | None = None,
 ) -> ScanOutcome:
     """Execute Semgrep AST pattern scanner and return scan outcome; `reviewed_tree` for a review.
+
+    A registry-id `config` such as `p/default` is read offline from its cached ruleset (#1144):
+    `ruleset` when the caller passes the one it read, else the one the scan reads. With none the
+    scan runs on devops-cli's rule pack alone, and its outcome is a coverage gap that names
+    `devops review rules fetch`.
 
     A review's scan is isolated (#972): Semgrep runs from a temporary directory, takes its rules
     from `--config` alone, and finds there only its targets, linked or copied from the reviewed
@@ -289,6 +393,6 @@ def run_semgrep_scan(
     """
     scanner = SemgrepScanner()
     if reviewed_tree is None:
-        return scanner.scan(target, timeout=timeout, config=config)
+        return scanner.scan(target, timeout=timeout, config=config, ruleset=ruleset)
     files = _scannable_files(target if isinstance(target, list) else [target])
-    return _scan_reviewed_files(scanner, files, reviewed_tree, config, timeout)
+    return _scan_reviewed_files(scanner, files, reviewed_tree, config, ruleset, timeout)

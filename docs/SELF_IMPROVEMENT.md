@@ -569,8 +569,11 @@ static analyzer took part (`static_analyzers`), why each that failed did, as rev
 Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
 seconds each analyzer's scans ran (`static_analyzer_seconds`). `tools_lock_digest` is the digest of
 the tools lock the review started with, so two runs used the same tool versions only when theirs
-match, and `code_changed_during_run` is true, with a warning printed, when devops-cli's own
-checkout got a commit or an edit while the review ran.
+match. `semgrep_registry_digest` is the digest of the cached registry ruleset that Semgrep read. It
+is empty when Semgrep ran on the rule pack of devops-cli alone. The Static Analyzers table then
+shows a coverage gap that names `devops review rules fetch`. `devops review score` lists the digests
+of the sessions it scores. `code_changed_during_run` is true, with a warning printed, when the
+checkout of devops-cli got a commit or an edit while the review ran.
 
 Each stage also counts its replies by the reason the provider gave for their end
 (`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by

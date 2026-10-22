@@ -95,6 +95,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MAX_COMPLEXITY,
     DEFAULT_REVIEW_CONCURRENCY,
     DEFAULT_REVIEW_MAX_CONCURRENCY,
+    DEFAULT_SEMGREP_CONFIG,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.repo import find_worktree_root
@@ -1209,12 +1210,18 @@ def _scan_semgrep(
     tree: Path,
 ) -> list[SavedFinding]:
     """Run Semgrep AST static analysis on the reviewed files of `tree`, linked or copied under
-    its working directory (#1079)."""
+    its working directory (#1079), with the cached registry ruleset (#1144)."""
     if not paths:
         return []
     from devops_cli.security.semgrep import run_semgrep_scan
+    from devops_cli.security.semgrep_registry import cached_ruleset, warn_of_old_cache
 
-    sg = run_semgrep_scan(paths, reviewed_tree=tree)
+    ruleset = cached_ruleset(DEFAULT_SEMGREP_CONFIG)
+    if ruleset is not None:
+        if profiler := active_profiler():
+            profiler.set_semgrep_registry_digest(ruleset.digest)
+        warn_of_old_cache(DEFAULT_SEMGREP_CONFIG, ruleset, to_stderr=False)
+    sg = run_semgrep_scan(paths, reviewed_tree=tree, ruleset=ruleset)
     _observe_outcome(outcomes, "Semgrep", sg)
     return _wrap_static_findings(sg, tool="semgrep")
 

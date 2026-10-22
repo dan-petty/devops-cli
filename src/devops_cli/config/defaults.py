@@ -242,6 +242,8 @@ DEFAULT_SEMGREP_REVIEW_BATCH_FILES: int = 100
 # The most bytes a registry ruleset download may hold; p/default is 2.5 MB.
 DEFAULT_SEMGREP_REGISTRY_MAX_BYTES: int = 32 * 1024 * 1024
 DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS: float = 60.0
+# A cached registry ruleset older than this is still used, with a warning that names its age.
+DEFAULT_SEMGREP_REGISTRY_TTL_SECONDS: int = 86_400
 
 
 # ── Telemetry HTTP Defaults ───────────────────────────────────────────────────

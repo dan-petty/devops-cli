@@ -31,6 +31,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
+from tests.support.registry_cache import CACHED_RULESET_WORKDIR_NAME
 
 # The gateway the repository under review names, and the one the user's own config names.
 _PLANTED_GATEWAY = "http://example.com:4000"
@@ -428,9 +429,12 @@ def _review_scanner_calls(
     calls: list[tuple[str, Path, dict[str, Path], dict[str, str]]] = []
 
     def scanner(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        # Semgrep's `--config p/default` names a registry rule set, not a file.
+        # Semgrep's configs name the rule pack, a directory, or a file written in its working
+        # directory by a relative path (#1144): none is a file handed from outside.
         named = {flag: Path(cmd[cmd.index(flag) + 1]) for flag in _FILE_FLAGS if flag in cmd}
-        handed = {flag: path for flag, path in named.items() if path.is_absolute()}
+        handed = {
+            flag: path for flag, path in named.items() if path.is_absolute() and path.is_file()
+        }
         texts = {flag: path.read_text(encoding="utf-8") for flag, path in handed.items()}
         calls.append((Path(cmd[0]).name, Path(cwd or ".").resolve(), handed, texts))
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
@@ -527,23 +531,44 @@ def _semgrep_runs(
     return seen
 
 
-def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
-    """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
-    the targets are there: the tree's `.semgrepignore`, `.semgrep.yml` and `.semgrep/` rule stay
-    out, and the rules still come from `--config` alone."""
-    (scanned_tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
-    (scanned_tree / ".semgrep").mkdir()
-    (scanned_tree / ".semgrep" / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+def _planted_semgrep_runs(tree: Path) -> list[Any]:
+    """Plant Semgrep rules in `tree`, as `.semgrep.yml` and a `.semgrep/` directory, and return
+    the files and the first `--config` of each Semgrep run of a review of `tree`."""
+    (tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+    (tree / ".semgrep").mkdir()
+    (tree / ".semgrep" / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
 
     def workdir_files_and_rules(cmd: list[str], workdir: Path) -> tuple[list[str], str]:
         files = sorted(path.relative_to(workdir).as_posix() for path in workdir.rglob("*"))
         return files, cmd[cmd.index("--config") + 1]
 
-    runs = _semgrep_runs(
-        scanned_tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules
-    )
+    return _semgrep_runs(tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules)
 
-    assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], "p/default")]
+
+@pytest.mark.usefixtures("cached_default_ruleset")
+def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
+    """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
+    the targets and the cached registry ruleset are there: the tree's `.semgrepignore`,
+    `.semgrep.yml` and `.semgrep/` rule stay out, and the rules still come from `--config`
+    alone (#1144)."""
+    runs = _planted_semgrep_runs(scanned_tree)
+
+    assert runs == [
+        (
+            sorted(["Dockerfile", "app.py", "deploy.yaml", CACHED_RULESET_WORKDIR_NAME]),
+            f"./{CACHED_RULESET_WORKDIR_NAME}",
+        )
+    ]
+
+
+def test_semgrep_without_the_cached_ruleset_takes_its_rules_from_the_rule_pack_alone(
+    scanned_tree: Path,
+) -> None:
+    from devops_cli.review.rules_pack import RULE_PACK_DIR
+
+    runs = _planted_semgrep_runs(scanned_tree)
+
+    assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], str(RULE_PACK_DIR))]
 
 
 def test_no_symlink_in_the_tree_takes_semgrep_outside_it(
