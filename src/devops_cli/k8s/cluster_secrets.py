@@ -178,6 +178,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             "under Admin Panel > Settings > Connections."
         ),
     ),
+    # Qdrant requires the key, and Open WebUI reads it as QDRANT_API_KEY when its pod starts.
     ClusterSecret(
         namespace="llm",
         name="qdrant-api-key",
@@ -189,7 +190,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 generator=SecretGenerator("urlsafe", 32),
             ),
         ),
-        restarts=(Workload("statefulset", "qdrant"),),
+        restarts=(Workload("statefulset", "qdrant"), Workload("statefulset", "open-webui")),
         labels={"app.kubernetes.io/name": "qdrant"},
     ),
     ClusterSecret(
