@@ -27,6 +27,8 @@ from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import board_budget_args, board_items_args
 from devops_cli.roadmap.github_store import (
     board_fields_args,
+    comments_endpoint,
+    issue_args,
     issues_endpoint,
     listing_path,
     milestones_endpoint,
@@ -144,6 +146,22 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
         (f"{API}{listing_path(issues_endpoint(REPO, 'milestone=none&state=open'))}",),
     ]
     assert [tuple(args) in planned for args in expected] == [True] * len(expected)
+
+
+@pytest.mark.parametrize(("item", "subject"), [(None, "<item>"), (7, "7")], ids=["round", "item"])
+def test_a_refine_plan_reads_each_items_comments_and_each_open_blocker(
+    item: int | None, subject: str
+) -> None:
+    """A refine plan lists the read of each item's comments, which finds a reply since refine's
+    last comment, and the read of each open item a blocked item waits on (#1758)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, _writes = refine_requests(REPO, None, item=item)
+    planned = [request.argv[1:] for request in reads]
+    assert (
+        (f"{API}{listing_path(comments_endpoint(REPO, subject))}",) in planned,
+        tuple(issue_args(REPO, "<blocking item>")) in planned,
+    ) == (True, True)
 
 
 def _shape(request: PlannedRequest) -> str:

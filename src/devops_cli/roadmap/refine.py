@@ -5,11 +5,22 @@ each open milestone's New items, in milestone order (due date, then number); the
 P1 items; each place by priority. Then it takes the backlog's other New items while fewer than the
 configured `refine_ready_target` items are Ready across the open milestones and the backlog. Each
 open milestone and the backlog's P0/P1 items also give their Ready items no refine round has
-recorded, which refine confirms Ready or sets back to New. It skips items that are Blocked,
-started, or unchanged since their last run, and items whose section a person edited
-(`check_person_edits`), so none of them takes one of the `--limit` places. Selection judges an item
-by the body its listing carried, so an item nothing changed costs no body read and no model call
-(#1539).
+recorded, which refine confirms Ready or sets back to New. It leaves out items that are Blocked
+or started, items whose section a person edited (`check_person_edits`), and items unchanged since
+their last round that still wait on their next step, so none of them takes one of the `--limit`
+places. Selection judges an item by the body its listing carried, so an item nothing changed costs
+no body read and no model call (#1539). `--item` refines the item it names whenever it is open,
+New or Ready, since a person asked for it.
+
+Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
+record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
+questions go to a person, a split goes to a person with the proposed items, and open dependencies
+block it. A later round looks at an unchanged item again when a comment follows refine's last one,
+which costs one comment read for each item that waits, or when every item that blocks it is
+closed. The comments since refine's last one reach the model as `replies`. An item refine cannot
+write a design for (too big, or two replies that never validated) waits on a body edit alone. An
+unchanged item whose record holds no step is refined again so it gets one. The report groups
+every item by its next step.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
 Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
@@ -35,6 +46,7 @@ import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Literal
 from urllib.parse import urlsplit
@@ -58,13 +70,16 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_P1_PRIORITY,
     CONST_ROADMAP_P2_PRIORITY,
     CONST_ROADMAP_P3_PRIORITY,
+    CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_HELD_STATUSES,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
+    CONST_ROADMAP_REFINE_MAX_REPLIES,
+    CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
+    CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
     CONST_ROADMAP_REFINE_START_MARKER,
-    CONST_ROADMAP_STATUS_BLOCKED,
-    CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -124,11 +139,31 @@ class RefinementProposal(BaseModel):
     dependencies: list[int] = Field(default_factory=list)
 
 
+class NextStep(StrEnum):
+    """What an item waits on after a refine round, and what makes refine look at it again (#1758).
+
+    `READY`: refine set it to Ready. `PERSON`: a person answers the questions refine asked in a
+    comment. `SPLIT`: a person splits it as refine proposed in a comment. `BLOCKED`: the open
+    items it depends on close. A reply after refine's last comment, or a body edit, ends each of
+    these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design for
+    the body, and only a body edit ends the wait. `NONE`: refine changes no item that is closed,
+    In Progress, Done or Blocked.
+    """
+
+    READY = "ready"
+    PERSON = "person"
+    SPLIT = "split"
+    BLOCKED = "blocked"
+    EDIT = "edit"
+    NONE = "none"
+
+
 @dataclass(frozen=True)
 class RefinedItem:
     """An item's refinement. When `skip_reason` is set none of it is written; with `record_only`
     apply still records the hashes of the body refine saw, so the item reads as unchanged until
-    its body changes (#1526)."""
+    its body changes (#1526). `next_step` is what the item waits on, with `step_details` (the
+    questions, the split or the blockers) and the open items `blocked_by` (#1758)."""
 
     item: Item
     proposal: RefinementProposal
@@ -139,8 +174,21 @@ class RefinedItem:
     new_body: str
     body_hash: str
     section_hash: str | None
+    next_step: NextStep
+    step_details: tuple[str, ...] = ()
+    blocked_by: tuple[int, ...] = ()
     skip_reason: str | None = None
     record_only: bool = False
+
+
+@dataclass(frozen=True)
+class WaitingItem:
+    """An item refine did not refine in this round, with the next step it waits on (#1758):
+    `details` names the open items it waits on, or why refine leaves it alone."""
+
+    item: Item
+    step: NextStep
+    details: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -176,7 +224,7 @@ class RefinePlan:
     repo: str
     sha: str = ""
     refined_items: list[RefinedItem] = field(default_factory=list)
-    skipped_items: list[tuple[Item, str]] = field(default_factory=list)
+    waiting_items: list[WaitingItem] = field(default_factory=list)
     has_writes: bool = False
     failed_items: list[RefineFailure] = field(default_factory=list)
     dry_run: bool = False
@@ -530,9 +578,13 @@ def validate_proposal(
 ) -> tuple[RefinementProposal, list[str]]:
     """Deterministically validates proposal sources, key questions, and decisions.
     Returns (validated_proposal, open_questions).
+
+    The key questions and owner decisions are the person's, read from the body outside refine's
+    own section, so a refined item's section never asks its own questions again (#1758).
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
+    persons_text, _ = extract_section_and_outside(body)
 
     # 1. Sources validation
     for qa in proposal.key_questions:
@@ -543,7 +595,7 @@ def validate_proposal(
             validated_qa.append(qa.model_copy(update={"sources": valid_srcs}))
 
     # 2. Body's own key questions check
-    body_questions = _extract_heading_bullets(body, _KEY_QUESTIONS_HEADING_RE)
+    body_questions = _extract_heading_bullets(persons_text, _KEY_QUESTIONS_HEADING_RE)
     answered_normalized = {_normalize_question(qa.question) for qa in proposal.key_questions}
     for bq in body_questions:
         norm = _normalize_question(bq)
@@ -552,7 +604,8 @@ def validate_proposal(
 
     # 3. Decision checking against ## Owner decisions
     owner_decisions = [
-        line.strip().lower() for line in _extract_heading_bullets(body, _OWNER_DECISIONS_HEADING_RE)
+        line.strip().lower()
+        for line in _extract_heading_bullets(persons_text, _OWNER_DECISIONS_HEADING_RE)
     ]
     final_qa: list[QuestionAnswer] = []
     for qa in validated_qa:
@@ -580,6 +633,12 @@ def validate_proposal(
     return validated_proposal, open_questions
 
 
+def _suspected_block(proposal: RefinementProposal) -> str | None:
+    """The proposal's suspected block, or None when it names none."""
+    block = (proposal.suspected_block or "").strip()
+    return None if block.lower() in CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS else block
+
+
 def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> bool:
     """Deterministic check: problem non-empty, 1+ criterion with verification, no open questions,
     fits one PR, and no suspected block.
@@ -596,13 +655,61 @@ def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> 
         return False
     if not proposal.fits_one_pr:
         return False
-    if proposal.suspected_block and proposal.suspected_block.strip().lower() not in {
-        "none",
-        "null",
-        "",
-    }:
-        return False
-    return True
+    return _suspected_block(proposal) is None
+
+
+def _is_open(store: RoadmapStore, number: int) -> bool:
+    """Whether issue `number` is an open Item."""
+    found = store.item(number)
+    return found is not None and found.state is GitHubState.OPEN
+
+
+def next_step_of(
+    store: RoadmapStore,
+    proposal: RefinementProposal,
+    open_questions: Sequence[str],
+    *,
+    is_ready: bool,
+) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
+    """The next step a validated proposal gives its item, with its details and the open items
+    that block it (#1758): the open questions go to a person first, then the split, then the
+    open dependencies, then a suspected block, and last a proposal with no checkable criterion."""
+    if is_ready:
+        return NextStep.READY, (), ()
+    if open_questions:
+        return NextStep.PERSON, tuple(open_questions), ()
+    if not proposal.fits_one_pr:
+        return NextStep.SPLIT, tuple(proposal.split_offs), ()
+    blockers = tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
+    if blockers:
+        return NextStep.BLOCKED, tuple(f"#{dep}" for dep in blockers), blockers
+    block = _suspected_block(proposal)
+    return NextStep.PERSON, (block or MESSAGES.roadmap.refine_incomplete,), ()
+
+
+def step_comment(item: Item, step: NextStep, details: Sequence[str], sha: str) -> str:
+    """The one comment that tells a person the item's next step, carrying refine's marker: the
+    Ready notice, or the questions, the split or the blockers, with the Status change from Ready
+    first (#1515, #1758)."""
+    texts = MESSAGES.roadmap
+    short = sha[:12]
+    marker = CONST_ROADMAP_REFINE_COMMENT_MARKER
+    if step is NextStep.READY:
+        return texts.refine_ready_comment.format(marker=marker, sha=short)
+    numbered = step is NextStep.SPLIT
+    listed = "\n".join(
+        f"{index}. {detail}" if numbered else f"- {detail}"
+        for index, detail in enumerate(details, start=1)
+    )
+    template = texts.refine_step_comments[step.value]
+    return texts.refine_step_comment.format(
+        marker=marker,
+        status=texts.refine_back_to_new.format(sha=short)
+        if item.status == CONST_ROADMAP_STATUS_READY
+        else "",
+        step=template.format(sha=short, count=len(details) or 2),
+        details=listed,
+    )
 
 
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
@@ -731,23 +838,89 @@ def _priority_rank(priority: str | None) -> int:
 
 def _select_single_candidate(
     store: RoadmapStore, item_number: int
-) -> tuple[list[Item], list[tuple[Item, str]]]:
+) -> tuple[list[Item], list[WaitingItem]]:
+    """The item `--item` names: refined whenever it is open, New or Ready, since a person asked
+    for it, however little changed since its last round (#1758)."""
     item = store.item(item_number)
     if item is None:
         return [], []
-    if (
-        item.status
-        in {
-            CONST_ROADMAP_STATUS_READY,
-            CONST_ROADMAP_STATUS_BLOCKED,
-            CONST_ROADMAP_STATUS_IN_PROGRESS,
-        }
-        or item.state is GitHubState.CLOSED
-    ):
-        return [], [(item, f"status {item.status or 'closed'} is not New")]
-    if _is_unchanged(item, store.read_issue_body(item.number)):
-        return [], [(item, "body and section unchanged")]
+    texts = MESSAGES.roadmap
+    if item.state is GitHubState.CLOSED:
+        return [], [WaitingItem(item, NextStep.NONE, (texts.refine_held_closed,))]
+    if item.status in CONST_ROADMAP_REFINE_HELD_STATUSES:
+        held = texts.refine_held_status.format(status=item.status)
+        return [], [WaitingItem(item, NextStep.NONE, (held,))]
     return [item], []
+
+
+def _recorded_step(item: Item) -> NextStep | None:
+    """The next step the item's last refine round recorded, or None when it recorded none."""
+    recorded = item.job_record.get(RefineRecordKey.NEXT_STEP)
+    try:
+        return NextStep(recorded) if recorded else None
+    except ValueError:
+        return None
+
+
+def _recorded_blockers(item: Item) -> list[int]:
+    """The open items the item's last refine round found blocking it."""
+    recorded = item.job_record.get(RefineRecordKey.BLOCKED_BY) or ""
+    return [int(part) for part in recorded.split(",") if part.strip().isdecimal()]
+
+
+def replies_since_refine(comments: Sequence[str]) -> list[str] | None:
+    """The comments after refine's last comment, oldest first, or None when refine left none."""
+    marked = [
+        index for index, text in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in text
+    ]
+    return list(comments[marked[-1] + 1 :]) if marked else None
+
+
+def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
+    """The next step an item nothing changed since its last round still waits on, or None when
+    the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
+    closed, or a comment followed refine's last one. Only a body edit ends an `EDIT` wait."""
+    step = _recorded_step(item)
+    details: tuple[str, ...] = ()
+    match step:
+        case None:
+            return None
+        case NextStep.EDIT:
+            return WaitingItem(item, step)
+        case NextStep.BLOCKED:
+            blockers = [number for number in _recorded_blockers(item) if _is_open(store, number)]
+            if not blockers:
+                return None
+            details = tuple(f"#{number}" for number in blockers)
+        case NextStep.READY:
+            # A New item refine set Ready: a person set it back, and refine waits for the reason.
+            step, details = NextStep.PERSON, (MESSAGES.roadmap.refine_set_back_by_person,)
+    replies = replies_since_refine(store.comments_on(item.number))
+    if replies is None or replies:
+        return None
+    return WaitingItem(item, step, details)
+
+
+@dataclass
+class _Selection:
+    """The items one selection takes, and those it leaves with their next step."""
+
+    store: RoadmapStore
+    selected: list[Item] = field(default_factory=list)
+    waiting: list[WaitingItem] = field(default_factory=list)
+
+    def consider(self, item: Item) -> None:
+        """Take `item` unless its wait is not over or a person edited its section (#1515)."""
+        if _is_unchanged(item, item.body):
+            waits = _still_waiting(self.store, item)
+            if waits is not None:
+                self.waiting.append(waits)
+                return
+        edit_problem = check_person_edits(item, item.body)
+        if edit_problem:
+            self.waiting.append(WaitingItem(item, NextStep.EDIT, (edit_problem,)))
+            return
+        self.selected.append(item)
 
 
 def _is_unrefined_ready(item: Item) -> bool:
@@ -778,9 +951,9 @@ def select_candidates(
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
     ready_target: int = DEFAULT_ROADMAP_REFINE_READY_TARGET,
-) -> tuple[list[Item], list[tuple[Item, str]]]:
+) -> tuple[list[Item], list[WaitingItem]]:
     """Selects items to refine, nearest place first as the module's docstring orders them,
-    returning (selected, skipped)."""
+    returning (selected, waiting): each item it leaves out waits on its next step."""
     if item_number is not None:
         return _select_single_candidate(store, item_number)
 
@@ -810,34 +983,21 @@ def select_candidates(
         if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
     ]
 
-    selected: list[Item] = []
-    skipped: list[tuple[Item, str]] = []
-
-    def _consider(it: Item) -> bool:
-        if _is_unchanged(it, it.body):
-            skipped.append((it, "unchanged"))
-            return False
-        # An item refine_one_item would skip for a person's edit takes no place (#1515).
-        edit_problem = check_person_edits(it, it.body)
-        if edit_problem:
-            skipped.append((it, edit_problem))
-            return False
-        selected.append(it)
-        return True
-
+    selection = _Selection(store)
     # 1. The open milestones' items, nearest first, then the backlog's P0 and P1 items
     for it in ordered:
-        if len(selected) >= limit:
+        if len(selection.selected) >= limit:
             break
-        _consider(it)
+        selection.consider(it)
 
     # 2. The other backlog New items until ready + selected reaches the ready target
     for it in backlog_rest:
-        if len(selected) >= limit or (ready_count + len(selected)) >= ready_target:
+        taken = len(selection.selected)
+        if taken >= limit or (ready_count + taken) >= ready_target:
             break
-        _consider(it)
+        selection.consider(it)
 
-    return selected, skipped
+    return selection.selected, selection.waiting
 
 
 # ── Refine Engine ─────────────────────────────────────────────────────────────
@@ -880,6 +1040,8 @@ def refine_one_item(
             new_body=current_body,
             body_hash="",
             section_hash="",
+            next_step=NextStep.EDIT,
+            step_details=(edit_problem,),
             skip_reason=edit_problem,
         )
 
@@ -894,6 +1056,7 @@ def refine_one_item(
         "number": item.number,
         "title": item.title,
         "body": current_body,
+        "replies": _replies_for_model(store.comments_on(item.number)),
         "context": ctx,
         "search_results": search_results,
     }
@@ -909,6 +1072,12 @@ def refine_one_item(
     )
     is_ready = check_ready(proposal, open_questions)
     needs_split = not proposal.fits_one_pr
+    step, model_details, blocked_by = next_step_of(
+        store, proposal, open_questions, is_ready=is_ready
+    )
+    # The details hold the model's text, which goes into a comment: sanitized like the section,
+    # on one line each (#1758).
+    details = tuple(" ".join(sanitize_text(d, allowed_urls).split()) for d in model_details)
 
     # Step 5: Render section & Check size
     rendered_section = render_proposal_section(proposal, open_questions, sha, allowed_urls)
@@ -917,6 +1086,7 @@ def refine_one_item(
 
     if len(new_body) > CONST_ROADMAP_REFINE_MAX_BODY_CHARS:
         seen_body_hash, seen_section_hash = _body_hashes(current_body)
+        too_big = f"new body would exceed {CONST_ROADMAP_REFINE_MAX_BODY_CHARS} characters"
         return RefinedItem(
             item=item,
             proposal=proposal,
@@ -927,19 +1097,14 @@ def refine_one_item(
             new_body=current_body,
             body_hash=seen_body_hash,
             section_hash=seen_section_hash,
-            skip_reason=f"new body would exceed {CONST_ROADMAP_REFINE_MAX_BODY_CHARS} characters",
+            next_step=NextStep.EDIT,
+            step_details=(too_big,),
+            skip_reason=too_big,
             record_only=True,
         )
 
-    # Reason comment: a Ready item refine finds not ready goes back to New (#1515)
-    comment: str | None = None
-    if is_ready:
-        comment = MESSAGES.roadmap.refine_ready_comment.format(sha=sha[:12])
-    elif item.status == CONST_ROADMAP_STATUS_READY:
-        comment = MESSAGES.roadmap.refine_back_to_new_comment.format(sha=sha[:12])
-    elif needs_split:
-        count = len(proposal.split_offs) or 2
-        comment = MESSAGES.roadmap.refine_split_comment.format(count=count, sha=sha[:12])
+    # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515)
+    comment = step_comment(item, step, details, sha)
 
     b_hash = hash_text(outside)
     s_hash = hash_text(
@@ -958,7 +1123,22 @@ def refine_one_item(
         new_body=new_body,
         body_hash=b_hash,
         section_hash=s_hash,
+        next_step=step,
+        step_details=details,
+        blocked_by=blocked_by,
     )
+
+
+def _replies_for_model(comments: Sequence[str]) -> list[str]:
+    """The replies the model reads: the comments after refine's last comment, or every comment
+    when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
+    cap (#1758)."""
+    replies = replies_since_refine(comments)
+    kept = (comments if replies is None else replies)[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+    return [
+        truncate_to_token_limit(reply, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+        for reply in kept
+    ]
 
 
 # ── Top-Level Entry Points ────────────────────────────────────────────────────
@@ -980,11 +1160,11 @@ def plan_refine(
     sha = inspect_checkout(source_path, repo)
 
     ready_target = config.refine_ready_target if config else DEFAULT_ROADMAP_REFINE_READY_TARGET
-    candidates, skipped = select_candidates(
+    candidates, waiting = select_candidates(
         store, item_number=item_number, limit=limit, ready_target=ready_target
     )
     if not candidates:
-        return RefinePlan(repo=repo, sha=sha, skipped_items=skipped, has_writes=False)
+        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=False)
 
     settings = load_settings()
     ai_config = settings.ai
@@ -1017,7 +1197,7 @@ def plan_refine(
         repo=repo,
         sha=sha,
         refined_items=refined,
-        skipped_items=skipped,
+        waiting_items=waiting,
         has_writes=has_writes,
         failed_items=failed,
     )
@@ -1105,6 +1285,7 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
             RefineRecordKey.BODY_HASH: body_hash,
             RefineRecordKey.SECTION_HASH: section_hash,
             RefineRecordKey.FAILED_BODY_HASH: None,
+            RefineRecordKey.NEXT_STEP: NextStep.EDIT.value,
         },
     )
 
@@ -1119,6 +1300,7 @@ def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
                 {
                     RefineRecordKey.BODY_HASH: r.body_hash,
                     RefineRecordKey.SECTION_HASH: r.section_hash,
+                    RefineRecordKey.NEXT_STEP: r.next_step.value,
                 },
             )
     for failure in plan.failed_items:
@@ -1149,6 +1331,8 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.SECTION_HASH: r.section_hash,
             RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
             RefineRecordKey.FAILED_BODY_HASH: None,
+            RefineRecordKey.NEXT_STEP: r.next_step.value,
+            RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
         }
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
@@ -1215,23 +1399,35 @@ def refine_item(
     return RefineOutcome(plan=plan, applied=applied)
 
 
+def _step_lines(plan: RefinePlan, step: NextStep) -> list[str]:
+    """The report's lines for the items that wait on `step`: each item, then its details."""
+    texts = MESSAGES.roadmap
+    entries = [
+        (
+            texts.refine_item_line if r.skip_reason else texts.refine_refined_line,
+            r.item,
+            r.step_details,
+        )
+        for r in plan.refined_items
+        if r.next_step is step
+    ] + [(texts.refine_item_line, w.item, w.details) for w in plan.waiting_items if w.step is step]
+    lines: list[str] = []
+    for line, item, details in entries:
+        lines.append(line.format(number=item.number, title=item.title))
+        lines.extend(texts.refine_detail_line.format(detail=detail) for detail in details)
+    return [texts.refine_step_headings[step.value], *lines] if lines else []
+
+
 def render_refine_plan(plan: RefinePlan) -> str:
-    """Formats the refinement plan for CLI stdout report."""
+    """Formats the refinement plan for CLI stdout report: the items grouped by next step, then
+    the items whose model call failed (#1758)."""
     lines: list[str] = [MESSAGES.roadmap.refine_title.format(repo=plan.repo)]
-    if not (plan.refined_items or plan.skipped_items or plan.failed_items):
+    if not (plan.refined_items or plan.waiting_items or plan.failed_items):
         lines.append(MESSAGES.roadmap.refine_none)
         return "\n".join(lines)
 
-    if plan.refined_items:
-        lines.append("## Refined Items")
-        for r in plan.refined_items:
-            if r.skip_reason:
-                lines.append(f"- #{r.item.number} {r.item.title}: skipped ({r.skip_reason})")
-            else:
-                status_str = "Ready" if r.is_ready else ("Needs Split" if r.needs_split else "New")
-                lines.append(f"- #{r.item.number} {r.item.title} -> {status_str}")
-                if r.open_questions:
-                    lines.append(f"  Open questions: {len(r.open_questions)}")
+    for step in NextStep:
+        lines.extend(_step_lines(plan, step))
 
     if plan.failed_items:
         lines.append(MESSAGES.roadmap.refine_failed_heading)
@@ -1245,16 +1441,12 @@ def render_refine_plan(plan: RefinePlan) -> str:
             for failure in plan.failed_items
         )
 
-    if plan.skipped_items:
-        lines.append("## Skipped Items")
-        for it, reason in plan.skipped_items:
-            lines.append(f"- #{it.number} {it.title}: {reason}")
-
     return "\n".join(lines)
 
 
 __all__ = [
     "AcceptanceCriterion",
+    "NextStep",
     "QuestionAnswer",
     "RefineApplied",
     "RefineFailure",
@@ -1263,6 +1455,7 @@ __all__ = [
     "RefinedItem",
     "RefinementProposal",
     "ResearchPlan",
+    "WaitingItem",
     "apply_refine",
     "check_person_edits",
     "check_ready",
@@ -1271,12 +1464,15 @@ __all__ = [
     "extract_section_and_outside",
     "hash_text",
     "inspect_checkout",
+    "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
     "refine_item",
     "render_proposal_section",
     "render_refine_plan",
+    "replies_since_refine",
     "sanitize_text",
     "select_candidates",
+    "step_comment",
     "validate_proposal",
 ]

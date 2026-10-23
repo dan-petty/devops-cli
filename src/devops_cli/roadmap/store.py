@@ -98,13 +98,16 @@ class ChangeKind(StrEnum):
 
 class RefineRecordKey(StrEnum):
     """What refine records in an Item's job record (#744): the body hash outside the section,
-    the section hash, whether the proposal needs splitting, and the body hash a reply that never
-    validated was about (#1539)."""
+    the section hash, whether the proposal needs splitting, the body hash a reply that never
+    validated was about (#1539), and the next step the item waits on with the open items that
+    block it (#1758)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
     NEEDS_SPLIT = "refine.needs_split"
     FAILED_BODY_HASH = "refine.failed_body_hash"
+    NEXT_STEP = "refine.next_step"
+    BLOCKED_BY = "refine.blocked_by"
 
 
 JobRecord = dict[ItemField | RefineRecordKey, str | None]

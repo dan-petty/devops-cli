@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 if TYPE_CHECKING:
+    from syrupy.assertion import SnapshotAssertion
+
     from tests.support.fakes.model import ModelFake
 
 import httpx2
@@ -35,6 +37,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.roadmap import app as roadmap_app
+from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_REFINE_END_MARKER,
@@ -86,6 +89,7 @@ from devops_cli.roadmap.run import (
     run_due_jobs,
 )
 from devops_cli.roadmap.store import (
+    CloseReason,
     GitHubState,
     Item,
     ItemField,
@@ -335,6 +339,28 @@ def test_validate_proposal_sources_and_questions(
     ) == (True, True, True, True)
 
 
+@pytest.mark.parametrize(
+    "answered",
+    [[], [QuestionAnswer(question="Which store?", answer="The job record.", kind="decision")]],
+    ids=["none", "answered"],
+)
+def test_the_key_questions_of_refines_own_section_are_never_asked_again(
+    git_repo: Path, store: InMemoryRoadmapStore, answered: list[QuestionAnswer]
+) -> None:
+    """Refine reads the person's key questions from the body outside its own section, so the
+    questions and the "None." its last section lists open no question when it refines the item
+    again (#1758)."""
+    sha = inspect_checkout(git_repo, REPO)
+    proposal = RefinementProposal(
+        problem_statement="The item needs a design.",
+        acceptance_criteria=[AcceptanceCriterion(description="C", verification="V")],
+    )
+    last_round = proposal.model_copy(update={"key_questions": answered})
+    body = f"Body\n\n{render_proposal_section(last_round, [], sha, set())}"
+
+    assert validate_proposal(proposal, body, set(), git_repo, sha, store)[1] == []
+
+
 def test_check_ready_matrix() -> None:
     base = RefinementProposal(
         problem_statement="Problem exists",
@@ -447,7 +473,11 @@ def test_selection_second_milestone_backlog_priorities_and_cap(store: InMemoryRo
     ) == ([n1, n2, b1], True, True)
 
 
-def test_selection_skips_unchanged_items_and_picks_on_change(store: InMemoryRoadmapStore) -> None:
+def test_an_unchanged_item_that_waits_on_a_body_edit_is_selected_once_its_body_changes(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """An item refine could not write a design for waits on a body edit alone: selection leaves
+    it out, with that next step, until a person edits the body (#1758)."""
     num = store.seed_issue("Item", body="Initial content", on_board=True)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
@@ -457,16 +487,18 @@ def test_selection_skips_unchanged_items_and_picks_on_change(store: InMemoryRoad
         {
             RefineRecordKey.BODY_HASH: hash_text(outside),
             RefineRecordKey.SECTION_HASH: None,
+            RefineRecordKey.NEXT_STEP: "edit",
         },
     )
 
-    selected_unchanged, _ = select_candidates(store, item_number=num)
-    assert selected_unchanged == []
-
-    # Update body
-    store.write_issue_body(num, "Updated content by human")
-    selected_changed, _ = select_candidates(store, item_number=num)
-    assert len(selected_changed) == 1
+    selected_unchanged, waiting = select_candidates(store)
+    store.as_actor("alice").write_issue_body(num, "Updated content by human")
+    selected_changed, _ = select_candidates(store)
+    assert (
+        selected_unchanged,
+        [(w.item.number, w.step, w.details) for w in waiting],
+        [it.number for it in selected_changed],
+    ) == ([], [(num, "edit", ())], [num])
 
 
 def _seed_item(
@@ -539,11 +571,12 @@ def test_ready_items_refine_never_saw_are_taken_in_each_milestone_and_backlog_p0
     assert [it.number for it in selected] == [first, planned, backlog]
 
 
-def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_is_then_skipped(
+def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_a_person(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     """Refine sets a Ready item it never saw back to New when its proposal is not ready, saying so
-    in a comment, and the next round skips it as unchanged (#1515)."""
+    in the one comment that asks a person about the suspected block, and the next round leaves
+    it waiting on that person (#1515, #1758)."""
     number = _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", milestone=SECOND)
     blocked = RefinementProposal(
         problem_statement="Needs the owner's decision.",
@@ -553,20 +586,31 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_is_then_skippe
     llm = MockLLMClient(proposal=blocked)
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, model=llm))
     again = plan_refine(store, repo=REPO, source=git_repo, model=llm)
+    sha = inspect_checkout(git_repo, REPO)[:12]
     assert (
         _require_item(store, number).status,
-        [comment.split(" at ")[0] for comment in store.comments_on(number)],
+        store.comments_on(number),
         again.refined_items,
-        [(it.number, reason) for it, reason in again.skipped_items],
-    ) == ("New", ["Status set back to New"], [], [(number, "unchanged")])
+        [(w.item.number, w.step) for w in again.waiting_items],
+    ) == (
+        "New",
+        [
+            f"{constants.CONST_ROADMAP_REFINE_COMMENT_MARKER}\nStatus set back to New at {sha}. "
+            f"Refine cannot set this item to Ready at {sha} until a person answers the questions "
+            "below. Reply in a comment or edit the body, and the next refine round looks at the "
+            "item again.\n\n- Waiting on the owner"
+        ],
+        [],
+        [(number, "person")],
+    )
 
 
 def test_an_item_refine_would_skip_for_a_person_edit_takes_no_place(
     store: InMemoryRoadmapStore,
 ) -> None:
     """A New backlog P1 whose section's hash differs from the record, as an item holding a section
-    from before #1470 has once refine adds its own, is skipped at selection, and the New item
-    behind it gets the round's one place (#1515)."""
+    from before #1470 has once refine adds its own, waits on a body edit at selection, and the
+    New item behind it gets the round's one place (#1515, #1758)."""
     stuck = _seed_item(store, "New", "P1-High")
     store.write_issue_body(
         stuck,
@@ -582,11 +626,14 @@ def test_an_item_refine_would_skip_for_a_person_edit_takes_no_place(
         },
     )
     fresh = _seed_item(store, "New", "P1-High")
-    selected, skipped = select_candidates(store, limit=1)
+    selected, waiting = select_candidates(store, limit=1)
     assert (
         [it.number for it in selected],
-        [(it.number, reason) for it, reason in skipped],
-    ) == ([fresh], [(stuck, "the section's hash differs from the one refine last recorded")])
+        [(w.item.number, w.step, w.details) for w in waiting],
+    ) == (
+        [fresh],
+        [(stuck, "edit", ("the section's hash differs from the one refine last recorded",))],
+    )
 
 
 def test_person_edits_guards(store: InMemoryRoadmapStore) -> None:
@@ -1173,14 +1220,14 @@ def test_backlog_p2_and_p3_wait_for_the_configured_ready_target(
     assert [_issue_number(request) for request in sent] == [numbers[p] for p in refined]
 
 
-def test_a_round_after_refine_left_items_new_skips_them_reading_no_body_and_calling_no_model(
+def test_a_round_after_refine_left_items_new_leaves_them_waiting_reading_no_body_or_model(
     git_repo: Path,
     store: BodyReadCountingStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
 ) -> None:
-    """Items a real round refined and left New are unchanged on the next round, which reads no
-    issue body, selects nothing and sends the gateway no request, with a Ready item that has a
-    recorded section among them (#1515, #1539)."""
+    """Items a real round refined and left New with a split proposed still wait on that split in
+    the next round, which reads no issue body, selects nothing and sends the gateway no request,
+    with a Ready item that has a recorded section among them (#1515, #1539, #1758)."""
     numbers = _seed_new_items(store)
     _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", milestone=SECOND, refined=True)
     sent = scripted_gateway({}, default=_SPLIT_PROPOSAL)
@@ -1193,9 +1240,9 @@ def test_a_round_after_refine_left_items_new_skips_them_reading_no_body_and_call
         len(sent),
         store.body_reads,
         again.refined_items,
-        [(it.number, reason) for it, reason in again.skipped_items],
+        [(w.item.number, w.step) for w in again.waiting_items],
         [_require_item(store, number).status for number in numbers],
-    ) == (3, 3, [], [], [(number, "unchanged") for number in numbers], ["New"] * 3)
+    ) == (3, 3, [], [], [(number, "split") for number in numbers], ["New"] * 3)
 
 
 def test_editing_one_settled_items_body_selects_only_it_with_one_body_read_and_one_model_call(
@@ -1218,11 +1265,11 @@ def test_editing_one_settled_items_body_selects_only_it_with_one_body_read_and_o
 
     assert (
         [refined.item.number for refined in again.refined_items],
-        [(it.number, reason) for it, reason in again.skipped_items],
+        [(w.item.number, w.step) for w in again.waiting_items],
         store.body_reads,
         len(sent) - requests_before,
         store.job_writes() == writes_before,
-    ) == ([second], [(first, "unchanged"), (third, "unchanged")], [second], 1, True)
+    ) == ([second], [(first, "split"), (third, "split")], [second], 1, True)
 
 
 def _refine_round(store: InMemoryRoadmapStore, source: Path) -> RefinePlan:
@@ -1266,17 +1313,19 @@ def test_an_item_whose_refined_body_is_too_big_is_selected_once_and_its_body_nev
     scripted_gateway: Callable[..., list[httpx2.Request]],
 ) -> None:
     """The size guard records the body it saw and writes none: the next round finds the item
-    unchanged and sends no request, until a person edits it (#1526, #1539)."""
+    waiting on a body edit and sends no request, whatever a person comments, until a person
+    edits it (#1526, #1539, #1758)."""
     first, *_ = _seed_new_items(store)
     sent = scripted_gateway({first: _TOO_BIG_PROPOSAL})
 
     first_round = _refine_round(store, git_repo)
     after_first = (len(sent), store.read_issue_body(first), _writes_to(store, first))
+    store.as_actor("alice").comment(first, "Please try again.")
     second_round = plan_refine(store, repo=REPO, source=git_repo)
     after_second = (
         len(sent),
         second_round.refined_items,
-        [(it.number, reason) for it, reason in second_round.skipped_items],
+        [(w.item.number, w.step) for w in second_round.waiting_items],
     )
     store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
     third_round = plan_refine(store, repo=REPO, source=git_repo)
@@ -1294,9 +1343,10 @@ def test_an_item_whose_refined_body_is_too_big_is_selected_once_and_its_body_nev
             [
                 JobWrite("set_mark", first, RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
                 JobWrite("set_mark", first, RefineRecordKey.SECTION_HASH.value, None),
+                JobWrite("set_mark", first, RefineRecordKey.NEXT_STEP.value, "edit"),
             ],
         ),
-        (3, [], [(first, "unchanged")]),
+        (3, [], [(first, "edit")]),
         [first],
     )
 
@@ -1307,8 +1357,8 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
     scripted_gateway: Callable[..., list[httpx2.Request]],
 ) -> None:
     """A reply that never fits the schema is the item's doing: the first failure records the
-    body it saw and settles nothing, the second on the same body settles the item as unchanged,
-    and a person's edit unsettles it (#1526, #1539)."""
+    body it saw and settles nothing, the second on the same body settles the item to wait on a
+    body edit, and a person's edit unsettles it (#1526, #1539, #1758)."""
     first, *_ = _seed_new_items(store)
     sent = scripted_gateway({first: _SCHEMA_MISS})
 
@@ -1320,7 +1370,7 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
     after_third = (
         len(sent),
         third_round.failed_items,
-        [(it.number, why) for it, why in third_round.skipped_items],
+        [(w.item.number, w.step) for w in third_round.waiting_items],
     )
     store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
     edited = plan_refine(store, repo=REPO, source=git_repo)
@@ -1333,7 +1383,7 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
     ) == (
         (5, (None, None, _FIRST_BODY_HASH)),
         (8, (_FIRST_BODY_HASH, None, None)),
-        (8, [], [(first, "unchanged")]),
+        (8, [], [(first, "edit")]),
         [first],
     )
 
@@ -1400,13 +1450,17 @@ _TROUBLE_REPLIES = pytest.mark.parametrize(
     [
         pytest.param(
             _TOO_BIG_PROPOSAL,
-            [(RefineRecordKey.BODY_HASH, _FIRST_BODY_HASH), (RefineRecordKey.SECTION_HASH, None)],
+            [
+                (RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
+                (RefineRecordKey.SECTION_HASH.value, None),
+                ("refine.next_step", "edit"),
+            ],
             0,
             id="too-big",
         ),
         pytest.param(
             _SCHEMA_MISS,
-            [(RefineRecordKey.FAILED_BODY_HASH, _FIRST_BODY_HASH)],
+            [(RefineRecordKey.FAILED_BODY_HASH.value, _FIRST_BODY_HASH)],
             1,
             id="schema-miss",
         ),
@@ -1417,7 +1471,7 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
     cli_store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
     reply: str,
-    marks: list[tuple[RefineRecordKey, str | None]],
+    marks: list[tuple[str, str | None]],
     exit_code: int,
 ) -> None:
     """With nothing else to write, `devops roadmap refine --confirm` still applies the plan:
@@ -1430,7 +1484,7 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
 
     assert (result.exit_code, _writes_to(cli_store, first)) == (
         exit_code,
-        [JobWrite("set_mark", first, key.value, value) for key, value in marks],
+        [JobWrite("set_mark", first, key, value) for key, value in marks],
     )
 
 
@@ -1449,6 +1503,7 @@ def test_the_runs_refine_job_records_an_item_too_big_to_refine(
     assert _writes_to(store, first) == [
         JobWrite("set_mark", first, RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
         JobWrite("set_mark", first, RefineRecordKey.SECTION_HASH.value, None),
+        JobWrite("set_mark", first, RefineRecordKey.NEXT_STEP.value, "edit"),
     ]
 
 
@@ -1550,3 +1605,337 @@ def test_refines_prompts_load_and_the_proposal_prompt_names_every_field() -> Non
         *QuestionAnswer.model_fields,
     ]
     assert (bool(research), [key for key in keys if f"`{key}`" not in proposal]) == (True, [])
+
+
+# ── Each item refine cannot set Ready gets a next step (#1758) ────────────────────────────
+
+_READY = RefinementProposal(
+    problem_statement="The item needs a design.",
+    acceptance_criteria=[AcceptanceCriterion(description="It is designed.", verification="pytest")],
+)
+_QUESTION = _READY.model_copy(
+    update={
+        "key_questions": [
+            QuestionAnswer(question="Which store holds the record?", answer="?", kind="fact")
+        ]
+    }
+)
+_SPLIT = _READY.model_copy(
+    update={"fits_one_pr": False, "split_offs": ["The first change.", "The second change."]}
+)
+_OPEN_QUESTION = "Which store holds the record? (missing verified source)"
+
+
+def _blocked_by(blocker: int) -> RefinementProposal:
+    """A proposal that waits on the open item `blocker`."""
+    return _READY.model_copy(
+        update={"suspected_block": f"Waits on #{blocker}.", "dependencies": [blocker]}
+    )
+
+
+def _is_about(number: int, prompt: str) -> bool:
+    """Whether a proposal request is about issue `number`."""
+    found: object = json.loads(prompt).get("number")
+    return found == number
+
+
+def _answer_each(model_fake: ModelFake, proposals: Mapping[int, RefinementProposal]) -> None:
+    """Answer the proposal request about each issue with its proposal."""
+    for number, proposal in proposals.items():
+        model_fake.route(partial(_is_about, number), proposal)
+
+
+def _replies_sent(model_fake: ModelFake) -> list[str]:
+    """The replies the last proposal request carried."""
+    replies: list[str] = json.loads(model_fake.calls[-1].prompt)["replies"]
+    return replies
+
+
+def _seed_waiting_items(store: InMemoryRoadmapStore, model_fake: ModelFake) -> tuple[int, ...]:
+    """On a private repository, an item In Progress, then three New backlog P1s whose proposals
+    ask a question, need a split and wait on the first item; returned in that order."""
+    store.seed_visibility(is_private=True)
+    blocker = _seed_item(store, "In Progress", "P1-High")
+    asked, split, blocked = (_seed_item(store, "New", "P1-High") for _ in range(3))
+    _answer_each(model_fake, {asked: _QUESTION, split: _SPLIT, blocked: _blocked_by(blocker)})
+    return blocker, asked, split, blocked
+
+
+def test_each_item_refine_leaves_new_waits_on_its_next_step_with_no_model_call(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An item refine leaves New gets a next step, not a skip as unchanged: its open question
+    goes to a person, its split goes to a person, or the open item it depends on blocks it. The
+    next round leaves each one waiting on that step and calls no model (#1758)."""
+    blocker, asked, split, blocked = _seed_waiting_items(store, model_fake)
+
+    first = _refine_round(store, git_repo)
+    calls = model_fake.call_count
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(r.item.number, r.next_step, r.step_details) for r in first.refined_items],
+        [(w.item.number, w.step, w.details) for w in again.waiting_items],
+        again.refined_items,
+        model_fake.call_count - calls,
+    ) == (
+        [
+            (asked, "person", (_OPEN_QUESTION,)),
+            (split, "split", ("The first change.", "The second change.")),
+            (blocked, "blocked", (f"#{blocker}",)),
+        ],
+        [(asked, "person", ()), (split, "split", ()), (blocked, "blocked", (f"#{blocker}",))],
+        [],
+        0,
+    )
+
+
+def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_step(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Refine posts one comment that carries its marker and gives the item's next step: the
+    question, the proposed split for a person to make, or the open items it waits on. The job
+    record keeps the step, the split and the blockers (#1758)."""
+    blocker, asked, split, blocked = _seed_waiting_items(store, model_fake)
+
+    _refine_round(store, git_repo)
+
+    sha = inspect_checkout(git_repo, REPO)[:12]
+    marker = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
+    record_keys = ("refine.next_step", "refine.needs_split", "refine.blocked_by")
+    assert (
+        {number: store.comments_on(number) for number in (asked, split, blocked)},
+        {
+            number: tuple(
+                _require_item(store, number).job_record.get(RefineRecordKey(key))
+                for key in record_keys
+            )
+            for number in (asked, split, blocked)
+        },
+    ) == (
+        {
+            asked: [
+                f"{marker}\nRefine cannot set this item to Ready at {sha} until a person "
+                "answers the questions below. Reply in a comment or edit the body, and the next "
+                f"refine round looks at the item again.\n\n- {_OPEN_QUESTION}"
+            ],
+            split: [
+                f"{marker}\nThe proposal at {sha} needs splitting into 2 items. A person splits "
+                "the item into the items below, or replies in a comment or edits the body to "
+                "keep one item, and the next refine round looks at the item again.\n\n"
+                "1. The first change.\n2. The second change."
+            ],
+            blocked: [
+                f"{marker}\nRefine cannot set this item to Ready at {sha} while the items below "
+                "stay open. The next refine round looks at the item again when they close, or "
+                "when a person replies in a comment or edits the body.\n\n"
+                f"- #{blocker}"
+            ],
+        },
+        {
+            asked: ("person", "false", None),
+            split: ("split", "true", None),
+            blocked: ("blocked", "false", str(blocker)),
+        },
+    )
+
+
+def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_each_point(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The model's split reaches the comment as the section shows it: no HTML, every handle in
+    a code span so no one is pinged, and each point on its own line (#1758)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    split_offs = ["Ask @owner <b>now</b>\n\n## Then this", "The second change."]
+    model_fake.answer(_SPLIT.model_copy(update={"split_offs": split_offs}))
+
+    _refine_round(store, git_repo)
+
+    assert [comment.splitlines()[-2:] for comment in store.comments_on(number)] == [
+        ["1. Ask `@owner` now ## Then this", "2. The second change."]
+    ]
+
+
+def test_a_persons_reply_makes_an_item_that_waits_on_them_eligible_and_reaches_the_model(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A comment after refine's own makes the item eligible again, though its body is unchanged,
+    and the model reads the reply; the first round, with no comment, sent none (#1758)."""
+    store.seed_visibility(is_private=True)
+    asked = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_QUESTION, _READY)
+    _refine_round(store, git_repo)
+    first_replies = _replies_sent(model_fake)
+
+    store.as_actor("alice").comment(asked, "The job record holds it.")
+    again = _refine_round(store, git_repo)
+
+    assert (
+        first_replies,
+        [r.item.number for r in again.refined_items],
+        _replies_sent(model_fake),
+        _require_item(store, asked).status,
+    ) == ([], [asked], ["The job record holds it."], CONST_ROADMAP_STATUS_READY)
+
+
+def test_closing_the_item_that_blocks_an_item_makes_it_eligible_again(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A blocked item waits while its blocker is open, and the round after the blocker closes
+    refines it again with no reply and no body edit (#1758)."""
+    store.seed_visibility(is_private=True)
+    blocker = _seed_item(store, "In Progress", "P1-High")
+    blocked = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_blocked_by(blocker))
+    _refine_round(store, git_repo)
+
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+    store.as_actor("alice").close_by_hand(blocker, CloseReason.COMPLETED)
+    after_close = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step) for w in waiting.waiting_items],
+        [r.item.number for r in after_close.refined_items],
+    ) == ([(blocked, "blocked")], [blocked])
+
+
+def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its_split_handed_on(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An unchanged item whose record holds `refine.needs_split` and no next step is refined
+    again, not skipped, and its split goes to a person in a comment (#1758)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    section = "## Proposed design\nNeeds splitting into 2 items."
+    start, end = CONST_ROADMAP_REFINE_START_MARKER, CONST_ROADMAP_REFINE_END_MARKER
+    store.write_issue_body(number, f"Body P1-High\n\n{start}\n{section}\n{end}")
+    store.set_marks(
+        _require_item(store, number),
+        {
+            RefineRecordKey.BODY_HASH: hash_text("Body P1-High"),
+            RefineRecordKey.SECTION_HASH: hash_text(section),
+            RefineRecordKey.NEEDS_SPLIT: "true",
+        },
+    )
+    model_fake.answer(_SPLIT)
+
+    plan = _refine_round(store, git_repo)
+
+    assert (
+        [(r.item.number, r.next_step) for r in plan.refined_items],
+        [comment.splitlines()[-2:] for comment in store.comments_on(number)],
+    ) == ([(number, "split")], [["1. The first change.", "2. The second change."]])
+
+
+def test_an_item_a_person_sets_back_to_new_waits_for_their_reason_and_is_refined_after_it(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An item refine set Ready and a person set back to New waits on that person; their
+    comment, as `devops roadmap return` posts, makes refine look again with it (#1758)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY, _QUESTION)
+    _refine_round(store, git_repo)
+    person = store.as_actor("alice")
+
+    person.set_field(_require_item(person, number), ItemField.STATUS, "New")
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+    person.comment(number, "It needs a new store.")
+    returned = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step, w.details) for w in waiting.waiting_items],
+        [r.item.number for r in returned.refined_items],
+        _replies_sent(model_fake),
+    ) == (
+        [
+            (
+                number,
+                "person",
+                (
+                    "A person set the item back to New after refine set it to Ready. A reply "
+                    "that tells why makes refine look at it again.",
+                ),
+            )
+        ],
+        [number],
+        ["It needs a new store."],
+    )
+
+
+@pytest.mark.parametrize(
+    ("answers", "status"),
+    [((_QUESTION, _READY), CONST_ROADMAP_STATUS_READY), ((_READY, _QUESTION), "New")],
+    ids=["waiting-on-a-person", "ready"],
+)
+def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_last_round(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    answers: tuple[RefinementProposal, ...],
+    status: str,
+) -> None:
+    """`--item` refines the open New or Ready item it names, since a person asked for it, though
+    its body is unchanged and no reply came (#1758)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(*answers)
+    refine_item(store, number, source=git_repo, confirm=True)
+
+    again = refine_item(store, number, source=git_repo, confirm=True)
+
+    assert (
+        [r.item.number for r in again.plan.refined_items],
+        model_fake.call_count,
+        _require_item(store, number).status,
+    ) == ([number], 2, status)
+
+
+@pytest.mark.parametrize("status", ["In Progress", "Done", "Blocked"])
+def test_an_item_named_with_item_that_refine_never_changes_has_nothing_to_do(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, status: str
+) -> None:
+    """`--item` on an item In Progress, Done or Blocked reports it with nothing to do and why,
+    and calls no model (#1758)."""
+    number = _seed_item(store, status, "P1-High")
+
+    plan = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
+
+    assert (
+        [(w.item.number, w.step, w.details) for w in plan.waiting_items],
+        model_fake.call_count,
+    ) == (
+        [(number, "none", (f"Status {status}: refine changes only open New and Ready items.",))],
+        0,
+    )
+
+
+def test_an_item_named_with_item_that_is_closed_has_nothing_to_do(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """`--item` on a closed issue reports it with nothing to do and calls no model (#1758)."""
+    number = _seed_item(store, "New", "P1-High")
+    store.as_actor("alice").close_by_hand(number, CloseReason.COMPLETED)
+
+    plan = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
+
+    assert (
+        [(w.item.number, w.step, w.details) for w in plan.waiting_items],
+        model_fake.call_count,
+    ) == ([(number, "none", ("The issue is closed: refine changes only open items.",))], 0)
+
+
+def test_the_report_groups_every_item_under_its_next_step(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, snapshot: SnapshotAssertion
+) -> None:
+    """The report lists each item under its next step, in the order refined to Ready, waiting on
+    a person, split proposed and blocked, with its details: the round that refines three of them,
+    then the round that refines the fourth and finds the three waiting (#1758)."""
+    _seed_waiting_items(store, model_fake)
+    _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+
+    rounds = [_refine_round(store, git_repo), _refine_round(store, git_repo)]
+
+    assert [render_refine_plan(plan) for plan in rounds] == snapshot
