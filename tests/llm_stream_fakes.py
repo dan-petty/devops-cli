@@ -2,7 +2,7 @@
 
 Streams are answered by httpx2's own `MockTransport`, so a reply is read through the same
 response, content decoders and event parser it would be against a real server, and no socket is
-opened. Hosts are `example.com`, as AGENTS.md requires of fixtures.
+opened. Hosts are `example.com`, as docs/TESTING.md requires of fixtures.
 """
 
 from __future__ import annotations

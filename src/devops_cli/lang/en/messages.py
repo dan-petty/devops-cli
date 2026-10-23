@@ -170,6 +170,10 @@ class AIMessages:
     cache_title: str = "LLM Response Cache Performance"
     cache_cleared: str = "Cleared {count} LLM response cache entries."
     generating_agents: str = "Generating {target} via LLM..."
+    agents_md_over_cap: str = (
+        "The model wrote {chars} characters, more than the AGENTS.md cap of {cap}. "
+        "The template router is written instead."
+    )
     written_file: str = "✓ Written: {path}"
     interactive_prompt_header: str = "devops ai chat ({provider} / {model})"
     interactive_prompt_help: str = "Type your message and press Enter. Ctrl+C or exit to quit.\n"

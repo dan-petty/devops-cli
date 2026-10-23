@@ -6,13 +6,20 @@ Thank you for your interest in contributing to DevOps CLI! This document outline
 
 ## 1. Development Philosophy & Core Invariants
 
-DevOps CLI follows an uncompromising quality-first, test-driven engineering culture defined in [`AGENTS.md`](AGENTS.md):
+These rules apply to every contributor. [`AGENTS.md`](AGENTS.md) sends agents here.
 
 - **Test-First Implementation (TDD)**: All features, fixes, and refactorings **must** have tests written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries.
 - **Complexity and Nesting Caps**:
   - Ruff caps cyclomatic complexity at 10 (`C901`) in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. `devops scan complexity` reports the same McCabe count and does not gate.
   - Maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide.
   - Decompose multi-step procedures into dedicated single-responsibility helpers and pure predicates.
+  - For a closed set of cases, use `match` with `assert_never`, or a table. Do not write an `if`/`elif` chain.
+- **Closed Lists and Standard Parsers**:
+  - Match a value against a list of strings only when the list covers a closed domain, such as one that an RFC or a language grammar defines.
+  - For an open domain, use a parser (`ast`, `tokenize`, `urllib.parse`, `ipaddress`, `packaging`) or an official registry, such as the Public Suffix List through `tldextract`.
+  - Declare each list, tuple or frozen set that matches, classifies or filters values in `src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py`.
+- **Names**: Name each file, module, class and function for its responsibility. Do not use a placeholder name, such as `temp_util.py`. Ruff `N` checks the form.
+- **Line Breaks Belong to Source Files**: Hard-wrap text only in source files and Markdown documents. Write emitted text (terminal messages, Rich renderables, log records, `lang/en/` strings) as continuous paragraphs. Split a long string in the source with implicit string concatenation.
 - **Strongly Typed Domain Exceptions**:
   - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`.
   - Raising bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) is strictly prohibited.
@@ -55,8 +62,8 @@ uv run pre-commit install
    uv run mypy path/to/modified.py
    uv run devops ci test tests/test_architectural_invariants.py
    ```
-4. **Run Comprehensive CI Quality Gate**:
-   Run the unified quality suite before committing:
+4. **Run the Gate Before a Push**:
+   The pre-push hook runs the full gate, and a push goes only when every check passes:
    ```bash
    uv run devops ci
    ```
@@ -94,6 +101,8 @@ uv run pre-commit install
 
   The other types (`docs`, `test`, `build`, `ci`, `style`, `chore`) add no line. Do not edit `CHANGELOG.md`: release-please writes it in its release pull request. [`RELEASE_CYCLE.md`](RELEASE_CYCLE.md) tells what happens after the merge.
 - **Commits on the Branch**: Commits on a topic branch also follow the Conventional Commits format. The squash merge replaces them with the title.
+- **Fail-to-Pass Evidence**: A fix pull request cites its `fail-to-pass` check run (`devops ci fail-to-pass --base <ref>`, `.github/workflows/fail-to-pass.yml`). Do not type failure counts by hand. The check fails a pull request whose replay could not run on the base: pytest stopped, did not start or wrote no complete JUnit report. Such a pull request declares `Fail-to-pass: not applicable: <reason>` in its body. A changed test that only fails to collect on the base counts as errored.
+- **Helper Scripts**: A committed helper script goes in `scripts/` as a PEP 723 file, and Ruff checks it. The pull request that adds the first script adds `scripts` to the mypy and Bandit targets. Scratch scripts stay untracked under `.data/agent/scratch/`.
 - **Documentation Synchronization**:
   Run documentation introspection after any command or option change:
   ```bash

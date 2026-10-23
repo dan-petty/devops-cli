@@ -4,7 +4,7 @@
 redirects and runs its request hooks exactly as it would against a real server. `ConnectRecorder`
 and `ScriptedResolver` sit one layer lower, at the socket: they stand in for httpcore2's dial and
 for `socket.getaddrinfo`, so a test sees which address a client dialled after which lookups.
-Hosts are `example.com`, as AGENTS.md requires of fixtures, and `example.org` where a second
+Hosts are `example.com`, as docs/TESTING.md requires of fixtures, and `example.org` where a second
 hostname is the point of the test.
 """
 

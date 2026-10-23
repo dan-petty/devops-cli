@@ -196,7 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(line, file=sys.stderr)
     if found:
         print(
-            f"\n{len(found)} nesting breach(es). AGENTS.md caps nesting depth at "
+            f"\n{len(found)} nesting breach(es). CONTRIBUTING.md caps nesting depth at "
             f"{args.max_depth}; decompose the block into a helper.",
             file=sys.stderr,
         )

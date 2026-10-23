@@ -24,7 +24,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 
 ### 5. Local Workstation vs Production Container Model
 - **Context**: Designed specifically for local DevOps workstations. Uses high timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`) for CPU/GPU Ollama, bind-mounts host `~/.ssh` into `.devcontainer` for key rotation and SSH agent usage, and uses OS keyring for secret isolation. Direct bind mounts of host SSH configuration serve developer convenience in local dev environments.
-- **Mitigation**: Defer to Environment & Modernization Policy in `AGENTS.md`. High workstation timeouts and host SSH mounts are accepted design trade-offs for local devcontainers.
+- **Mitigation**: High workstation timeouts and host SSH mounts are accepted design trade-offs for local devcontainers.
 
 ### 6. GitHub SSH Host Key Pinning & OpenSSH Native Verification
 - **Context**: GitHub's published OpenSSH host keys (`CONST_GITHUB_KNOWN_HOSTS_LINES`) are written directly to `~/.ssh/known_hosts` on clone operations, allowing OpenSSH to natively verify host keys against pinned values rather than performing dynamic network scans.

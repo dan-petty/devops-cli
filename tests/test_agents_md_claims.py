@@ -15,9 +15,14 @@ from devops_cli.ai.instruction_generator import (
     POINTER_STUBS,
     generate_instruction_content,
     parse_project_metadata,
+    scaffold_agent_instructions,
 )
 from devops_cli.ai.personas import Persona
-from devops_cli.config.constants import CONST_AGENTS_MD_MAX_CHARS
+from devops_cli.config.constants import (
+    CONST_AGENTS_MD_MAX_CHARS,
+    CONST_AGENTS_MD_ROUTES,
+    CONST_DELETED_PROCESS_TERMS,
+)
 from tests.support.paths import REPO_ROOT
 
 
@@ -106,12 +111,80 @@ def test_the_canonical_source_note_links_every_pointer_stub() -> None:
         assert [stub for stub in POINTER_STUBS if f"[{stub}](./{stub})" not in note] == []
 
 
-def test_agents_md_stays_within_character_budget() -> None:
-    """AGENTS.md must fit within the context budget constant, which cannot exceed 40,000 chars."""
+def _scaffold_with_every_routed_document(root: Path) -> Path:
+    """A project that holds every document a generated AGENTS.md can route to, scaffolded."""
+    for path, _task in CONST_AGENTS_MD_ROUTES:
+        target = root / path
+        if path.endswith("/"):
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# Document\n", encoding="utf-8")
+    scaffold_agent_instructions(root)
+    return root / "AGENTS.md"
+
+
+def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
+    """AGENTS.md is a router that every agent reads in full, so it, and the AGENTS.md that
+    `devops ai agents` writes with every routed document, fit a cap of at most 6,500 characters
+    (#1961)."""
+    generated = _scaffold_with_every_routed_document(tmp_path).read_text(encoding="utf-8")
     assert (
-        CONST_AGENTS_MD_MAX_CHARS <= 40_000,
+        CONST_AGENTS_MD_MAX_CHARS <= 6_500,
         len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
-    ) == (True, True)
+        len(generated) <= CONST_AGENTS_MD_MAX_CHARS,
+    ) == (True, True, True)
+
+
+def _inline_hrefs(text: str) -> list[str]:
+    """The target of every link in a fragment of Markdown, such as the text of a table cell."""
+    return [
+        str(token.attrs["href"])
+        for block in _MARKDOWN.parse(text)
+        for token in block.children or ()
+        if token.type == "link_open"
+    ]
+
+
+def _routes(document: Path) -> list[list[str]]:
+    """The body rows of the routing table of an AGENTS.md: the kind of task, then what to read."""
+    [rows] = [rows for header, *rows in _tables(document) if header == ["When you", "Read"]]
+    return rows
+
+
+def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
+    """Each row of the routing table of AGENTS.md links a document, and each document it links
+    exists, so a moved document fails here rather than in an agent's session (#1961)."""
+    rows = _routes(_AGENTS_MD)
+    links = {task: _inline_hrefs(read) for task, read in rows}
+    assert (
+        len(rows) >= 10,
+        [task for task, hrefs in links.items() if not hrefs],
+        [
+            href
+            for hrefs in links.values()
+            for href in hrefs
+            if not (_AGENTS_MD.parent / unquote(urlsplit(href).path)).exists()
+        ],
+    ) == (True, [], [])
+
+
+def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:
+    """`devops ai agents` writes a table row only for a routed document that exists in the
+    target, and every link of the document resolves, with all routed documents present and with
+    none (#1961)."""
+    full = _scaffold_with_every_routed_document(tmp_path / "full")
+    bare_root = tmp_path / "bare"
+    bare_root.mkdir()
+    scaffold_agent_instructions(bare_root)
+    bare = bare_root / "AGENTS.md"
+
+    assert (
+        _broken_links(full),
+        len(_routes(full)),
+        _broken_links(bare),
+        [task for task, _read in _routes(bare)],
+    ) == ([], len(CONST_AGENTS_MD_ROUTES) + 1, [], ["learn a `devops` command"])
 
 
 # ── The test conventions and the documents that point to them (#1308) ───────────────────────
@@ -228,10 +301,74 @@ def test_a_link_to_a_missing_file_or_heading_is_broken(tmp_path: Path) -> None:
     assert _broken_links(document) == ["missing.md", "other.md#gone", "#nowhere"]
 
 
-def test_agents_md_lists_the_openspec_row_in_the_ci_suite() -> None:
-    """The one place AGENTS.md names the rows of the gate ends with the row this step adds."""
-    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "actionlint, docs, deps, openspec)." in agents
+def test_the_gate_list_of_the_sdlc_names_the_openspec_row() -> None:
+    """docs/SDLC.md, the document AGENTS.md routes the gate to, lists the `openspec` row as the
+    last check that `devops ci` runs."""
+    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
+    assert "14. `openspec`: Runs `devops openspec check`" in sdlc
+
+
+# ── No agent instruction names a deleted process (#1961) ─────────────────────────────────────
+
+_AGENTS_MD = REPO_ROOT / "AGENTS.md"
+# The files that instruct an agent: AGENTS.md and its pointer stubs, the documents it routes
+# work to, the model prompts, the personas and the knowledge base. Decision records, the glossary
+# and the records of past review sessions are not instructions, so they are out of scope.
+_AGENT_INSTRUCTION_GLOBS = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md",
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/*.yml",
+    ".devops/review.md",
+    "ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "RELEASE_CYCLE.md",
+    "SECURITY.md",
+    "docs/ROUTINE_TASKS.md",
+    "docs/SDLC.md",
+    "docs/TESTING.md",
+    "docs/agent/README.md",
+    "docs/agent/tasks/README.md",
+    "k8s/README.md",
+    "openspec/config.yaml",
+    "src/devops_cli/ai/knowledge_base/**/*.md",
+    "src/devops_cli/ai/personas/**/*.md",
+    "src/devops_cli/ai/prompts/**/*.md",
+    "src/devops_cli/ai/tasks/**/*.md",
+)
+
+
+def _deleted_process_names(texts: dict[str, str]) -> dict[str, list[str]]:
+    """Each text that names a deleted process, with the names it holds."""
+    return {
+        name: found
+        for name, text in texts.items()
+        if (found := [term for term in CONST_DELETED_PROCESS_TERMS if term in text])
+    }
+
+
+def test_no_agent_instruction_names_a_deleted_process(tmp_path: Path) -> None:
+    """An instruction that names a release branch, the cut, a changelog fragment, the planner or
+    the filing quota sends an agent into a process that no longer exists. No agent instruction,
+    and no AGENTS.md that `devops ai agents` writes, names one."""
+    paths = sorted({path for glob in _AGENT_INSTRUCTION_GLOBS for path in REPO_ROOT.glob(glob)})
+    texts = {str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8") for path in paths}
+    generated = _scaffold_with_every_routed_document(tmp_path)
+    texts["generated AGENTS.md"] = generated.read_text(encoding="utf-8")
+
+    assert (len(paths) > 100, _deleted_process_names(texts)) == (True, {})
+
+
+def test_a_text_that_names_a_deleted_process_is_reported() -> None:
+    """Negative control: the check names each deleted process a text holds, and passes a text
+    that names only the processes in use."""
+    texts = {
+        "old.md": "Open the pull request against the release branch, then run the cut.",
+        "new.md": "Open the pull request into `main`. release-please makes the release.",
+    }
+    assert _deleted_process_names(texts) == {"old.md": ["release branch", "the cut"]}
 
 
 # ── The release page and the changelog types the contributor guide names ────────────────────

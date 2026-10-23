@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.instruction_generator import DEFAULT_AGENT_FILES
+from devops_cli.ai.instruction_generator import DEFAULT_AGENT_FILES, ProjectMetadata
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
@@ -34,6 +34,7 @@ from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_AGENTS_MD_MAX_CHARS,
     CONST_AI_PROVIDER_IDS,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
@@ -179,10 +180,15 @@ def ai_main(
 _AI_TASKS = ("chat", "metadata", "analysis", "embedding")
 
 
-def _get_agents_task_addendum() -> str:
+def _get_agents_task_addendum(meta: ProjectMetadata) -> str:
+    """The AGENTS.md task: the size cap, and the documents that exist for the table to route to."""
     from devops_cli.ai.task_loader import load_task_prompt
 
-    return "\n" + load_task_prompt("generate_agents.md")
+    documents = ", ".join(f"`{path}`" for path in meta.routed_documents) or "none"
+    task = load_task_prompt("generate_agents.md")
+    return "\n" + task.replace("{documents}", documents).replace(
+        "{max_chars}", str(CONST_AGENTS_MD_MAX_CHARS)
+    )
 
 
 # =============================================================================
@@ -305,46 +311,14 @@ def _collect_project_context(repo: Path) -> str:
 
 
 def _agent_prompt(context: str, target_file: str) -> str:
+    """The project context for the model, with retrieved architecture context when RAG has it."""
     rag_info = _try_retrieve_rag_context(
         f"project architecture design guidelines coding standards {target_file}",
         persona="architect",
         top_k=3,
     )
     rag_block = f"\n\n### Grounding Architectural Context:\n{rag_info}\n" if rag_info else ""
-    return (
-        f"Generate the contents of `{target_file}` for this project.\n\n"
-        "The file must help AI coding assistants understand the project and work effectively.\n"
-        "Include: project purpose, architecture overview, build/test/lint commands, "
-        "code conventions, important file paths, security notes, and any non-obvious patterns.\n\n"
-        f"{context}"
-        f"{rag_block}"
-    )
-
-
-def _template_content(target_file: str, context_summary: dict[str, str] | Any) -> str:
-    """Fallback template when no LLM is configured."""
-    from devops_cli.ai.instruction_generator import (
-        ProjectMetadata,
-        generate_instruction_content,
-    )
-
-    if isinstance(context_summary, ProjectMetadata):
-        meta = context_summary
-    else:
-        meta = ProjectMetadata(
-            name=context_summary.get("name", "Project"),
-            description=context_summary.get("description", ""),
-            requires_python=context_summary.get("requires_python", ">=3.14"),
-            entry_point=context_summary.get("entry_point", ""),
-        )
-    return generate_instruction_content(target_file, meta)
-
-
-def _parse_pyproject(repo: Path) -> Any:
-    """Extract structured fields from pyproject.toml and repo context."""
-    from devops_cli.ai.instruction_generator import parse_project_metadata
-
-    return parse_project_metadata(repo)
+    return f"{context}{rag_block}"
 
 
 # =============================================================================
@@ -871,12 +845,13 @@ def _write_stubs(repo: Path, stubs: list[str]) -> list[Path]:
 def _generate_agents_content(repo: Path, template: bool) -> str:
     """Generate AGENTS.md content via LLM or fallback template."""
     from devops_cli.ai.client import get_llm_client
+    from devops_cli.ai.instruction_generator import generate_agents_md, parse_project_metadata
     from devops_cli.config.settings import load_settings
     from devops_cli.lang import MESSAGES
 
-    meta = _parse_pyproject(repo)
+    meta = parse_project_metadata(repo)
     if template:
-        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+        return generate_agents_md(meta)
 
     settings = load_settings()
     try:
@@ -884,7 +859,7 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
         context = _collect_project_context(repo)
     except Exception as exc:
         print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
-        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+        return generate_agents_md(meta)
 
     from devops_cli.ai.personas import PERSONAS, Persona
 
@@ -892,13 +867,20 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
         MESSAGES.ai.generating_agents.format(target=f"[cyan]{CONST_AGENTS_MD_FILENAME}[/cyan]"),
         prefix=False,
     )
-    system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum()
+    system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum(meta)
     try:
-        return client.chat(system=system, user=_agent_prompt(context, CONST_AGENTS_MD_FILENAME))
+        content = client.chat(system=system, user=_agent_prompt(context, CONST_AGENTS_MD_FILENAME))
     except Exception as exc:
         msg = MESSAGES.messages.llm_failed_template_fallback.format(exc=exc)
         print_warning(msg, prefix=False)
-        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+        return generate_agents_md(meta)
+    if len(content) > CONST_AGENTS_MD_MAX_CHARS:
+        msg = MESSAGES.ai.agents_md_over_cap.format(
+            chars=len(content), cap=CONST_AGENTS_MD_MAX_CHARS
+        )
+        print_warning(msg, prefix=False)
+        return generate_agents_md(meta)
+    return content
 
 
 @app.command()

@@ -138,8 +138,9 @@ feedback loop that changes what it does once the defects are gone:
    interfaces complete docstrings and type hints. The agent also brings tests to the conventions in
    [`docs/TESTING.md`](TESTING.md).
 3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
-   idea becomes an issue (`devops gh issues create`), and a check that fails when the problem
-   returns guards it. A rule goes into [`AGENTS.md`](../AGENTS.md) only when no check is possible.
+   idea becomes an issue through intake (`devops roadmap intake`), and a check that fails when
+   the problem returns guards it. A rule goes into the document that owns its subject only when
+   no check is possible; [`AGENTS.md`](../AGENTS.md) routes each subject to its document.
    The roadmap lives on GitHub, never in a document
    ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
 

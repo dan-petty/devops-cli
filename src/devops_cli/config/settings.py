@@ -1173,7 +1173,7 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     reset_settings_cache()
 
 
-# NOTE (Design Justification - AGENTS.md §4): Every credential resolves through the single
+# NOTE (Design Justification - SECURITY.md, principle 1): Every credential resolves through the single
 # provider chain in `devops_cli.security.secrets`, which walks OS keyring -> Vault ->
 # environment -> configuration in that fixed order and records an audit entry naming the
 # provider that answered (never the value). Environment variables remain an intentional

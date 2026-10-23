@@ -1,0 +1,11 @@
+# {{ title }}
+
+{% if import_line %}
+{{ import_line }}
+
+{% endif %}
+> **This file is a pointer, not the source.** {{ tool_name }} looks specifically for
+> `{{ filename }}`, so this stub exists to redirect it. [AGENTS.md]({{ canonical_relpath }})
+> holds the rules for every task and routes each task to the document that owns it. Read
+> that file. `devops ai agents` regenerates this stub and leaves an existing AGENTS.md alone
+> unless `--force` is given; do not duplicate content here.

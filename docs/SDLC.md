@@ -45,7 +45,7 @@ sequenceDiagram
     participant CI as GitHub Actions CI
     participant Rel as release-please
 
-    Dev->>Plan: Author RFC / implementation_plan.md & file candidates via devops roadmap intake
+    Dev->>Plan: Plan the change as an OpenSpec change & file candidates via devops roadmap intake
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
     Dev->>Gate: Execute devops ci (Gated CI quality checks & >=90% coverage)
@@ -67,19 +67,14 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 
 #### Operational Requirements
 1. **Planning Artifacts**:
-   - For multi-step or architectural modifications, author an `implementation_plan.md` in the agent artifacts tier (`.data/agent/brain/<plan-name>/`) or documentation RFC.
-   - Outline problem motivation, architectural diagrams, component impacts, and proposed file modifications categorized with `[NEW]`, `[MODIFY]`, or `[DELETE]` annotations.
+   - Plan a multi-step or architectural change as an OpenSpec change ([`openspec/config.yaml`](../openspec/config.yaml), [ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 2. **Roadmap & Backlog Synchronization**:
    - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog. Never set a milestone or priority on a new issue: a person plans the milestones on the board.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Milestones Are Planning Buckets**:
    - A person groups items into milestones on the GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`). A milestone never names a version, and no release reads one.
-4. **Transparent Task Status Tracking**:
-   - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
-     - **Backlog / Ready**: Queued deliverables and scoped milestones.
-     - **In Progress (WIP)**: Active focus items and files currently under modification.
-     - **In Review / Done**: Pull requests in review and verified implementations.
-   - Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`).
+4. **Status Lives on GitHub**:
+   - The project board holds the Status of each item (ADR 0001), and GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and the Issues views (`https://github.com/dan-petty/devops-cli/issues/views`) show it. A task file holds no status ([`docs/agent/tasks/README.md`](agent/tasks/README.md)).
 5. **Topic Branch Creation**:
    - Fetch the remote (`git fetch origin`).
    - Create an isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/main`.
@@ -188,7 +183,7 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
 - `devops-ci-test-changed`: Runs targeted test suite covering staged files.
-- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint` and `zizmor`) before pushes. The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged.
+- Pre-push `devops ci` gate: Runs every check of `devops ci` (including `actionlint` and `zizmor`) before a push, as the next section describes.
 
 #### The Primary CI Verification Gate (`devops ci`)
 The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged. The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
@@ -261,7 +256,7 @@ gitGraph
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
-- **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request. Agents do not open, edit, update, review, comment on or merge it.
+- **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. The `Semantic PR title` check enforces the PR title. The squash commit takes the title, and release-please writes it as the changelog line ([`CONTRIBUTING.md`](../CONTRIBUTING.md) lists the types that add a line).
   - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects.
@@ -285,6 +280,7 @@ gitGraph
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
   - When multiple open PRs exist across the repository, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
   - Remediating review comments, fixing CI failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs to eliminate cascading merge conflicts, branch divergence, and PR starvation.
+  - Process only your own pull requests.
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
   - **Stage 1 (Draft)**: Every pull request opens as a draft: `devops pr create` always opens one. CI checks are monitored on every push.
   - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`), the only path to ready.
@@ -338,7 +334,7 @@ flowchart TD
 | **Deployment Frequency (DF)** | Rate of successful releases | A person decides when to release | GitHub Releases tag frequency (`v<version>`) |
 | **Lead Time for Changes (LT)** | Time from commit creation to release tag | $< 48$ hours | Git commit timestamp to GitHub Release event |
 | **Change Failure Rate (CFR)** | Percentage of releases requiring a regression fix | $< 5\%$ | Releases that needed a regression fix, divided by all releases |
-| **Mean Time to Recovery (MTTR)** | Time to resolve pipeline or release defects | $< 2$ hours | GitHub Issue / Hotfix PR lifecycle duration |
+| **Mean Time to Recovery (MTTR)** | Time to resolve pipeline or release defects | $< 2$ hours | GitHub issue and critical-fix pull request duration |
 
 ---
 
@@ -346,7 +342,7 @@ flowchart TD
 
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
-| **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, the project board | Clear backlog categorization (Pending, WIP, Done) |
+| **1. Inception** | Planning | The issue and its OpenSpec change | The issue is on the board |
 | **2. Specification** | Test-First Authoring | `uv run devops ci test tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
@@ -365,4 +361,4 @@ flowchart TD
 - **Vision & Principles**: [`docs/VISION.md`](VISION.md)
 - **Contributing Guidelines**: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Enterprise Security Policy**: [`SECURITY.md`](../SECURITY.md)
-- **AI Agent Instructions & Invariants**: [`AGENTS.md`](../AGENTS.md)
+- **AI Agent Rules & Routing**: [`AGENTS.md`](../AGENTS.md)

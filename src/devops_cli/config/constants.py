@@ -150,7 +150,50 @@ CONST_SETTINGS_CACHE_SETTLE_SECONDS: Final[float] = 2.0
 CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
-CONST_AGENTS_MD_MAX_CHARS: Final[int] = 40_000
+# AGENTS.md is a router: the rules every task needs and a table of the documents that own the
+# rest (#1961). Every agent reads it in full at the start of each session, so it stays short.
+CONST_AGENTS_MD_MAX_CHARS: Final[int] = 6_500
+# The documents a generated AGENTS.md can route to, each with the kind of task it owns, in the
+# order of its table. `devops ai agents` writes a row only for a path that exists in the target.
+CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (
+    ("README.md", "learn what the project does and how to run it"),
+    ("CONTRIBUTING.md", "set up, name a branch, write a pull request title, run one check"),
+    ("docs/TESTING.md", "write or change a test"),
+    ("ARCHITECTURE.md", "change the structure of the code"),
+    ("SECURITY.md", "handle secrets, network egress or a vulnerability report"),
+    ("CONTEXT.md", "use a project term"),
+    ("docs/adr/", "need the reason for a decision"),
+    ("openspec/config.yaml", "plan a change with OpenSpec"),
+    (".github/ISSUE_TEMPLATE/", "file an issue"),
+    (".github/pull_request_template.md", "write a pull request body"),
+    (".devops/review.md", "run a review: what it must not flag"),
+    (".devops/review.toml", "suppress a review finding"),
+    ("k8s/README.md", "change a manifest or the cluster"),
+)
+# The names of the processes that #1952, ADR 0013 and #1959 deleted: release branches and the
+# cut, changelog fragments, the `Part of` rule, the roadmap planner and its document, the
+# `devops release` commands and the agent filing quota. No agent instruction names one (#1961).
+CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
+    "release branch",
+    "`release/",
+    "release/*",
+    "release/v",
+    "the cut",
+    "cut PR",
+    "changelog fragment",
+    "changelog.d",
+    "towncrier",
+    "Part of #",
+    "roadmap reprioritize",
+    "roadmap close",
+    "roadmap render",
+    "roadmap migrate",
+    "docs/ROADMAP.md",
+    "devops release",
+    "filing quota",
+    "budget/borrowed",
+    "#1153",
+)
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
 CONST_UV_LOCK_FILENAME = "uv.lock"
 # The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
@@ -159,6 +202,8 @@ CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", "package-lock
 # Where the tools lock and its Node tools' directories sit in a checkout, from its root.
 CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
+# The pre-commit stage of the hooks that run on `git push`.
+CONST_PRE_COMMIT_PRE_PUSH_STAGE: Final[str] = "pre-push"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_CURRENT_DIR = Path(".")

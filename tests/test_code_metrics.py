@@ -32,7 +32,7 @@ def _write(tmp_path: Path, name: str, source: str) -> Path:
 
 
 def test_deep_nesting_fails_the_commit(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """AGENTS.md caps nesting at 5, and the tree satisfies it, so the hook holds the line."""
+    """CONTRIBUTING.md caps nesting at 5, and the tree satisfies it, so the hook holds the line."""
     module = _write(tmp_path, "deep.py", _nested_ifs(7))
 
     status = main(["--max-depth", "5", str(module)])

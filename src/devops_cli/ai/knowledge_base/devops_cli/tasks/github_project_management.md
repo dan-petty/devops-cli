@@ -131,17 +131,16 @@ devops gh milestones list
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).
    - New feature or defect issues enter through intake (`devops roadmap intake --title … --body-file … --confirm`), which sets their Priority and puts them in the backlog; nobody sets a milestone or priority on a new issue by hand.
    - Regularly execute `devops gh issues triage` to catch issues missing labels, and `devops roadmap intake` for those awaiting intake.
-3. **Mandatory GitHub Projects v2 Session Bootstrap & Task-to-Issue Grounding**:
-   - At the beginning of every session or upon receiving any user task, AI agents must inspect board status via `devops gh project status` (or FastMCP `gh_project_status`) and triage health via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
+3. **Task-to-Issue Grounding**:
    - Ground every user task to a corresponding GitHub Issue and Project Item.
-   - If an open issue exists: verify its taxonomy labels, and transition its project card to `In Progress` prior to authoring code edits.
+   - If an open issue exists: verify its taxonomy labels. `devops gh project sync` moves the card to In Progress when a draft pull request is open.
     - Without a matching issue: file the task as a candidate with `devops roadmap intake --title … --body-file … --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); intake files it unless it is a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog.
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
    - Issue cards on the board progress across canonical lifecycle states (status lives on GitHub per ADR 0001; task files carry no status and are written only by the delivering PR):
      - `Backlog`: Queued items that a person has not yet planned into a milestone.
      - `Ready`: Scoped items with concrete acceptance criteria and tests designed.
-     - `In Progress (WIP)`: Active implementation. **Move card to `In Progress` BEFORE making code edits in `src/`**.
+     - `In Progress (WIP)`: Active implementation. `devops gh project sync` sets it when a draft pull request is open.
      - `In Review`: Pull Request opened with automated review and CI checks running.
      - `Done`: PR squash-merged, remote CI checks green, and issue closed.
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
@@ -152,7 +151,7 @@ devops gh milestones list
    - `devops gh project reconcile --plan` lists every change with its old and new value and the source that decided it; `--dry-run` makes no request and lists the requests a run makes. A planned value the board's field has no option for is refused before any write, naming the value and the options. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1; running it again continues from there, after the reset for a quota stop and once the cause is fixed for a failed write.
    - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep the cards' fields up to date.
 6. **Strict Remote Branch Lifecycle & PR Governance**:
-   - **Sequential PR Processing (Oldest to Newest / FIFO)**: When multiple open PRs exist across the repository, AI agents MUST process and shepherd PRs in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs. Process only your own PRs. Skip the release-please PR: agents do not touch it.
+   - **Sequential PR Processing**: Process pull requests as [`docs/SDLC.md`](../../../../../../docs/SDLC.md), Phase 6, says.
    - Every remote topic branch on `origin` must have an associated open PR targeting `main`, which `devops pr create` opens as a draft.
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.
@@ -179,12 +178,12 @@ AI coding agents have native access to GitHub project management through the Fas
 
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
-- **Issues**: `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`
+- **Issues**: `gh_issues_list`, `gh_issues_create`, `gh_issues_edit`, `gh_issues_triage`, `gh_issues_status`
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`, `gh_project_reconcile` (`mode="plan"` by default; `"write"` makes the changes and `"dry-run"` makes no request)
-- **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
-- **Milestones**: `gh_milestone_list`, `gh_milestone_close`
-- **Roadmap**: `roadmap_intake` (`"confirm"` writes): its `mode` default, `"plan"`, reads GitHub and writes nothing, and its `"dry-run"` makes no request
-- **Labels**: `gh_label_list`, `gh_label_sync`
+- **Views**: `gh_views_audit`, `gh_views_sync`, `gh_views_spec`
+- **Milestones**: `gh_milestones_list`, `gh_milestones_close`, `gh_milestones_edit`. A person closes and edits milestones.
+- **Roadmap**: `roadmap_intake` (`"confirm"` writes): its `mode` default, `"plan"`, reads GitHub and writes nothing, and its `"dry-run"` makes no request. An agent files a new issue through `roadmap_intake`, not `gh_issues_create`.
+- **Labels**: `gh_labels_list`, `gh_labels_sync`
 
 ### Registered Dynamic System Resources
 - `resource://gh/pages/status`: Real-time GitHub Pages publishing status and build health.

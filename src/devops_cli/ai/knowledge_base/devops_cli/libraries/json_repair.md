@@ -38,7 +38,7 @@ In `devops-cli`:
 | :--- | :--- | :--- | :--- |
 | **`json-repair`** | Lightning-fast token-based repairing, repairs unclosed brackets, missing quotes, single quotes, trailing commas, returns dict or valid JSON string. | Focused strictly on JSON format repair. | **Selected**: Zero dependencies, extremely resilient against real-world LLM truncation artifacts. |
 | **`json`** (Stdlib) | Built into standard library. | Fails immediately on any syntax error with `json.decoder.JSONDecodeError`, zero repair capability. | Rejected: Causes review pipeline crashes on truncated model streams. |
-| **Regex String Slicers** | Ad-hoc string manipulation. | Brittle, fails on nested structures, introduces arbitrary data corruption. | Rejected: Violates the zero-boilerplate and robust parser standards in `AGENTS.md`. |
+| **Regex String Slicers** | Ad-hoc string manipulation. | Brittle, fails on nested structures, introduces arbitrary data corruption. | Rejected: Violates the standard-parser rule in `CONTRIBUTING.md`. |
 | **`dirtyjson`** | Lenient JSON parser. | Unmaintained, does not handle truncated LLM streams cleanly. | Rejected: Slower and less reliable than `json-repair`. |
 
 ---

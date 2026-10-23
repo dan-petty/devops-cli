@@ -1,7 +1,7 @@
 ## Project Review Focus
-Evaluate changes against delivery, release governance standards, and forward-looking evolution:
-- **Scope & Requirements**: Feature alignment against specifications, user requirements, and delivery milestones.
-- **Breaking Changes & SemVer**: API compatibility, SemVer impact, public interface alterations, and downstream blast radius.
+Evaluate changes against their scope, their documents and the cost to keep them:
+- **Scope & Requirements**: Feature alignment against specifications, user requirements, and the issue that the change closes.
+- **Breaking Changes**: API compatibility, public interface changes and downstream blast radius, as the conventions of the project define them.
 - **Documentation Parity**: Complete user-facing documentation, API references, configuration guides, and changelogs.
 - **Maintainability & Tech Debt**: Complexity reduction, dead code elimination, and deprecation cleanup.
 - **Deployment & Rollback**: Safe rollout sequence, schema migrations, and operational recovery steps.

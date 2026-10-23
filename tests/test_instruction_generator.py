@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,7 +12,6 @@ from typer.testing import CliRunner
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
 
-import devops_cli
 from devops_cli.ai.instruction_generator import (
     CONST_CLAUDE_MD_FILENAME,
     CONST_COPILOT_INSTRUCTIONS_PATH,
@@ -25,7 +25,14 @@ from devops_cli.ai.instruction_generator import (
 )
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.devcontainer import app as devcontainer_app
-from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
+from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
+    CONST_AGENTS_MD_MAX_CHARS,
+    CONST_AGENTS_MD_ROUTES,
+    CONST_DELETED_PROCESS_TERMS,
+)
+from devops_cli.config.defaults import DEFAULT_AGENTS_MD_CHECK_COMMANDS
+from tests.support.paths import REPO_ROOT
 
 
 @pytest.fixture
@@ -59,7 +66,6 @@ dev = ["pytest>=8.0.0", "ruff>=0.9.0"]
     assert "sample-service" in meta.entry_point
     assert "fastapi>=0.110.0" in meta.dependencies
     assert "pytest>=8.0.0" in meta.dev_dependencies
-    assert not meta.is_devops_cli
 
 
 def test_parse_project_metadata_fallback_when_no_pyproject(tmp_path: Path) -> None:
@@ -71,66 +77,39 @@ def test_parse_project_metadata_fallback_when_no_pyproject(tmp_path: Path) -> No
 
 
 def test_generate_pointer_stub() -> None:
-    """Verify pointer stubs correctly direct tools to canonical AGENTS.md."""
-    claude_stub_generic = generate_pointer_stub(
+    """Verify each pointer stub sends its tool to the router AGENTS.md and repeats none of it."""
+    claude_stub = generate_pointer_stub(
         title="Sample — Claude Instructions",
         tool_name="Claude Code",
         filename="CLAUDE.md",
         canonical_relpath="./AGENTS.md",
         import_line="@AGENTS.md",
-        is_devops_cli=False,
     )
-    assert (
-        "# Sample — Claude Instructions" in claude_stub_generic,
-        "Claude Code" in claude_stub_generic,
-        "@AGENTS.md" in claude_stub_generic,
-        "[AGENTS.md](./AGENTS.md)" in claude_stub_generic,
-        "devops ai agents" in claude_stub_generic,
-        "Pre-1.0 Alpha Notice" not in claude_stub_generic,
-    ) == (True, True, True, True, True, True)
-
-    claude_stub_devops = generate_pointer_stub(
-        title="devops-cli — Claude Instructions",
-        tool_name="Claude Code",
-        filename="CLAUDE.md",
-        canonical_relpath="./AGENTS.md",
-        import_line="@AGENTS.md",
-        is_devops_cli=True,
-    )
-    assert (
-        "@AGENTS.md" in claude_stub_devops,
-        "Pre-1.0 Alpha Notice" in claude_stub_devops,
-        "alpha software prior to release" in claude_stub_devops,
-        "no backwards compatibility guarantees" in claude_stub_devops,
-        "Semantic Versioning" in claude_stub_devops,
-    ) == (True, True, True, True, True)
-
-    gemini_stub_generic = generate_pointer_stub(
+    gemini_stub = generate_pointer_stub(
         title="Sample — Gemini CLI Instructions",
         tool_name="Gemini CLI",
         filename=CONST_GEMINI_MD_FILENAME,
         canonical_relpath="./AGENTS.md",
         import_line="@./AGENTS.md",
-        is_devops_cli=False,
     )
     assert (
-        "# Sample — Gemini CLI Instructions" in gemini_stub_generic,
-        "Gemini CLI looks specifically for\n> `GEMINI.md`" in gemini_stub_generic,
-        "\n@./AGENTS.md\n" in gemini_stub_generic,
-        "\n@AGENTS.md\n" not in gemini_stub_generic,
-        "[AGENTS.md](./AGENTS.md)" in gemini_stub_generic,
-        "Pre-1.0 Alpha Notice" not in gemini_stub_generic,
-    ) == (True, True, True, True, True, True)
+        "# Sample — Claude Instructions" in claude_stub,
+        "\n@AGENTS.md\n" in claude_stub,
+        "[AGENTS.md](./AGENTS.md)" in claude_stub,
+        "holds the rules for every task" in claude_stub,
+        "devops ai agents" in claude_stub,
+        "# Sample — Gemini CLI Instructions" in gemini_stub,
+        "Gemini CLI looks specifically for\n> `GEMINI.md`" in gemini_stub,
+        "\n@./AGENTS.md\n" in gemini_stub,
+        "\n@AGENTS.md\n" not in gemini_stub,
+    ) == (True, True, True, True, True, True, True, True, True)
 
-    gemini_stub_devops = generate_pointer_stub(
-        title="devops-cli — Gemini CLI Instructions",
-        tool_name="Gemini CLI",
-        filename=CONST_GEMINI_MD_FILENAME,
-        canonical_relpath="./AGENTS.md",
-        import_line="@./AGENTS.md",
-        is_devops_cli=True,
-    )
-    assert "Pre-1.0 Alpha Notice" in gemini_stub_devops
+    # The stub says to duplicate nothing, so it holds no rule of its own.
+    assert [
+        needle
+        for needle in ("Pre-1.0 Alpha Notice", "Semantic Versioning", "All actual instructions")
+        if needle in claude_stub + gemini_stub
+    ] == []
 
     # Negative control: a stub whose tool reads no import line carries none.
     stub_without_import = generate_pointer_stub(
@@ -138,7 +117,6 @@ def test_generate_pointer_stub() -> None:
         tool_name="GitHub Copilot",
         filename=CONST_COPILOT_INSTRUCTIONS_PATH,
         canonical_relpath="../AGENTS.md",
-        is_devops_cli=False,
     )
     assert (
         [line for line in stub_without_import.splitlines() if line.startswith("@")],
@@ -196,56 +174,84 @@ def test_instruction_content_for_a_stub_path_ignores_a_leading_dot_slash() -> No
     ]
 
 
-def test_generate_agents_md_contains_required_sections() -> None:
-    """Verify generated AGENTS.md has standard sections and clean formatting."""
-    meta = ProjectMetadata(
-        name="devops-cli",
-        description="Workstation automation scripts",
-        version="0.1.0",
-        requires_python=">=3.14",
-        entry_point="devops (devops_cli.main:app)",
-        has_devcontainer=True,
-        is_devops_cli=True,
+def test_generated_agents_md_is_a_router(tmp_path: Path) -> None:
+    """Verify the generated AGENTS.md holds the purpose, the rules for every task and a table
+    that routes each kind of task to a document, within the size cap (#1961)."""
+    (tmp_path / "CONTRIBUTING.md").write_text("# Contributing\n", encoding="utf-8")
+    meta = parse_project_metadata(tmp_path).model_copy(
+        update={
+            "name": "sample-project",
+            "description": "Workstation automation scripts",
+            "entry_point": "sample (sample.main:app)",
+        }
     )
     content = generate_agents_md(meta)
+    headings = [line for line in content.splitlines() if line.startswith("#")]
 
-    assert "# devops-cli — AI Agent Instructions & Engineering Best Practices" in content
-    assert "Canonical Source" in content
-    assert "## 1. Project Overview & Architecture" in content
-    assert "## 2. Core Engineering Philosophy & Best Practices" in content
-    assert "## 3. Build, Lint & Test Commands" in content
-    assert "## 4. Git Hygiene & Branch Management" in content
-    assert "uv sync" in content
-    assert "uv run pytest" in content
-    assert "uv run ruff check" in content
-    assert "uv run mypy src" in content
-    assert "DevContainer Environment" in content
-    assert "GitHub Projects, Issues & Views Governance" in content
-    assert "devops gh rate-limit" in content
-    assert "Sequential Pull Request Processing (Oldest to Newest / FIFO)" in content
-    assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" in content
-    assert "Clean Solutions Over Legacy Remnants (Zero Zombie Code)" in content
-    assert "GraphQL queries to targeted REST endpoints" in content
-    assert "exponential backoff with random jitter" in content
-    assert "AI Inference Rate Limit & Token Budget Management" in content
-    assert "Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM" in content
-    assert "asyncio.Semaphore(5)" in content
-    assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
-    assert "<storage-node>" in content
-    assert "Mandatory Third-Party Telemetry & Phone-Home Opt-Outs" in content
-    assert "Strict Opt-Out of Non-Functional Third-Party Telemetry" in content
-    assert "Confirmation Required for Functional Web Integrations" in content
-
-    # Verify external/generic project AGENTS.md omits pre-1.0 alpha lifecycle block
-    meta_generic = ProjectMetadata(
-        name="external-app",
-        description="Generic user application",
-        version="1.0.0",
-        requires_python=">=3.14",
-        is_devops_cli=False,
+    assert (
+        headings,
+        "Workstation automation scripts" in content,
+        "`sample (sample.main:app)`" in content,
+        "Canonical Source" in content,
+        "| When you | Read |" in content,
+        "| set up, name a branch, write a pull request title, run one check | "
+        "[CONTRIBUTING.md](CONTRIBUTING.md) |" in content,
+        len(content) <= CONST_AGENTS_MD_MAX_CHARS,
+    ) == (
+        [
+            "# sample-project — AI Agent Instructions",
+            "## Rules for every task",
+            "## Where to look",
+        ],
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
     )
-    generic_content = generate_agents_md(meta_generic)
-    assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" not in generic_content
+
+
+def test_generated_agents_md_names_the_pre_push_checks_of_the_project(tmp_path: Path) -> None:
+    """Verify the push rule names the project's own pre-push hooks, and the uv defaults only for
+    a project that has none."""
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: lint\n"
+        "        entry: make lint\n"
+        "        stages: [pre-commit]\n"
+        "      - id: gate\n"
+        "        entry: make check\n"
+        "        stages: [pre-push]\n",
+        encoding="utf-8",
+    )
+    bare = tmp_path / "bare"
+    bare.mkdir()
+
+    hooked = generate_agents_md(parse_project_metadata(tmp_path))
+    defaults = generate_agents_md(parse_project_metadata(bare))
+
+    assert (
+        "`make check`" in hooked,
+        "make lint" in hooked,
+        "uv run pytest" in hooked,
+        all(f"`{command}`" in defaults for command in DEFAULT_AGENTS_MD_CHECK_COMMANDS),
+    ) == (True, False, False, True)
+
+
+def test_generated_agents_md_leaves_the_writing_standard_to_the_project() -> None:
+    """Verify the generated router names no writing standard: each project owns its own, and the
+    ASD-STE100 rule is devops-cli's (owner decision D2 of #1961)."""
+    content = generate_agents_md(ProjectMetadata(name="sample-project"))
+    assert (
+        "ASD-STE100" in content,
+        "ASD-STE100" in (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+    ) == (
+        False,
+        True,
+    )
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:
@@ -409,28 +415,41 @@ def test_ai_agents_file_option_writes_only_the_gemini_stub_without_a_model_call(
     )
 
 
-def test_instruction_generator_devops_cli_and_force_modes(tmp_path: Path) -> None:
-    """Verify devops-cli project metadata AGENTS.md template and scaffold force/skip behavior."""
-    # 1. DevOps CLI specific AGENTS.md
-    devops_meta = ProjectMetadata(
-        name="devops-cli",
-        description="DevOps CLI Automation Tool",
-        version="0.1.8",
-        requires_python=">=3.14",
-        is_devops_cli=True,
-    )
-    agents_doc = generate_agents_md(devops_meta)
-    assert "devops ci" in agents_doc
-    assert "Knowledge Base" in agents_doc or "DevOps CLI" in agents_doc
+@pytest.mark.live("find")
+def test_ai_agents_replaces_a_model_answer_over_the_cap_with_the_router(
+    runner: CliRunner, tmp_path: Path, model_fake: ModelFake, config: Callable[..., Path]
+) -> None:
+    """Verify the model is told the size cap and the documents that exist, and an answer longer
+    than the cap is replaced by the template router (#1961)."""
+    config(ai={"rag": {"enabled": False}})
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "model-proj"\n', encoding="utf-8")
+    (tmp_path / "CONTRIBUTING.md").write_text("# Contributing\n", encoding="utf-8")
+    model_fake.answer("# model-proj\n" + "Rule.\n" * CONST_AGENTS_MD_MAX_CHARS)
 
-    # 2. Corrupt pyproject.toml handling
+    result = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path), "--file", "AGENTS.md"])
+    [call] = model_fake.calls
+
+    assert (
+        result.exit_code,
+        (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
+        f"{CONST_AGENTS_MD_MAX_CHARS} characters" in call.system,
+        "`CONTRIBUTING.md`" in call.system,
+        "`SECURITY.md`" in call.system,
+        "Generate the contents of" in call.user,
+    ) == (0, generate_agents_md(parse_project_metadata(tmp_path)), True, True, False, False)
+
+
+def test_instruction_generator_corrupt_pyproject_and_force_modes(tmp_path: Path) -> None:
+    """Verify a corrupt pyproject.toml falls back to the directory name, and scaffold force/skip
+    behavior."""
+    # 1. Corrupt pyproject.toml handling
     bad_proj = tmp_path / "bad_proj"
     bad_proj.mkdir()
     (bad_proj / "pyproject.toml").write_text("invalid [toml content", encoding="utf-8")
     meta_corrupt = parse_project_metadata(bad_proj)
     assert meta_corrupt.name == "bad_proj"
 
-    # 3. scaffold_agent_instructions force vs skip
+    # 2. scaffold_agent_instructions force vs skip
     target_dir = tmp_path / "scaffold_test"
     target_dir.mkdir()
     (target_dir / "AGENTS.md").write_text("Existing AGENTS.md", encoding="utf-8")
@@ -457,60 +476,54 @@ def test_generate_agents_md_opens_every_pull_request_as_a_draft() -> None:
     )
     content = generate_agents_md(meta)
     assert (
-        "Stage 1: Every Pull Request Opens as a Draft" in content,
         "open every pull request with `devops pr create`, which always opens a draft" in content,
         "devops pr ready" in content,
         "not yet fully implemented" in content,
-    ) == (True, True, True, False)
+    ) == (True, True, False)
 
 
-def test_generated_agents_md_targets_the_default_branch_and_names_no_release_branch() -> None:
+def test_generated_agents_md_targets_the_default_branch_and_names_no_deleted_process(
+    tmp_path: Path,
+) -> None:
     """Verify generated AGENTS.md sends topic pull requests to the default branch and names no
-    release branch, cut or Copilot rule for a release pull request, for any project."""
-    for is_devops_cli in (False, True):
-        content = generate_agents_md(
-            ProjectMetadata(
-                name="sample-project",
-                description="Sample project testing branch rules",
-                version="0.2.0",
-                requires_python=">=3.14",
-                is_devops_cli=is_devops_cli,
-            )
-        )
+    deleted process, such as a release branch, the cut or the filing quota, for a project with
+    every routed document and for one with none."""
+    for path, _task in CONST_AGENTS_MD_ROUTES:
+        target = tmp_path / path
+        if path.endswith("/"):
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# Doc\n", encoding="utf-8")
+    for content in (
+        generate_agents_md(ProjectMetadata(name="sample-project")),
+        generate_agents_md(parse_project_metadata(tmp_path)),
+    ):
         assert (
             "PRs target the default branch" in content,
-            [
-                needle
-                for needle in ("release/", "release branch", "the cut", "roadmap close")
-                if needle in content
-            ],
+            [term for term in CONST_DELETED_PROCESS_TERMS if term in content],
         ) == (True, [])
 
 
-def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
-    """Verify generated AGENTS.md mandates concise commit messages and devops pr monitor gate."""
-    meta = ProjectMetadata(
-        name="sample-project",
-        description="Sample project testing PR monitoring and commit standards",
-        version="0.2.0",
-        requires_python=">=3.14",
+def test_generate_agents_md_enforces_pr_monitor_and_ready() -> None:
+    """Verify generated AGENTS.md has agents watch each pull request with `devops pr monitor`
+    and mark it ready with `devops pr ready`; the command's defaults set the wait and the poll
+    interval, so the document states no timing of its own."""
+    content = generate_agents_md(
+        ProjectMetadata(
+            name="sample-project",
+            description="Sample project testing PR monitoring",
+            version="0.2.0",
+            requires_python=">=3.14",
+        )
     )
-    content = generate_agents_md(meta)
     assert (
-        "Concise, Effect-Driven Commit Messages" in content,
-        "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content,
         "devops pr monitor <pr_number>" in content,
-        "Wait for Requested Review Sessions to Settle" in content,
-        "Stage 2: Transition to Ready for Review" in content,
-        "Post-Ready Secondary Review & Copilot Monitoring Gate" in content,
-        "Copilot reviews a pull request only when a person requests it" in content,
         "devops pr ready <pr_number>" in content,
-        "5-Minute Completion Allowance & 60-Second Polling Interval" in content,
-        "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"
-        in content,
-        "Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status"
-        in content,
-    ) == (True, True, True, True, True, True, True, True, True, True, True)
+        "Copilot reviews a pull request only when a person requests it" in content,
+        "60 seconds" in content,
+        "5 minutes" in content,
+    ) == (True, True, True, False, False)
 
 
 def test_ai_agents_force_guard_and_refusal(
@@ -554,61 +567,31 @@ def test_ai_agents_force_guard_and_refusal(
     assert (res4.exit_code != 0, model_fake.call_count == 0) == (True, True)
 
 
-def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
-    """Verify generated AGENTS.md separates generic engineering tenets from devops-cli roadmap governance."""
-    generic_meta = ProjectMetadata(
-        name="sample-project",
-        description="Sample project testing core engineering tenets",
-        version="0.2.0",
-        requires_python=">=3.14",
-    )
-    generic_content = generate_agents_md(generic_meta)
-    generic_expected = (
-        "Mandatory Root-Cause Remediation",
-        "Investigate and fix the cause at the source.",
-        "add a check that fails when the problem returns",
-        "Add prose here only when no check is possible.",
-        "Continuous Interaction & Collaborative Value Improvement",
-        "suggest concrete, actionable ways to improve",
-    )
-    missing_generic = [p for p in generic_expected if p not in generic_content]
-    has_leaked_roadmap = (
-        "docs/ROADMAP.md" in generic_content or "Continuous Roadmap Synthesis" in generic_content
-    )
-    assert (missing_generic, has_leaked_roadmap) == ([], False)
-
-    devops_meta = ProjectMetadata(
-        name="devops-cli",
-        description="DevOps CLI Automation Tool",
-        version=devops_cli.__version__,
-        requires_python=">=3.14",
-        is_devops_cli=True,
-    )
-    devops_content = generate_agents_md(devops_meta)
-    devops_expected = (
-        "Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement",
-        "devops roadmap intake --title",
-        "--body-file",
-        "never set a milestone or a priority on a new issue",
-        "puts it in the backlog",
-        "source/agent",
-        "Feasibility Check & Stop Rather Than Add Compensating Code",
-        "ask a person to return the item to `New` (`devops roadmap return <number>",
-    )
-    missing_devops = [p for p in devops_expected if p not in devops_content]
-    # Intake is the one way in (#742): it puts each new item in the backlog, no rule files an
-    # item into a milestone or a roadmap document, and no quota limits what agents file (#1959).
-    ingestion_rules = [
-        rule
-        for rule in (
-            "Automatic Roadmap Ingestion",
-            "docs/ROADMAP.md",
-            "STRUCTURED ROADMAP TASKS",
-            "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
-            "release_credit",
-            "filing quota",
-            "budget/borrowed",
+def test_generate_agents_md_root_cause_and_premise_rules() -> None:
+    """Verify the generated router keeps the root-cause rule and the premise-and-stop rule, and
+    no rule files an item into a milestone or a roadmap document (#742, #1959)."""
+    content = generate_agents_md(
+        ProjectMetadata(
+            name="sample-project",
+            description="Sample project testing core engineering rules",
+            version="0.2.0",
+            requires_python=">=3.14",
         )
-        if rule in devops_content
-    ]
-    assert (missing_devops, ingestion_rules) == ([], [])
+    )
+    expected = (
+        "Fix the cause.",
+        "add a check that fails when the problem returns",
+        "Check the premise first.",
+        "write no compensating code",
+    )
+    ingestion_rules = (
+        "Automatic Roadmap Ingestion",
+        "STRUCTURED ROADMAP TASKS",
+        "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
+        "release_credit",
+        "Continuous Interaction & Collaborative Value Improvement",
+    )
+    assert (
+        [rule for rule in expected if rule not in content],
+        [rule for rule in ingestion_rules if rule in content],
+    ) == ([], [])
