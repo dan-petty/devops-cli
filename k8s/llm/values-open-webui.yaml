@@ -35,6 +35,12 @@ extraEnvVars:
     value: "qdrant"
   - name: QDRANT_URI
     value: "http://qdrant.llm.svc.cluster.local:6333"
+  # Qdrant refuses a request without its API key (values-qdrant.yaml).
+  - name: QDRANT_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: qdrant-api-key
+        key: api-key
   # RAG embeddings go through the gateway with its master key, to the embedding group that the
   # gateway serves. Open WebUI sets no RAG Ollama URL by default, so it called localhost, where
   # its pod runs no Ollama. The RAG OpenAI URL and key do not default to the gateway connection.
