@@ -129,7 +129,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             SecretGenerator("urlsafe", 32),
             None,
-            ("statefulset/qdrant",),
+            ("statefulset/qdrant", "statefulset/open-webui"),
         ),
         (
             "llm/valkey-runs-auth",
@@ -477,12 +477,16 @@ def test_an_equal_live_value_is_unchanged_and_restarts_nothing(
 def test_a_key_added_to_an_existing_secret_restarts_its_workloads_once(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
+    """Open WebUI reads the Qdrant key only when its pod starts, so it restarts with Qdrant."""
     cluster.add_secret("llm", "qdrant-api-key", {"legacy": "kept-by-another-manager"})
-    cluster.workloads = {("llm", "statefulset/qdrant")}
+    cluster.workloads = {("llm", "statefulset/qdrant"), ("llm", "statefulset/open-webui")}
     result = _push("--only", "llm/qdrant-api-key")
     assert (result.exit_code, cluster.commands("kubectl", "rollout")) == (
         0,
-        [["kubectl", "rollout", "restart", "statefulset/qdrant", "-n", "llm"]],
+        [
+            ["kubectl", "rollout", "restart", "statefulset/qdrant", "-n", "llm"],
+            ["kubectl", "rollout", "restart", "statefulset/open-webui", "-n", "llm"],
+        ],
     )
 
 

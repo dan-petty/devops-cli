@@ -10,15 +10,15 @@ config:
     performance:
       max_search_threads: 2
 
-# API Key Secret Protection
-# Enforce authentication for Qdrant vector database API and Web UI.
-# Setting apiKey: false prevents auto-generation of unmanaged credentials, while extraEnv
-# injects the API key from Secret 'qdrant-api-key', which `devops k8s push-secrets` writes from
-# the keyring before deploy-stack installs this release.
-apiKey: false
-readOnlyApiKey: false
-
-extraEnv:
+# API key: Qdrant refuses a REST or gRPC request without it. Only /, /healthz, /readyz, /livez
+# and the files of the web UI need no key, and the chart's probes use / and /readyz. The key
+# comes from Secret qdrant-api-key, which `devops k8s push-secrets` writes from the keyring
+# before deploy-stack installs this release (k8s/README.md, Cluster Secrets). Open WebUI sends
+# the same key as QDRANT_API_KEY. The chart renders `env` on the qdrant container. It has no
+# `extraEnv`, and Helm drops a key that the chart does not read with no error, so every key here
+# is a key of the chart's values.yaml (tests/test_k8s_qdrant_security.py). apiKey and
+# readOnlyApiKey stay unset, so the chart makes no Secret of its own.
+env:
   - name: QDRANT__SERVICE__API_KEY
     valueFrom:
       secretKeyRef:
