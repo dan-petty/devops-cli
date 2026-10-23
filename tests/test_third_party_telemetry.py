@@ -104,7 +104,8 @@ def test_open_webui_values_disables_telemetry_and_version_check() -> None:
     with open(values_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    env_map = {item["name"]: item["value"] for item in data.get("extraEnvVars", [])}
+    # An entry that reads a Secret (`valueFrom`) has no literal value; the opt-outs are literals.
+    env_map = {item["name"]: item.get("value") for item in data.get("extraEnvVars", [])}
     actual = (
         env_map.get("ENABLE_VERSION_UPDATE_CHECK"),
         env_map.get("ANONYMIZED_TELEMETRY"),

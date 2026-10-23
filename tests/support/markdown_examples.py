@@ -1,4 +1,4 @@
-"""Read the code in Markdown documents: fences, code spans, headings and the `devops` commands in them.
+"""Read the code in Markdown documents: fences, code spans, headings, tables and the `devops` commands in them.
 
 Documents are parsed with markdown-it-py's CommonMark parser, so a fence inside a list item or a
 code span inside a table cell is found where a reader sees it, and a command line is split into
@@ -33,6 +33,8 @@ _SHELL_OPERATOR_CHARACTERS = frozenset(shlex.shlex(punctuation_chars=True).punct
 # The ones the lexer splits from a word they touch: all but `<` and `>`, which `<session>` holds.
 _SPLIT_OPERATOR_CHARACTERS = "".join(sorted(_SHELL_OPERATOR_CHARACTERS - set("<>")))
 _PARSER = MarkdownIt("commonmark")
+# CommonMark with GitHub's tables, which CommonMark itself does not have.
+_TABLE_PARSER = MarkdownIt("commonmark").enable("table")
 
 
 class CodeSnippet(NamedTuple):
@@ -84,6 +86,21 @@ def headings(path: Path) -> list[Heading]:
         for opening, title in pairwise(_tokens(path))
         if opening.type == "heading_open"
     ]
+
+
+def tables(path: Path) -> list[list[list[str]]]:
+    """Every table in the document, as rows of the source text of each cell, the header row
+    first."""
+    found: list[list[list[str]]] = []
+    for token, following in pairwise(_TABLE_PARSER.parse(path.read_text(encoding="utf-8"))):
+        match token.type:
+            case "table_open":
+                found.append([])
+            case "tr_open":
+                found[-1].append([])
+            case "th_open" | "td_open":
+                found[-1][-1].append(following.content)
+    return found
 
 
 def code_snippets(path: Path) -> list[CodeSnippet]:

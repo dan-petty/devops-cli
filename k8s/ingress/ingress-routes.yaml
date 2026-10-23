@@ -86,8 +86,10 @@ spec:
           - path: /
             pathType: Prefix
             backend:
+              # Ollama's native API on the fast tier. A speed Service names no VRAM size, so a
+              # host change moves its selector in k8s/llm/profiles/services.yaml, not this route.
               service:
-                name: ollama-16gib
+                name: ollama-fast
                 port:
                   number: 11434
 ---
