@@ -1,10 +1,10 @@
 """`devops roadmap refine`: item refinement to Ready with proposed design, tasks and acceptance criteria.
 
-Without `--item`, refine picks up to `--limit` (default 3) items, nearest place first (#1515): the
-current release's New items; each planned release's, nearest release first; the backlog's P0 and
-P1 items; each place by priority. Then it takes the backlog's other New items while fewer than
-the configured `release_cap` items are Ready across the next planned release and the backlog.
-A planned release and the backlog's P0/P1 items also give their Ready items no refine round has
+Without `--item`, refine picks up to `--limit` (default 3) items, nearest place first (#1515):
+each open milestone's New items, in milestone order (due date, then number); the backlog's P0 and
+P1 items; each place by priority. Then it takes the backlog's other New items while fewer than the
+configured `refine_ready_target` items are Ready across the open milestones and the backlog. Each
+open milestone and the backlog's P0/P1 items also give their Ready items no refine round has
 recorded, which refine confirms Ready or sets back to New. It skips items that are Blocked,
 started, or unchanged since their last run, and items whose section a person edited
 (`check_person_edits`), so none of them takes one of the `--limit` places. Selection judges an item
@@ -55,17 +55,22 @@ from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_P0_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
+    CONST_ROADMAP_P2_PRIORITY,
+    CONST_ROADMAP_P3_PRIORITY,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
     CONST_ROADMAP_REFINE_START_MARKER,
+    CONST_ROADMAP_STATUS_BLOCKED,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_REFINE_LIMIT,
-    DEFAULT_ROADMAP_RELEASE_CAP,
+    DEFAULT_ROADMAP_REFINE_READY_TARGET,
 )
 from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
@@ -170,7 +175,6 @@ class RefineFailure:
 class RefinePlan:
     repo: str
     sha: str = ""
-    branch: str = ""
     refined_items: list[RefinedItem] = field(default_factory=list)
     skipped_items: list[tuple[Item, str]] = field(default_factory=list)
     has_writes: bool = False
@@ -247,9 +251,10 @@ def _git(checkout: Path, *args: str) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or proc.stderr or "").strip()
 
 
-def inspect_checkout(source: Path | str, expected_repo: str) -> tuple[str, str]:
-    """Inspects the checkout at `source`, verifies origin matches `expected_repo`,
-    and returns (sha, branch). Raises GitHubOperationError if origin mismatch.
+def inspect_checkout(source: Path | str, expected_repo: str) -> str:
+    """Inspects the checkout at `source`, verifies origin matches `expected_repo`, and returns
+    its HEAD sha, which pins the code refine read. Raises GitHubOperationError if origin
+    mismatch.
     """
     path = Path(source)
     origin_name = get_repo_origin_name(path)
@@ -270,9 +275,7 @@ def inspect_checkout(source: Path | str, expected_repo: str) -> tuple[str, str]:
             operation="roadmap.refine.inspect_checkout",
             details={"source": str(source)[:256]},
         )
-    code_br, branch = _git(path, "rev-parse", "--abbrev-ref", "HEAD")
-    branch_name = branch if (code_br == 0 and branch and branch != "HEAD") else "HEAD"
-    return sha, branch_name
+    return sha
 
 
 # ── Context Minimization ──────────────────────────────────────────────────────
@@ -648,7 +651,6 @@ def render_proposal_section(
     proposal: RefinementProposal,
     open_questions: list[str],
     sha: str,
-    branch: str,
     allowed_urls: set[str],
 ) -> str:
     """Builds the sanitized plain text markdown section between markers.
@@ -657,7 +659,7 @@ def render_proposal_section(
     end marker in the model's text but never the section's own (#1470).
     """
     lines: list[str] = [
-        f"<!-- checked-at: sha={sha} branch={branch} -->",
+        f"<!-- checked-at: sha={sha} -->",
         "## Proposed design",
         "",
         "### Problem statement",
@@ -713,14 +715,14 @@ def render_proposal_section(
 _PRIORITY_ORDER: Final[dict[str | None, int]] = {
     CONST_ROADMAP_CRITICAL_PRIORITY: 0,
     CONST_ROADMAP_P0_PRIORITY: 1,
-    "P1-High": 2,
-    "P2-Medium": 3,
-    "P3-Low": 4,
+    CONST_ROADMAP_P1_PRIORITY: 2,
+    CONST_ROADMAP_P2_PRIORITY: 3,
+    CONST_ROADMAP_P3_PRIORITY: 4,
 }
 
 
 # The backlog's items at this rank or higher (P0 and P1) are refined whatever the Ready count.
-_BACKLOG_FIRST_RANK: Final[int] = _PRIORITY_ORDER["P1-High"]
+_BACKLOG_FIRST_RANK: Final[int] = _PRIORITY_ORDER[CONST_ROADMAP_P1_PRIORITY]
 
 
 def _priority_rank(priority: str | None) -> int:
@@ -734,7 +736,12 @@ def _select_single_candidate(
     if item is None:
         return [], []
     if (
-        item.status in {CONST_ROADMAP_STATUS_READY, "Blocked", "In Progress"}
+        item.status
+        in {
+            CONST_ROADMAP_STATUS_READY,
+            CONST_ROADMAP_STATUS_BLOCKED,
+            CONST_ROADMAP_STATUS_IN_PROGRESS,
+        }
         or item.state is GitHubState.CLOSED
     ):
         return [], [(item, f"status {item.status or 'closed'} is not New")]
@@ -744,7 +751,7 @@ def _select_single_candidate(
 
 
 def _is_unrefined_ready(item: Item) -> bool:
-    """Whether `item` is Ready with no record of a refine round: migrate, sync or a person set
+    """Whether `item` is Ready with no record of a refine round: project sync or a person set
     it Ready without a design (#1515). The record, not the body, tells: a section refine wrote
     before #1470 ends in `[end-marker]`, so its body reads as holding none."""
     return (
@@ -770,26 +777,27 @@ def select_candidates(
     *,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
-    release_cap: int = DEFAULT_ROADMAP_RELEASE_CAP,
+    ready_target: int = DEFAULT_ROADMAP_REFINE_READY_TARGET,
 ) -> tuple[list[Item], list[tuple[Item, str]]]:
     """Selects items to refine, nearest place first as the module's docstring orders them,
     returning (selected, skipped)."""
     if item_number is not None:
         return _select_single_candidate(store, item_number)
 
-    open_releases = [r for r in store.releases() if r.state is GitHubState.OPEN]
-    current_items, *planned = [store.items(release=r.title) for r in open_releases] or [[]]
-    next_items = planned[0] if planned else []
+    open_milestones = [m for m in store.milestones() if m.state is GitHubState.OPEN]
+    milestone_items = [store.items(milestone=m.number) for m in open_milestones]
     backlog_items = store.backlog()
 
-    # Count ready items across next planned and backlog
+    # Count the Ready items across the open milestones and the backlog
     ready_count = sum(
-        1 for it in (*next_items, *backlog_items) if it.status == CONST_ROADMAP_STATUS_READY
+        1
+        for items in (*milestone_items, backlog_items)
+        for it in items
+        if it.status == CONST_ROADMAP_STATUS_READY
     )
 
     ordered = [
-        *_refinable(current_items, unrefined_ready=False),
-        *(it for items in planned for it in _refinable(items, unrefined_ready=True)),
+        *(it for items in milestone_items for it in _refinable(items, unrefined_ready=True)),
         *(
             it
             for it in _refinable(backlog_items, unrefined_ready=True)
@@ -817,15 +825,15 @@ def select_candidates(
         selected.append(it)
         return True
 
-    # 1. The releases' items, nearest first, then the backlog's P0 and P1 items
+    # 1. The open milestones' items, nearest first, then the backlog's P0 and P1 items
     for it in ordered:
         if len(selected) >= limit:
             break
         _consider(it)
 
-    # 2. The other backlog New items until ready + selected reaches the cap
+    # 2. The other backlog New items until ready + selected reaches the ready target
     for it in backlog_rest:
-        if len(selected) >= limit or (ready_count + len(selected)) >= release_cap:
+        if len(selected) >= limit or (ready_count + len(selected)) >= ready_target:
             break
         _consider(it)
 
@@ -853,7 +861,6 @@ def refine_one_item(
     *,
     source: Path,
     sha: str,
-    branch: str,
     client: LLMClient | Any,
     max_context_tokens: int = 8192,
 ) -> RefinedItem:
@@ -904,7 +911,7 @@ def refine_one_item(
     needs_split = not proposal.fits_one_pr
 
     # Step 5: Render section & Check size
-    rendered_section = render_proposal_section(proposal, open_questions, sha, branch, allowed_urls)
+    rendered_section = render_proposal_section(proposal, open_questions, sha, allowed_urls)
     outside, _ = extract_section_and_outside(current_body)
     new_body = outside.rstrip() + "\n\n" + rendered_section
 
@@ -970,16 +977,14 @@ def plan_refine(
 ) -> RefinePlan:
     """Plans refinement for eligible candidates without writing anything to GitHub."""
     source_path = Path(source)
-    sha, branch = inspect_checkout(source_path, repo)
+    sha = inspect_checkout(source_path, repo)
 
-    release_cap = config.release_cap if config else DEFAULT_ROADMAP_RELEASE_CAP
+    ready_target = config.refine_ready_target if config else DEFAULT_ROADMAP_REFINE_READY_TARGET
     candidates, skipped = select_candidates(
-        store, item_number=item_number, limit=limit, release_cap=release_cap
+        store, item_number=item_number, limit=limit, ready_target=ready_target
     )
     if not candidates:
-        return RefinePlan(
-            repo=repo, sha=sha, branch=branch, skipped_items=skipped, has_writes=False
-        )
+        return RefinePlan(repo=repo, sha=sha, skipped_items=skipped, has_writes=False)
 
     settings = load_settings()
     ai_config = settings.ai
@@ -995,7 +1000,6 @@ def plan_refine(
                 cand,
                 source=source_path,
                 sha=sha,
-                branch=branch,
                 client=client,
                 max_context_tokens=max_tokens,
             )
@@ -1012,7 +1016,6 @@ def plan_refine(
     return RefinePlan(
         repo=repo,
         sha=sha,
-        branch=branch,
         refined_items=refined,
         skipped_items=skipped,
         has_writes=has_writes,
@@ -1034,7 +1037,6 @@ def dry_run_refine(
     return RefinePlan(
         repo=repo,
         sha="",
-        branch="",
         dry_run=True,
         requests=reads,
         write_requests=writes,

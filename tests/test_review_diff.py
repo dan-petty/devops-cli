@@ -185,8 +185,8 @@ def test_diff_blocks_skips_secret_scan_only_files() -> None:
     diff = (
         "diff --git a/uv.lock b/uv.lock\n"
         "+# lockfile\n"
-        "diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md\n"
-        "+# roadmap\n"
+        "diff --git a/docs/adr/0001-x.md b/docs/adr/0001-x.md\n"
+        "+# decision\n"
         "diff --git a/src/main.py b/src/main.py\n"
         "+print('hello')\n"
     )

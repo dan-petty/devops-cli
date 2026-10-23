@@ -1,11 +1,11 @@
-"""Tests for agent filing quota and throttle ratio calculations (ADR 0001, #1153)."""
+"""Tests for agent filing quota and throttle ratio calculations over a rolling window (ADR 0001, #1153)."""
 
 from __future__ import annotations
 
 import math
 
 from devops_cli.roadmap.config import RoadmapConfig
-from devops_cli.roadmap.quota import allowance, ratio, release_credit
+from devops_cli.roadmap.quota import allowance, ratio, window_credit
 
 
 def test_ratio_rises_from_zero_to_overage_curve() -> None:
@@ -20,12 +20,12 @@ def test_ratio_rises_from_zero_to_overage_curve() -> None:
     ) == (0.0, 0.0, 0.5, 1.0, 2.0, 2.78)
 
 
-def test_release_credit_caps_at_target() -> None:
-    """credit for a previous release of 0, 30 and 70 delivered items = 10, 40 and 50."""
+def test_window_credit_caps_at_its_cap() -> None:
+    """credit for a window of 0, 30 and 70 delivered items = 10, 40 and 50."""
     assert (
-        release_credit(0),
-        release_credit(30),
-        release_credit(70),
+        window_credit(0),
+        window_credit(30),
+        window_credit(70),
     ) == (10, 40, 50)
 
 
@@ -53,14 +53,14 @@ def test_quota_honours_custom_configuration() -> None:
         open_issue_limit=100,
         throttle_start_fraction=0.5,
         overage_step_fraction=0.5,
-        release_credit_base=5,
-        release_credit_per_delivered_item=2,
-        release_item_target=30,
+        quota_credit_base=5,
+        quota_credit_per_delivered_item=2,
+        quota_credit_cap=30,
     )
     assert (
         ratio(40, custom),
         ratio(75, custom),
         ratio(150, custom),
-        release_credit(10, custom),
+        window_credit(10, custom),
         allowance(150, 10, 10, custom),
     ) == (0.0, 0.5, 2.0, 25, 30)

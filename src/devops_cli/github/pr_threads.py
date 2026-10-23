@@ -12,7 +12,6 @@ from devops_cli.config.constants import CONST_GITHUB_GHOST_LOGIN
 from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.lang import MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -188,14 +187,6 @@ query GetThreadComments($threadId: ID!, $cursor: String) {
 }
 """.strip()
 
-_QUERY_VIEWER = """
-query Viewer {
-  viewer {
-    login
-  }
-}
-""".strip()
-
 _MUTATION_ADD_REPLY = """
 mutation AddReply($threadId: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
@@ -243,11 +234,6 @@ def review_threads_args(
 def thread_comments_args(thread_id: str, cursor: str) -> list[str]:
     """The arguments that read the page of review thread `thread_id`'s comments after `cursor`."""
     return graphql_args(_QUERY_GET_THREAD_COMMENTS, {"threadId": thread_id, "cursor": cursor})
-
-
-def viewer_args() -> list[str]:
-    """The arguments that read the login of the account the GraphQL calls run as."""
-    return graphql_args(_QUERY_VIEWER, {})
 
 
 def reply_thread_args(thread_id: str, body: str) -> list[str]:
@@ -369,15 +355,6 @@ def list_pr_review_threads(
     """
     repo_name = repo.split("/")[-1]
     return _list_pr_review_threads_graphql(owner, repo_name, pr_number, unresolved_only)
-
-
-def read_viewer_login() -> str:
-    """The login of the account the GraphQL calls run as, the one whose replies it writes."""
-    data = _run_graphql(viewer_args())
-    login = ((data.get("data") or {}).get("viewer") or {}).get("login")
-    if not login:
-        raise GitHubOperationError(MESSAGES.pr.threads_viewer_unread, operation="graphql.viewer")
-    return str(login)
 
 
 def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:

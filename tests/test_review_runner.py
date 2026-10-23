@@ -314,9 +314,9 @@ def test_detect_base_branch(tmp_path: Path) -> None:
     from devops_cli.ai.review.runner import _detect_base_branch
 
     with patch("devops_cli.ai.review.runner._run_subprocess") as mock_sub:
-        mock_sub.return_value = MagicMock(returncode=0, stdout="origin/release/v0.2.0\n")
-        b = _detect_base_branch(tmp_path, preferred_base="release/v0.2.0")
-        assert "release/v0.2.0" in b
+        mock_sub.return_value = MagicMock(returncode=0, stdout="origin/feat/1-example\n")
+        b = _detect_base_branch(tmp_path, preferred_base="feat/1-example")
+        assert "feat/1-example" in b
 
         mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="err")
         b_fallback = _detect_base_branch(tmp_path)
@@ -393,10 +393,10 @@ def test_get_current_git_branch() -> None:
 
     # Attached branch
     cp_branch = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="release/v0.2.20\n", stderr=""
+        args=["git"], returncode=0, stdout="feat/20-example\n", stderr=""
     )
     with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_branch):
-        assert _get_current_git_branch(Path(".")) == "release/v0.2.20"
+        assert _get_current_git_branch(Path(".")) == "feat/20-example"
 
     # Detached HEAD
     cp_head = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="HEAD\n", stderr="")
@@ -462,15 +462,15 @@ def test_resolve_branch_targets() -> None:
     """Verify resolution of branch target and effective base across branch permutations."""
     from devops_cli.ai.review.runner import _resolve_branch_targets
 
-    # 1. On release branch, passing 'main' (which equals base 'main') -> diff current branch against main
+    # 1. On a topic branch, passing 'main' (which equals base 'main') -> diff current branch against main
     with (
         patch(
-            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.20"
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="feat/20-example"
         ),
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
     ):
         branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
-        assert branch == "release/v0.2.20"
+        assert branch == "feat/20-example"
         assert base == "main"
         assert is_wt is False
 
@@ -525,10 +525,10 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         stderr="",
     )
 
-    # Calling with 'main' from release/v0.2.19
+    # Calling with 'main' from feat/19-example
     with (
         patch(
-            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="feat/19-example"
         ),
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
@@ -536,11 +536,11 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
         pages, title, target, _ = _prepare_branch_content("main", "main", Path("."))
-        assert (len(pages) >= 1, "release/v0.2.19" in title, "main" in title, target) == (
+        assert (len(pages) >= 1, "feat/19-example" in title, "main" in title, target) == (
             True,
             True,
             True,
-            "release/v0.2.19",
+            "feat/19-example",
         )
 
     # Calling on main with uncommitted changes

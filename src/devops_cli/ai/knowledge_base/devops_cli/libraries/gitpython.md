@@ -29,7 +29,7 @@ tags:
 
 In `devops-cli`:
 - **Repository Inspection**: Inspects local branch heads, tracking branches, staged and unstaged diffs, and working tree cleanliness (`repo.is_dirty()`).
-- **Code Review Diff Extraction**: Extracts raw and unified diffs between topic branches and release tracking branches for AI code reviews.
+- **Code Review Diff Extraction**: Extracts raw and unified diffs between a topic branch and its base branch (`main`) for AI code reviews.
 - **Branch Automation**: Powers `devops branches sync`, `devops branches jira`, and `devops branches clean`.
 
 ---

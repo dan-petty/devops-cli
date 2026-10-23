@@ -20,7 +20,6 @@ description: "Workstation DevOps CLI & Automated Code Review Platform"
 url: "https://dan-petty.github.io"
 baseurl: "/devops-cli"
 repository: "dan-petty/devops-cli"
-version: "v0.2.15"
 
 # Markdown & Syntax Highlighting
 markdown: kramdown

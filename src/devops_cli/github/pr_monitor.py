@@ -8,16 +8,12 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple, cast
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
 from devops_cli.config.constants import (
-    CONST_COPILOT_REVIEWER_APP_PATH,
     CONST_COPILOT_REVIEWER_LOGINS,
     CONST_GH_CLI,
-    CONST_GH_REVIEW_REQUEST_EVENTS,
-    CONST_GITHUB_BOT_ACCOUNT_TYPE,
     CONST_GITHUB_REVIEW_AUTHOR_KEYS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
@@ -88,9 +84,6 @@ class CopilotReviewStatus(BaseModel):
     unread_reason: str = ""
     message: str = ""
     last_review_at: str = ""
-    # A review requested of Copilot that it has not started: the Copilot budget counts it, and
-    # the monitor never waits on it, since Copilot may never take it up (#1345).
-    pass_requested: bool = False
     active_event: str = ""
 
 
@@ -258,22 +251,11 @@ def _extract_timeline_author(evt: dict[str, Any]) -> str:
 
 class _CopilotTimeline(NamedTuple):
     """What a pull request's issue timeline says of Copilot: whether a pass is running, the event
-    that says so, whether a pass is requested and not yet started, and why the timeline could not
-    be read, if it could not."""
+    that says so, and why the timeline could not be read, if it could not."""
 
     working: bool = False
     event: str = ""
-    requested: bool = False
     error: str = ""
-
-
-def _requests_copilot(evt: dict[str, Any]) -> bool:
-    """Whether a review request event names Copilot code review: a bot account whose page is the
-    Copilot reviewer app's. The timeline's login for it, `Copilot`, is not its own (#1345)."""
-    reviewer = evt.get("requested_reviewer")
-    if not isinstance(reviewer, dict) or reviewer.get("type") != CONST_GITHUB_BOT_ACCOUNT_TYPE:
-        return False
-    return urlparse(str(reviewer.get("html_url") or "")).path == CONST_COPILOT_REVIEWER_APP_PATH
 
 
 def _ends_copilot_pass(evt: dict[str, Any], copilot_review_ids: frozenset[int]) -> bool:
@@ -287,16 +269,13 @@ def _ends_copilot_pass(evt: dict[str, Any], copilot_review_ids: frozenset[int]) 
 def _process_single_timeline_event(
     evt: dict[str, Any], state: _CopilotTimeline, copilot_review_ids: frozenset[int]
 ) -> _CopilotTimeline:
-    """What the timeline says of Copilot once `evt` is read: its start event runs a pass, its
-    review's `reviewed` event ends it, and a review request to it is pending until it starts,
-    ends or is withdrawn."""
+    """What the timeline says of Copilot once `evt` is read: its start event runs a pass, and its
+    review's `reviewed` event ends it."""
     evt_name = str(evt.get("event") or "")
     if evt_name == "copilot_work_started":
         return _CopilotTimeline(working=True, event=evt_name)
     if evt_name == "reviewed" and _ends_copilot_pass(evt, copilot_review_ids):
         return _CopilotTimeline(event=evt_name)
-    if evt_name in CONST_GH_REVIEW_REQUEST_EVENTS and _requests_copilot(evt):
-        return state._replace(requested=CONST_GH_REVIEW_REQUEST_EVENTS[evt_name])
     return state
 
 
@@ -435,15 +414,14 @@ def _detect_copilot_status(
 
     A timeline `reviewed` event ends Copilot's pass when it carries the id of one of Copilot's
     reviews among `reviews`. A review Copilot submits between the reviews read and the timeline
-    read therefore reads as running for this one call: the Copilot budget still counts it once,
-    and the monitor sees the pass end on its next poll.
+    read therefore reads as running for this one call, and the monitor sees the pass end on its
+    next poll.
     """
     timeline = _query_timeline_copilot_state(
         owner, repo_name, pr_number, _copilot_review_ids(reviews)
     )
     err = reviews_err or getattr(reviews, "error", "") or timeline.error
-    status = _copilot_review_status(reviews, timeline, unresolved_threads, err)
-    return status.model_copy(update={"pass_requested": timeline.requested})
+    return _copilot_review_status(reviews, timeline, unresolved_threads, err)
 
 
 def _copilot_review_status(
@@ -769,8 +747,8 @@ def _evaluate_pr_settled_readiness(
             success=False,
             exit_code=2,
             message=(
-                f"PR #{pr_number} is still a draft: convert to ready for review via "
-                f"'gh pr ready {pr_number}' before merging."
+                f"PR #{pr_number} is still a draft and its checks pass. Mark it ready with "
+                f"'devops pr ready {pr_number}'."
             ),
             status=latest_status,
         )

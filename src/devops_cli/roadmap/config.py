@@ -2,7 +2,7 @@
 
 Every runner, from a terminal now and the service later, reads the file through the contents
 API at one ref, so all of them read the same file whatever the local checkout holds. A failed
-read, a missing `board` or a key the model doesn't know stops the command.
+read, a missing `board` or a key the model does not know stops the command.
 """
 
 from __future__ import annotations
@@ -15,17 +15,13 @@ from pydantic import ValidationError as InvalidConfigError
 
 from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
 from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_DISCOVERY_THRESHOLD,
     DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT,
     DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION,
-    DEFAULT_ROADMAP_PLANNING_HORIZON,
-    DEFAULT_ROADMAP_RELEASE_CAP,
-    DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES,
-    DEFAULT_ROADMAP_RELEASE_CREDIT_BASE,
-    DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM,
-    DEFAULT_ROADMAP_RELEASE_ITEM_TARGET,
-    DEFAULT_ROADMAP_RELEASE_SLOTS,
-    DEFAULT_ROADMAP_STALL_DAYS,
+    DEFAULT_ROADMAP_QUOTA_CREDIT_BASE,
+    DEFAULT_ROADMAP_QUOTA_CREDIT_CAP,
+    DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM,
+    DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS,
+    DEFAULT_ROADMAP_REFINE_READY_TARGET,
     DEFAULT_ROADMAP_THROTTLE_START_FRACTION,
 )
 from devops_cli.exceptions.config import ConfigurationError
@@ -37,16 +33,17 @@ if TYPE_CHECKING:
 
 
 class RoadmapConfig(BaseModel):
-    """The board and the numbers the roadmap jobs work to. `board` has no default."""
+    """The board and the numbers the roadmap jobs work to. `board` has no default.
+
+    The agent filing quota (#1153) counts over a rolling window of `quota_window_days` days
+    that ends now. Refine readies backlog items while fewer than `refine_ready_target` items
+    are Ready.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     board: int = Field(ge=1)
-    release_cap: int = Field(default=DEFAULT_ROADMAP_RELEASE_CAP, ge=1)
-    release_slots: int = Field(default=DEFAULT_ROADMAP_RELEASE_SLOTS, ge=0)
-    discovery_threshold: int = Field(default=DEFAULT_ROADMAP_DISCOVERY_THRESHOLD, ge=0)
-    planning_horizon: int = Field(default=DEFAULT_ROADMAP_PLANNING_HORIZON, ge=0)
-    stall_days: int = Field(default=DEFAULT_ROADMAP_STALL_DAYS, ge=1)
+    refine_ready_target: int = Field(default=DEFAULT_ROADMAP_REFINE_READY_TARGET, ge=1)
     open_issue_limit: int = Field(default=DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT, ge=1)
     throttle_start_fraction: float = Field(
         default=DEFAULT_ROADMAP_THROTTLE_START_FRACTION, gt=0.0, lt=1.0
@@ -54,18 +51,12 @@ class RoadmapConfig(BaseModel):
     overage_step_fraction: float = Field(
         default=DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION, gt=0.0, lt=1.0
     )
-    release_credit_base: int = Field(default=DEFAULT_ROADMAP_RELEASE_CREDIT_BASE, ge=0)
-    release_credit_per_delivered_item: int = Field(
-        default=DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM, ge=0
+    quota_window_days: int = Field(default=DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS, ge=1)
+    quota_credit_base: int = Field(default=DEFAULT_ROADMAP_QUOTA_CREDIT_BASE, ge=0)
+    quota_credit_per_delivered_item: int = Field(
+        default=DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM, ge=0
     )
-    release_item_target: int = Field(default=DEFAULT_ROADMAP_RELEASE_ITEM_TARGET, ge=1)
-    release_copilot_passes: int = Field(default=DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES, ge=1)
-
-    @property
-    def release_limit(self) -> int:
-        """The most items a release holds before a start trims it or a joining critical fix
-        descopes one: its cap plus its slots."""
-        return self.release_cap + self.release_slots
+    quota_credit_cap: int = Field(default=DEFAULT_ROADMAP_QUOTA_CREDIT_CAP, ge=1)
 
 
 def parse_roadmap_config(text: str) -> RoadmapConfig:

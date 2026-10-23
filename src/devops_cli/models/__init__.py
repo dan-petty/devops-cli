@@ -121,12 +121,6 @@ from devops_cli.models.k8s import (
     PolicyRuleViolation,
 )
 from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
-from devops_cli.models.release import (
-    ReleasePrepareRequest,
-    ReleasePrepareResult,
-    ReleaseStatusRequest,
-    ReleaseStatusResult,
-)
 from devops_cli.models.security import (
     NetworkIntelRequest,
     NetworkIntelResult,
@@ -269,10 +263,6 @@ __all__ = [
     "RAGIndexResult",
     "RAGSearchRequest",
     "RAGSearchResult",
-    "ReleasePrepareRequest",
-    "ReleasePrepareResult",
-    "ReleaseStatusRequest",
-    "ReleaseStatusResult",
     "RepoEntry",
     "RepoStatusEntry",
     "ReposListRequest",

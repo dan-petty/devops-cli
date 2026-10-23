@@ -1,56 +1,47 @@
-"""The GitHub roadmap store: Releases, Items and board fields read and written through `gh`,
+"""The GitHub roadmap store: milestones, Items and board fields read and written through `gh`,
 and REST listings read through the GitHub session.
 
 Every gh command goes through an injected runner that defaults to `run_gh`. The REST listings
-(milestones, issues, events, comments, dependencies, pull requests, their files and GitHub
-Releases) are read through the session the store is given, else the process's, with its
-`paginate()` (#983): it follows GitHub's `Link: rel="next"`, raises on a page that holds no list
-and on a listing past its page cap, so a listing never ends short without saying so, and it
-requests a page only when the store reads on into it. The board comes from the store's own
-paged GraphQL query (`board_read`): each read passes
-a Projects filter at the source, leaves archived items out, checks the budget first and charges
+(milestones, issues, issue events and comments) are read through the session the store is
+given, else the process's, with its `paginate()` (#983): it follows GitHub's `Link: rel="next"`,
+raises on a page that holds no list and on a listing past its page cap, so a listing never ends
+short without saying so, and it requests a page only when the store reads on into it. A
+milestone is a planning bucket with any title: the store reads every milestone, identifies it by
+its number and orders the milestones by due date, then by number. No title is read as a version.
+
+The board comes from the store's own paged GraphQL query (`board_read`): each read passes a
+Projects filter at the source, leaves archived items out, checks the budget first and charges
 each page's reported points, and is checked against the total for the same filter, so a short
 read is caught; a count that changes during the read is read again once before the read fails.
-A poll reads three listings newest first and stops at the first entry older than the time it
-reads from, requesting no later page (#1360): the issue events, the pull requests by their last
-update, for the cuts and un-cuts of release pull requests, and the GitHub Releases, for the
-ships, these two `DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE` at a time, since each entry is large.
-The GitHub Releases are ordered by their tags' times but judged by when each was published, so
-that read goes on to the end of the page it stops in, which GitHub has already sent.
-Every one is REST; the milestones are read only when a GitHub Release was published in that
-time, to find the Release its tag names.
+A poll reads the repository's issue events newest first and stops at the first event older
+than the time it reads from, requesting no later page (#1360).
 
 The store reads the board listing once for each filter, and the board's fields once, and keeps
 both for its life, one command or one Service round (#1361): every reader of a filter shares its
 listing, and the store's own writes keep it current with the values they sent and the cards
-they add. A close drops the listings, because the board's own workflow then changes the closed
-issue's card. A write reads only the card it writes, by node id (`RoadmapBoardCard`, about one
-point), so the job record it writes joins the one the card holds then, a card gone or archived
-raises before any write, and the points that read reports below the reserve refuse the write.
-Within one process, `_JOB_RECORD_LOCK` holds each job-record write from that read to its write,
-so the Service's two lanes, which open a store each, never write back a record the other has
-changed since it was read (#1532).
+they add. A duplicate close drops the listings, because the board's own workflow then changes
+the closed issue's card. A write reads only the card it writes, by node id (`RoadmapBoardCard`,
+about one point), so the job record it writes joins the one the card holds then, a card gone or
+archived raises before any write, and the points that read reports below the reserve refuse the
+write. Within one process, `_JOB_RECORD_LOCK` holds each job-record write from that read to its
+write, so the Service's two lanes, which open a store each, never write back a record the other
+has changed since it was read (#1532).
+
 A field someone changed since the store read the card raises `RoadmapCardChangedError` before
 any write, unless the card already holds the value the write sends: the job planned without
-that change, and ADR 0002 forbids reverting it, so the job fails and the next store plans again.
-Every board write is `gh project item-edit` by node ids (`--id`, `--project-id`, `--field-id`,
-and an option's id), which sends only the mutation; given a card's URL or a field's name, gh
-first reads the board's first 100 items with all their field values, about 101 points.
-`item-add` and `item-create` return the card they make (`--format json`), which the store writes
-to without looking for it in a listing that can lag the add by minutes. `item-add` names the card
-an issue already has, archived or not: the store reads that card once and restores an archived one
+that change, and ADR 0002 forbids a revert of it, so the job fails and the next store plans
+again. Every board write is `gh project item-edit` by node ids (`--id`, `--project-id`,
+`--field-id`, and an option's id), which sends only the mutation; given a card's URL or a
+field's name, gh first reads the board's first 100 items with all their field values, about 101
+points. `item-add` returns the card it makes (`--format json`), which the store writes to
+without a look for it in a listing that can lag the add by minutes. `item-add` names the card an
+issue already has, archived or not: the store reads that card once and restores an archived one
 with `gh project item-archive --undo`, so it comes back with the fields it holds (#1403).
 
-The board's own shape (its node id, its fields with their option ids, colors and descriptions,
-and its workflows) comes from GraphQL. So do the default branch, pull requests with their last
-commit, and when an Item's Status last changed, which is the Status value's `updatedAt`: the
-board's timelines hold no status-change events (#768). A GraphQL connection is read in one
-request of up to its limit, and one longer than that raises. New fields, and the options of a
-board just created, are written with a GraphQL request on stdin. GitHub's option input takes no
-id, so the adapter never sends an option list to a board that already has cards. Issue events
-carry the Item's job record from the board listing, and those of the actor a caller leaves out
-read none. The run record card is the board's draft issue titled
-`CONST_ROADMAP_RUN_RECORD_TITLE`, found by that title in the board listing.
+The board's node id and its fields, with their option ids, colors and descriptions, come from
+GraphQL. A GraphQL connection is read in one request of up to its limit, and one longer than
+that raises. Issue events carry the Item's job record from the board listing, and those of the
+actor a caller leaves out read none.
 """
 
 from __future__ import annotations
@@ -63,9 +54,9 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from http import HTTPStatus
 from typing import Any, Protocol
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
-from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
@@ -73,28 +64,18 @@ from devops_cli.config.constants import (
     CONST_GH_PROJECT_ITEM_ISSUE_TYPE,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
     CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
-    CONST_GH_PROJECT_TEXT_TYPE,
     CONST_GH_RAW_CONTENT_ACCEPT,
     CONST_ROADMAP_OPEN_ITEMS_FILTER,
-    CONST_ROADMAP_RUN_RECORD_BODY,
-    CONST_ROADMAP_RUN_RECORD_TITLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_ISSUE_TIMELINE_LIMIT,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
-    DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT,
     DEFAULT_GH_PROJECT_FIELD_LIMIT,
     DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
-    DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE,
-    DEFAULT_GH_PROJECT_LIST_LIMIT,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
-    DEFAULT_GH_PROJECT_WORKFLOW_LIMIT,
     DEFAULT_GH_REST_PER_PAGE,
-    DEFAULT_RELEASE_LABEL,
-    DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.error_classifier import (
     classify_gh_failure,
     gh_http_status,
@@ -123,54 +104,36 @@ from devops_cli.roadmap.board_read import (
     spend_between,
 )
 from devops_cli.roadmap.store import (
-    BOARD_FIELDS,
-    RELEASE_CHANGE_KINDS,
     AddedItem,
-    Board,
     BoardEntry,
     BoardField,
-    Branch,
     Candidate,
-    Card,
-    CardKind,
     Change,
     ChangeKind,
     CloseReason,
     Closure,
-    Dependency,
     Evidence,
     EvidenceKind,
     FieldOption,
-    FieldSpec,
     GitHubState,
     IssueQuery,
     IssueRecord,
     Item,
     ItemField,
-    JobMark,
     JobRecord,
-    MergedPullRequest,
-    PullRequest,
-    PullRequestState,
+    Milestone,
     RefineRecordKey,
-    Release,
     RoadmapStore,
-    Workflow,
     as_utc,
-    cuts_its_release,
     field_options,
-    find_release,
-    is_release_title,
+    find_milestone,
     join_items,
-    release_edits,
-    release_number,
-    release_title,
-    require_board_field,
+    milestone_edits,
+    milestone_order,
     require_field,
     require_job_record_field,
-    require_new_release,
+    require_milestone,
     require_option,
-    require_release,
     require_unchanged,
     select_candidates,
     with_marks,
@@ -179,9 +142,8 @@ from devops_cli.roadmap.store import (
 logger = logging.getLogger(__name__)
 
 _JOB_RECORD_LOCK = threading.Lock()
-"""Held from the read of a card, and a Release write's read of its issue's milestone, to the
-write of its job record, across every store in the process: the Service's lanes each open a
-store, and mark and place the same cards (#1532)."""
+"""Held from the read of a card to the write of its job record, across every store in the
+process: the Service's lanes each open a store, and mark the same cards (#1532)."""
 
 
 class GhRunner(Protocol):
@@ -221,8 +183,8 @@ class _MilestonePayload(BaseModel):
     due_on: datetime | None = None
     closed_at: datetime | None = None
 
-    def release(self) -> Release:
-        return Release(
+    def milestone(self) -> Milestone:
+        return Milestone(
             number=self.number,
             title=self.title,
             description=self.description or "",
@@ -242,10 +204,7 @@ class _IssuePayload(BaseModel):
     state: GitHubState
     state_reason: str | None = None
     labels: list[_NamedPayload] = Field(default_factory=list)
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-    milestone_number: int | None = Field(
-        default=None, validation_alias=AliasPath("milestone", "number")
-    )
+    milestone: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
     pull_request: dict[str, Any] | None = None
     node_id: str | None = None
     author_association: str | None = None
@@ -262,7 +221,7 @@ class _IssuePayload(BaseModel):
             state=self.state,
             state_reason=self.state_reason,
             labels=tuple(label.name for label in self.labels),
-            release=self.release,
+            milestone=self.milestone,
             pull_request=self.pull_request is not None,
             author_association=self.author_association,
             created_at=self.created_at,
@@ -279,249 +238,24 @@ class _EventPayload(BaseModel):
         default=None, validation_alias=AliasPath("issue", "pull_request")
     )
     actor: str | None = Field(default=None, validation_alias=AliasPath("actor", "login"))
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-    issue_release: str | None = Field(
-        default=None, validation_alias=AliasPath("issue", "milestone", "title")
-    )
     label: str | None = Field(default=None, validation_alias=AliasPath("label", "name"))
 
     def change(self) -> Change | None:
-        """The Item change this event reports, or None for pull requests and other events.
-
-        A milestone event sets the Release: it carries the Release joined or left, and the
-        Release the issue is in now. Any other event carries the issue's Release now.
-        """
+        """The Item change this event reports, or None for pull requests and other events."""
         kind = CONST_GH_ISSUE_EVENT_CHANGE_KINDS.get(self.event)
         if kind is None or self.number is None or self.pull_request is not None:
             return None
-        moved = self.release is not None
         return Change(
             kind=ChangeKind(kind),
             number=self.number,
             actor=self.actor,
             at=self.created_at,
-            release=self.release if moved else self.issue_release,
             label=self.label,
-            field=ItemField.RELEASE if moved else None,
-            value=self.issue_release if moved else None,
         )
-
-
-class _DependencyPayload(BaseModel):
-    number: int
-    html_url: str
-    repository_url: str
-    state: GitHubState
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-
-    def dependency(self) -> Dependency:
-        """The issue as a Dependency, its repository read from `repository_url`'s last two parts."""
-        owner, name = urlsplit(self.repository_url).path.rstrip("/").split("/")[-2:]
-        return Dependency(
-            number=self.number,
-            url=self.html_url,
-            repository=f"{owner}/{name}",
-            state=self.state,
-            release=self.release,
-        )
-
-
-class _PullRequestNodePayload(BaseModel):
-    """A pull request as the GraphQL selection `_PULL_REQUEST_SELECTION` gives it."""
-
-    number: int
-    url: str
-    state: str
-    is_draft: bool = Field(alias="isDraft")
-    base: str = Field(alias="baseRefName")
-    head: str = Field(alias="headRefName")
-    body: str = ""
-    updated_at: datetime = Field(alias="updatedAt")
-    labels: list[_NamedPayload] = Field(validation_alias=AliasPath("labels", "nodes"))
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-    commits: list[dict[str, Any]] = Field(validation_alias=AliasPath("commits", "nodes"))
-
-    def pull_request(self) -> PullRequest:
-        last_commit = self.commits[-1]["commit"]["committedDate"] if self.commits else None
-        return PullRequest(
-            number=self.number,
-            url=self.url,
-            state=self.state,
-            draft=self.is_draft,
-            base=self.base,
-            head=self.head,
-            body=self.body,
-            labels=tuple(label.name for label in self.labels),
-            release=self.release,
-            updated_at=self.updated_at,
-            last_commit_at=last_commit,
-        )
-
-
-class _PullRequestConnectionPayload(BaseModel):
-    nodes: list[_PullRequestNodePayload]
-    total_count: int = Field(alias="totalCount")
-
-
-class _OpenPullRequestsPayload(BaseModel):
-    open_prs: _PullRequestConnectionPayload = Field(
-        validation_alias=AliasChoices(
-            AliasPath("data", "repository", "openPrs"),
-            AliasPath("data", "repository", "pullRequests"),
-        )
-    )
-    recent_prs: _PullRequestConnectionPayload = Field(
-        default_factory=lambda: _PullRequestConnectionPayload(nodes=[], totalCount=0),
-        validation_alias=AliasPath("data", "repository", "recentPrs"),
-    )
-
-
-class _ReleasePullRequestsPayload(BaseModel):
-    connection: _PullRequestConnectionPayload = Field(
-        validation_alias=AliasPath("data", "repository", "milestone", "pullRequests")
-    )
-
-
-class _ProjectStatusPayload(BaseModel):
-    """One board card of an issue: which board, and when its Status last changed."""
-
-    number: int = Field(validation_alias=AliasPath("project", "number"))
-    owner: str | None = Field(default=None, validation_alias=AliasPath("project", "owner", "login"))
-    status_changed_at: datetime | None = Field(
-        default=None, validation_alias=AliasPath("fieldValueByName", "updatedAt")
-    )
-
-
-class _ProjectStatusConnectionPayload(BaseModel):
-    nodes: list[_ProjectStatusPayload]
-    total_count: int = Field(alias="totalCount")
-
-
-class _IssueStatusPayload(BaseModel):
-    cards: _ProjectStatusConnectionPayload = Field(
-        validation_alias=AliasPath("data", "repository", "issue", "projectItems")
-    )
-
-
-class _DefaultBranchPayload(BaseModel):
-    name: str = Field(validation_alias=AliasPath("data", "repository", "defaultBranchRef", "name"))
-    sha: str = Field(
-        validation_alias=AliasPath("data", "repository", "defaultBranchRef", "target", "oid")
-    )
 
 
 class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
-
-
-class _RefPayload(BaseModel):
-    sha: str = Field(validation_alias=AliasPath("object", "sha"))
-
-
-class _GitHubReleasePayload(BaseModel):
-    draft: bool
-
-
-class _ListedReleasePayload(BaseModel):
-    """A GitHub Release as the REST listing `repos/{repo}/releases` gives it, newest first by
-    `created_at`, its tag's time, which can be a little before it was published."""
-
-    tag_name: str
-    draft: bool
-    created_at: datetime
-    published_at: datetime | None = None
-
-    def shipped_at(self, cutoff: datetime) -> datetime | None:
-        """When it was published, if at or after `cutoff`; a draft is not published."""
-        published = None if self.draft else self.published_at
-        return published if published is not None and published >= cutoff else None
-
-
-class _UpdatedPullRequestPayload(BaseModel):
-    """A pull request as the REST listing `repos/{repo}/pulls?state=all&sort=updated` gives it,
-    with its repository's default branch, so the rule for a Release's pull request needs no
-    GraphQL read."""
-
-    number: int
-    html_url: str
-    state: PullRequestState
-    draft: bool = False
-    labels: list[_NamedPayload] = Field(default_factory=list)
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-    opener: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
-    base: str = Field(validation_alias=AliasPath("base", "ref"))
-    default_branch: str = Field(validation_alias=AliasPath("base", "repo", "default_branch"))
-    head: str = Field(validation_alias=AliasPath("head", "ref"))
-    created_at: datetime
-    updated_at: datetime
-    closed_at: datetime | None = None
-    merged_at: datetime | None = None
-
-    def pull_request(self) -> PullRequest:
-        """The pull request, merged when the listing gives it a merge time."""
-        merged = self.merged_at is not None
-        return PullRequest(
-            number=self.number,
-            url=self.html_url,
-            state=PullRequestState.MERGED if merged else self.state,
-            draft=self.draft,
-            base=self.base,
-            head=self.head,
-            labels=tuple(label.name for label in self.labels),
-            release=self.release,
-            updated_at=self.updated_at,
-        )
-
-    def changes(self, cutoff: datetime) -> list[Change]:
-        """The cut its opening made and the un-cut its close unmerged made, those at or after
-        `cutoff`, when it is a Release's pull request: a cut names who opened it, and an un-cut
-        no one, as the listing names no closer."""
-        pull_request = self.pull_request()
-        if not cuts_its_release(pull_request, self.default_branch):
-            return []
-        found = [(ChangeKind.RELEASE_CUT, self.opener, self.created_at)]
-        if pull_request.state is PullRequestState.CLOSED and self.closed_at is not None:
-            found.append((ChangeKind.RELEASE_UNCUT, None, self.closed_at))
-        return [
-            Change(kind=kind, number=self.number, actor=actor, at=at, release=self.release)
-            for kind, actor, at in found
-            if at >= cutoff
-        ]
-
-
-class _PullRequestCommitPayload(BaseModel):
-    sha: str
-
-
-class _ClosedPullRequestPayload(BaseModel):
-    """A closed pull request as the REST listing `repos/{repo}/pulls?state=closed` gives it."""
-
-    number: int
-    html_url: str
-    title: str = ""
-    body: str | None = None
-    labels: list[_NamedPayload] = Field(default_factory=list)
-    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
-    merged_at: datetime | None = None
-    merge_commit_sha: str | None = None
-    head: _PullRequestCommitPayload
-
-    def merged(self, changed_paths: Sequence[str]) -> MergedPullRequest:
-        return MergedPullRequest(
-            number=self.number,
-            url=self.html_url,
-            title=self.title,
-            body=self.body or "",
-            labels=tuple(label.name for label in self.labels),
-            release=self.release,
-            merge_commit=self.merge_commit_sha or "",
-            head_commit=self.head.sha,
-            changed_paths=tuple(changed_paths),
-        )
-
-
-class _PullRequestFilePayload(BaseModel):
-    filename: str
 
 
 class _CommentPayload(BaseModel):
@@ -579,8 +313,6 @@ class _BoardItemPayload(BaseModel):
     content_repository: str | None = Field(
         default=None, validation_alias=AliasPath("content", "repository")
     )
-    content_url: str | None = Field(default=None, validation_alias=AliasPath("content", "url"))
-    content_title: str | None = Field(default=None, validation_alias=AliasPath("content", "title"))
 
     def is_issue_of(self, repo: str) -> bool:
         """Report whether this item is an issue of `repo`, not a pull request, draft or other repo's."""
@@ -590,16 +322,9 @@ class _BoardItemPayload(BaseModel):
             and (self.content_repository or "").lower() == repo.lower()
         )
 
-    def is_run_record(self) -> bool:
-        """Report whether this item is the run record card: the draft issue with its title."""
-        return (
-            self.content_type == CardKind.DRAFT_ISSUE
-            and self.content_title == CONST_ROADMAP_RUN_RECORD_TITLE
-        )
-
     def values(self) -> dict[str, Any]:
-        """The card's board fields and job record, keyed as `BoardEntry` and `Card` hold them."""
-        fields = {f.name.lower(): self.field_value(f.value) for f in BOARD_FIELDS}
+        """The card's board fields and job record, keyed as `BoardEntry` holds them."""
+        fields = {f.name.lower(): self.field_value(f.value) for f in ItemField}
         return fields | {"job_record": decode_job_record(self.job_record_text(), card=self.name())}
 
     def field_value(self, field_name: str) -> str | None:
@@ -614,18 +339,12 @@ class _BoardItemPayload(BaseModel):
         """The job record as the board's text field holds it."""
         return self.field_value(CONST_GH_PROJECT_JOB_RECORD_FIELD)
 
-    def recorded(
-        self,
-        changes: Mapping[ItemField, str | None] | Mapping[JobMark, str | None] | JobRecord,
-        forgotten: Collection[ItemField] = (),
-    ) -> str:
-        """The job record with `changes` made and the values of `forgotten` dropped, as the text
-        field takes it, keeping every key of the record held now that this version doesn't
-        know."""
+    def recorded(self, changes: JobRecord) -> str:
+        """The job record with `changes` made, as the text field takes it, keeping every key of
+        the record held now that this version does not know."""
         held = self.job_record_text()
         record = decode_job_record(held, card=self.name()) | dict(changes)
-        kept = {key: value for key, value in record.items() if key not in forgotten}
-        return encode_job_record(kept, over=held, card=self.name())
+        return encode_job_record(record, over=held, card=self.name())
 
     def entry(self) -> BoardEntry:
         """The board's fields and job record for this issue, with its card's node id."""
@@ -637,23 +356,10 @@ class _BoardItemPayload(BaseModel):
         """The card as it is once the store has written `value` to the field `field_name`."""
         return self.model_copy(update={item_list_key(field_name): value})
 
-    def card(self) -> Card:
-        """The card, whatever it holds."""
-        return Card.model_validate(
-            self.values()
-            | {
-                "id": self.id,
-                "kind": CardKind(self.content_type or CardKind.DRAFT_ISSUE),
-                "number": self.content_number,
-                "url": self.content_url,
-                "repository": self.content_repository,
-            }
-        )
-
 
 class _AddedCardPayload(BaseModel):
-    """What `gh project item-add`, `item-create` or `item-archive --undo` prints with `--format
-    json`: the card it made, named or restored."""
+    """What `gh project item-add` or `item-archive --undo` prints with `--format json`: the card
+    it named or restored."""
 
     id: str
 
@@ -671,23 +377,8 @@ class FieldListingPayload(BaseModel):
     total_count: int = Field(alias="totalCount")
 
     def options(self) -> dict[str, tuple[str, ...]]:
-        """Each field's option names by field name; a field that isn't single-select has none."""
+        """Each field's option names by field name; a field that is not single-select has none."""
         return {field.name: tuple(option.name for option in field.options) for field in self.fields}
-
-
-class _ProjectPayload(BaseModel):
-    id: str
-    number: int
-    title: str
-    url: str
-
-    def board(self) -> Board:
-        return Board.model_validate(self.model_dump())
-
-
-class _ProjectListingPayload(BaseModel):
-    projects: list[_ProjectPayload]
-    total_count: int = Field(alias="totalCount")
 
 
 class _OptionPayload(BaseModel):
@@ -698,7 +389,7 @@ class _OptionPayload(BaseModel):
 
 
 class _FieldNodePayload(BaseModel):
-    """A board field as GraphQL gives it; a field that isn't single-select has no options."""
+    """A board field as GraphQL gives it; a field that is not single-select has no options."""
 
     id: str
     name: str
@@ -743,23 +434,6 @@ class _BoardSchema(BaseModel):
         return require_field(self.fields, name, operation)
 
 
-class _WorkflowConnectionPayload(BaseModel):
-    nodes: list[Workflow]
-    total_count: int = Field(alias="totalCount")
-
-
-class _WorkflowsPayload(BaseModel):
-    workflows: _WorkflowConnectionPayload = Field(
-        validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "workflows")
-    )
-
-
-class _UpdatedFieldPayload(BaseModel):
-    field: _FieldNodePayload = Field(
-        validation_alias=AliasPath("data", "updateProjectV2Field", "projectV2Field")
-    )
-
-
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _ISSUE = TypeAdapter(_IssuePayload)
 _EVENT = TypeAdapter(_EventPayload)
@@ -771,26 +445,11 @@ _BOARD_ITEM = TypeAdapter(_BoardItemPayload)
 _BOARD_CARD = TypeAdapter(BoardCardPayload)
 _ADDED_CARD = TypeAdapter(_AddedCardPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
-# The job record keys this version reads; the others are a newer version's, kept as they are.
-_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark, *RefineRecordKey))
-_PROJECT = TypeAdapter(_ProjectPayload)
-_PROJECTS = TypeAdapter(_ProjectListingPayload)
+# The job record keys this version reads; the others are another version's, kept as they are.
+_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *RefineRecordKey))
 _BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
-_WORKFLOWS = TypeAdapter(_WorkflowsPayload)
-_UPDATED_FIELD = TypeAdapter(_UpdatedFieldPayload)
-_DEPENDENCY = TypeAdapter(_DependencyPayload)
-_OPEN_PULL_REQUESTS = TypeAdapter(_OpenPullRequestsPayload)
-_RELEASE_PULL_REQUESTS = TypeAdapter(_ReleasePullRequestsPayload)
-_ISSUE_STATUS = TypeAdapter(_IssueStatusPayload)
-_DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
-_REF = TypeAdapter(_RefPayload)
-_GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
-_LISTED_RELEASE = TypeAdapter(_ListedReleasePayload)
-_UPDATED_PULL_REQUEST = TypeAdapter(_UpdatedPullRequestPayload)
 _COMMENT = TypeAdapter(_CommentPayload)
-_CLOSED_PULL_REQUEST = TypeAdapter(_ClosedPullRequestPayload)
-_PULL_REQUEST_FILE = TypeAdapter(_PullRequestFilePayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
@@ -809,53 +468,9 @@ _FIELD_SELECTION = (
 _FIELDS_QUERY = _OWNED_BOARD.format(
     selection=f"id fields(first: $first) {{ totalCount nodes {{ {_FIELD_SELECTION} }} }}"
 )
-_WORKFLOWS_QUERY = _OWNED_BOARD.format(
-    selection="workflows(first: $first) { totalCount nodes { number name enabled } }"
-)
-_UPDATE_OPTIONS_MUTATION = (
-    "mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) { "
-    "updateProjectV2Field(input: {fieldId: $fieldId, singleSelectOptions: $options}) { "
-    f"projectV2Field {{ {_FIELD_SELECTION} }} }} }}"
-)
-_CREATE_FIELD_MUTATION = (
-    "mutation($input: CreateProjectV2FieldInput!) { createProjectV2Field(input: $input) { "
-    "projectV2Field { ... on ProjectV2FieldCommon { id } } } }"
-)
 _REPOSITORY = (
     "query($owner: String!, $name: String!{params}) {{ "
     "repository(owner: $owner, name: $name) {{ {selection} }} }}"
-)
-_PULL_REQUEST_SELECTION = (
-    "totalCount nodes { number url state isDraft baseRefName headRefName body updatedAt "
-    "labels(first: 100) { nodes { name } } milestone { title } "
-    "commits(last: 1) { nodes { commit { committedDate } } } }"
-)
-_OPEN_PULL_REQUESTS_QUERY = _REPOSITORY.format(
-    params=", $first: Int!",
-    selection=(
-        f"openPrs: pullRequests(states: [OPEN], first: $first) {{ {_PULL_REQUEST_SELECTION} }} "
-        "recentPrs: pullRequests(states: [MERGED], orderBy: {field: CREATED_AT, direction: DESC}, first: $first) "
-        f"{{ {_PULL_REQUEST_SELECTION} }}"
-    ),
-)
-_RELEASE_PULL_REQUESTS_QUERY = _REPOSITORY.format(
-    params=", $number: Int!, $first: Int!",
-    selection=(
-        "milestone(number: $number) { pullRequests(first: $first, "
-        f"labels: {json.dumps([DEFAULT_RELEASE_LABEL])}) {{ {_PULL_REQUEST_SELECTION} }} }}"
-    ),
-)
-_ISSUE_STATUS_QUERY = _REPOSITORY.format(
-    params=", $number: Int!, $first: Int!",
-    selection=(
-        "issue(number: $number) { projectItems(first: $first) { totalCount nodes { "
-        "project { number owner { ... on User { login } ... on Organization { login } } } "
-        'fieldValueByName(name: "Status") { '
-        "... on ProjectV2ItemFieldSingleSelectValue { updatedAt } } } } }"
-    ),
-)
-_DEFAULT_BRANCH_QUERY = _REPOSITORY.format(
-    params="", selection="defaultBranchRef { name target { oid } }"
 )
 _IS_PRIVATE_QUERY = _REPOSITORY.format(params="", selection="isPrivate")
 _CLOSURES_QUERY = _REPOSITORY.format(
@@ -887,7 +502,7 @@ def _text_value(raw: object) -> str | None:
 def _malformed_job_record(text: str, card: str) -> GitHubOperationError:
     return GitHubOperationError(
         f"The job record of {card} is not a JSON object whose known keys hold text, so the "
-        f"store can't tell what a job set on it: {text[:256]!r}. Clear the card's "
+        f"store cannot tell what a job set on it: {text[:256]!r}. Clear the card's "
         f"{CONST_GH_PROJECT_JOB_RECORD_FIELD} field or restore it.",
         operation="roadmap.read",
         details={"card": card[:256]},
@@ -908,10 +523,10 @@ def _record_object(text: str, card: str) -> dict[str, Any]:
 def decode_job_record(text: str | None, *, card: str = "a card") -> JobRecord:
     """Read a job record: the keys this version knows.
 
-    A key it doesn't know, such as one a newer version writes, is left out here and kept by
+    A key it does not know, such as one another version writes, is left out here and kept by
     every write (`encode_job_record`). A record that is not a JSON object, or gives a known key
     a value that is not text or null, raises: read as empty, it would make its Item look as if
-    no job had ever placed or admitted it.
+    no job had ever set a field on it.
     """
     if not text:
         return {}
@@ -925,7 +540,7 @@ def decode_job_record(text: str | None, *, card: str = "a card") -> JobRecord:
 
 def encode_job_record(record: JobRecord, *, over: str | None = None, card: str = "a card") -> str:
     """Write a job record as the JSON the board's text field holds, keeping each key of the
-    record it replaces (`over`) that this version doesn't know."""
+    record it replaces (`over`) that this version does not know."""
     found = _record_object(over, card) if over else {}
     kept = {key: value for key, value in found.items() if key not in _JOB_RECORD_KEYS}
     return json.dumps(kept | {key.value: value for key, value in record.items()}, sort_keys=True)
@@ -934,27 +549,6 @@ def encode_job_record(record: JobRecord, *, over: str | None = None, card: str =
 def _wire_value(value: str | date) -> str:
     """A milestone field as GitHub's REST API takes it; a due date becomes a timestamp."""
     return f"{value.isoformat()}T00:00:00Z" if isinstance(value, date) else str(value)
-
-
-def _option_input(option: FieldOption) -> dict[str, str]:
-    """An option as `ProjectV2SingleSelectFieldOptionInput` takes it: name, color, description.
-
-    That input defines no id, and GitHub rejects a request that sends a field it doesn't
-    define, so an option's id never goes out.
-    """
-    return {"name": option.name, "color": option.color, "description": option.description}
-
-
-def option_update_request(field_id: str, options: Sequence[FieldOption]) -> dict[str, Any]:
-    """The GraphQL request that makes `options` the whole option list of the field `field_id`.
-
-    Every option it sends gets a new id, and every card loses its value for the field, so the
-    adapter sends it only to a board it has just created.
-    """
-    return {
-        "query": _UPDATE_OPTIONS_MUTATION,
-        "variables": {"fieldId": field_id, "options": [_option_input(o) for o in options]},
-    }
 
 
 def _search_time(moment: datetime) -> str:
@@ -1052,11 +646,6 @@ def board_fields_args(owner: str, number: Number) -> list[str]:
     return board_query_args(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT)
 
 
-def board_workflows_args(owner: str, number: Number) -> list[str]:
-    """The GraphQL read of board `number`'s built-in workflows."""
-    return board_query_args(_WORKFLOWS_QUERY, owner, number, DEFAULT_GH_PROJECT_WORKFLOW_LIMIT)
-
-
 def field_list_args(owner: str, number: Number) -> list[str]:
     """`gh project field-list`: every board field's options by name. gh also reads the board's
     first 100 items with every field value (about 101 points), so the store never sends it;
@@ -1075,24 +664,6 @@ def field_list_args(owner: str, number: Number) -> list[str]:
     ]
 
 
-def project_list_args(owner: str) -> list[str]:
-    """`gh project list`: every board of `owner`, closed ones included."""
-    limit = str(DEFAULT_GH_PROJECT_LIST_LIMIT)
-    return ["project", "list", "--owner", owner, "--closed", "--format", "json", "--limit", limit]
-
-
-def project_create_args(owner: str, title: str) -> list[str]:
-    return ["project", "create", "--owner", owner, "--title", title, "--format", "json"]
-
-
-def project_link_args(owner: str, number: Number, repo: str) -> list[str]:
-    return ["project", "link", str(number), "--owner", owner, "--repo", repo]
-
-
-def field_delete_args(field_id: str) -> list[str]:
-    return ["project", "field-delete", "--id", field_id]
-
-
 def item_add_args(owner: str, number: Number, url: str) -> list[str]:
     """`gh project item-add` of the issue at `url`, printing the card it adds, or the card the
     issue already has."""
@@ -1103,7 +674,7 @@ def item_edit_args(
     owner: str, number: Number, url: str, field_name: str, change: Sequence[str]
 ) -> list[str]:
     """`gh project item-edit` on the issue at `url`, by the field's name. gh resolves both names
-    by reading the board's first 100 items with every field value (about 101 points), so the
+    with a read of the board's first 100 items with every field value (about 101 points), so the
     store edits by node ids (`card_edit_args`); project reconcile sends this (#892)."""
     return [
         "project",
@@ -1136,27 +707,6 @@ def card_edit_args(
     ]
 
 
-def run_record_card_args(owner: str, number: Number) -> list[str]:
-    """`gh project item-create`: the run record card, a draft issue, printing the card."""
-    return [
-        "project",
-        "item-create",
-        str(number),
-        "--owner",
-        owner,
-        "--title",
-        CONST_ROADMAP_RUN_RECORD_TITLE,
-        "--body",
-        CONST_ROADMAP_RUN_RECORD_BODY,
-        "--format",
-        "json",
-    ]
-
-
-def item_delete_args(owner: str, number: Number, card_id: str) -> list[str]:
-    return ["project", "item-delete", str(number), "--owner", owner, "--id", card_id]
-
-
 def item_unarchive_args(owner: str, number: Number, card_id: str) -> list[str]:
     """`gh project item-archive --undo` of card `card_id`, printing the card it restores."""
     return [
@@ -1174,30 +724,12 @@ def item_unarchive_args(owner: str, number: Number, card_id: str) -> list[str]:
 
 
 GRAPHQL_INPUT_ARGS: tuple[str, ...] = ("api", "graphql", "--input", "-")
-"""A GraphQL write, its request on stdin, so option lists need no flag encoding."""
+"""A GraphQL write, its request on stdin."""
 
 
 def graphql_request(query: str, variables: Mapping[str, Any]) -> str:
     """The stdin of a `GRAPHQL_INPUT_ARGS` write."""
     return json.dumps({"query": query, "variables": dict(variables)})
-
-
-def create_field_request(project_id: str, name: str, data_type: str, options: object = None) -> str:
-    """The stdin of the `createProjectV2Field` write that gives board `project_id` a field;
-    `options`, for a single-select field, its `singleSelectOptions`."""
-    created: dict[str, object] = {"projectId": project_id, "dataType": data_type, "name": name}
-    extra = {"singleSelectOptions": options} if options is not None else {}
-    return graphql_request(_CREATE_FIELD_MUTATION, {"input": created | extra})
-
-
-def field_spec_request(project_id: str, spec: FieldSpec) -> str:
-    """The `createProjectV2Field` write that gives board `project_id` the spec's field."""
-    if spec.single_select:
-        options = [_option_input(o) for o in spec.options]
-        return create_field_request(
-            project_id, spec.name, CONST_GH_PROJECT_SINGLE_SELECT_TYPE, options
-        )
-    return create_field_request(project_id, spec.name, CONST_GH_PROJECT_TEXT_TYPE)
 
 
 def close_as_duplicate_request(issue_id: str, original_id: str) -> str:
@@ -1215,72 +747,20 @@ def repository_issue_events_endpoint(repo: str) -> str:
     return f"repos/{repo}/issues/events"
 
 
-def updated_pull_requests_endpoint(repo: str) -> str:
-    """The REST listing of `repo`'s pull requests, open and closed, by their last update,
-    newest first."""
-    return f"repos/{repo}/pulls?state=all&sort=updated&direction=desc"
-
-
-def github_releases_endpoint(repo: str) -> str:
-    """The REST listing of `repo`'s GitHub Releases, newest first."""
-    return f"repos/{repo}/releases"
-
-
-def issue_events_endpoint(repo: str, number: Number) -> str:
-    return f"repos/{repo}/issues/{number}/events"
-
-
-def merged_pull_requests_endpoint(repo: str, base: str) -> str:
-    """The REST listing of `repo`'s closed pull requests into `base`, oldest first; the merged
-    ones are those with a merge time."""
-    return f"repos/{repo}/pulls?state=closed&base={quote(base, safe='')}&sort=created&direction=asc"
-
-
-def pull_request_files_endpoint(repo: str, number: Number) -> str:
-    """The REST listing of the files pull request `number` changed."""
-    return f"repos/{repo}/pulls/{number}/files"
-
-
 def comments_endpoint(repo: str, number: Number) -> str:
     return f"repos/{repo}/issues/{number}/comments"
 
 
-def dependencies_endpoint(repo: str, number: Number) -> str:
-    return f"repos/{repo}/issues/{number}/dependencies/blocked_by"
-
-
-def milestone_args(
-    repo: str, method: str, number: Number | None = None, fields: Sequence[tuple[str, str]] = ()
-) -> list[str]:
-    """A milestone write: POST to create one, PATCH or DELETE milestone `number`."""
-    path = f"repos/{repo}/milestones" + (f"/{number}" if number is not None else "")
+def milestone_edit_args(repo: str, number: Number, fields: Sequence[tuple[str, str]]) -> list[str]:
+    """The REST write that changes `fields` of milestone `number`."""
     flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
-    return ["api", "-X", method, path, *flags]
-
-
-def issue_milestone_args(repo: str, number: Number, milestone: Number | None) -> list[str]:
-    """Set issue `number`'s milestone, or clear it when `milestone` is None."""
-    value = "null" if milestone is None else milestone
-    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-F", f"milestone={value}"]
+    return ["api", "-X", "PATCH", f"repos/{repo}/milestones/{number}", *flags]
 
 
 def create_issue_args(repo: str, title: str, body: str, labels: Sequence[str] = ()) -> list[str]:
     fields = [("title", title), ("body", body), *(("labels[]", label) for label in labels)]
     flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
     return ["api", "-X", "POST", f"repos/{repo}/issues", *flags]
-
-
-def close_issue_args(repo: str, number: Number, reason: str) -> list[str]:
-    return [
-        "api",
-        "-X",
-        "PATCH",
-        f"repos/{repo}/issues/{number}",
-        "-f",
-        "state=closed",
-        "-f",
-        f"state_reason={reason}",
-    ]
 
 
 def write_issue_body_args(repo: str, number: Number, body: str) -> list[str]:
@@ -1308,54 +788,6 @@ def commit_args(repo: str, value: str) -> list[str]:
     return ["api", f"repos/{repo}/commits/{_segment(value)}"]
 
 
-def release_tag_args(repo: str, tag: str) -> list[str]:
-    tag = tag if tag.startswith("<") else quote(tag)
-    return ["api", f"repos/{repo}/releases/tags/{tag}"]
-
-
-def branch_ref_args(repo: str, name: str) -> list[str]:
-    name = name if name.startswith("<") else quote(name)
-    return ["api", f"repos/{repo}/git/ref/heads/{name}"]
-
-
-def create_branch_args(repo: str, name: str, sha: str) -> list[str]:
-    return [
-        "api",
-        "-X",
-        "POST",
-        f"repos/{repo}/git/refs",
-        "-f",
-        f"ref=refs/heads/{name}",
-        "-f",
-        f"sha={sha}",
-    ]
-
-
-def open_pull_requests_args(repo: str) -> list[str]:
-    return repository_query_args(
-        repo, _OPEN_PULL_REQUESTS_QUERY, first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT
-    )
-
-
-def release_pull_requests_args(repo: str, milestone: Number) -> list[str]:
-    return repository_query_args(
-        repo,
-        _RELEASE_PULL_REQUESTS_QUERY,
-        number=milestone,
-        first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT,
-    )
-
-
-def issue_status_args(repo: str, number: Number) -> list[str]:
-    return repository_query_args(
-        repo, _ISSUE_STATUS_QUERY, number=number, first=DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE
-    )
-
-
-def default_branch_args(repo: str) -> list[str]:
-    return repository_query_args(repo, _DEFAULT_BRANCH_QUERY)
-
-
 def is_private_args(repo: str) -> list[str]:
     """The `gh` arguments that query whether `repo` is private."""
     return repository_query_args(repo, _IS_PRIVATE_QUERY)
@@ -1367,21 +799,13 @@ def closures_args(repo: str, number: Number) -> list[str]:
     )
 
 
-def _releases_among(milestones: list[_MilestonePayload]) -> Iterator[Release]:
-    for milestone in milestones:
-        if is_release_title(milestone.title):
-            yield milestone.release()
-        else:
-            logger.warning("Skipping milestone %r: its title is not a version.", milestone.title)
-
-
 # ── Adapter ───────────────────────────────────────────────────────────────────
 
 
 class GitHubRoadmapStore(RoadmapStore):
     """The roadmap on GitHub, read and written as whoever `gh` is logged in as.
 
-    Without a board, Release operations work, and Item reads and writes raise. One store lives
+    Without a board, milestone operations work, and Item reads and writes raise. One store lives
     for one command or one Service round: it keeps the board's fields, and the listing of each
     filter it read, for its life.
     """
@@ -1414,64 +838,42 @@ class GitHubRoadmapStore(RoadmapStore):
         self._schema: _BoardSchema | None = None
         self._listings: dict[str, list[_BoardItemPayload]] = {}
 
-    # ── Releases ──
+    # ── Milestones ──
 
-    def releases(self) -> list[Release]:
-        """Every Release, sorted by version; milestones that aren't versions are skipped."""
-        milestones = self._listing(milestones_endpoint(self._repo), _MILESTONE, "milestones")
-        return sorted(_releases_among(milestones), key=lambda release: release.version)
+    def milestones(self) -> list[Milestone]:
+        """Every milestone, open and closed, by due date and then by number."""
+        listing = self._listing(milestones_endpoint(self._repo), _MILESTONE, "milestones")
+        return sorted((payload.milestone() for payload in listing), key=milestone_order)
 
-    def release(self, version: str) -> Release | None:
-        """The Release of `version`, with or without its leading `v`, or None."""
-        return find_release(self.releases(), version)
+    def milestone(self, name: str) -> Milestone | None:
+        """The milestone with the exact title `name`, else the one numbered `name`, or None."""
+        return find_milestone(self.milestones(), name)
 
-    def create_release(
+    def edit_milestone(
         self,
-        version: str,
-        *,
-        description: str = "",
-        due_on: date | None = None,
-        state: GitHubState = GitHubState.OPEN,
-    ) -> Release:
-        """Create the Release of `version`, raising if it already exists."""
-        title = require_new_release(self.releases(), version, "roadmap.release.create")
-        fields: dict[str, str | date | None] = {
-            "title": title,
-            "description": description,
-            "due_on": due_on,
-            "state": state,
-        }
-        return self._write_milestone(
-            "POST",
-            None,
-            {name: value for name, value in fields.items() if value is not None},
-            f"create Release {title}",
-        )
-
-    def edit_release(
-        self,
-        version: str,
+        name: str,
         *,
         title: str | None = None,
         description: str | None = None,
         due_on: date | None = None,
         state: GitHubState | None = None,
-    ) -> Release:
-        """Change only the given fields of the Release of `version`, raising if there is none."""
-        releases = self.releases()
-        current = require_release(releases, version, "roadmap.release.edit")
-        edits = release_edits(
-            releases, current, title=title, description=description, due_on=due_on, state=state
+    ) -> Milestone:
+        """Change only the given fields of the milestone `name` names, raising if there is none."""
+        milestones = self.milestones()
+        current = require_milestone(milestones, name, "roadmap.milestone.edit")
+        edits = milestone_edits(
+            milestones, current, title=title, description=description, due_on=due_on, state=state
         )
         if not edits:
             return current
-        return self._write_milestone(
-            "PATCH", current.number, edits, f"edit Release {current.title}"
-        )
+        wire = [(field_name, _wire_value(value)) for field_name, value in edits.items()]
+        action = f"edit milestone #{current.number}"
+        written = self._write(milestone_edit_args(self._repo, current.number, wire), action)
+        return self._validate(written, _MILESTONE, f"milestone after {action}").milestone()
 
-    def close_release(self, version: str) -> Release:
-        """Close the Release of `version`, raising if there is none."""
-        return self.edit_release(version, state=GitHubState.CLOSED)
+    def close_milestone(self, name: str) -> Milestone:
+        """Close the milestone `name` names, raising if there is none."""
+        return self.edit_milestone(name, state=GitHubState.CLOSED)
 
     # ── Items ──
 
@@ -1483,18 +885,14 @@ class GitHubRoadmapStore(RoadmapStore):
         issue = self._read_issue(number)
         return next(iter(join_items([issue.record()], board)), None)
 
-    def items(self, *, release: str | None = None) -> list[Item]:
-        """Every Item, open and closed, or only those in the Release of `release`."""
+    def items(self, *, milestone: int | None = None) -> list[Item]:
+        """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
         board = self._read_board()
-        if release is None:
-            return join_items(self._read_issues("state=all"), board)
-        found = self.release(release)
-        if found is None:
-            return []
-        return join_items(self._read_issues(f"milestone={found.number}&state=all"), board)
+        query = "state=all" if milestone is None else f"milestone={milestone}&state=all"
+        return join_items(self._read_issues(query), board)
 
     def backlog(self) -> list[Item]:
-        """The open Items in no Release."""
+        """The open Items in no milestone."""
         board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
         return join_items(self._read_issues("milestone=none&state=open"), board)
 
@@ -1504,11 +902,9 @@ class GitHubRoadmapStore(RoadmapStore):
         return select_candidates(self._read_issues("state=open"), board)
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
-        """The changes made at or after `since`, oldest first: the Item changes the issue events
-        report, the cuts and un-cuts of release pull requests, and the ships of GitHub Releases
-        whose tag names a Release (#1360). Those `except_actor` made are left out before any job
-        record is read; an empty actor leaves out nothing, and a ship or an un-cut, which names
-        no actor, is never left out."""
+        """The Item changes the issue events report at or after `since`, oldest first (#1360).
+        Those `except_actor` made are left out before any job record is read; an empty actor
+        leaves out nothing."""
         cutoff = as_utc(since)
         skipped = except_actor or None
         events = self._listing(
@@ -1517,22 +913,14 @@ class GitHubRoadmapStore(RoadmapStore):
             "issue events",
             ends=lambda event: event.created_at < cutoff,
         )
-        pull_requests = self._listing(
-            updated_pull_requests_endpoint(self._repo),
-            _UPDATED_PULL_REQUEST,
-            "pull requests",
-            ends=lambda pull_request: pull_request.updated_at < cutoff,
-            per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
-        )
         changes = [
             change
             for event in reversed(events)
-            if (change := event.change()) is not None and change.at >= cutoff
+            if (change := event.change()) is not None
+            and change.at >= cutoff
+            and (skipped is None or change.actor != skipped)
         ]
-        changes += [change for listed in pull_requests for change in listed.changes(cutoff)]
-        changes += self._ships_since(cutoff)
-        kept = [change for change in changes if skipped is None or change.actor != skipped]
-        return self._with_job_records(sorted(kept, key=lambda change: change.at))
+        return self._with_job_records(changes)
 
     def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return its Item, raising if it is not an issue
@@ -1578,79 +966,22 @@ class GitHubRoadmapStore(RoadmapStore):
         operation = "roadmap.item.set_field"
         options = self._read_schema().options()
         require_job_record_field(options)
-        if field is ItemField.RELEASE:
-            target = self._release_for(value)
-            recorded = target.title if target else None
-        else:
-            require_option(options, field, value)
-            recorded = value
-        written = None if field is ItemField.RELEASE else field
+        require_option(options, field, value)
         with _JOB_RECORD_LOCK:
-            if field is ItemField.RELEASE:
-                self._require_release_unchanged(item, target, operation)
-            card = self._require_entry(item, operation, written, value)
-            text = card.recorded(with_marks({field: recorded}, marks or {}))
+            card = self._require_entry(item, operation, field, value)
+            text = card.recorded(with_marks({field: value}, marks or {}))
             card = self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-            if field is ItemField.RELEASE:
-                self._place_in_release(item, target)
-            else:
-                self._edit_card(card, field.value, value, operation)
+            self._edit_card(card, field.value, value, operation)
 
-    def set_marks(
-        self,
-        item: Item,
-        marks: Mapping[Any, str | None],
-        *,
-        recorded: Mapping[ItemField, str | None] | None = None,
-        forgotten: Collection[ItemField] = (),
-    ) -> None:
-        """Set or clear a job's marks in the Item's job record, as its card holds it now, and
-        record or forget a value for a field, in one write."""
+    def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
+        """Set or clear a job's marks in the Item's job record, as its card holds it now, in one
+        write."""
         operation = "roadmap.item.set_marks"
         require_job_record_field(self._read_schema().options())
-        changes: JobRecord = {}
-        for item_field, value in (recorded or {}).items():
-            changes[item_field] = value
         with _JOB_RECORD_LOCK:
             card = self._require_entry(item, operation)
-            text = card.recorded(with_marks(changes, marks), forgotten)
+            text = card.recorded(with_marks({}, marks))
             self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-
-    def run_record(self) -> JobRecord:
-        """The run record card's job record, empty while the board has no such card."""
-        card = self._run_record_card()
-        return card.card().job_record if card else {}
-
-    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
-        """Set or clear marks in the run record card's job record, as the card holds it now,
-        creating the card first when the board has none."""
-        operation = "roadmap.run_record"
-        require_job_record_field(self._read_schema().options())
-        listed = self._run_record_card()
-        with _JOB_RECORD_LOCK:
-            card = (
-                self._require_card_node(listed.id, f"Run record card {listed.id}", operation)
-                if listed
-                else self._create_run_record_card()
-            )
-            text = card.recorded(marks)
-            self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-
-    def release_changes(self, number: int) -> list[Change]:
-        """Every time issue `number` joined or left a Release, from its own events."""
-        events = self._listing(
-            issue_events_endpoint(self._repo, number), _EVENT, f"#{number} events"
-        )
-        moves = (ChangeKind.JOINED_RELEASE, ChangeKind.LEFT_RELEASE)
-        changes = (event.model_copy(update={"number": number}).change() for event in events)
-        return [change for change in changes if change is not None and change.kind in moves]
-
-    def delete_release(self, version: str) -> None:
-        """Delete the Release of `version`, raising if there is none."""
-        deleted = require_release(self.releases(), version, "roadmap.release.delete")
-        self._write(
-            milestone_args(self._repo, "DELETE", deleted.number), f"delete Release {deleted.title}"
-        )
 
     # ── Issues ──
 
@@ -1664,20 +995,6 @@ class GitHubRoadmapStore(RoadmapStore):
             create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
         )
         return self._validate(written, _ISSUE, "issue after it was opened").record()
-
-    def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
-        """Comment on issue `number`, then close it for `reason`. The board's own workflow then
-        changes the issue's card, so the store drops the listings it read and reads the board
-        again when next needed."""
-        if self._read_issue(number).pull_request is not None:
-            raise GitHubOperationError(
-                f"#{number} in {self._repo} is a pull request, not an issue.",
-                operation="roadmap.issue.close",
-                details={"repo": self._repo[:256], "number": number},
-            )
-        self.comment(number, comment)
-        self._write(close_issue_args(self._repo, number, reason), f"close #{number}")
-        self._listings = {}
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, raising if it is not an issue of this repository."""
@@ -1739,7 +1056,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence. The value is one path segment of its endpoint,
-        so no value reaches another resource; a commit GitHub can't resolve answers 422."""
+        so no value reaches another resource; a commit GitHub cannot resolve answers 422."""
         if evidence.kind is EvidenceKind.ADVISORY:
             return (
                 self._read_or_none(advisory_args(evidence.value), _ANY_OBJECT, "advisory")
@@ -1764,7 +1081,7 @@ class GitHubRoadmapStore(RoadmapStore):
         found = self._read(issue_count_args(self._repo, query), _SEARCH, "issue search")
         if found.incomplete_results:
             raise GitHubOperationError(
-                f"GitHub's issue search of {self._repo} came back incomplete, so the count can't "
+                f"GitHub's issue search of {self._repo} came back incomplete, so the count cannot "
                 "be trusted; run again.",
                 operation="roadmap.read",
                 details={"repo": self._repo[:256]},
@@ -1772,7 +1089,7 @@ class GitHubRoadmapStore(RoadmapStore):
         return found.total_count
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The raw text of `path` on `ref` through the contents API, raising when it can't be read."""
+        """The raw text of `path` on `ref` through the contents API, raising when it cannot be read."""
         proc = self._run(repository_file_args(self._repo, path, ref=ref))
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
@@ -1791,260 +1108,20 @@ class GitHubRoadmapStore(RoadmapStore):
             is_private_args(self._repo), _IS_PRIVATE, f"{self._repo} visibility"
         ).is_private
 
-    # ── The board ──
-
-    def board(self) -> Board | None:
-        """The configured board, or None when its owner has no board with that number."""
-        owner, number = self._require_board()
-        listing = self._read(project_list_args(owner), _PROJECTS, f"{owner}'s boards")
-        self._require_whole(len(listing.projects), listing.total_count, f"{owner}'s boards")
-        return next((p.board() for p in listing.projects if p.number == number), None)
-
-    def create_board(self, title: str, fields: Sequence[FieldSpec]) -> Board:
-        """Create a board titled `title`, link it to the repository, then give it `fields`."""
-        owner, _ = self._require_board()
-        written = self._write(project_create_args(owner, title), f"create the board {title[:64]!r}")
-        created = self._validate(written, _PROJECT, "board after it was created").board()
-        self._write(
-            project_link_args(owner, created.number, self._repo), f"link board #{created.number}"
-        )
-        current = {
-            board_field.name: board_field
-            for board_field in self._read_fields(created.number).fields
-        }
-        for spec in fields:
-            self._create_or_align_field(created, current.get(spec.name), spec)
-        return created
-
-    def board_fields(self) -> list[BoardField]:
-        """Every field on the board, with each option's id, color and description."""
-        return list(self._read_schema().fields)
-
-    def delete_field(self, name: str) -> None:
-        """Delete the board field `name`, raising if the board has none."""
-        schema = self._read_schema()
-        deleted = schema.field(name, "roadmap.board.delete_field")
-        self._write(field_delete_args(deleted.id), f"delete the {name} field")
-        kept = tuple(board_field for board_field in schema.fields if board_field.id != deleted.id)
-        self._schema = schema.model_copy(update={"fields": kept})
-
-    def cards(self) -> list[Card]:
-        """Everything on the board, whatever it holds and whichever repository it belongs to."""
-        return [board_item.card() for board_item in self._read_board_listing()]
-
-    def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
-        """Set or clear a board field on any card by its node ids, then record it; a field
-        someone changed since the store read the card raises before any write, unless the card
-        already holds `value`."""
-        operation = "roadmap.card.set_field"
-        require_board_field(field)
-        options = self._read_schema().options()
-        require_job_record_field(options)
-        require_option(options, field, value)
-        with _JOB_RECORD_LOCK:
-            current = self._require_card_node(
-                card.id,
-                f"Card {card.id}",
-                operation,
-                field=field,
-                value=value,
-                held=card.field_value(field),
-            )
-            current = self._edit_card(current, field.value, value, operation)
-            text = current.recorded({field: value})
-            self._edit_card(current, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-
-    def remove_card(self, card: Card) -> None:
-        """Take `card` off the board, raising if it is not on it."""
-        owner, number = self._require_board()
-        self._require_card_node(card.id, f"Card {card.id}", "roadmap.card.remove")
-        self._write(
-            item_delete_args(owner, number, card.id), f"remove card {card.id} from board #{number}"
-        )
-        for listing in self._listings.values():
-            listing[:] = [listed for listed in listing if listed.id != card.id]
-
-    def workflows(self) -> list[Workflow]:
-        """The board's built-in workflows."""
-        owner, number = self._require_board()
-        payload = self._read(
-            board_workflows_args(owner, number), _WORKFLOWS, f"board #{number} workflows"
-        )
-        connection = payload.workflows
-        self._require_whole(len(connection.nodes), connection.total_count, "board workflows")
-        return list(connection.nodes)
-
-    # ── What the release rules read and write ──
-
-    def dependencies(self, number: int) -> list[Dependency]:
-        """The issues issue `number` waits on through GitHub's blocked-by links."""
-        listing = self._listing(
-            dependencies_endpoint(self._repo, number),
-            _DEPENDENCY,
-            f"#{number} dependencies",
-        )
-        return [payload.dependency() for payload in listing]
-
-    def status_changed_at(self, number: int) -> datetime | None:
-        """The `updatedAt` of the Item's Status on the configured board, or None without one."""
-        owner, board_number = self._require_board()
-        payload = self._read(
-            issue_status_args(self._repo, number), _ISSUE_STATUS, f"#{number} board cards"
-        )
-        cards = payload.cards
-        self._require_whole(len(cards.nodes), cards.total_count, f"#{number} board cards")
-        return next(
-            (
-                card.status_changed_at
-                for card in cards.nodes
-                if card.number == board_number and (card.owner or "").lower() == owner.lower()
-            ),
-            None,
-        )
-
-    def open_pull_requests(self) -> list[PullRequest]:
-        """Every open pull request and recent merged pull requests, from one GraphQL read."""
-        payload = self._read(
-            open_pull_requests_args(self._repo), _OPEN_PULL_REQUESTS, "open pull requests"
-        )
-        self._require_whole(
-            len(payload.open_prs.nodes), payload.open_prs.total_count, "open pull requests"
-        )
-        prs_by_number: dict[int, PullRequest] = {
-            node.number: node.pull_request() for node in payload.open_prs.nodes
-        }
-        for node in payload.recent_prs.nodes:
-            if node.number not in prs_by_number:
-                prs_by_number[node.number] = node.pull_request()
-        return list(prs_by_number.values())
-
-    def release_pull_requests(self, version: str) -> list[PullRequest]:
-        """The pull requests with the `release` label in the Release's milestone."""
-        release = require_release(self.releases(), version, "roadmap.release.pull_requests")
-        payload = self._read(
-            release_pull_requests_args(self._repo, release.number),
-            _RELEASE_PULL_REQUESTS,
-            f"{release.title} release pull requests",
-        )
-        return self._pull_requests(payload.connection, f"{release.title} release pull requests")
-
-    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
-        """Every pull request merged into `base`, oldest first, each with the paths it changed;
-        each listing is read whole through the session, and a failed page raises."""
-        closed = self._listing(
-            merged_pull_requests_endpoint(self._repo, base),
-            _CLOSED_PULL_REQUEST,
-            f"pull requests into {base}",
-        )
-        return [
-            pull_request.merged(
-                [
-                    changed.filename
-                    for changed in self._listing(
-                        pull_request_files_endpoint(self._repo, pull_request.number),
-                        _PULL_REQUEST_FILE,
-                        f"#{pull_request.number} files",
-                    )
-                ]
-            )
-            for pull_request in closed
-            if pull_request.merged_at is not None
-        ]
-
-    def release_published(self, version: str) -> bool:
-        """Whether GitHub Release `vX.Y.Z` is published: it exists and is not a draft."""
-        tag = release_title(version)
-        found = self._read_or_none(
-            release_tag_args(self._repo, tag),
-            _GITHUB_RELEASE,
-            f"GitHub Release {tag}",
-        )
-        return found is not None and not found.draft
-
-    def default_branch(self) -> Branch:
-        """The default branch and its head commit, from one GraphQL read."""
-        payload = self._read(default_branch_args(self._repo), _DEFAULT_BRANCH, "default branch")
-        return Branch(name=payload.name, sha=payload.sha)
-
-    def branch(self, name: str) -> str | None:
-        """The head commit of branch `name`, or None when the ref is not found."""
-        found = self._read_or_none(branch_ref_args(self._repo, name), _REF, f"branch {name}")
-        return found.sha if found else None
-
-    def create_branch(self, name: str, sha: str) -> None:
-        """Create branch `name` at `sha`; GitHub refuses a ref that already exists."""
-        self._write(create_branch_args(self._repo, name, sha), f"create branch {name}")
-
     # ── Writes ──
 
     def _with_job_records(self, changes: list[Change]) -> list[Change]:
-        """The changes, each Item change with its Item's job record from the board, when one is
-        configured. A release change carries none, so a poll that finds only those reads no
-        board."""
-        items = [change for change in changes if change.kind not in RELEASE_CHANGE_KINDS]
-        if self._board is None or not items:
+        """The changes, each with its Item's job record from the board, when one is configured.
+        A poll that finds no change reads no board."""
+        if self._board is None or not changes:
             return changes
         board = self._read_board()
         return [
             change.model_copy(update={"job_record": board[change.number].job_record})
-            if change.kind not in RELEASE_CHANGE_KINDS and change.number in board
+            if change.number in board
             else change
             for change in changes
         ]
-
-    def _run_record_card(self) -> _BoardItemPayload | None:
-        """The run record card as the board listing holds it, or None."""
-        listing = self._read_board_listing()
-        return next((item for item in listing if item.is_run_record()), None)
-
-    def _create_run_record_card(self) -> _BoardItemPayload:
-        """Put the run record card on the board: the card `item-create` names, with no field
-        set, read nothing after the create."""
-        owner, number = self._require_board()
-        written = self._write(run_record_card_args(owner, number), "create the run record card")
-        created = self._validate(written, _ADDED_CARD, "run record card after it was created")
-        content = {"type": CardKind.DRAFT_ISSUE.value, "title": CONST_ROADMAP_RUN_RECORD_TITLE}
-        card = _BOARD_ITEM.validate_python({"id": created.id, "content": content})
-        self._added(card, is_open=False)
-        return card
-
-    def _require_release_unchanged(
-        self, item: Item, target: Release | None, operation: str
-    ) -> None:
-        """A job's write of `target` to Release raises when the issue holds another milestone
-        than this view read, compared by milestone number, unless it already holds `target`."""
-        current_issue = self._read_issue(item.number)
-        now_num = current_issue.milestone_number
-        releases = self.releases()
-        read_num = release_number(releases, item.release)
-        target_num = target.number if target is not None else None
-        if read_num != now_num and target_num != now_num:
-            now_title = current_issue.release
-            if item.release == now_title:
-                texts = MESSAGES.roadmap
-                raise RoadmapCardChangedError(
-                    texts.card_changed.format(
-                        card=f"#{item.number}",
-                        field=ItemField.RELEASE.value,
-                        now=now_title or texts.card_value_unset,
-                        read=item.release or texts.card_value_unset,
-                    ),
-                    operation=operation,
-                    details={
-                        "card": f"#{item.number}"[:256],
-                        "field": ItemField.RELEASE.value,
-                        "read": item.release and item.release[:256],
-                        "now": now_title and now_title[:256],
-                    },
-                )
-            require_unchanged(
-                f"#{item.number}",
-                ItemField.RELEASE,
-                {item.release},
-                now_title,
-                target.title if target else None,
-                operation,
-            )
 
     def _require_entry(
         self, item: Item, operation: str, field: ItemField | None = None, value: str | None = None
@@ -2075,7 +1152,7 @@ class GitHubRoadmapStore(RoadmapStore):
     ) -> _BoardItemPayload:
         """The card `card_id` as it is now, from one read by its node id, raising before any
         write when it is gone or archived, or not issue `number`'s when one is given, when that
-        read leaves fewer points than the reserve, or when writing `value` to `field` would
+        read leaves fewer points than the reserve, or when the write of `value` to `field` would
         revert a change made since the store read the card: the value read is the card's in the
         store's listings, which its own writes keep current, or `held`, the caller's, when no
         listing holds the card. The listings take the card's job record as it is now, and keep
@@ -2206,34 +1283,13 @@ class GitHubRoadmapStore(RoadmapStore):
         """Hold a card the store added in each listing that selects it: the unfiltered one,
         which selects every card not archived, and the open items' when its issue is open; a
         listing that already holds the card keeps it as the store read it. Any other listing,
-        whose filter the store can't judge, is read again when next needed."""
+        whose filter the store cannot judge, is read again when next needed."""
         kept = {"", CONST_ROADMAP_OPEN_ITEMS_FILTER} if is_open else {""}
         self._listings = {
             query: listing if any(listed.id == card.id for listed in listing) else [*listing, card]
             for query, listing in self._listings.items()
             if query in kept
         }
-
-    def _release_for(self, version: str | None) -> Release | None:
-        """The Release of `version` an issue is placed in, None for the backlog; raising when
-        there is no such Release."""
-        if version is None:
-            return None
-        return require_release(self.releases(), version, "roadmap.item.set_field")
-
-    def _place_in_release(self, item: Item, target: Release | None) -> None:
-        """Set or clear the issue's milestone."""
-        self._write(
-            issue_milestone_args(self._repo, item.number, target.number if target else None),
-            f"set the Release of #{item.number}",
-        )
-
-    def _write_milestone(
-        self, method: str, number: int | None, fields: dict[str, str | date], action: str
-    ) -> Release:
-        wire = [(name, _wire_value(value)) for name, value in fields.items()]
-        written = self._write(milestone_args(self._repo, method, number, wire), action)
-        return self._validate(written, _MILESTONE, f"milestone after {action}").release()
 
     def _write(self, args: list[str], action: str) -> str:
         proc = self._run(args)
@@ -2246,7 +1302,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def _require_board(self) -> tuple[str, int]:
         if self._board is None:
             raise GitHubOperationError(
-                f"No board is configured for {self._repo}, so its Items can't be read or written.",
+                f"No board is configured for {self._repo}, so its Items cannot be read or written.",
                 operation="roadmap.board",
                 details={"repo": self._repo[:256]},
             )
@@ -2261,7 +1317,7 @@ class GitHubRoadmapStore(RoadmapStore):
         return self._listings[query]
 
     def _fetch_board_listing(self, query: str) -> list[_BoardItemPayload]:
-        """One read of the items `query` selects, refusing before any page when the budget can't
+        """One read of the items `query` selects, refusing before any page when the budget cannot
         cover the read and raising on a short read. A count that changes during the read is read
         again once."""
         owner, number = self._require_board()
@@ -2318,7 +1374,7 @@ class GitHubRoadmapStore(RoadmapStore):
             if after is None:
                 return list(listing.values()), totals
         raise GitHubOperationError(
-            f"The {what} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so the read can't "
+            f"The {what} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so the read cannot "
             "complete.",
             operation="roadmap.read",
             details={"repo": self._repo[:256], "read": what[:256]},
@@ -2345,24 +1401,12 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _read_board(self, board_filter: str | None = None) -> dict[int, BoardEntry]:
         """The board's issues of this repository that the filter selects, by number."""
-        return {
-            number: item.entry() for number, item in self._read_board_items(board_filter).items()
-        }
-
-    def _read_board_items(self, board_filter: str | None = None) -> dict[int, _BoardItemPayload]:
-        """The board's cards of this repository's issues, as listed, by number."""
         items = self._read_board_listing(board_filter)
         return {
-            item.content_number: item
+            item.content_number: item.entry()
             for item in items
             if item.is_issue_of(self._repo) and item.content_number is not None
         }
-
-    def _pull_requests(
-        self, connection: _PullRequestConnectionPayload, what: str
-    ) -> list[PullRequest]:
-        self._require_whole(len(connection.nodes), connection.total_count, what)
-        return [node.pull_request() for node in connection.nodes]
 
     def _read_or_none[PayloadT](
         self,
@@ -2393,48 +1437,22 @@ class GitHubRoadmapStore(RoadmapStore):
         return issue.node_id
 
     def _read_schema(self) -> _BoardSchema:
-        """The configured board's node id and fields, read the first time a store needs them."""
+        """The configured board's node id and fields through GraphQL, which alone gives option
+        colors and descriptions, read the first time a store needs them."""
         if self._schema is None:
-            self._schema = self._read_fields(self._require_board()[1])
+            owner, number = self._require_board()
+            payload = self._read(
+                board_fields_args(owner, number), _BOARD_FIELDS, f"board #{number} fields"
+            )
+            connection = payload.fields
+            self._require_whole(len(connection.nodes), connection.total_count, "board fields")
+            self._schema = _BoardSchema(
+                board_id=payload.board_id, fields=tuple(node.field() for node in connection.nodes)
+            )
         return self._schema
 
-    def _read_fields(self, number: int) -> _BoardSchema:
-        """Board `number`'s node id and fields through GraphQL, which alone gives option colors
-        and descriptions."""
-        owner, _ = self._require_board()
-        payload = self._read(
-            board_fields_args(owner, number),
-            _BOARD_FIELDS,
-            f"board #{number} fields",
-        )
-        connection = payload.fields
-        self._require_whole(len(connection.nodes), connection.total_count, "board fields")
-        return _BoardSchema(
-            board_id=payload.board_id, fields=tuple(node.field() for node in connection.nodes)
-        )
-
-    def _create_or_align_field(
-        self, board: Board, current: BoardField | None, spec: FieldSpec
-    ) -> None:
-        """Create the spec's field, or give a field the new board already has the spec's options.
-
-        The new board holds no cards, so the new option ids its options get cost no value.
-        """
-        if current is None:
-            self._graphql(field_spec_request(board.id, spec), f"create the {spec.name} field")
-        elif current.single_select and spec.single_select:
-            self._replace_options(current, spec.options)
-
-    def _replace_options(self, current: BoardField, options: Sequence[FieldOption]) -> BoardField:
-        written = self._graphql(
-            json.dumps(option_update_request(current.id, options)),
-            f"replace the {current.name} options",
-        )
-        updated = self._validate(written, _UPDATED_FIELD, f"{current.name} field after its update")
-        return updated.field.field()
-
     def _graphql(self, request: str, action: str) -> str:
-        """Send a GraphQL write, its request on stdin, so option lists need no flag encoding."""
+        """Send a GraphQL write, its request on stdin."""
         proc = self._run(list(GRAPHQL_INPUT_ARGS), input=request)
         if proc.returncode != 0:
             raise self._failure(proc, action, "roadmap.write")
@@ -2442,34 +1460,6 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _read_issue(self, number: int) -> _IssuePayload:
         return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
-
-    def _ships_since(self, cutoff: datetime) -> list[Change]:
-        """A ship for each GitHub Release published at or after `cutoff` whose tag names a
-        Release. The listing is ordered by its tags' times, newest first, but a ship is judged by
-        when it was published, so it is read to the end of the page holding the first Release
-        created before `cutoff`, and every Release read is judged by when it was published. The
-        milestones are read only when one was published since."""
-        listed = self._listing(
-            github_releases_endpoint(self._repo),
-            _LISTED_RELEASE,
-            "GitHub Releases",
-            ends=lambda release: release.created_at < cutoff,
-            to_page_end=True,
-            per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
-        )
-        shipped = [
-            (published.tag_name, at)
-            for published in listed
-            if (at := published.shipped_at(cutoff)) is not None
-        ]
-        releases = self.releases() if shipped else []
-        return [
-            Change(
-                kind=ChangeKind.RELEASE_SHIPPED, number=0, actor=None, at=at, release=release.title
-            )
-            for tag, at in shipped
-            if is_release_title(tag) and (release := find_release(releases, tag)) is not None
-        ]
 
     def _read_issues(self, query: str) -> list[IssueRecord]:
         issues = self._listing(issues_endpoint(self._repo, query), _ISSUE, "issues")
@@ -2482,28 +1472,21 @@ class GitHubRoadmapStore(RoadmapStore):
         what: str,
         *,
         ends: Callable[[EntryT], bool] | None = None,
-        to_page_end: bool = False,
-        per_page: int = DEFAULT_GH_REST_PER_PAGE,
     ) -> list[EntryT]:
-        """Every entry of the REST listing `endpoint`, read through the GitHub session,
-        `per_page` entries a page. With `ends`, the read stops at the first entry `ends` holds
-        for and requests no later page: a listing read newest first ends at the first entry
-        older than the time it reads from (#1360). With `to_page_end` as well, it reads on to
-        the end of the page that entry is on, which GitHub has already sent, since every page
-        but the last is full, so a listing ordered by one time and judged by another sees that
-        whole page.
+        """Every entry of the REST listing `endpoint`, read through the GitHub session. With
+        `ends`, the read stops at the first entry `ends` holds for and requests no later page: a
+        listing read newest first ends at the first entry older than the time it reads from
+        (#1360).
 
         The session follows each page's `Link: rel="next"` and raises on a failed page, a page
         that holds no list and a listing past its page cap, so the listing is never taken as
         whole when it is not; an entry that is not the shape `adapter` reads raises here.
         """
         listing: list[EntryT] = []
-        ended = False
-        for found in self._listing_session().paginate(listing_path(endpoint, per_page)):
+        for found in self._listing_session().paginate(listing_path(endpoint)):
             entry = self._validate_entry(found, adapter, what)
             listing.append(entry)
-            ended = ended or (ends is not None and ends(entry))
-            if ended and not (to_page_end and len(listing) % per_page):
+            if ends is not None and ends(entry):
                 break
         return listing
 
@@ -2606,55 +1589,32 @@ __all__ = [
     "advisory_args",
     "board_fields_args",
     "board_query_args",
-    "board_workflows_args",
-    "branch_ref_args",
     "card_edit_args",
     "close_as_duplicate_request",
-    "close_issue_args",
     "closures_args",
     "comment_args",
     "comments_endpoint",
     "commit_args",
-    "create_branch_args",
-    "create_field_request",
     "create_issue_args",
     "decode_job_record",
-    "default_branch_args",
-    "dependencies_endpoint",
     "encode_job_record",
-    "field_delete_args",
     "field_list_args",
-    "field_spec_request",
-    "github_releases_endpoint",
     "graphql_request",
     "is_private_args",
     "issue_args",
     "issue_count_args",
-    "issue_events_endpoint",
-    "issue_milestone_args",
     "issue_search_text",
-    "issue_status_args",
     "issues_endpoint",
     "item_add_args",
-    "item_delete_args",
     "item_edit_args",
     "item_unarchive_args",
     "label_args",
     "listing_path",
-    "milestone_args",
+    "milestone_edit_args",
     "milestones_endpoint",
-    "open_pull_requests_args",
-    "option_update_request",
-    "project_create_args",
-    "project_link_args",
-    "project_list_args",
-    "release_pull_requests_args",
-    "release_tag_args",
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",
-    "run_record_card_args",
-    "updated_pull_requests_endpoint",
     "workflow_run_args",
     "write_issue_body_args",
 ]

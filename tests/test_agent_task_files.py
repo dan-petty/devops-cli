@@ -76,7 +76,7 @@ def test_task_file_links_its_issue_and_ticks_only_done_work(task_file: Path) -> 
     [
         "**Status**: Done\n",
         "**Status**: Backlog\n",
-        "**Milestone**: v0.2.37\n",
+        "**Milestone**: 2026-11\n",
         "**Priority**: priority/p1-high\n",
         "**PR**: [#1636](https://github.com/dan-petty/devops-cli/pull/1636)\n",
     ],

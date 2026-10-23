@@ -52,7 +52,7 @@ runs:
     # each xdist worker compiling the same modules while it collects (#1735).
     - name: Synchronize dependencies
       shell: bash
-      run: uv sync --all-groups --all-extras --compile-bytecode
+      run: uv sync --locked --all-groups --all-extras --compile-bytecode
 
     - name: Initialize workspace directories
       shell: bash

@@ -85,9 +85,7 @@ _DOMAIN_KB_TOPIC_MAP: dict[str, list[str]] = {
     ],
     "ci_cd": [
         "it_domains/topics/continuous_integration_and_progressive_verification.md",
-        "it_domains/topics/release_engineering_and_semver_governance.md",
         "devops_cli/tasks/ci_quality_gate.md",
-        "devops_cli/tasks/release_management.md",
         "it_domains/tools/github_cli.md",
         "it_domains/tools/actionlint.md",
     ],

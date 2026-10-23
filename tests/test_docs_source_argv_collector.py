@@ -239,7 +239,6 @@ def test_the_collector_reads_every_module_and_both_prefixes(
     collected = {(reference.path, reference.tokens) for reference in src_references}
     expected = {
         ("src/devops_cli/commands/ci.py", ("docs", "check")),
-        ("src/devops_cli/commands/release.py", ("ci", "run")),
         (
             "src/devops_cli/commands/devcontainer.py",
             ("k8s", "deploy-stack", "--stack", _single("stack")),

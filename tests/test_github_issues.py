@@ -32,13 +32,13 @@ def test_github_issue_model() -> None:
         number=77,
         title="feat(rag): dedicated library vector tier",
         state="open",
-        milestone="v0.2.14",
+        milestone="2026-11",
         labels=["type/feature", "scope/ai", "priority/p2-medium"],
         assignees=["dan-petty"],
         url="https://github.com/dan-petty/devops-cli/issues/77",
     )
     assert issue.number == 77
-    assert issue.milestone == "v0.2.14"
+    assert issue.milestone == "2026-11"
     assert "type/feature" in issue.labels
 
 
@@ -65,7 +65,7 @@ def test_get_repository_issues_success() -> None:
             "number": 77,
             "title": "feat(rag): dedicated library vector tier",
             "state": "OPEN",
-            "milestone": {"title": "v0.2.14"},
+            "milestone": {"title": "2026-11"},
             "labels": [{"name": "type/feature"}, {"name": "scope/ai"}],
             "assignees": [{"login": "dan-petty"}],
             "url": "https://github.com/dan-petty/devops-cli/issues/77",
@@ -76,7 +76,7 @@ def test_get_repository_issues_success() -> None:
         issues = get_repository_issues("dan-petty/devops-cli")
         assert len(issues) == 1
         assert issues[0].number == 77
-        assert issues[0].milestone == "v0.2.14"
+        assert issues[0].milestone == "2026-11"
         assert "type/feature" in issues[0].labels
 
 
@@ -86,7 +86,7 @@ def test_create_repository_issue_success() -> None:
         "number": 84,
         "title": "fix(ci): improve timeout",
         "state": "OPEN",
-        "milestone": {"title": "v0.2.14"},
+        "milestone": {"title": "2026-11"},
         "labels": [{"name": "type/bug"}, {"name": "scope/ci"}, {"name": "priority/p1-high"}],
         "assignees": [],
         "url": "https://github.com/dan-petty/devops-cli/issues/84",
@@ -97,7 +97,7 @@ def test_create_repository_issue_success() -> None:
             repo="dan-petty/devops-cli",
             title="fix(ci): improve timeout",
             body="Description",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/bug", "scope/ci", "priority/p1-high"],
         )
         assert issue.number == 84
@@ -111,14 +111,14 @@ def test_audit_issues_triage() -> None:
             number=1,
             title="Properly labeled issue",
             state="open",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/feature", "scope/ai", "priority/p2-medium"],
         ),
         GitHubIssue(
             number=2,
             title="Missing scope and priority",
             state="open",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/bug"],
         ),
         GitHubIssue(
@@ -170,14 +170,14 @@ def test_get_issues_summary() -> None:
             number=1,
             title="Bug 1",
             state="open",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/bug", "scope/ai", "priority/p0-critical"],
         ),
         GitHubIssue(
             number=2,
             title="Feature 1",
             state="open",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/feature", "scope/k8s", "priority/p2-medium"],
         ),
     ]
@@ -186,7 +186,7 @@ def test_get_issues_summary() -> None:
         assert summary["total_open"] == 2
         assert summary["by_priority"]["priority/p0-critical"] == 1
         assert summary["by_type"]["type/bug"] == 1
-        assert summary["by_milestone"]["v0.2.14"] == 2
+        assert summary["by_milestone"]["2026-11"] == 2
 
 
 def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:
@@ -221,7 +221,7 @@ def test_get_repository_issues_graphql_rate_limit_fallback_to_rest(
             "number": 180,
             "title": "fix(github): add REST API fallback",
             "state": "open",
-            "milestone": {"title": "v0.2.17"},
+            "milestone": {"title": "2026-12"},
             "labels": [{"name": "type/bug"}, {"name": "scope/github"}],
             "assignees": [{"login": "dan-petty"}],
             "html_url": "https://example.com/dan-petty/devops-cli/issues/180",
@@ -242,11 +242,11 @@ def test_get_repository_issues_graphql_rate_limit_fallback_to_rest(
     )
 
     with patch("devops_cli.github.issues.run_gh", side_effect=[mock_gh_cli_err]):
-        issues = get_repository_issues("dan-petty/devops-cli", milestone="v0.2.17")
+        issues = get_repository_issues("dan-petty/devops-cli", milestone="2026-12")
         assert len(issues) == 1
         assert issues[0].number == 180
         assert issues[0].title == "fix(github): add REST API fallback"
-        assert issues[0].milestone == "v0.2.17"
+        assert issues[0].milestone == "2026-12"
         assert "type/bug" in issues[0].labels
 
 
@@ -280,11 +280,11 @@ def test_issue_parsing_helpers_edge_cases() -> None:
         {
             "number": 99,
             "title": "Title",
-            "milestone": "v0.2.17",
+            "milestone": "2026-12",
             "labels": ["type/bug"],
         }
     )
-    assert issue.milestone == "v0.2.17"
+    assert issue.milestone == "2026-12"
 
 
 _REST_ISSUES = "/repos/octo/repo/issues?state=open&per_page=100"
@@ -303,10 +303,10 @@ def test_fetch_issues_rest_reads_every_page_and_filters(github_api: GitHubApiFak
     github_api.route(
         "GET",
         f"{_REST_ISSUES}&labels=type%2Fbug",
-        github_json([_issue(1, "v0.2.17"), _issue(2, "v0.2.18"), pull], headers=next_page(second)),
+        github_json([_issue(1, "2026-12"), _issue(2, "2027-01"), pull], headers=next_page(second)),
     )
-    github_api.route("GET", second, github_json([_issue(3, "v0.2.17")]))
-    issues = _fetch_issues_rest("octo/repo", milestone="v0.2.17", labels=["type/bug"], limit=None)
+    github_api.route("GET", second, github_json([_issue(3, "2026-12")]))
+    issues = _fetch_issues_rest("octo/repo", milestone="2026-12", labels=["type/bug"], limit=None)
     assert ([issue.number for issue in issues], len(github_api.sent)) == ([1, 3], 2)
 
 
@@ -314,9 +314,9 @@ def test_fetch_issues_rest_stops_reading_at_its_limit(github_api: GitHubApiFake)
     """Once `limit` issues are read, no further page is requested."""
     second = "/repositories/1/issues?state=open&per_page=100&page=2"
     github_api.route(
-        "GET", _REST_ISSUES, github_json([_issue(1, "v0.2.17")], headers=next_page(second))
+        "GET", _REST_ISSUES, github_json([_issue(1, "2026-12")], headers=next_page(second))
     )
-    github_api.route("GET", second, github_json([_issue(2, "v0.2.17")]))
+    github_api.route("GET", second, github_json([_issue(2, "2026-12")]))
     issues = _fetch_issues_rest("octo/repo", limit=1)
     assert ([issue.number for issue in issues], len(github_api.sent)) == ([1], 1)
 

@@ -35,7 +35,7 @@ def test_every_comment_type_of_the_template_has_a_definition_for_the_legend() ->
 
 
 def test_the_ignore_file_hides_only_generated_documents() -> None:
-    """A lockfile, the tools lock, CHANGELOG.md and ROADMAP.md stay in front of the person."""
+    """A lockfile, the tools lock and CHANGELOG.md stay in front of the person."""
     patterns = [
         line
         for line in _IGNORE_FILE.read_text(encoding="utf-8").splitlines()

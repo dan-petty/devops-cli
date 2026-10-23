@@ -470,7 +470,7 @@ def test_function_local_import_of_commands_outside_commands_fails_with_file_and_
         tmp_path,
         {
             "devops_cli/__init__.py": "",
-            "devops_cli/main.py": "from devops_cli.commands import release\n",
+            "devops_cli/main.py": "from devops_cli.commands import docs\n",
             "devops_cli/commands/__init__.py": "",
             "devops_cli/commands/pr.py": "from devops_cli.commands.gh import _resolve_repo\n",
             "devops_cli/core/cli.py": "def load_main() -> None:\n    import devops_cli.main\n",

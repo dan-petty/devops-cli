@@ -56,7 +56,7 @@ def test_hardening_report_single_pr_missing_hardening() -> None:
         "state": "MERGED",
         "files": [
             {"path": "src/devops_cli/ai/prompt.py", "additions": 15, "deletions": 2},
-            {"path": "docs/ROADMAP.md", "additions": 10, "deletions": 0},  # excluded
+            {"path": "docs/SDLC.md", "additions": 10, "deletions": 0},  # not a surface
         ],
     }
 

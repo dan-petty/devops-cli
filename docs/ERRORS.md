@@ -44,11 +44,9 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ConstellationFailoverError` | `CONSTELLATION_FAILOVER_ERROR` | `1` | Ai | Raised when emergency failover routing fails. |
 | `ConstellationQuiesceError` | `CONSTELLATION_QUIESCE_ERROR` | `1` | Ai | Raised when constellation quiesce suspension fails. |
 | `ConstellationResumeError` | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
-| `CopilotPassRefusedError` | `COPILOT_PASS_REFUSED` | `1` | Git | Raised when `devops pr copilot-pass` refuses to request a Copilot pass. |
 | `CosignError` | `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
 | `CosignVerificationError` | `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DependencyError` | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
-| `DocCompactionError` | `DOC_COMPACTION_ERROR` | `1` | Docs | Exception raised when documentation compaction fails. |
 | `DockerDaemonUnavailableError` | `DOCKER_DAEMON_UNAVAILABLE` | `1` | Docker | Raised when the Docker daemon socket cannot be reached or negotiated. |
 | `DockerEngineError` | `DOCKER_ENGINE_ERROR` | `1` | Docker | Raised when a Docker Engine API call over the daemon socket fails. |
 | `DockerError` | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
@@ -87,12 +85,6 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
-| `ReleaseBranchMissingError` | `RELEASE_BRANCH_MISSING` | `1` | Git | Raised when the remote release branch tracking ref does not exist. |
-| `ReleasePRCreationError` | `RELEASE_PR_CREATION_FAILED` | `1` | Git | Raised when creating a release pull request via GitHub CLI fails. |
-| `ReleasePushError` | `RELEASE_PUSH_FAILED` | `1` | Git | Raised when pushing a release cut branch or tag to origin fails. |
-| `ReleasePushRefusedError` | `RELEASE_PUSH_REFUSED_RULESET` | `1` | Git | Raised when git push to a release branch is refused by a repository ruleset (GH013). |
-| `ReleaseRemoteFetchError` | `RELEASE_REMOTE_FETCH_FAILED` | `1` | Git | Raised when fetching the remote release branch tip fails. |
-| `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
@@ -118,7 +110,6 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
-| `ThreadFilingRefusedError` | `THREAD_FILING_REFUSED` | `1` | Git | Raised when `devops pr threads file-issues` refuses to file a pull request's threads. |
 | `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `ToolExecutionError` | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |

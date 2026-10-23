@@ -157,7 +157,7 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
                 delta("ADDED", "Export widgets", _WIDGET, purpose=True),
             ),
             "openspec/changes/1917-export-widgets/.openspec.yaml": (
-                "schema: spec-driven\ncreated: 2026-10-22\nmilestone: v0.2.39\n"
+                "schema: spec-driven\ncreated: 2026-10-22\nmilestone: 2026-11\n"
             ),
         },
     ),

@@ -3,39 +3,34 @@
 Each case pins one promise `RoadmapStore` makes. The GitHub adapter, built with the GitHub
 session it reads its REST listings through, keeps the same promises in
 `tests/test_roadmap_github_store.py`, over recorded `gh` output, but one: of the changes a poll
-reads, it reports the issue events' six kinds and the release kinds (a cut, an un-cut and a
-ship, #1360), and not a board field set, a blocked-by link, a comment or an edit, which only the
-in-memory adapter records (`ChangeKind`).
+reads, it reports the issue events' four kinds (#1360), and not a board field set, a comment or
+an edit, which only the in-memory adapter records (`ChangeKind`). A milestone is a planning
+bucket: any title, identified by its number and ordered by its due date.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.exceptions.validation import InvalidVersionError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
     BoardField,
-    CardKind,
     ChangeKind,
     CloseReason,
     Closure,
     Evidence,
     EvidenceKind,
     FieldOption,
-    FieldSpec,
     GitHubState,
     IssueQuery,
     ItemField,
-    JobMark,
-    PullRequestState,
     RefineRecordKey,
     RoadmapStore,
 )
@@ -67,136 +62,149 @@ def clock() -> SteppedClock:
 @pytest.fixture
 def store(clock: SteppedClock) -> InMemoryRoadmapStore:
     roadmap = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
-    roadmap.create_release("v0.2.24", state=GitHubState.CLOSED)
-    roadmap.create_release("v0.2.25", description="Multi-IDE MCP Scaffolding")
+    roadmap.seed_milestone("Docs pass", state=GitHubState.CLOSED, due_on=date(2026, 9, 1))
+    roadmap.seed_milestone("Q4 hardening", description="Multi-IDE MCP Scaffolding")
     return roadmap
 
 
 def test_both_adapters_are_roadmap_stores(github_api: GitHubApiFake) -> None:
     """The GitHub adapter is built with the GitHub session it reads its REST listings through
-    (#983): its Releases come from that session's one read of the milestones."""
+    (#983): its milestones come from that session's one read, and a title that is no version is
+    a milestone like any other."""
     github_api.route(
         "GET",
         "/repos/example/roadmap/milestones?state=all&per_page=100",
-        github_json([{"number": 1, "title": "v0.2.25", "state": "open", "description": ""}]),
+        github_json([{"number": 1, "title": "Q4 hardening", "state": "open", "description": ""}]),
     )
     github = GitHubRoadmapStore("example/roadmap", session=get_github_session())
     adapters = (InMemoryRoadmapStore(), github)
     assert (
         [isinstance(adapter, RoadmapStore) for adapter in adapters],
-        [release.title for release in github.releases()],
+        [milestone.title for milestone in github.milestones()],
         len(github_api.sent),
-    ) == ([True, True], ["v0.2.25"], 1)
+    ) == ([True, True], ["Q4 hardening"], 1)
 
 
-def test_a_release_is_found_with_or_without_its_v(store: InMemoryRoadmapStore) -> None:
-    found = (store.release("0.2.25"), store.release("v0.2.25"))
-    assert (found[0], found[0].title if found[0] else None) == (found[1], "v0.2.25")
+def test_a_milestone_is_found_by_its_exact_title_or_by_its_number(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """No title is read as a version: a title found as written, else a number."""
+    by_title = store.milestone("Q4 hardening")
+    by_number = store.milestone(str(by_title.number if by_title else 0))
+    assert (
+        by_title is not None,
+        by_number == by_title,
+        store.milestone("q4 hardening"),
+        store.milestone("99"),
+    ) == (True, True, None, None)
 
 
-def test_an_unknown_version_finds_no_release(store: InMemoryRoadmapStore) -> None:
-    assert store.release("9.9.9") is None
+def test_a_title_wins_over_a_number_that_another_milestone_has(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A milestone titled "1" is found by that title, not as milestone number 1."""
+    titled = store.seed_milestone("1")
+    found = store.milestone("1")
+    assert (found.number if found else None, titled.number != 1) == (titled.number, True)
 
 
-def test_a_version_that_is_not_a_version_raises(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(InvalidVersionError, match="Release 1"):
-        store.release("Release 1")
-
-
-def test_creating_a_version_that_already_exists_raises(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(GitHubOperationError, match="already exists"):
-        store.create_release("0.2.25")
-    assert [release.title for release in store.releases()] == ["v0.2.24", "v0.2.25"]
-
-
-def test_releases_sort_by_version_not_by_text(store: InMemoryRoadmapStore) -> None:
-    store.create_release("v0.2.10")
-    store.create_release("v0.2.9")
-    assert [release.title for release in store.releases()] == [
-        "v0.2.9",
-        "v0.2.10",
-        "v0.2.24",
-        "v0.2.25",
+def test_milestones_sort_by_due_date_then_number_with_no_due_date_last(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_milestone("2026-11-05", due_on=date(2026, 11, 5))
+    store.seed_milestone("Someday")
+    store.seed_milestone("2026-10-29", due_on=date(2026, 10, 29))
+    assert [milestone.title for milestone in store.milestones()] == [
+        "Docs pass",
+        "2026-10-29",
+        "2026-11-05",
+        "Q4 hardening",
+        "Someday",
     ]
 
 
 def test_editing_a_description_leaves_the_state_unchanged(store: InMemoryRoadmapStore) -> None:
     edited = (
-        store.edit_release("0.2.25", description="new text"),
-        store.edit_release("0.2.24", description="shipped"),
+        store.edit_milestone("Q4 hardening", description="new text"),
+        store.edit_milestone("Docs pass", description="done"),
     )
-    assert [(release.description, release.state) for release in edited] == [
+    assert [(milestone.description, milestone.state) for milestone in edited] == [
         ("new text", GitHubState.OPEN),
-        ("shipped", GitHubState.CLOSED),
+        ("done", GitHubState.CLOSED),
     ]
 
 
-def test_closing_a_release_closes_only_that_release(store: InMemoryRoadmapStore) -> None:
-    store.close_release("v0.2.25")
-    assert [(release.title, release.state) for release in store.releases()] == [
-        ("v0.2.24", GitHubState.CLOSED),
-        ("v0.2.25", GitHubState.CLOSED),
+def test_closing_a_milestone_closes_only_that_milestone(store: InMemoryRoadmapStore) -> None:
+    store.close_milestone("Q4 hardening")
+    assert [(milestone.title, milestone.state) for milestone in store.milestones()] == [
+        ("Docs pass", GitHubState.CLOSED),
+        ("Q4 hardening", GitHubState.CLOSED),
     ]
 
 
-def test_editing_an_unknown_release_raises(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(GitHubOperationError, match="No Release"):
-        store.edit_release("9.9.9", description="x")
+def test_editing_an_unknown_milestone_raises(store: InMemoryRoadmapStore) -> None:
+    with pytest.raises(GitHubOperationError, match="No milestone has the title or number"):
+        store.edit_milestone("Q5", description="x")
 
 
-def test_renaming_a_release_onto_another_version_raises(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(GitHubOperationError, match="already exists"):
-        store.edit_release("0.2.25", title="v0.2.24")
+def test_renaming_a_milestone_onto_another_title_raises(store: InMemoryRoadmapStore) -> None:
+    with pytest.raises(GitHubOperationError, match="already has the title"):
+        store.edit_milestone("Q4 hardening", title="Docs pass")
 
 
-def test_a_renamed_release_keeps_its_number_issues_and_pull_requests(
-    store: InMemoryRoadmapStore,
-) -> None:
+def test_a_renamed_milestone_keeps_its_number_and_issues(store: InMemoryRoadmapStore) -> None:
     """GitHub keeps a milestone by its number, so a rename moves no issue out of it."""
-    item = store.seed_issue("planned", release="v0.2.25", on_board=True)
-    pull_request = store.as_actor("alice").open_pull_request(
-        "cut", base="main", head="chore/cut-v0.2.25", labels=("release",), release="v0.2.25"
-    )
-    before = store.release("v0.2.25")
-    renamed = store.as_actor("alice").edit_release("v0.2.25", title="v0.3.0")
+    item = store.seed_issue("planned", milestone="Q4 hardening", on_board=True)
+    before = store.milestone("Q4 hardening")
+    renamed = store.as_actor("alice").edit_milestone("Q4 hardening", title="2026-12-01")
     found = store.item(item)
     assert (
         renamed.number == (before.number if before else None),
-        found.release if found else None,
-        [p.number for p in store.release_pull_requests("v0.3.0")],
-        store.items(release="v0.2.25"),
-    ) == (True, "v0.3.0", [pull_request], [])
+        found.milestone if found else None,
+        [i.number for i in store.items(milestone=renamed.number)],
+    ) == (True, "2026-12-01", [item])
 
 
-def test_items_in_a_release_are_its_open_and_closed_items(store: InMemoryRoadmapStore) -> None:
-    open_item = store.seed_issue("open", release="v0.2.25", on_board=True)
+def test_items_in_a_milestone_are_its_open_and_closed_items(store: InMemoryRoadmapStore) -> None:
+    open_item = store.seed_issue("open", milestone="Q4 hardening", on_board=True)
     closed_item = store.seed_issue(
         "closed",
         state=GitHubState.CLOSED,
         state_reason="completed",
-        release="v0.2.25",
+        milestone="Q4 hardening",
         on_board=True,
     )
-    store.seed_issue("off the board", release="v0.2.25")
-    store.seed_issue("a pull request", release="v0.2.25", pull_request=True, on_board=True)
-    store.seed_issue("another release", release="v0.2.24", on_board=True)
-    store.seed_issue("no release", on_board=True)
+    store.seed_issue("off the board", milestone="Q4 hardening")
+    store.seed_issue("a pull request", milestone="Q4 hardening", pull_request=True, on_board=True)
+    store.seed_issue("another milestone", milestone="Docs pass", on_board=True)
+    store.seed_issue("no milestone", on_board=True)
 
-    in_release = store.items(release="v0.2.25")
-    counted = store.release("0.2.25")
+    counted = store.milestone("Q4 hardening")
+    assert counted is not None
+    in_milestone = store.items(milestone=counted.number)
     assert (
-        [(item.number, item.state, item.release) for item in in_release],
-        (counted.open_issues, counted.closed_issues) if counted else None,
+        [(item.number, item.state, item.milestone) for item in in_milestone],
+        (counted.open_issues, counted.closed_issues),
     ) == (
-        [(open_item, GitHubState.OPEN, "v0.2.25"), (closed_item, GitHubState.CLOSED, "v0.2.25")],
+        [
+            (open_item, GitHubState.OPEN, "Q4 hardening"),
+            (closed_item, GitHubState.CLOSED, "Q4 hardening"),
+        ],
         (3, 1),
     )
 
 
-def test_backlog_is_the_open_items_in_no_release(store: InMemoryRoadmapStore) -> None:
+def test_seeding_an_issue_in_a_milestone_that_does_not_exist_raises(
+    store: InMemoryRoadmapStore,
+) -> None:
+    with pytest.raises(GitHubOperationError, match="No milestone"):
+        store.seed_issue("lost", milestone="Q5")
+
+
+def test_backlog_is_the_open_items_in_no_milestone(store: InMemoryRoadmapStore) -> None:
     backlog_item = store.seed_issue("backlog", on_board=True)
     store.seed_issue("closed", state=GitHubState.CLOSED, on_board=True)
-    store.seed_issue("planned", release="v0.2.25", on_board=True)
+    store.seed_issue("planned", milestone="Q4 hardening", on_board=True)
     store.seed_issue("not on the board")
     assert [item.number for item in store.backlog()] == [backlog_item]
 
@@ -206,14 +214,18 @@ def test_an_item_carries_the_body_of_the_issue_listing_it_was_read_from(
 ) -> None:
     """A job judges an Item by its text without a read per Item (#1539): every read of Items
     returns each issue's body, and a body written since is the next read's."""
-    planned = store.seed_issue("planned", body="Planned text", release="v0.2.25", on_board=True)
+    planned = store.seed_issue(
+        "planned", body="Planned text", milestone="Q4 hardening", on_board=True
+    )
     unplanned = store.seed_issue("backlog", body="Backlog text", on_board=True)
     store.write_issue_body(unplanned, "Backlog text, edited")
+    bucket = store.milestone("Q4 hardening")
+    assert bucket is not None
 
     found = store.item(planned)
     assert (
         [(item.number, item.body) for item in store.items()],
-        [(item.number, item.body) for item in store.items(release="v0.2.25")],
+        [(item.number, item.body) for item in store.items(milestone=bucket.number)],
         [(item.number, item.body) for item in store.backlog()],
         found.body if found else None,
     ) == (
@@ -251,7 +263,7 @@ def test_adding_an_item_returns_it_with_its_card_and_adding_it_again_keeps_that_
         added.card_id is not None,
         again.card_id == added.card_id,
         again.status,
-        [card.id for card in store.cards()] == [added.card_id],
+        [item.card_id for item in store.items()] == [added.card_id],
     ) == (number, True, True, "Ready", True)
 
 
@@ -264,7 +276,7 @@ def test_an_archived_card_leaves_the_board_and_adding_its_issue_restores_it_with
     added = store.add_item(number)
     store.set_field(added, ItemField.STATUS, "Ready")
     store.as_actor("alice").archive_card(number)
-    archived = ([c.number for c in store.candidates()], store.item(number), store.cards())
+    archived = ([c.number for c in store.candidates()], store.item(number), store.items())
     restored = store.add_item(number)
     assert (
         added.restored,
@@ -296,35 +308,6 @@ def test_an_item_whose_card_is_not_its_own_is_not_on_the_board(
     with pytest.raises(GitHubOperationError, match="not on the board"):
         store.set_field(item.model_copy(update={"card_id": None}), ItemField.STATUS, "Ready")
     assert store.job_writes()[before:] == []
-
-
-def test_changes_since_leaves_out_the_changes_one_actor_made(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    since = clock.now
-    number = store.seed_issue("labeled twice")
-    store.as_actor("roadmap-bot").label_issue(number, "type/bug")
-    store.as_actor("alice").label_issue(number, "scope/cli")
-    changes = store.changes_since(since, except_actor="roadmap-bot")
-    assert [(change.actor, change.label) for change in changes] == [("alice", "scope/cli")]
-
-
-def test_a_ship_and_an_un_cut_name_no_actor_so_no_poll_leaves_them_out(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    """GitHub's listings name no one for either, so a poll that leaves out the Service's own
-    changes still reports a ship the Service's login published (#1360)."""
-    since = clock.now
-    bot = store.as_actor("roadmap-bot")
-    release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
-    cut = bot.open_pull_request("cut", head="chore/cut-v0.2.25", **release)
-    bot.close_pull_request(cut)
-    bot.publish_release("0.2.25")
-    changes = store.changes_since(since, except_actor="roadmap-bot")
-    assert [(change.kind, change.actor) for change in changes] == [
-        (ChangeKind.RELEASE_UNCUT, None),
-        (ChangeKind.RELEASE_SHIPPED, None),
-    ]
 
 
 def test_every_write_to_an_issue_a_comment_included_moves_its_updated_at(
@@ -372,8 +355,6 @@ def test_a_value_that_is_not_a_board_option_raises_and_changes_nothing(
     assert item is not None
     with pytest.raises(GitHubOperationError, match="not a Priority option"):
         store.set_field(item, ItemField.PRIORITY, "P9-Someday")
-    with pytest.raises(GitHubOperationError, match="No Release"):
-        store.set_field(item, ItemField.RELEASE, "v9.9.9")
     assert (store.item(item.number), store.changes_since(datetime.min)) == (item, [])
 
 
@@ -419,49 +400,6 @@ def test_a_persons_change_differs_from_the_job_record(store: InMemoryRoadmapStor
 # ── A job never reverts a change it did not read (ADR 0002, #1361) ────────────
 
 
-def test_a_job_write_of_a_field_a_person_changed_since_it_was_read_raises_and_writes_nothing(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("prioritize me", on_board=True))
-    assert item is not None
-    store.as_actor("alice").set_field(item, ItemField.PRIORITY, "P1-High")
-    before = len(store.job_writes())
-    with pytest.raises(RoadmapCardChangedError, match="Priority is P1-High") as raised:
-        store.set_field(item, ItemField.PRIORITY, "P3-Low")
-    kept = store.item(item.number)
-    assert (
-        store.job_writes()[before:],
-        kept.priority if kept else None,
-        {key: raised.value.details[key] for key in ("card", "field", "read", "now")},
-    ) == (
-        [],
-        "P1-High",
-        {"card": f"#{item.number}", "field": "Priority", "read": None, "now": "P1-High"},
-    )
-
-
-def test_a_job_write_of_release_a_person_changed_since_it_was_read_raises(
-    store: InMemoryRoadmapStore,
-) -> None:
-    store.create_release("v0.2.26")
-    item = store.item(store.seed_issue("release move", on_board=True))
-    assert item is not None
-    store.as_actor("alice").set_field(item, ItemField.RELEASE, "v0.2.25")
-    before = len(store.job_writes())
-    with pytest.raises(RoadmapCardChangedError, match=r"Release is v0\.2\.25") as raised:
-        store.set_field(item, ItemField.RELEASE, "v0.2.26")
-    kept = store.item(item.number)
-    assert (
-        store.job_writes()[before:],
-        kept.release if kept else None,
-        {key: raised.value.details[key] for key in ("card", "field", "read", "now")},
-    ) == (
-        [],
-        "v0.2.25",
-        {"card": f"#{item.number}", "field": "Release", "read": None, "now": "v0.2.25"},
-    )
-
-
 def test_a_persons_change_stays_caught_after_the_job_wrote_another_field_of_the_card(
     store: InMemoryRoadmapStore,
 ) -> None:
@@ -473,114 +411,6 @@ def test_a_persons_change_stays_caught_after_the_job_wrote_another_field_of_the_
         store.set_field(item, ItemField.PRIORITY, "P3-Low")
     kept = store.item(item.number)
     assert ((kept.effort, kept.priority) if kept else None) == ("Low", "P1-High")
-
-
-def test_a_job_write_of_the_value_the_card_holds_now_goes_ahead(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """Writing what someone else already set reverts nothing, such as the Status the board sets
-    on a card just added."""
-    item = store.add_item(store.seed_issue("intake me"))
-    store.as_actor("alice").set_field(item, ItemField.STATUS, "Backlog")
-    store.set_field(item, ItemField.STATUS, "Backlog")
-    written = store.item(item.number)
-    assert ((written.status, written.job_record) if written else None) == (
-        "Backlog",
-        {ItemField.STATUS: "Backlog"},
-    )
-
-
-def test_the_jobs_own_write_is_what_its_next_write_of_that_field_compares(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A revert, then a decision, on one field of an Item read once: both go ahead."""
-    item = store.item(store.seed_issue("revert then decide", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.PRIORITY, "P2-Medium")
-    store.set_field(item, ItemField.PRIORITY, "P0-Critical")
-    written = store.item(item.number)
-    assert (written.priority if written else None) == "P0-Critical"
-
-
-def test_a_job_card_write_of_a_field_a_person_changed_since_it_was_read_raises(
-    store: InMemoryRoadmapStore,
-) -> None:
-    number = store.seed_issue("a card", on_board=True)
-    (card,) = [card for card in store.cards() if card.number == number]
-    person_view = store.as_actor("alice")
-    person_view.set_card_field(card, ItemField.STATUS, "Ready")
-    before = len(store.job_writes())
-    with pytest.raises(RoadmapCardChangedError, match="Status"):
-        store.set_card_field(card, ItemField.STATUS, "Done")
-    kept = store.item(number)
-    assert (store.job_writes()[before:], kept.status if kept else None) == ([], "Ready")
-
-
-def test_an_item_the_store_never_wrote_has_an_empty_job_record(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("untouched", on_board=True))
-    assert item is not None
-    store.as_actor("alice").set_field(item, ItemField.STATUS, "Ready")
-    untouched = store.item(item.number)
-    assert untouched is not None
-    assert (untouched.status, untouched.job_record) == ("Ready", {})
-
-
-def test_a_board_without_a_job_record_field_refuses_item_writes() -> None:
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, job_record_field=False)
-    item = store.item(store.seed_issue("prioritize me", on_board=True))
-    assert item is not None
-    with pytest.raises(GitHubOperationError, match="Job record"):
-        store.set_field(item, ItemField.PRIORITY, "P2-Medium")
-    assert store.item(item.number) == item
-
-
-def test_a_person_placing_an_item_in_a_release_is_one_change_by_them(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    earlier = store.item(store.seed_issue("placed by the job", on_board=True))
-    item = store.item(store.seed_issue("placed by alice", on_board=True))
-    assert earlier is not None and item is not None
-    store.set_field(earlier, ItemField.RELEASE, "v0.2.25")
-    clock.now += timedelta(minutes=5)
-    t0 = clock.now
-
-    store.as_actor("alice").set_field(item, ItemField.RELEASE, "0.2.25")
-
-    assert [
-        (change.kind, change.number, change.actor, change.release)
-        for change in store.changes_since(t0)
-    ] == [(ChangeKind.JOINED_RELEASE, item.number, "alice", "v0.2.25")]
-
-
-def test_moving_an_item_between_releases_leaves_one_and_joins_the_other(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("moved", release="v0.2.24", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.RELEASE, "v0.2.25")
-    moved = store.item(item.number)
-    assert (
-        [(change.kind, change.release) for change in store.changes_since(datetime.min)],
-        (moved.release, moved.job_record) if moved else None,
-    ) == (
-        [(ChangeKind.LEFT_RELEASE, "v0.2.24"), (ChangeKind.JOINED_RELEASE, "v0.2.25")],
-        ("v0.2.25", {ItemField.RELEASE: "v0.2.25"}),
-    )
-
-
-def test_clearing_a_release_records_that_the_store_cleared_it(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("unplanned", release="v0.2.25", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.RELEASE, None)
-    cleared = store.item(item.number)
-    assert ([i.number for i in store.backlog()], cleared.job_record if cleared else None) == (
-        [item.number],
-        {ItemField.RELEASE: None},
-    )
 
 
 def test_a_field_the_board_does_not_have_raises() -> None:
@@ -599,29 +429,19 @@ def test_writing_an_item_that_left_the_board_raises(store: InMemoryRoadmapStore)
         store.set_field(stale, ItemField.STATUS, "Ready")
 
 
-# ── Board shape, cards, issues and files (#739) ───────────────────────────────
-
-STATUS = FieldSpec(
-    name="Status",
-    single_select=True,
-    options=(
-        FieldOption(name="Todo", color="GRAY", description="Fresh"),
-        FieldOption(name="Backlog", color="GRAY", description="Queued"),
-        FieldOption(name="Ready", color="BLUE", description="Scoped"),
-    ),
-)
+# ── Board fields, issues and files (#739) ─────────────────────────────────────
 
 
 @pytest.fixture
 def board(clock: SteppedClock) -> InMemoryRoadmapStore:
     """A board whose Status has Todo, Backlog and Ready, with one card on each."""
     roadmap = InMemoryRoadmapStore(clock=clock)
-    roadmap.seed_field(STATUS)
+    roadmap.seed_field("Status", options=("Todo", "Backlog", "Ready"))
     person = roadmap.as_actor("alice")
     for status in ("Todo", "Backlog", "Ready"):
-        number = roadmap.seed_issue(f"holds {status}", on_board=True)
-        card = next(card for card in roadmap.cards() if card.number == number)
-        person.set_card_field(card, ItemField.STATUS, status)
+        item = roadmap.item(roadmap.seed_issue(f"holds {status}", on_board=True))
+        assert item is not None
+        person.set_field(item, ItemField.STATUS, status)
     return roadmap
 
 
@@ -629,23 +449,13 @@ def _status(store: InMemoryRoadmapStore) -> BoardField:
     return next(board_field for board_field in store.board_fields() if board_field.name == "Status")
 
 
-def test_board_fields_carry_each_options_id_color_and_description(
-    board: InMemoryRoadmapStore,
-) -> None:
+def test_board_fields_carry_each_options_id(board: InMemoryRoadmapStore) -> None:
     status = _status(board)
     assert (
         status.single_select,
-        [(bool(o.id), o.name, o.color, o.description) for o in status.options],
+        [(bool(o.id), o.name) for o in status.options],
         len({o.id for o in status.options}),
-    ) == (
-        True,
-        [
-            (True, "Todo", "GRAY", "Fresh"),
-            (True, "Backlog", "GRAY", "Queued"),
-            (True, "Ready", "BLUE", "Scoped"),
-        ],
-        3,
-    )
+    ) == (True, [(True, "Todo"), (True, "Backlog"), (True, "Ready")], 3)
 
 
 def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
@@ -667,97 +477,38 @@ def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
     assert (
         [(o.id, o.name) for o in edited.options[:2]],
         bool(edited.options[2].id),
-        [card.status for card in board.cards()],
+        [item.status for item in board.items()],
     ) == ([(backlog.id, "New"), (ready.id, "Ready")], True, [None, "New", "Ready"])
 
 
-def test_deleting_a_field_removes_it_and_an_unknown_field_raises(
-    board: InMemoryRoadmapStore,
-) -> None:
-    board.seed_field(
-        FieldSpec(name="Category", single_select=True, options=(FieldOption(name="Quick Win"),))
-    )
-    board.delete_field("Category")
-    with pytest.raises(GitHubOperationError, match="no 'Category' field"):
-        board.delete_field("Category")
-    assert [f.name for f in board.board_fields()] == ["Job record", "Status"]
-
-
-def test_cards_include_pull_requests_and_a_card_write_is_recorded(
-    board: InMemoryRoadmapStore,
-) -> None:
-    number = board.seed_issue("a pull request", pull_request=True, on_board=True)
-    card = next(card for card in board.cards() if card.number == number)
-    board.set_card_field(card, ItemField.STATUS, "Ready")
-    written = next(card for card in board.cards() if card.number == number)
-    assert (written.kind, written.status, written.job_record, board.item(number)) == (
-        CardKind.PULL_REQUEST,
-        "Ready",
-        {ItemField.STATUS: "Ready"},
-        None,
-    )
-
-
-def test_a_card_write_refuses_the_release_a_foreign_option_and_a_card_off_the_board(
-    board: InMemoryRoadmapStore,
-) -> None:
-    card = board.cards()[0]
-    gone = card.model_copy(update={"id": "card-99"})
-    with pytest.raises(GitHubOperationError, match="not a board field"):
-        board.set_card_field(card, ItemField.RELEASE, "v0.2.25")
-    with pytest.raises(GitHubOperationError, match="not a Status option"):
-        board.set_card_field(card, ItemField.STATUS, "Icebox")
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        board.set_card_field(gone, ItemField.STATUS, "Ready")
-
-
-def test_removing_a_card_takes_it_off_the_board(board: InMemoryRoadmapStore) -> None:
-    card = board.cards()[0]
-    board.remove_card(card)
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        board.remove_card(card)
-    assert ([c.number for c in board.candidates()], board.item(card.number or 0)) == ([1], None)
-
-
-def test_an_issue_is_opened_then_closed_as_not_planned_with_a_comment(
-    store: InMemoryRoadmapStore,
-) -> None:
-    opened = store.create_issue("Bare-Metal OS Installers", "Rejected.", labels=["type/feature"])
-    store.close_issue(opened.number, CloseReason.NOT_PLANNED, "Not planned (ADR 0001).")
-    closed = next(issue for issue in store.issues() if issue.number == opened.number)
-    assert (
-        (closed.title, closed.body, closed.labels, closed.state, closed.state_reason),
-        store.comments_on(opened.number),
-        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
-    ) == (
-        (
-            "Bare-Metal OS Installers",
-            "Rejected.",
-            ("type/feature",),
-            GitHubState.CLOSED,
-            "not_planned",
-        ),
-        ["Not planned (ADR 0001)."],
-        [(ChangeKind.COMMENTED, opened.number), (ChangeKind.CLOSED, opened.number)],
-    )
-
-
-def test_a_person_reopens_a_closed_issue_in_its_release(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("done", release="v0.2.25", on_board=True)
-    store.close_issue(number, CloseReason.COMPLETED, "Delivered.")
+def test_a_person_reopens_a_closed_issue_in_its_milestone(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("done", milestone="Q4 hardening", on_board=True)
+    store.as_actor("alice").close_by_hand(number, CloseReason.COMPLETED)
     since = store.changes_since(datetime.min)
     store.as_actor("alice").reopen_issue(number)
     found = store.item(number)
     assert (
-        (found.state, found.state_reason, found.release) if found else None,
-        [(c.kind, c.release) for c in store.changes_since(datetime.min)[len(since) :]],
-    ) == ((GitHubState.OPEN, "reopened", "v0.2.25"), [(ChangeKind.REOPENED, "v0.2.25")])
+        (found.state, found.state_reason, found.milestone) if found else None,
+        [(c.kind, c.number) for c in store.changes_since(datetime.min)[len(since) :]],
+    ) == ((GitHubState.OPEN, "reopened", "Q4 hardening"), [(ChangeKind.REOPENED, number)])
 
 
-def test_closing_a_pull_request_raises(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("a pull request", pull_request=True)
-    with pytest.raises(GitHubOperationError, match="not an issue"):
-        store.close_issue(number, CloseReason.NOT_PLANNED, "no")
+def test_a_person_moves_an_issue_into_a_milestone_and_out_of_it(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """No job sets a milestone: a person plans the buckets, and the store reads where they put it."""
+    number = store.seed_issue("planned by a person", on_board=True)
+    person = store.as_actor("alice")
+    person.move_by_hand(number, "Q4 hardening")
+    moved = store.item(number)
+    person.move_by_hand(number, None)
+    with pytest.raises(GitHubOperationError, match="No milestone"):
+        person.move_by_hand(number, "Q5")
+    assert (
+        moved.milestone if moved else None,
+        [item.number for item in store.backlog()],
+        store.job_writes(),
+    ) == ("Q4 hardening", [number], [])
 
 
 def test_issues_are_every_issue_open_or_closed_and_never_a_pull_request(
@@ -772,71 +523,50 @@ def test_issues_are_every_issue_open_or_closed_and_never_a_pull_request(
     ]
 
 
-def test_deleting_a_release_leaves_its_issues_in_no_release(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("planned", release="v0.2.25", on_board=True)
-    store.delete_release("0.2.25")
-    with pytest.raises(GitHubOperationError, match="No Release"):
-        store.delete_release("v0.2.25")
-    assert ([r.title for r in store.releases()], [i.number for i in store.backlog()]) == (
-        ["v0.2.24"],
-        [number],
-    )
-
-
 def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
     store: InMemoryRoadmapStore,
 ) -> None:
-    store.seed_file(".github/roadmap.toml", "board = 2\n", ref="release/v0.2.25")
+    store.seed_file(".github/roadmap.toml", "board = 2\n", ref="feat/topic")
     store.seed_file(".github/roadmap.toml", "board = 1\n")
     read = (
-        store.repository_file(".github/roadmap.toml", ref="release/v0.2.25"),
+        store.repository_file(".github/roadmap.toml", ref="feat/topic"),
         store.repository_file(".github/roadmap.toml"),
     )
-    with pytest.raises(GitHubFileNotFoundError, match=r"no docs/ROADMAP\.md"):
-        store.repository_file("docs/ROADMAP.md")
+    with pytest.raises(GitHubFileNotFoundError, match=r"no \.github/labels\.yml"):
+        store.repository_file(".github/labels.yml")
     assert read == ("board = 2\n", "board = 1\n")
 
 
-def test_a_board_number_that_names_no_board_reads_none_until_one_is_created() -> None:
+def test_a_board_number_that_names_no_board_refuses_item_reads() -> None:
     store = InMemoryRoadmapStore(board_exists=False)
-    missing = store.board()
     with pytest.raises(GitHubOperationError, match="names no board"):
         store.items()
-    created = store.create_board("Roadmap", [STATUS])
-    assert (missing, created == store.board(), [f.name for f in store.board_fields()]) == (
-        None,
-        True,
-        ["Job record", "Status"],
-    )
+    with pytest.raises(GitHubOperationError, match="names no board"):
+        store.candidates()
 
 
-def test_workflows_lists_the_boards_built_in_workflows(store: InMemoryRoadmapStore) -> None:
-    store.seed_workflow("Item closed", enabled=True)
-    store.seed_workflow("Auto-add sub-issues to project", enabled=False)
-    assert [(w.name, w.enabled) for w in store.workflows()] == [
-        ("Item closed", True),
-        ("Auto-add sub-issues to project", False),
-    ]
-
-
-# ── What the release rules read and write (#740) ──────────────────────────────
+# ── What refine and intake mark (#744) ────────────────────────────────────────
 
 
 def test_marks_are_kept_in_the_job_record_and_change_no_field(store: InMemoryRoadmapStore) -> None:
-    item = store.item(store.seed_issue("admitted", release="v0.2.25", on_board=True))
+    item = store.item(store.seed_issue("refined", milestone="Q4 hardening", on_board=True))
     assert item is not None
-    store.set_marks(item, {JobMark.ADMITTED: "v0.2.25", JobMark.PENDING: "{}"})
+    store.set_marks(item, {RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.NEEDS_SPLIT: "true"})
     store.set_field(item, ItemField.STATUS, "Ready")
-    store.set_marks(item, {JobMark.ADMITTED: None, JobMark.PENDING: None})
+    store.set_marks(item, {RefineRecordKey.BODY_HASH: None, RefineRecordKey.NEEDS_SPLIT: None})
     written = store.item(item.number)
     assert (
-        (written.release, written.status, written.job_record) if written else None,
+        (written.milestone, written.status, written.job_record) if written else None,
         [change.kind for change in store.changes_since(datetime.min)],
     ) == (
         (
-            "v0.2.25",
+            "Q4 hardening",
             "Ready",
-            {JobMark.ADMITTED: None, JobMark.PENDING: None, ItemField.STATUS: "Ready"},
+            {
+                RefineRecordKey.BODY_HASH: None,
+                RefineRecordKey.NEEDS_SPLIT: None,
+                ItemField.STATUS: "Ready",
+            },
         ),
         [ChangeKind.FIELD_CHANGED],
     )
@@ -845,46 +575,19 @@ def test_marks_are_kept_in_the_job_record_and_change_no_field(store: InMemoryRoa
 def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neither(
     store: InMemoryRoadmapStore,
 ) -> None:
-    item = store.item(store.seed_issue("moved", release="v0.2.25", on_board=True))
+    item = store.item(store.seed_issue("refined", on_board=True))
     assert item is not None
-    store.set_marks(item, {JobMark.ADMITTED: "v0.2.25"})
-    store.set_field(item, ItemField.RELEASE, None, marks={JobMark.PENDING: "{}"})
+    store.set_field(
+        item, ItemField.STATUS, "Ready", marks={RefineRecordKey.SECTION_HASH: "section"}
+    )
     store.as_actor("alice").set_field(
-        item, ItemField.STATUS, "Ready", marks={JobMark.PENDING: None}
+        item, ItemField.PRIORITY, "P1-High", marks={RefineRecordKey.SECTION_HASH: None}
     )
     written = store.item(item.number)
-    assert ((written.release, written.status, written.job_record) if written else None) == (
-        None,
+    assert ((written.status, written.priority, written.job_record) if written else None) == (
         "Ready",
-        {JobMark.ADMITTED: "v0.2.25", ItemField.RELEASE: None, JobMark.PENDING: "{}"},
-    )
-
-
-def test_marks_can_record_a_fields_value_or_forget_it_without_setting_the_field(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A job records the value of a field write it begins before the field is set, as GitHub's
-    first call does, and takes that record back, value or none, when the write never landed."""
-    item = store.item(store.seed_issue("begun", release="v0.2.25", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.STATUS, "Ready")
-    store.set_marks(item, {JobMark.PENDING: "{}"}, recorded={ItemField.RELEASE: None})
-    begun = store.item(item.number)
-    store.set_marks(
-        item,
-        {JobMark.PENDING: None},
-        recorded={ItemField.STATUS: "In Progress"},
-        forgotten=(ItemField.RELEASE,),
-    )
-    taken_back = store.item(item.number)
-    assert (
-        (begun.release, begun.job_record) if begun else None,
-        (taken_back.release, taken_back.status, taken_back.job_record) if taken_back else None,
-        [change.kind for change in store.changes_since(datetime.min)],
-    ) == (
-        ("v0.2.25", {ItemField.STATUS: "Ready", ItemField.RELEASE: None, JobMark.PENDING: "{}"}),
-        ("v0.2.25", "Ready", {ItemField.STATUS: "In Progress", JobMark.PENDING: None}),
-        [ChangeKind.FIELD_CHANGED],
+        "P1-High",
+        {ItemField.STATUS: "Ready", RefineRecordKey.SECTION_HASH: "section"},
     )
 
 
@@ -899,189 +602,40 @@ def test_marks_refuse_an_item_off_the_board_and_a_board_without_a_job_record_fie
     unrecorded_item = unrecorded.item(unrecorded.seed_issue("unrecorded", on_board=True))
     assert unrecorded_item is not None
     with pytest.raises(GitHubOperationError, match="not on the board"):
-        store.set_marks(gone, {JobMark.NUDGED: "2026-10-02T12:00:00+00:00"})
+        store.set_marks(gone, {RefineRecordKey.BODY_HASH: "abc"})
     with pytest.raises(GitHubOperationError, match="Job record"):
-        unrecorded.set_marks(unrecorded_item, {JobMark.ADMITTED: "v0.2.25"})
+        unrecorded.set_marks(unrecorded_item, {RefineRecordKey.BODY_HASH: "abc"})
     assert (store.job_writes(), unrecorded.item(unrecorded_item.number)) == (
         writes,
         unrecorded_item,
     )
 
 
-def test_the_run_record_is_one_draft_cards_job_record_that_only_a_job_writes(
-    store: InMemoryRoadmapStore,
-) -> None:
-    before = (store.run_record(), [card.kind for card in store.cards()])
-    store.as_actor("alice").set_run_record({JobMark.STARTED: "v0.2.24"})
-    by_a_person = store.run_record()
-    store.set_run_record({JobMark.STARTED: "v0.2.24"})
-    store.set_run_record({JobMark.STARTED: "v0.2.25"})
-    unrecorded = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, job_record_field=False)
-    with pytest.raises(GitHubOperationError, match="Job record"):
-        unrecorded.set_run_record({JobMark.STARTED: "v0.2.25"})
-    assert (
-        before,
-        by_a_person,
-        store.run_record(),
-        [(card.kind, card.job_record) for card in store.cards()],
-        unrecorded.run_record(),
-    ) == (
-        ({}, []),
-        {},
-        {JobMark.STARTED: "v0.2.25"},
-        [(CardKind.DRAFT_ISSUE, {JobMark.STARTED: "v0.2.25"})],
-        {},
-    )
-
-
-def test_release_changes_are_one_issues_joins_and_leaves_oldest_first(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    person = store.as_actor("alice")
-    moved = store.item(store.seed_issue("moved", on_board=True))
-    other = store.item(store.seed_issue("other", on_board=True))
-    assert moved is not None and other is not None
-    person.set_field(moved, ItemField.RELEASE, "v0.2.25")
-    person.set_field(other, ItemField.RELEASE, "v0.2.25")
-    clock.now += timedelta(hours=1)
-    person.set_field(moved, ItemField.STATUS, "Ready")
-    person.set_field(moved, ItemField.RELEASE, None)
-    assert [
-        (c.kind, c.number, c.release, c.actor) for c in store.release_changes(moved.number)
-    ] == [
-        (ChangeKind.JOINED_RELEASE, moved.number, "v0.2.25", "alice"),
-        (ChangeKind.LEFT_RELEASE, moved.number, "v0.2.25", "alice"),
-    ]
-
-
-def test_dependencies_are_the_blocked_by_links_as_their_issues_are_now(
-    store: InMemoryRoadmapStore,
-) -> None:
-    waiting = store.seed_issue("waits", release="v0.2.25", on_board=True)
-    planned = store.seed_issue("planned", release="v0.2.25")
-    shipped = store.seed_issue("shipped", state=GitHubState.CLOSED, release="v0.2.24")
-    person = store.as_actor("alice")
-    person.link_dependency(waiting, planned)
-    person.link_dependency(waiting, shipped)
-    assert (
-        [(d.number, d.repository, d.state, d.release) for d in store.dependencies(waiting)],
-        store.dependencies(planned),
-        [(c.kind, c.number, c.release) for c in store.changes_since(datetime.min)],
-    ) == (
-        [
-            (planned, "example/roadmap", GitHubState.OPEN, "v0.2.25"),
-            (shipped, "example/roadmap", GitHubState.CLOSED, "v0.2.24"),
-        ],
-        [],
-        [(ChangeKind.BLOCKED_BY_ADDED, waiting, "v0.2.25")] * 2,
-    )
-
-
-def test_status_changed_at_is_when_anyone_last_changed_the_status(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    item = store.item(store.seed_issue("in progress", on_board=True))
-    assert item is not None
-    never = store.status_changed_at(item.number)
-    store.as_actor("alice").set_field(item, ItemField.STATUS, "In Progress")
-    by_alice = clock.now
-    clock.now += timedelta(hours=1)
-    store.set_field(item, ItemField.PRIORITY, "P1-High")
-    assert (never, store.status_changed_at(item.number)) == (None, by_alice)
-
-
-def test_pull_requests_open_and_the_releases_own_whatever_their_state(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    person = store.as_actor("alice")
-    release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
-    closed = person.open_pull_request("first cut", head="chore/cut-v0.2.25", **release)
-    person.close_pull_request(closed)
-    cut = person.open_pull_request("cut", head="chore/cut-v0.2.25", draft=True, **release)
-    topic = person.open_pull_request(
-        "feat", base="release/v0.2.25", head="feat/x", body="Closes #1"
-    )
-    clock.now += timedelta(hours=1)
-    person.push_to_pull_request(topic)
-    with pytest.raises(GitHubOperationError, match="No Release"):
-        store.release_pull_requests("9.9.9")
-    assert (
-        [(p.number, p.draft, p.updated_at, p.last_commit_at) for p in store.open_pull_requests()],
-        [(p.number, p.state) for p in store.release_pull_requests("0.2.25")],
-        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
-    ) == (
-        [
-            (cut, True, clock.now - timedelta(hours=1), clock.now - timedelta(hours=1)),
-            (topic, False, clock.now, clock.now),
-        ],
-        [(closed, PullRequestState.CLOSED), (cut, PullRequestState.OPEN)],
-        [
-            (ChangeKind.RELEASE_CUT, closed),
-            (ChangeKind.RELEASE_UNCUT, closed),
-            (ChangeKind.RELEASE_CUT, cut),
-        ],
-    )
-
-
-def test_a_release_is_published_once_its_github_release_is(store: InMemoryRoadmapStore) -> None:
-    before = store.release_published("0.2.25")
-    store.as_actor("alice").publish_release("0.2.25")
-    assert (
-        before,
-        store.release_published("0.2.25"),
-        store.release_published("v0.2.25"),
-        store.release_published("v0.2.24"),
-        [(c.kind, c.release) for c in store.changes_since(datetime.min)],
-    ) == (False, True, True, False, [(ChangeKind.RELEASE_SHIPPED, "v0.2.25")])
-
-
-def test_a_branch_is_read_by_its_name_and_created_only_once(store: InMemoryRoadmapStore) -> None:
-    head = store.default_branch()
-    missing = store.branch("release/v0.2.26")
-    store.create_branch("release/v0.2.26", head.sha)
-    with pytest.raises(GitHubOperationError, match="already exists"):
-        store.create_branch("release/v0.2.26", "f" * 40)
-    assert (head.name, missing, store.branch("release/v0.2.26")) == ("main", None, head.sha)
-
-
 def test_a_comment_is_kept_on_its_issue(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("commented", release="v0.2.25", on_board=True)
+    number = store.seed_issue("commented", milestone="Q4 hardening", on_board=True)
     store.comment(number, "Moved to the backlog.")
     with pytest.raises(GitHubOperationError, match="not an issue"):
         store.comment(store.seed_issue("a pull request", pull_request=True), "no")
     assert (
         store.comments_on(number),
-        [(c.kind, c.number, c.release) for c in store.changes_since(datetime.min)],
-    ) == (["Moved to the backlog."], [(ChangeKind.COMMENTED, number, "v0.2.25")])
+        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
+    ) == (["Moved to the backlog."], [(ChangeKind.COMMENTED, number)])
 
 
 def test_a_change_reads_the_value_and_job_record_as_they_are_now(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """A job placed the item, then a person moved it to the backlog: the job's change now reads
-    as no longer matching the record, which is what tells it from the job's own."""
-    item = store.item(store.seed_issue("placed", on_board=True))
+    """A job set the Status, then a person changed it: the job's change now reads as no longer
+    matching the record, which is what tells it from the job's own."""
+    item = store.item(store.seed_issue("readied", on_board=True))
     assert item is not None
-    store.set_field(item, ItemField.RELEASE, "v0.2.25")
-    store.as_actor("alice").set_field(item, ItemField.RELEASE, None)
+    store.set_field(item, ItemField.STATUS, "Ready")
+    store.as_actor("alice").set_field(item, ItemField.STATUS, "In Progress")
     assert [
-        (c.kind, c.release, c.field, c.value, c.job_record)
-        for c in store.changes_since(datetime.min)
+        (c.kind, c.field, c.value, c.job_record) for c in store.changes_since(datetime.min)
     ] == [
-        (
-            ChangeKind.JOINED_RELEASE,
-            "v0.2.25",
-            ItemField.RELEASE,
-            None,
-            {ItemField.RELEASE: "v0.2.25"},
-        ),
-        (
-            ChangeKind.LEFT_RELEASE,
-            "v0.2.25",
-            ItemField.RELEASE,
-            None,
-            {ItemField.RELEASE: "v0.2.25"},
-        ),
+        (ChangeKind.FIELD_CHANGED, ItemField.STATUS, "In Progress", {ItemField.STATUS: "Ready"}),
+        (ChangeKind.FIELD_CHANGED, ItemField.STATUS, "In Progress", {ItemField.STATUS: "Ready"}),
     ]
 
 
@@ -1167,7 +721,8 @@ def test_counting_issues_narrows_by_each_condition_given(
     clock.now += timedelta(hours=1)
     agent = store.seed_issue("agent", labels=("source/agent", "budget/borrowed"))
     done = store.seed_issue("done")
-    store.close_issue(done, CloseReason.COMPLETED, "Delivered.")
+    store.comment(done, "Delivered.")
+    store.as_actor("alice").close_by_hand(done, CloseReason.COMPLETED)
     bulk = store.seed_issue("bulk")
     store.as_actor("alice").close_by_hand(bulk, CloseReason.NOT_PLANNED)
     store.seed_issue("a pull request", pull_request=True)
@@ -1178,46 +733,28 @@ def test_counting_issues_narrows_by_each_condition_given(
         IssueQuery(labels=("source/agent",), created_since=since),
         IssueQuery(labels=("source/agent", "budget/borrowed")),
         IssueQuery(state=GitHubState.CLOSED, closed_since=since),
+        IssueQuery(closed_since=since, reason=CloseReason.COMPLETED),
         IssueQuery(closed_since=since, reason=CloseReason.NOT_PLANNED, uncommented=True),
         IssueQuery(closed_since=clock.now + timedelta(seconds=1)),
     ]
-    assert ([store.count_issues(query) for query in queries], agent) == ([4, 2, 1, 1, 2, 1, 0], 2)
+    assert ([store.count_issues(query) for query in queries], agent) == (
+        [4, 2, 1, 1, 2, 1, 1, 0],
+        2,
+    )
 
 
-def test_a_release_records_when_it_closed_and_forgets_it_when_reopened(
+def test_a_milestone_records_when_it_closed_and_forgets_it_when_reopened(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:
-    store.close_release("v0.2.25")
-    closed = store.release("v0.2.25")
-    store.edit_release("v0.2.25", state=GitHubState.OPEN)
-    reopened = store.release("v0.2.25")
+    store.close_milestone("Q4 hardening")
+    closed = store.milestone("Q4 hardening")
+    store.edit_milestone("Q4 hardening", state=GitHubState.OPEN)
+    reopened = store.milestone("Q4 hardening")
     assert (
         closed.closed_at if closed else None,
         reopened.closed_at if reopened else "missing",
-        (store.release("v0.2.24") or closed).closed_at,
+        docs.closed_at if (docs := store.milestone("Docs pass")) else "missing",
     ) == (clock.now, None, clock.now)
-
-
-def test_merged_pull_requests_are_the_ones_merged_into_the_branch_with_their_paths(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """The merged-PR read (#743): only pull requests merged into the branch, oldest first,
-    each with its body, merge and head commits and changed paths."""
-    person = store.as_actor("alice")
-    branch = "release/v0.2.25"
-    first = person.merge_pull_request(
-        "feat: a", base=branch, body="Closes #1", changed_paths=("a.py", "b.md"), release="v0.2.25"
-    )
-    person.merge_pull_request("feat: elsewhere", base="main")
-    person.open_pull_request("feat: open", base=branch, head="feat/open")
-    person.close_pull_request(person.open_pull_request("feat: shut", base=branch, head="feat/x"))
-    second = person.merge_pull_request("feat: b", base=branch)
-    found = store.merged_pull_requests(branch)
-    assert (
-        [p.number for p in found],
-        (found[0].body, found[0].changed_paths, found[0].release, found[1].changed_paths),
-        [len({p.merge_commit, p.head_commit}) for p in found],
-    ) == ([first, second], ("Closes #1", ("a.py", "b.md"), "v0.2.25", ()), [2, 2])
 
 
 def test_read_and_write_issue_body(store: InMemoryRoadmapStore) -> None:

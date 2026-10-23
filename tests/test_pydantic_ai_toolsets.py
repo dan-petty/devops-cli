@@ -320,11 +320,11 @@ class TestPydanticAIToolsetsSubsystem:
         """Verify PydanticAgent seamlessly absorbs and registers native toolsets."""
         from devops_cli.ai.agents.agent import PydanticAgent
 
-        ts = FunctionToolset(instructions="Ensure release branches follow convention.")
+        ts = FunctionToolset(instructions="Ensure topic branches follow convention.")
 
         @ts.tool_plain
         def check_branch(name: str) -> bool:
-            return name.startswith("release/v")
+            return name.startswith("feat/")
 
         mock_client = MagicMock()
         mock_client.model = "test-model"
@@ -337,4 +337,4 @@ class TestPydanticAIToolsetsSubsystem:
 
         assert "check_branch" in agent._tools
         sys_prompt = agent._build_system_prompt_with_tools()
-        assert "Ensure release branches follow convention." in sys_prompt
+        assert "Ensure topic branches follow convention." in sys_prompt

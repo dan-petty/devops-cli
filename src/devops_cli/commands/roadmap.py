@@ -1,18 +1,15 @@
-"""`devops roadmap`: the roadmap on GitHub, its one-time migration, its generated view, the
-current release's rules and intake, the one way new work becomes an item.
+"""`devops roadmap`: the roadmap on GitHub. Intake is the one way new work becomes an item,
+refine readies items, and return sends an item back to New.
 
 Every command reads `.github/roadmap.toml` through the contents API at `--ref`, then opens the
-roadmap store on the board it names. `migrate` writes to GitHub only with `--confirm`, and only
-once a person has made the option edits its plan lists; `close` closes delivered items and cuts
-the release only with `--confirm`, the cut in the clone at `--root`; `render` writes no GitHub state, only
-`docs/ROADMAP.md`, which git review covers. `reprioritize` and `intake` write GitHub state only
-with `--confirm`, and never a commit.
+roadmap store on the board it names. `intake`, `refine` and `return` write GitHub state only
+with `--confirm`, and never a commit. A person plans the milestones on the board; no command
+sets one.
 
 Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
-marked as a dry run and prints the requests a run makes, each with its exact `gh` command. Its
-`--plan`, and `migrate`, `reprioritize` and `intake` with no mode flag, read GitHub (and, for
-intake, call the model) and write nothing. Every run that reads ends with the GraphQL points it
-spent and the points left.
+marked as a dry run and prints the requests a run makes, each with its exact `gh` command.
+Intake's `--plan`, and intake with no mode flag, read GitHub and call the model, and write
+nothing. Every run that reads ends with the GraphQL points it spent and the points left.
 """
 
 from __future__ import annotations
@@ -21,22 +18,14 @@ import logging
 from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
 
 from devops_cli.config.constants import (
-    CONST_RELEASE_CUT_FILES,
-    CONST_ROADMAP_CONFIG_PATH,
-    CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_INTAKE_BOARD_FILTER,
-    CONST_ROADMAP_MIGRATE_BOARD_FILTER,
     CONST_ROADMAP_REFINE_BOARD_FILTER,
-    CONST_ROADMAP_RENDER_BOARD_FILTER,
-    CONST_ROADMAP_RENDER_FILE_MODE,
-    CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
     CONST_ROADMAP_RUN_BOARD_FILTER,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
@@ -46,14 +35,6 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
-from devops_cli.output.file_writer import write_text_file
-from devops_cli.roadmap.close import (
-    Cut,
-    apply_close,
-    dry_run_close,
-    plan_close,
-    render_close,
-)
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.intake import (
     BorrowReason,
@@ -69,28 +50,11 @@ from devops_cli.roadmap.intake import (
 )
 from devops_cli.roadmap.intake_model import build_intake_model
 from devops_cli.roadmap.intake_requests import SpendMeter
-from devops_cli.roadmap.migrate import (
-    apply_migration,
-    dry_run_migration,
-    plan_migration,
-    render_report,
-    require_option_edits_made,
-)
-from devops_cli.roadmap.render import dry_run_render, render, render_roadmap
-from devops_cli.roadmap.reprioritize import (
-    apply_reprioritization,
-    dry_run_reprioritization,
-    emit_reprioritize_telemetry,
-    plan_reprioritization,
-    render_plan,
-)
 from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.store import RoadmapStore
 
 if TYPE_CHECKING:
-    from devops_cli.github.check_verdict import CheckVerdictSummary
     from devops_cli.roadmap.github_store import GhRunner
-    from devops_cli.roadmap.store import MergedPullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -152,144 +116,6 @@ def _reporting_spend(stores: list[RoadmapStore]) -> Iterator[None]:
                 continue
             if spend is not None:
                 print_info(spend.line())
-
-
-@app.command("migrate", help=HELP.roadmap.migrate)
-def migrate_cmd(
-    repo: RepoOption = None,
-    ref: RefOption = None,
-    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.confirm)] = False,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.migrate_dry_run)] = False,
-    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.migrate_plan)] = False,
-) -> None:
-    """Plan the move of the roadmap's source to GitHub, and make it with --confirm."""
-    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
-    if dry_run or is_dry_run():
-        target = _target(repo)
-        plan = dry_run_migration(target, ref=ref)
-        render_dry_run("migrate", target, plan.requests, plan.write_requests)
-        return
-    opened: list[RoadmapStore] = []
-    with _reporting_spend(opened):
-        _migrate(repo, ref, confirm=confirm, opened=opened)
-
-
-def _migrate(
-    repo: str | None, ref: str | None, *, confirm: bool, opened: list[RoadmapStore]
-) -> None:
-    with _exit_on_failure("Could not plan the roadmap migration"):
-        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_MIGRATE_BOARD_FILTER)
-        opened.append(store)
-        plan = plan_migration(store, repo=target, ref=ref, config=config)
-    write_stdout(render_report(plan))
-    if not plan.writes:
-        if plan.option_edits:
-            print_info(MESSAGES.roadmap.nothing_to_write)
-        else:
-            print_success(MESSAGES.roadmap.nothing_to_do)
-        return
-    if not confirm:
-        print_info(MESSAGES.roadmap.preview_only)
-        return
-    with _exit_on_failure("Nothing was written"):
-        require_option_edits_made(plan)
-    with _exit_on_failure("The roadmap migration stopped part-way; run it again to continue"):
-        created = apply_migration(store, plan)
-    print_success(MESSAGES.roadmap.applied.format(count=len(plan.writes)))
-    if created is not None:
-        print_info(
-            MESSAGES.roadmap.board_created.format(
-                number=created.number, url=created.url, config=CONST_ROADMAP_CONFIG_PATH
-            )
-        )
-
-
-@app.command("render", help=HELP.roadmap.render)
-def render_cmd(
-    repo: RepoOption = None,
-    ref: RefOption = None,
-    output: Annotated[Path, typer.Option("--output", "-o", help=HELP.roadmap.output)] = Path(
-        CONST_ROADMAP_DOCUMENT_PATH
-    ),
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.render_dry_run)] = False,
-    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.render_plan)] = False,
-) -> None:
-    """Write the roadmap's Markdown view from GitHub; a failed read writes nothing."""
-    _one_mode(dry_run=dry_run, plan=plan_only)
-    if dry_run or is_dry_run():
-        target = _target(repo)
-        planned = dry_run_render(target, ref=ref)
-        notes = [MESSAGES.roadmap.plan_dry_run_render.format(path=output)]
-        render_dry_run("render", target, planned.requests, notes=notes)
-        return
-    opened: list[RoadmapStore] = []
-    with _reporting_spend(opened):
-        with _exit_on_failure("Could not render the roadmap"):
-            target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RENDER_BOARD_FILTER)
-            opened.append(store)
-            rendered = render(store, repo=target, config=config)
-        if plan_only:
-            write_stdout(rendered.text)
-            return
-        _write_render(output, rendered.text)
-
-
-def _write_render(output: Path, text: str) -> None:
-    write_text_file(output, text, mode=CONST_ROADMAP_RENDER_FILE_MODE)
-    items = sum(line.startswith("- [") for line in text.splitlines())
-    sections = sum(line.startswith("## ") for line in text.splitlines())
-    print_success(
-        MESSAGES.roadmap.render_written.format(path=output, items=items, sections=sections)
-    )
-
-
-@app.command("reprioritize", help=HELP.roadmap.reprioritize)
-def reprioritize_cmd(
-    repo: RepoOption = None,
-    ref: RefOption = None,
-    confirm: Annotated[
-        bool, typer.Option("--confirm", help=HELP.roadmap.reprioritize_confirm)
-    ] = False,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help=HELP.roadmap.reprioritize_dry_run)
-    ] = False,
-    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.reprioritize_plan)] = False,
-) -> None:
-    """Hold the current release to its rules, and start the next one once it ships."""
-    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
-    if dry_run or is_dry_run():
-        target = _target(repo)
-        plan = dry_run_reprioritization(target, ref=ref, now=datetime.now(UTC))
-        render_dry_run("reprioritize", target, plan.requests, plan.write_requests)
-        return
-    opened: list[RoadmapStore] = []
-    with _reporting_spend(opened):
-        _reprioritize(repo, ref, confirm=confirm, opened=opened)
-
-
-def _reprioritize(
-    repo: str | None, ref: str | None, *, confirm: bool, opened: list[RoadmapStore]
-) -> None:
-    with _exit_on_failure("Could not plan reprioritization"):
-        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER)
-        opened.append(store)
-        plan = plan_reprioritization(store, repo=target, config=config, now=datetime.now(UTC))
-    write_stdout(render_plan(plan))
-    if not plan.has_writes:
-        emit_reprioritize_telemetry(plan)
-        return
-    if not confirm:
-        emit_reprioritize_telemetry(plan)
-        print_info(MESSAGES.roadmap.reprioritize_preview)
-        return
-    with _exit_on_failure("Reprioritization stopped part-way; run it again to continue"):
-        apply_reprioritization(store, plan)
-    emit_reprioritize_telemetry(plan, applied=True)
-    print_success(
-        MESSAGES.roadmap.reprioritize_applied.format(
-            changes=len(plan.release_writes) + len(plan.changes), records=plan.records
-        )
-    )
 
 
 def _refuse(message: str) -> NoReturn:
@@ -429,80 +255,6 @@ def _intake(
         raise_for_failed_placements(applied)
 
 
-@app.command("close", help=HELP.roadmap.close)
-def close_cmd(
-    repo: RepoOption = None,
-    ref: RefOption = None,
-    root: Annotated[
-        Path, typer.Option("--root", file_okay=False, help=HELP.roadmap.close_root)
-    ] = Path(),
-    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.close_confirm)] = False,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.close_dry_run)] = False,
-    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.close_plan)] = False,
-) -> None:
-    """Close each delivered item with a summary, and cut the release once it holds no open item."""
-    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
-    if dry_run or is_dry_run():
-        target = _target(repo)
-        plan = dry_run_close(target, ref=ref)
-        notes = [
-            MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CONST_RELEASE_CUT_FILES))
-        ]
-        render_dry_run("close", target, plan.requests, plan.write_requests, notes=notes)
-        return
-    opened: list[RoadmapStore] = []
-    with _reporting_spend(opened):
-        _close(repo, ref, root, confirm=confirm, opened=opened)
-
-
-def _close(
-    repo: str | None, ref: str | None, root: Path, *, confirm: bool, opened: list[RoadmapStore]
-) -> None:
-    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
-
-    with _exit_on_failure("Could not plan closure"):
-        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RENDER_BOARD_FILTER)
-        opened.append(store)
-
-        def checks(pull_request: MergedPullRequest) -> CheckVerdictSummary:
-            return fetch_pr_check_verdicts(
-                pull_request.number, repo=target, head_sha=pull_request.head_commit
-            )
-
-        plan = plan_close(store, repo=target, checks=checks)
-    write_stdout(render_close(plan))
-    if plan.has_writes and not confirm:
-        print_info(MESSAGES.roadmap.close_preview)
-    elif plan.has_writes:
-
-        def cut(planned: Cut) -> None:
-            from devops_cli.release.cut import cut_release
-
-            def write_roadmap(clone: Path) -> None:
-                text = render_roadmap(store, repo=target, config=config)
-                write_text_file(
-                    clone / CONST_ROADMAP_DOCUMENT_PATH, text, mode=CONST_ROADMAP_RENDER_FILE_MODE
-                )
-
-            cut_release(
-                version=planned.version,
-                base=planned.base,
-                draft=False,
-                sync_docs=False,
-                is_prepare=True,
-                repo_root=root.resolve(),
-                edits=write_roadmap,
-                missing_fragments=planned.missing_fragments,
-            )
-
-        with _exit_on_failure("Closure stopped part-way; run it again to continue"):
-            apply_close(store, plan, cut)
-        print_success(MESSAGES.roadmap.close_applied.format(count=len(plan.closings)))
-    if plan.unread:
-        print_error(MESSAGES.roadmap.close_failed.format(count=len(plan.unread)))
-        raise typer.Exit(1)
-
-
 @app.command("refine", help=HELP.roadmap.refine)
 def refine_cmd(
     repo: RepoOption = None,
@@ -572,8 +324,7 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
-    """Run the roadmap jobs that are due, in order: closure, reprioritization, metrics, intake
-    and refinement."""
+    """Run the roadmap jobs that are due, in order: metrics, intake and refinement."""
     target, _config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RUN_BOARD_FILTER)
     from devops_cli.roadmap.run import run_due_jobs
 

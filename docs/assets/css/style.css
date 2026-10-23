@@ -138,17 +138,6 @@ body {
   color: var(--accent-primary);
 }
 
-.version-pill {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  background: var(--bg-tertiary);
-  color: var(--accent-purple);
-  border: 1px solid var(--border-color);
-  border-radius: 9999px;
-}
-
 .header-nav {
   display: flex;
   align-items: center;

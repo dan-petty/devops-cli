@@ -42,11 +42,6 @@ class OptionHelp:
     state: str = "Filter by state or status."
     title: str = "Title for the item or entity."
     body: str = "Body or description text."
-    draft: str = "Create pull request or entity as draft."
-    labels: str = "Comma-separated labels to attach."
-    push: str = "Push commits or tags to git remote."
-    root: str = "Project repository root directory."
-    version: str = "Target version string."
     frontier: str = "Force routing to frontier tier models."
     container: str = "Specific container name within the pod."
     follow: str = "Follow stream or log output in real time."
@@ -357,7 +352,8 @@ class K8sCommandHelp:
     )
     argocd_revision: str = (
         "Derive the Argo CD host overrides from this Git revision instead of each Application's "
-        "targetRevision, to stage them before a release merges (Argo CD-managed clusters only)."
+        "targetRevision, to stage them before a pull request merges into main (Argo CD-managed "
+        "clusters only)."
     )
     run_job: str = (
         "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "
@@ -724,10 +720,6 @@ class DevcontainerCommandHelp:
     workspace_dir: str = "Path to workspace directory containing .devcontainer."
     config_file: str = "Direct path to devcontainer.json."
     validate_dry_run: str = "Simulate DevContainer manifest validation."
-    validate_oci_labels: str = "Raw newline-separated or JSON OCI labels to inspect and validate."
-    validate_expected_source: str = (
-        "Expected canonical repository URL for org.opencontainers.image.source."
-    )
     run_post_create: str = "Execute post-create setup tasks."
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."
@@ -808,7 +800,7 @@ class ServeCommandHelp:
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
     service: str = (
         "Run continuous background service with GitHub webhook verification and "
-        "per-repository release and model lanes."
+        "per-repository status and model lanes."
     )
 
 
@@ -825,18 +817,6 @@ class DocsCommandHelp:
     readme_path: str = "Path to README.md file (default: workspace root README.md)."
     validate_only: str = "Validate that existing documentation is up to date without writing files."
     check_sync: str = "Verify README.md Command Matrix synchronization as well."
-    compact: str = (
-        "Compact historical documentation for completed release series (e.g. v0.2.x -> v0.3.x)."
-    )
-    series: str = "Release series prefix to compact (e.g., 'v0.2', 'v0.1')."
-    docs_dir: str = "Path to repository docs/ directory (default: docs/)."
-    archive_dir: str = "Path to historical archive directory (default: docs/agent/archive/)."
-    check_compact: str = (
-        "Check if documentation compaction would make changes without modifying files."
-    )
-    roadmap_only: str = "Only compact docs/ROADMAP.md."
-    release_notes_only: str = "Only compact docs/RELEASE_NOTES.md."
-    log_only: str = "Only compact docs/LOG.md."
 
 
 @dataclass(frozen=True)
@@ -844,6 +824,9 @@ class PRCommandHelp:
     app: str = "GitHub Pull Request workflows and reviews."
     list_prs: str = "List pull requests matching filters."
     create_pr: str = "Create a new pull request."
+    create_base: str = (
+        "Base branch of the pull request; the repository's default branch when omitted."
+    )
     checks: str = "View status of remote CI checks on a pull request."
     view: str = "View details of a pull request."
     diff: str = "View diff of a pull request."
@@ -857,22 +840,6 @@ class PRCommandHelp:
     edit_milestone: str = "Set the milestone for this pull request."
     threads_app: str = "Manage and programmatically resolve PR review discussion threads."
     threads_list: str = "List PR review discussion threads, file locations, and comments."
-    threads_file_issues: str = (
-        "A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release "
-        "pull request's Copilot passes are spent. It files each unresolved review thread of the "
-        "open release pull request not named by --keep as a follow-up issue, which quotes the "
-        "thread in a fence, names its file and line, links it and has no milestone, labelled "
-        "source/agent when Copilot started the thread; then the thread gets a reply naming the "
-        "issue and is resolved. Without --confirm it makes the same reads and writes nothing: "
-        "run it so first, with the same --keep flags. A --keep id that names no unresolved "
-        "thread stops it before any write. A rerun opens no second issue for a thread: it "
-        "resolves a thread whose reply from the same account names its issue, and finds the "
-        "issue it opened for a thread whose reply failed by the thread's link."
-    )
-    threads_keep: str = "Leave this thread open, for a regression the release fixes; repeatable."
-    threads_confirm: str = (
-        "File the issues, reply in the threads and resolve them; without it, nothing is written."
-    )
     threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
     threads_resolve: str = (
         "Programmatically mark one or more PR review discussion threads as resolved."
@@ -915,8 +882,8 @@ class PRCommandHelp:
     )
     update: str = "Update pull request branch with latest changes from its base branch."
     update_number: str = "Pull request number to update (optional if --all is specified)."
-    update_all: str = "Update all open pull requests targeting the base branch."
-    update_base: str = "Filter open pull requests by base branch (e.g. main, release/v0.2.20)."
+    update_all: str = "Update every open pull request that the current account wrote."
+    update_base: str = "With --all, update only the pull requests into this base branch."
     update_expected_head_sha: str = (
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )
@@ -927,16 +894,6 @@ class PRCommandHelp:
     hardening_report_pr: str = "Audit a specific pull request by number."
     hardening_report_fail_on_missing: str = (
         "Exit with non-zero exit code if hardening is missing on any audited defect pull request."
-    )
-    copilot_pass: str = (
-        "Request one Copilot review pass on the open release pull request while its passes, "
-        "every Copilot review submitted and one running or requested and not yet started, are "
-        "below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent "
-        "it requests nothing and exits 1. Any other pull request, and a merged or closed one, is "
-        "refused, since Copilot reviews only the open release pull request."
-    )
-    copilot_pass_number: str = (
-        "Release pull request number; the current branch's pull request when omitted."
     )
 
 
@@ -957,13 +914,18 @@ class GHCommandHelp:
     labels_list: str = "List all repository labels."
     labels_sync: str = "Synchronize repository labels against declarative schema."
     labels_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
-    milestones_app: str = "Manage roadmap milestones and track release progress."
-    milestones_list: str = "List milestones and progress rates."
+    milestones_app: str = (
+        "Manage the roadmap's milestones, the planning buckets, and track their progress."
+    )
+    milestones_list: str = "List milestones by due date and then by number, with progress rates."
     milestones_status: str = "Inspect progress and health for a specific milestone."
-    milestones_close: str = "Close the release milestone of a version, with or without its v."
+    milestones_close: str = "Close the milestone with this title or number."
     milestones_edit: str = (
-        "Edit a release milestone's title, description, state, or due date; "
+        "Edit a milestone's title, description, state, or due date; "
         "fields left out stay as they are."
+    )
+    milestone_name: str = (
+        "The milestone's exact title, or its number when no milestone has that title."
     )
     project_app: str = (
         "Manage the GitHub Projects v2 board: its template, fields, views and card fields."
@@ -1057,133 +1019,28 @@ class GHCommandHelp:
 
 
 @dataclass(frozen=True)
-class ReleaseCommandHelp:
-    app: str = "Automate version bumps, changelogs, tags, and GitHub releases."
-    status: str = "Check working tree status and latest release tags."
-    prepare: str = "Prepare a release version bump and synchronize changelog and docs."
-    tag: str = "Create and push a git release tag."
-    pr: str = "Open a release Pull Request targeting main."
-    notes: str = "Extract release notes from CHANGELOG.md for a version."
-    target_version: str = "Target semantic version (e.g., 0.1.8)."
-    sync_docs: str = "Regenerate CLI reference docs and sync README matrix."
-    ensure_changelog: str = (
-        "Ensure CHANGELOG.md contains release header with current date. --create-pr always "
-        "collects changelog.d/ into it, whatever this flag says."
-    )
-    auto_pr: str = "Create release branch, commit changes, and open a GitHub Release PR."
-    prefix: str = "Conventional commit prefix (feat or fix)."
-    breaking: str = "Flag release as containing breaking changes (!)."
-    skip_ci: str = "Skip running the Gated CI test suite."
-    allow_dirty: str = "Allow uncommitted changes in git repository."
-    tag_message: str = "Custom tag annotation message."
-    changelog: str = "Compile and generate changelog entries from commits or PRs."
-    changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
-    changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
-    changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
-    sync_notes: str = "Republish GitHub release descriptions from CHANGELOG.md."
-    sync_notes_all: str = "Sync every published release rather than one version."
-
-
-@dataclass(frozen=True)
 class RoadmapCommandHelp:
     app: str = (
         "Read and write the roadmap on GitHub, its source of truth: issues, milestones and the "
         "project board."
     )
-    migrate: str = (
-        "Make GitHub the roadmap's source, once: bring the board in line with its template, "
-        "fill unset Status, Priority, Value and Effort, retire release epics and milestones "
-        "beyond the planning horizon, and record rejected roadmap ideas as issues closed as not "
-        "planned. Prints the plan and a report, which lists the option renames, additions and "
-        "removals a person makes in the board's field settings; writes only with --confirm, "
-        "once the renames and additions are made."
-    )
-    render: str = (
-        "Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the "
-        "backlog by priority."
-    )
     repo: str = "Repository as owner/name (default: this checkout's origin)."
     ref: str = (
-        "Branch, tag or commit to read .github/roadmap.toml, the board template and "
-        "docs/ROADMAP.md at (default: the repository's default branch)."
+        "Branch, tag or commit to read .github/roadmap.toml at (default: the repository's "
+        "default branch)."
     )
-    confirm: str = "Make the planned writes to GitHub. Without it, migrate prints its plan only."
-    migrate_dry_run: str = (
-        "Make no request: print the requests a run makes, in order, with placeholders for "
-        "values a read gives."
-    )
-    migrate_plan: str = (
-        "Read GitHub, print the plan and report, write nothing, and end with the GraphQL points "
-        "spent and left. Migrate without a mode flag does this."
-    )
-    render_dry_run: str = (
-        "Make no request and write no file: print the requests a run makes, in order, with "
-        "placeholders for values a read gives."
-    )
-    render_plan: str = (
-        "Read GitHub and print the rendered file to stdout instead of writing it, ending with "
-        "the GraphQL points spent and left."
-    )
-    output: str = "File render writes."
-    reprioritize: str = (
-        "Hold the current release to its rules: after it starts only a critical fix joins it, "
-        "a fix that takes it over its limit (release_cap plus release_slots) descopes one "
-        "unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, "
-        "each with a reason comment. Once the release ships, close it, branch the next one, "
-        "fill it to the cap and trim it to the limit; the trim and the cap descope follow "
-        "dependencies. The first run records the admitted set and moves nothing. Writes only with "
-        "--confirm."
-    )
-    reprioritize_confirm: str = (
-        "Make the changes on GitHub. Without it, reprioritize prints its plan only."
-    )
-    reprioritize_dry_run: str = (
-        "Make no request: print the requests a run makes, in order, with placeholders for "
-        "values a read gives."
-    )
-    reprioritize_plan: str = (
-        "Read GitHub, print each change with its reason, write nothing, and end with the "
-        "GraphQL points spent and left. Reprioritize without a mode flag does this."
-    )
-    close: str = (
-        "Close each item delivered to the current release, and cut the release once it holds "
-        "no open item. Reads every pull request merged into release/vX.Y.Z and closes as "
-        "completed each open issue a body closes with a closing keyword, commenting what "
-        "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
-        "Reads each closed Release that still holds an open issue the same way first, closing "
-        "the items of that Release its pull requests deliver, except one a person reopened, and "
-        "naming the rest, which hold no cut. Once the release has no open item, one item closed "
-        "as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in "
-        "the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's "
-        "section for the version and deletes the fragments, pushes to release/vX.Y.Z "
-        "(requiring Write role bypass on release ruleset 23059172), and opens the release pull "
-        "request into the default branch. The cut fails before it pushes when the branch holds "
-        "neither a fragment nor that section. Lists completed items with no changelog fragment. "
-        "Writes only with --confirm."
-    )
-    close_confirm: str = (
-        "Close the issues and make the cut. Without it, close prints its plan only."
-    )
-    close_dry_run: str = (
-        "Make no request and change no git ref: print the requests a run makes, in order, with "
-        "placeholders for values a read gives."
-    )
-    close_plan: str = (
-        "Read GitHub, print each issue the run closes with its comment and the cut or what "
-        "holds it, write nothing, and end with the GraphQL points spent and left once its store "
-        "has sent a GraphQL request. Close without a mode flag does this."
-    )
-    close_root: str = "The clone the cut runs git in (default: the current directory)."
     intake: str = (
         "Turn candidates into items: every open issue not on the board, and every board item "
         "intake left without a Priority. Each is checked for a duplicate among the board's "
         "items and the issues closed as not planned, gets a type, a priority, Value and Effort "
-        "from the model with a reason comment, and goes to the backlog, or a critical fix to "
-        "the release #740's admission rule allows. An open issue whose board card a person "
-        "archived is a candidate too: intake restores the card, which keeps its values and "
-        "milestone; close the issue as not planned to keep it off the roadmap. A candidate an "
+        "from the model with a reason comment, and goes to the backlog. Intake sets no milestone: "
+        "a person plans the milestones on the board, and a milestone an issue has stays. An "
+        "open issue whose board card a person archived is a candidate too: intake restores the "
+        "card, which keeps its values and milestone; close the issue as not planned to keep it "
+        "off the roadmap. A candidate an "
         "agent files with --title "
-        "and --body-file is labeled source/agent and held to the agent filing quota; a text "
+        "and --body-file is labeled source/agent and held to the agent filing quota, which counts "
+        "over a rolling window of days; a text "
         "that looks like it holds a secret is refused. --dry-run makes no request and prints "
         "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
         "writes nothing and reports what it spent; --confirm makes the writes."
@@ -1223,13 +1080,12 @@ class RoadmapCommandHelp:
         "placeholders for values a read gives."
     )
     run: str = (
-        "Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then "
-        "intake and refine, and record each one's last success. Reprioritize is due on a ship, "
-        "a cut or an un-cut the poll reads, on a change to an item in the current release, and "
-        "once a day; intake decides at most 5 candidates a run and keeps a record of those it "
-        "left beside the schedule; refine is due every hour, on a first run, and after a "
-        "reprioritize run or an intake that placed a critical fix or a P0 item. Without "
-        "--confirm, or with --dry-run, prints the due list and runs nothing."
+        "Run the roadmap jobs that are due, in order: metrics, then intake and refine, and "
+        "record each one's last success. Intake is due on an issue reopened, and decides at "
+        "most 5 candidates a run and keeps a record of those it left beside the schedule; "
+        "refine is due every hour, on a first run, and after an intake that placed a critical "
+        "fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs "
+        "nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
     run_dry_run: str = (
@@ -1238,13 +1094,13 @@ class RoadmapCommandHelp:
     refine: str = (
         "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, "
         "using code, documentation, and external research. Without --item, refine takes items "
-        "nearest place first: the current release's New items, then each planned release's, "
-        "nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned "
-        "release and among the backlog's P0 and P1 items it also takes Ready items it has no "
-        "record of, and sets one back to New when it finds it not ready. The backlog's other New "
-        "items follow while fewer than the configured release_cap items are Ready across the "
-        "next planned release and the backlog. Items unchanged since their last refine are "
-        "skipped. "
+        "nearest place first: each open milestone's New items, by due date and then by number, "
+        "then the backlog's P0 and P1 items, each place by priority. In each open milestone and "
+        "among the backlog's P0 and P1 items it also takes Ready items it has no record of, and "
+        "sets one back to New when it finds it not ready. The backlog's other New items follow "
+        "while fewer than the configured refine_ready_target items are Ready across the open "
+        "milestones and the backlog. "
+        "Items unchanged since their last refine are skipped. "
         "An item whose model call fails is skipped and reported; the others are still refined, "
         "and refine then exits 1."
     )
@@ -1789,7 +1645,6 @@ class HelpCatalog:
     docs: DocsCommandHelp = field(default_factory=DocsCommandHelp)
     pr: PRCommandHelp = field(default_factory=PRCommandHelp)
     gh: GHCommandHelp = field(default_factory=GHCommandHelp)
-    release: ReleaseCommandHelp = field(default_factory=ReleaseCommandHelp)
     roadmap: RoadmapCommandHelp = field(default_factory=RoadmapCommandHelp)
     review: ReviewCommandHelp = field(default_factory=ReviewCommandHelp)
     scan: ScanCommandHelp = field(default_factory=ScanCommandHelp)

@@ -33,9 +33,9 @@ graph TD
 
 - **Progressive Verification Philosophy**:
   - **Iterative Feedback Loop**: During active development, run isolated checks on modified files to keep developer feedback loops under 2 seconds.
-  - **Comprehensive Quality Gate**: Execute the full local CI suite (`devops ci`) at pre-commit and pre-PR milestones to ensure 100% release readiness before pushing code.
+  - **Comprehensive Quality Gate**: Execute the full local CI suite (`devops ci`) at pre-commit and pre-PR points to make sure that every check passes before pushing code.
 - **The Gated CI Quality Gate**:
-  1. Version Consistency (`pyproject.toml`, `__init__.py`, `CHANGELOG.md`).
+  1. Python Runtime Version (`python_version`).
   2. Parallel Unit Tests (`pytest -n auto`).
   3. Branch Coverage Floor (`>=90%`).
   4. Fast Code Linting (`ruff check`).
@@ -45,6 +45,7 @@ graph TD
   8. Static Security AST Scan (`bandit`).
   9. GitHub Actions Workflow Linter (`actionlint`).
   10. Documentation Freshness (`devops docs generate --check`).
+  11. Wheel and sdist Build (`uv build`).
 
 ---
 
@@ -67,20 +68,20 @@ devops ci docs
 ```
 
 ### Remote CI Monitoring
-When creating or updating pull requests, `devops-cli` provides active remote check monitoring via the GitHub CLI:
+When creating or updating pull requests, `devops-cli` provides active remote check monitoring through rate-managed GitHub CLI calls:
 ```bash
 # Watch pull request checks in real-time until green
-gh pr checks 17 --watch
+devops pr monitor 17
 
-# View recent workflow runs on active release branch
-gh run list --branch release/v0.2.0 -L 5
+# View recent workflow runs on main
+devops gh runs list --branch main --limit 5
 ```
 
 ---
 
 ## 4. Best Practice Guidance
 
-1. **Never Commit Failing Code**: Ensure all local CI gates pass before committing code to feature or release branches.
+1. **Never Commit Failing Code**: Ensure all local CI gates pass before committing code to a topic branch.
 2. **Test Conventions**: What devops-cli's tests may double, where they go and what they assert is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
 3. **Synchronize Docs Automatically**: If `devops ci docs` detects differences, run `devops docs generate --sync-readme` to regenerate markdown reference files.
 4. **Fix Errors Systematically**: Resolve formatting and linting first, then static typing, then unit tests, and finally documentation.

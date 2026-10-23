@@ -54,7 +54,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Tempo, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
 | **Pathspec** | Gitignore Matcher | Pure Python pattern matching based on `.gitignore` wildcards and rules. | [pathspec.md](devops_cli/libraries/pathspec.md) |
 | **TLDExtract** | Domain Parsing | Public Suffix List domain parsing for network references extracted from code. | [tldextract.md](devops_cli/libraries/tldextract.md) |
-| **Packaging** | SemVer & Specs | PyPA core specifications, SemVer 2.0.0 validation, and version bumping. | [packaging.md](devops_cli/libraries/packaging.md) |
+| **Packaging** | Version Specifiers | PyPA core specifications: PEP 440 versions and specifier matching. | [packaging.md](devops_cli/libraries/packaging.md) |
 | **PyYAML & Jinja2** | Manifests & Templates | YAML parsing and Jinja2 templating for DevContainers and K8s manifests. | [pyyaml_jinja2.md](devops_cli/libraries/pyyaml_jinja2.md) |
 | **Ruff, Mypy & Pytest** | Quality Suite | 100x fast linter, strict static typing, and parallel test runner ($\ge 90\%$ cov). | [ruff_mypy_pytest.md](devops_cli/libraries/ruff_mypy_pytest.md) |
 | **Bandit & Actionlint** | Security Analysis | Python AST security analysis (CWE) and GitHub Actions workflow linting. | [bandit_actionlint.md](devops_cli/libraries/bandit_actionlint.md) |
@@ -69,7 +69,6 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Repo & Workspace Management** | Workstation & Git | Multi-org repository cloning, automated `.code-workspace` synchronization, and branch hygiene. | [repo_and_workspace_management.md](devops_cli/tasks/repo_and_workspace_management.md) |
 | **Infrastructure Provisioning** | Infrastructure as Code | Declarative IaC workflows (init, plan, apply, output, state inspect) with OpenTofu/Terraform. | [infrastructure_provisioning.md](devops_cli/tasks/infrastructure_provisioning.md) |
 | **CI Quality Gate** | Continuous Integration | Local quality gate execution (`devops ci`) running every check and pre-commit verification. | [ci_quality_gate.md](devops_cli/tasks/ci_quality_gate.md) |
-| **Release Management** | Release Engineering | Semantic version bumping, release quality verification, changelog updates, and release branch PRs. | [release_management.md](devops_cli/tasks/release_management.md) |
 | **Agent Instructions Scaffolding** | Agentic AI | Automatic generation and synchronization of canonical `AGENTS.md` and the `CLAUDE.md`, `GEMINI.md`, and Copilot stubs. | [agent_instructions_scaffolding.md](devops_cli/tasks/agent_instructions_scaffolding.md) |
 | **RAG Context Indexing** | Semantic Search & AI | Local vector embedding store, document chunking, and grounded context retrieval. | [rag_context_indexing.md](devops_cli/tasks/rag_context_indexing.md) |
 | **Telemetry & Observability** | Observability | OpenTelemetry span tracing, Prometheus client metric scraping, and latency profiling. | [telemetry_and_observability.md](devops_cli/tasks/telemetry_and_observability.md) |
@@ -94,7 +93,6 @@ The Knowledge Base is divided into two primary structural divisions:
 | **CI & Progressive Verification** | Continuous Integration | Local quality gate (`devops ci`), progressive testing, and workflow validation. | [continuous_integration_and_progressive_verification.md](it_domains/topics/continuous_integration_and_progressive_verification.md) |
 | **Modern Python 3.14+ Ecosystem** | Python Runtime & Tooling | Strict Mypy typing, Astral `uv` packaging, Ruff formatting, and dynamic standard parsers. | [modern_python_runtime_and_ecosystem.md](it_domains/topics/modern_python_runtime_and_ecosystem.md) |
 | **REST API Architecture & Services** | Workstation REST API | Asynchronous FastAPI service engine (`devops serve`), OpenAPI schemas, and status probes. | [rest_api_architecture_and_service_engineering.md](it_domains/topics/rest_api_architecture_and_service_engineering.md) |
-| **Release Engineering & SemVer** | Release Governance | Semantic versioning 2.0.0, release verification gates, and automated PR governance. | [release_engineering_and_semver_governance.md](it_domains/topics/release_engineering_and_semver_governance.md) |
 | **Model Governance, Routing & Curation** | AI Governance & Routing | Adaptive 2-axis LLM routing, open-weight model curation, AIBOM generation, sub-agent local offloading, and model dependency chaos engineering. | [model_governance_routing_and_curation.md](it_domains/topics/model_governance_routing_and_curation.md) |
 
 ### Integrated IT Tool References (`it_domains/tools/`)

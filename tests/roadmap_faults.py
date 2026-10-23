@@ -1,39 +1,34 @@
-"""A roadmap store whose writes fail as gh calls do part-way through a job's run (#740).
+"""A roadmap store whose writes fail as gh calls do part-way through a job's run (#1360).
 
 Any gh write can fail: a 502, a timeout, a secondary rate limit. It fails before GitHub applies
 it, or after, when GitHub applied it and the call still reports a failure. `StoppingStore`
-fails one write of a run, either way. GitHub takes a field write as two calls, the job record
-first (with the value and any marks given with it), then the milestone or the board field. The
-in-memory store makes both in one step, so with `two_calls` the wrapper makes them as two
-writes, `record` and `field`, either of which can fail.
+fails one write of a run, either way.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import Item, ItemField, JobMark, RoadmapStore
+from devops_cli.roadmap.store import Item, RoadmapStore
 
-# The store's writes, any of which a gh call can fail part-way through a run, and the two
-# calls GitHub takes a field write as. `label_issue` is intake's first write (#1360).
+# The store's writes, any of which a gh call can fail part-way through a run. `label_issue` is
+# intake's first write (#1360).
 WRITES = frozenset(
     {
-        "create_release",
-        "close_release",
-        "create_branch",
+        "add_item",
+        "close_as_duplicate",
+        "comment",
+        "create_issue",
+        "label_issue",
         "set_field",
         "set_marks",
-        "comment",
-        "set_run_record",
-        "label_issue",
+        "write_issue_body",
     }
 )
-RECORD = "record"
-FIELD = "field"
 
 
 @dataclass(frozen=True)
@@ -63,7 +58,6 @@ class StoppingStore:
 
     store: InMemoryRoadmapStore
     fault: Fault = Fault()
-    two_calls: bool = True
     writes: list[str] = field(default_factory=list)
     _counted: int = 0
 
@@ -71,8 +65,6 @@ class StoppingStore:
         found = getattr(self.store, name)
         if name not in WRITES:
             return found
-        if name == "set_field" and self.two_calls:
-            return self._set_field
 
         def write(*args: Any, **kwargs: Any) -> object:
             return self._write(name, _number(args), lambda: found(*args, **kwargs))
@@ -82,25 +74,6 @@ class StoppingStore:
     def as_store(self) -> RoadmapStore:
         """The wrapper, as the job takes a store."""
         return cast(RoadmapStore, self)
-
-    def _set_field(
-        self,
-        item: Item,
-        item_field: ItemField,
-        value: str | None,
-        *,
-        marks: Mapping[JobMark, str | None] | None = None,
-    ) -> None:
-        """GitHub's two calls: the job record with the value and `marks`, then the field."""
-        recorded = {item_field: value}
-        self._write(
-            RECORD,
-            item.number,
-            lambda: self.store.set_marks(item, marks or {}, recorded=recorded),
-        )
-        self._write(
-            FIELD, item.number, lambda: self.store.set_field(item, item_field, value, marks=marks)
-        )
 
     def _write(self, name: str, number: int | None, apply: Callable[[], object]) -> object:
         self.writes.append(name)

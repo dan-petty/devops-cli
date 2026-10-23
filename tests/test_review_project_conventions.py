@@ -50,7 +50,6 @@ _SHARED_REVIEW_PROMPTS = [
 @pytest.mark.parametrize(
     "phrase",
     [
-        "docs/ROADMAP.md",
         "this repository",
         "allow_private_network",
         "homelab",

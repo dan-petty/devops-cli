@@ -27,12 +27,10 @@ from tests.support.paths import REPO_ROOT
 _SELF_IMPROVEMENT = REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"
 # The documents that are not checked, each for a reason:
 # - docs/agent/: task files record each item as it was delivered, and no other item edits them;
-# - docs/ROADMAP.md: rendered from GitHub at the cut (ADR 0001);
 # - docs/CLI_REFERENCE.md and docs/commands/: `devops docs generate` renders them from the Typer
 #   app itself, and `devops docs check` keeps them equal to a fresh render.
 _UNCHECKED = (
     Path("docs/agent"),
-    Path("docs/ROADMAP.md"),
     Path("docs/CLI_REFERENCE.md"),
     Path("docs/commands"),
 )

@@ -62,10 +62,8 @@ def test_fastmcp_tools_registration() -> None:
         "docker_sandbox",
         "docker_sign",
         "docker_verify",
-        # CI, Release & Quality
+        # CI & Quality
         "ci",
-        "release_status",
-        "docs_compact",
         # Terraform / OpenTofu
         "tf_plan",
         "tf_apply",
@@ -132,10 +130,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_runs_list",
         "gh_runs_view",
         "roadmap_intake",
-        "roadmap_migrate",
         "roadmap_refine",
-        "roadmap_render",
-        "roadmap_reprioritize",
         "roadmap_run",
         "pr_ready",
         "pr_diff",
@@ -176,7 +171,6 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://config/active",
         "resource://telemetry/status",
         "resource://telemetry/logfire",
-        "resource://release/status",
         "resource://vault/status",
         "resource://ai/constellation",
         "resource://ai/spend",
@@ -1374,69 +1368,48 @@ def _roadmap_tool_parameters(name: str) -> dict[str, object]:
     return dict(tool.parameters["properties"])
 
 
-def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
-    """Roadmap tools publish Click parameters and default preview options."""
-    render = _roadmap_tool_parameters("roadmap_render")
-    migrate = _roadmap_tool_parameters("roadmap_migrate")
-    reprioritize = _roadmap_tool_parameters("roadmap_reprioritize")
+def test_the_roadmap_tools_are_registered_and_the_planner_tools_are_gone() -> None:
+    """Roadmap tools publish Click parameters and default preview options; no tool renders,
+    migrates, reprioritizes or closes, since those commands are gone."""
+    import asyncio
+
+    from devops_cli.ai.mcp import server as mcp_server
+
     run = _roadmap_tool_parameters("roadmap_run")
-    assert (sorted(render), sorted(migrate), sorted(reprioritize), sorted(run)) == (
-        ["dry_run", "output", "plan_only", "ref", "repo"],
-        ["confirm", "dry_run", "plan_only", "ref", "repo"],
-        ["confirm", "dry_run", "plan_only", "ref", "repo"],
-        ["confirm", "dry_run", "ref", "repo"],
-    )
+    gone = [
+        asyncio.run(mcp_server.mcp.get_tool(name))
+        for name in ("roadmap_render", "roadmap_migrate", "roadmap_reprioritize", "roadmap_close")
+    ]
+    assert (sorted(run), gone) == (["confirm", "dry_run", "ref", "repo"], [None] * 4)
 
 
 def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
     from devops_cli.ai.mcp import server as mcp_server
     from devops_cli.ai.mcp.dispatcher import resolve_tool_domain
 
-    before = mcp_server._is_advertised("roadmap_render")
+    before = mcp_server._is_advertised("roadmap_refine")
     hydrated = mcp_server.hydrate_tool_domain("roadmap")["hydrated"]
-    after = (
-        mcp_server._is_advertised("roadmap_migrate"),
-        mcp_server._is_advertised("roadmap_reprioritize"),
-    )
+    after = (mcp_server._is_advertised("roadmap_refine"), mcp_server._is_advertised("roadmap_run"))
     mcp_server.reset_hydrated_domains()
     assert (
-        resolve_tool_domain("roadmap_render"),
-        resolve_tool_domain("roadmap_migrate"),
-        resolve_tool_domain("roadmap_reprioritize"),
+        resolve_tool_domain("roadmap_refine"),
+        resolve_tool_domain("roadmap_run"),
         before,
         hydrated,
         after,
-    ) == ("roadmap", "roadmap", "roadmap", False, True, (True, True))
+    ) == ("roadmap", "roadmap", False, True, (True, True))
 
 
 def test_the_roadmap_tools_build_the_commands_argv() -> None:
     from unittest.mock import patch
 
-    from devops_cli.ai.mcp.server import (
-        roadmap_migrate,
-        roadmap_render,
-        roadmap_reprioritize,
-        roadmap_run,
-    )
+    from devops_cli.ai.mcp.server import roadmap_run
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        roadmap_render()
-        roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", plan_only=True)
-        roadmap_migrate(repo="dan-petty/devops-cli", ref="release/v0.2.25")
-        roadmap_migrate(dry_run=True)
-        roadmap_reprioritize()
-        roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", confirm=True)
         roadmap_run()
         roadmap_run(repo="dan-petty/devops-cli", dry_run=True)
     head = ["uv", "run", "devops", "roadmap"]
-    target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
     assert [call.args[0] for call in run.call_args_list] == [
-        [*head, "render", "--output", "docs/ROADMAP.md"],
-        [*head, "render", *target, "--output", "docs/ROADMAP.md", "--plan"],
-        [*head, "migrate", *target],
-        [*head, "migrate", "--dry-run"],
-        [*head, "reprioritize"],
-        [*head, "reprioritize", *target, "--confirm"],
         [*head, "run"],
         [*head, "run", "--repo", "dan-petty/devops-cli", "--dry-run"],
     ]
@@ -1454,7 +1427,7 @@ def test_roadmap_refine_contract_and_argv() -> None:
         roadmap_refine(dry_run=True)
         roadmap_refine(
             repo="dan-petty/devops-cli",
-            ref="release/v0.2.26",
+            ref="feat/topic",
             item=744,
             limit=1,
             source=".",
@@ -1475,7 +1448,7 @@ def test_roadmap_refine_contract_and_argv() -> None:
             "--repo",
             "dan-petty/devops-cli",
             "--ref",
-            "release/v0.2.26",
+            "feat/topic",
             "--source",
             ".",
             "--item",
@@ -1498,7 +1471,7 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> Non
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         roadmap_intake(
             repo="dan-petty/devops-cli",
-            ref="release/v0.2.29",
+            ref="feat/868-example",
             issue=[868],
             title="fix: example",
             source="https://example.com",
@@ -1515,7 +1488,7 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> Non
             "--repo",
             "dan-petty/devops-cli",
             "--ref",
-            "release/v0.2.29",
+            "feat/868-example",
             "--issue",
             "868",
             "--title",

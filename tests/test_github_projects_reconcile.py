@@ -106,10 +106,13 @@ def test_an_open_pull_request_is_forced_into_review_and_a_draft_into_progress() 
     )
 
 
-def test_an_issue_with_an_open_linked_pull_request_is_forced_into_review() -> None:
-    assert _changes(_issue(), {"status": "Ready"}, has_open_pr=True) == [
-        ("Status", "Ready", "In Review", "linked open pull request")
-    ]
+def test_an_open_pull_request_that_closes_an_issue_leaves_the_issue_to_the_board() -> None:
+    """The board's built-in "Pull request linked to issue" workflow sets In Review on the
+    issue, so reconcile reads no pull request text and plans no Status for the issue."""
+    cards, issues = [card(3, status="Ready")], [issue(3)]
+    prs = [pull(12, body="Closes #3")]
+    result = _reconcile(ProjectGitHub(cards, issues, prs), mode="plan")
+    assert result.planned == []
 
 
 def test_priority_is_set_from_its_label_only_when_unset() -> None:
@@ -136,8 +139,8 @@ def test_value_and_effort_are_never_inferred() -> None:
 
 
 def test_the_milestone_the_board_mirrors_is_never_written() -> None:
-    item = _issue(milestone={"title": "v0.2.24"})
-    assert _changes(item, {"status": "Ready", "milestone": "v0.2.23"}) == []
+    item = _issue(milestone={"title": "2026-11"})
+    assert _changes(item, {"status": "Ready", "milestone": "2026-10"}) == []
 
 
 def test_a_backlog_label_reads_as_new() -> None:

@@ -1,20 +1,19 @@
 """The in-memory roadmap store: the roadmap held in process, with no I/O, for tests.
 
 It keeps the promises the GitHub adapter keeps, so the contract suite runs against it. A
-test seeds issues with `seed_issue` and acts as a person with `as_actor`: a person's writes
-change fields and record changes under their name, but never touch the job record. Cards hold
-option names, and `edit_options_by_hand` renames or clears them by option id, as GitHub's
-cards, which hold option ids, show after a person edits a field's options in its settings.
+test seeds milestones with `seed_milestone` and issues with `seed_issue`, and acts as a person
+with `as_actor`: a person's writes change fields and record changes under their name, but never
+touch the job record. Cards hold option names, and `edit_options_by_hand` renames or clears them
+by option id, as GitHub's cards, which hold option ids, show after a person edits a field's
+options in its settings.
 
-A person also opens, closes and merges pull requests, publishes GitHub Releases, closes and reopens
-issues and adds blocked-by links through the helpers below; each records the change a poll would
-find, a ship and an un-cut with no actor, as GitHub's listings report them (#1360). Every write to
-an issue, a comment included, moves its `updated_at`, as on GitHub. A person's `archive_card`
-takes a card off every read with its fields and job record, and `add_item` restores it, marked
-`restored`, as GitHub's board does (#1403). `seed_evidence` makes a piece of evidence one GitHub
-confirms. Every write the store makes as a job, not as a person, is kept in `job_writes`, so a
-test can check what a job wrote and that a preview wrote nothing. The only draft issue the board
-holds is the run record card, once a job has written the run record.
+A person also labels, closes and reopens issues through the helpers below; each records the
+change a poll would find. Every write to an issue, a comment included, moves its `updated_at`,
+as on GitHub. A person's `archive_card` takes a card off every read with its fields and job
+record, and `add_item` restores it, marked `restored`, as GitHub's board does (#1403).
+`seed_evidence` makes a piece of evidence one GitHub confirms. Every write the store makes as a
+job, not as a person, is kept in `job_writes`, so a test can check what a job wrote and that a
+preview wrote nothing.
 
 Each view holds every card as it last read it, with its own writes: a job's write of a field a
 person changed since raises before it changes anything, as the GitHub adapter's does against
@@ -24,7 +23,7 @@ its listing (#1361). Reads here are live, so a view's next read sees the person'
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
@@ -32,70 +31,40 @@ from typing import Any
 from devops_cli.config.constants import (
     CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
-    CONST_ROADMAP_RUN_RECORD_TITLE,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_MEMORY_ACTOR,
-    DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER,
-    DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH,
-    DEFAULT_ROADMAP_MEMORY_HEAD_SHA,
-    DEFAULT_ROADMAP_MEMORY_REPO,
-)
+from devops_cli.config.defaults import DEFAULT_ROADMAP_MEMORY_ACTOR, DEFAULT_ROADMAP_MEMORY_REPO
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.exceptions.roadmap import RoadmapCardChangedError
-from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.store import (
-    BOARD_FIELDS,
-    RELEASE_CHANGE_KINDS,
     AddedItem,
-    Board,
     BoardEntry,
     BoardField,
-    Branch,
     Candidate,
-    Card,
-    CardKind,
     Change,
     ChangeKind,
     CloseReason,
     Closure,
-    Dependency,
     Evidence,
     FieldOption,
-    FieldSpec,
     GitHubState,
     IssueQuery,
     IssueRecord,
     Item,
     ItemField,
-    JobMark,
-    JobRecord,
-    MergedPullRequest,
-    PullRequest,
-    PullRequestState,
+    Milestone,
     RefineRecordKey,
-    Release,
     RoadmapStore,
-    Workflow,
     as_utc,
-    cuts_its_release,
     field_options,
-    find_release,
-    in_release,
-    is_release_pull_request,
+    find_milestone,
     join_items,
-    parse_release_version,
-    release_edits,
-    release_number,
-    require_board_field,
+    milestone_edits,
+    milestone_order,
     require_field,
     require_job_record_field,
-    require_new_release,
+    require_milestone,
     require_option,
-    require_release,
     require_unchanged,
     select_candidates,
-    with_marks,
 )
 
 
@@ -112,17 +81,13 @@ def _entry(number: int) -> BoardEntry:
     return BoardEntry(number=number, card_id=f"card-{number}")
 
 
-# The run record card's id: the only draft issue the in-memory board holds.
-_RUN_RECORD_CARD_ID = "card-run-record"
-
-
 def _board_field_named(name: str) -> ItemField | None:
-    return next((board_field for board_field in BOARD_FIELDS if board_field.value == name), None)
+    return next((board_field for board_field in ItemField if board_field.value == name), None)
 
 
 @dataclass(frozen=True)
 class JobWrite:
-    """One write the store made as a job: the operation, the issue or Release it touched, and
+    """One write the store made as a job: the operation, the issue or milestone it touched, and
     the field or mark it set with its value."""
 
     operation: str
@@ -137,9 +102,9 @@ class _Roadmap:
 
     repo: str
     clock: Callable[[], datetime]
-    board: Board | None
+    has_board: bool
     board_fields: dict[str, BoardField] = field(default_factory=dict)
-    releases: dict[int, Release] = field(default_factory=dict)
+    milestones: dict[int, Milestone] = field(default_factory=dict)
     issues: dict[int, IssueRecord] = field(default_factory=dict)
     cards: dict[int, BoardEntry] = field(default_factory=dict)
     # The cards a person archived, by issue number: in no read, and restored by an add.
@@ -147,23 +112,9 @@ class _Roadmap:
     changes: list[Change] = field(default_factory=list)
     comments: dict[int, list[str]] = field(default_factory=dict)
     files: dict[tuple[str, str | None], str] = field(default_factory=dict)
-    workflows: list[Workflow] = field(default_factory=list)
-    status_times: dict[int, datetime] = field(default_factory=dict)
-    dependencies: dict[int, list[tuple[int, str | None]]] = field(default_factory=dict)
-    pull_requests: dict[int, PullRequest] = field(default_factory=dict)
-    merged_paths: dict[int, tuple[str, ...]] = field(default_factory=dict)
-    published: set[str] = field(default_factory=set)
     closures: dict[int, list[Closure]] = field(default_factory=dict)
     evidence: set[Evidence] = field(default_factory=set)
-    default_branch: str = DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH
-    branches: dict[str, str] = field(
-        default_factory=lambda: {
-            DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH: DEFAULT_ROADMAP_MEMORY_HEAD_SHA
-        }
-    )
     job_writes: list[JobWrite] = field(default_factory=list)
-    # The run record card's job record, or None while the board has no such card.
-    run_record: JobRecord | None = None
     is_private: bool = False
     ids: Iterator[int] = field(default_factory=lambda: itertools.count(1))
 
@@ -172,7 +123,7 @@ class _Roadmap:
 
 
 class InMemoryRoadmapStore(RoadmapStore):
-    """The roadmap in memory: Releases, issues and pull requests, and a board of them.
+    """The roadmap in memory: milestones, issues and pull requests, and a board of them.
 
     `board_options` gives each single-select board field its options; a field left out is
     not on the board, and `seed_field` adds any other. `job_record_field=False` models a board
@@ -191,25 +142,17 @@ class InMemoryRoadmapStore(RoadmapStore):
         actor: str = DEFAULT_ROADMAP_MEMORY_ACTOR,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
-        self._roadmap = _Roadmap(repo=repo, clock=clock, board=None, is_private=is_private)
+        self._roadmap = _Roadmap(
+            repo=repo, clock=clock, has_board=board_exists, is_private=is_private
+        )
         self._actor = actor
         self._writes_job_record = True
         # Each card as this view last read or wrote it, by issue number.
         self._read: dict[int, BoardEntry] = {}
-        if board_exists:
-            self._roadmap.board = self._new_board("Roadmap")
-        specs = [
-            FieldSpec(
-                name=board_field.value,
-                single_select=True,
-                options=tuple(FieldOption(name=name) for name in names),
-            )
-            for board_field, names in (board_options or {}).items()
-        ]
+        for board_field, names in (board_options or {}).items():
+            self.seed_field(board_field.value, options=names)
         if job_record_field:
-            specs.append(FieldSpec(name=CONST_GH_PROJECT_JOB_RECORD_FIELD))
-        for spec in specs:
-            self.seed_field(spec)
+            self.seed_field(CONST_GH_PROJECT_JOB_RECORD_FIELD, single_select=False)
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
@@ -219,6 +162,27 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     # ── Seeding ──
 
+    def seed_milestone(
+        self,
+        title: str,
+        *,
+        description: str = "",
+        due_on: date | None = None,
+        state: GitHubState = GitHubState.OPEN,
+    ) -> Milestone:
+        """Create a milestone as a person does on GitHub, returning it; the next number names it."""
+        number = max(self._roadmap.milestones, default=0) + 1
+        closed_at = self._roadmap.clock() if state is GitHubState.CLOSED else None
+        self._roadmap.milestones[number] = Milestone(
+            number=number,
+            title=title,
+            description=description,
+            state=state,
+            due_on=due_on,
+            closed_at=closed_at,
+        )
+        return self._counted(self._roadmap.milestones[number])
+
     def seed_issue(
         self,
         title: str,
@@ -227,17 +191,20 @@ class InMemoryRoadmapStore(RoadmapStore):
         state: GitHubState = GitHubState.OPEN,
         state_reason: str | None = None,
         labels: Iterable[str] = (),
-        release: str | None = None,
+        milestone: str | None = None,
         pull_request: bool = False,
         on_board: bool = False,
         author_association: str | None = None,
     ) -> int:
         """Open an issue (or a pull request) as GitHub would, returning its number.
 
-        Seeding records no change. `on_board` puts it on the board with no fields set, which
-        `add_item` refuses for a pull request but GitHub's board allows. The issue is created
-        now by the store's clock, and closed now when seeded closed.
+        `milestone` is the title of a seeded milestone. Seeding records no change. `on_board`
+        puts it on the board with no fields set, which `add_item` refuses for a pull request but
+        GitHub's board allows. The issue is created now by the store's clock, and closed now
+        when seeded closed.
         """
+        if milestone is not None:
+            require_milestone(self._roadmap.milestones.values(), milestone, "roadmap.issue.seed")
         number = len(self._roadmap.issues) + 1
         kind = "pull" if pull_request else "issues"
         now = self._roadmap.clock()
@@ -249,7 +216,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             state=state,
             state_reason=state_reason,
             labels=tuple(labels),
-            release=release,
+            milestone=milestone,
             pull_request=pull_request,
             author_association=author_association,
             created_at=now,
@@ -260,14 +227,15 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._roadmap.cards[number] = _entry(number)
         return number
 
-    def seed_field(self, spec: FieldSpec) -> BoardField:
+    def seed_field(
+        self, name: str, *, options: Iterable[str] = (), single_select: bool = True
+    ) -> BoardField:
         """Put a field on the board, giving it and each of its options an id."""
-        options = tuple(self._with_id(option) for option in spec.options)
         created = BoardField(
             id=self._roadmap.new_id("field"),
-            name=spec.name,
-            single_select=spec.single_select,
-            options=options,
+            name=name,
+            single_select=single_select,
+            options=tuple(self._with_id(FieldOption(name=option)) for option in options),
         )
         self._roadmap.board_fields[created.name] = created
         return created
@@ -275,11 +243,6 @@ class InMemoryRoadmapStore(RoadmapStore):
     def seed_file(self, path: str, text: str, *, ref: str | None = None) -> None:
         """Commit `text` at `path` on `ref`, or on the default branch when `ref` is None."""
         self._roadmap.files[(path, ref)] = text
-
-    def seed_workflow(self, name: str, *, enabled: bool) -> None:
-        """Give the board a built-in workflow that is on or off."""
-        number = len(self._roadmap.workflows) + 1
-        self._roadmap.workflows.append(Workflow(number=number, name=name, enabled=enabled))
 
     def seed_visibility(self, *, is_private: bool) -> None:
         """Set whether the repository is private."""
@@ -292,7 +255,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         their value; a current option left out is removed, and its cards lose their value.
         No store operation does this, because GitHub's API takes no option id.
         """
-        current = require_field(self.board_fields(), name, "roadmap.board.edit_options")
+        current = require_field(
+            self._roadmap.board_fields.values(), name, "roadmap.board.edit_options"
+        )
         kept = {option.id: option.name for option in options if option.id is not None}
         renamed = {option.name: kept.get(option.id or "") for option in current.options}
         edited = current.model_copy(
@@ -301,6 +266,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._roadmap.board_fields[name] = edited
         self._map_card_values(name, lambda value: renamed.get(value) if value else None)
         return edited
+
+    def board_fields(self) -> list[BoardField]:
+        """Every field on the board, as a test reads it."""
+        self._require_board()
+        return list(self._roadmap.board_fields.values())
 
     def job_writes(self) -> list[JobWrite]:
         """Every write the store made as a job, oldest first; a person's writes are not kept."""
@@ -313,7 +283,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.label")
         if label not in issue.labels:
             self._update_issue(issue, labels=(*issue.labels, label))
-            self._record(ChangeKind.LABELED, number, issue.release, label=label)
+            self._record(ChangeKind.LABELED, number, label=label)
 
     def reopen_issue(self, number: int) -> None:
         """Reopen a closed issue, as a person does on GitHub."""
@@ -326,7 +296,7 @@ class InMemoryRoadmapStore(RoadmapStore):
                 closed_at=None,
             )
             self._closure(number, ChangeKind.REOPENED)
-            self._record(ChangeKind.REOPENED, number, issue.release)
+            self._record(ChangeKind.REOPENED, number)
 
     def archive_card(self, number: int) -> None:
         """Archive issue `number`'s card, as a person does on the board: it keeps its fields
@@ -344,171 +314,60 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Close an issue without a comment, as a person's bulk close does on GitHub."""
         self._close(self._require_issue(number, "roadmap.issue.close"), reason)
 
+    def move_by_hand(self, number: int, milestone: str | None) -> None:
+        """Put issue `number` in the milestone `milestone` names, or in none, as a person does."""
+        issue = self._require_issue(number, "roadmap.issue.milestone")
+        target = (
+            None
+            if milestone is None
+            else require_milestone(self.milestones(), milestone, "roadmap.issue.milestone").title
+        )
+        self._update_issue(issue, milestone=target)
+
     def seed_evidence(self, evidence: Evidence) -> None:
         """Make `evidence` one GitHub confirms: the advisory, failed run or commit exists."""
         self._roadmap.evidence.add(evidence)
 
-    def link_dependency(self, number: int, on: int, repository: str | None = None) -> None:
-        """Add a blocked-by link: issue `number` waits on issue `on`."""
-        self._require_issue(number, "roadmap.dependency.add")
-        repo = repository or self._roadmap.repo
-        if repo == self._roadmap.repo:
-            self._require_issue(on, "roadmap.dependency.add")
-        self._roadmap.dependencies.setdefault(number, []).append((on, repository))
-        self._record(ChangeKind.BLOCKED_BY_ADDED, number, self._roadmap.issues[number].release)
+    # ── Milestones ──
 
-    def open_pull_request(
+    def milestones(self) -> list[Milestone]:
+        """Every milestone, open and closed, by due date and then by number."""
+        counted = (self._counted(milestone) for milestone in self._roadmap.milestones.values())
+        return sorted(counted, key=milestone_order)
+
+    def milestone(self, name: str) -> Milestone | None:
+        """The milestone with the exact title `name`, else the one numbered `name`, or None."""
+        return find_milestone(self.milestones(), name)
+
+    def edit_milestone(
         self,
-        title: str,
-        *,
-        base: str,
-        head: str,
-        body: str = "",
-        labels: Iterable[str] = (),
-        release: str | None = None,
-        draft: bool = False,
-    ) -> int:
-        """Open a pull request, returning its number; opening the Release's pull request cuts it."""
-        labels = tuple(labels)
-        number = self.seed_issue(
-            title, body=body, labels=labels, release=release, pull_request=True
-        )
-        now = self._roadmap.clock()
-        opened = PullRequest(
-            number=number,
-            url=self._roadmap.issues[number].url,
-            draft=draft,
-            base=base,
-            head=head,
-            body=body,
-            labels=tuple(labels),
-            release=release,
-            updated_at=now,
-            last_commit_at=now,
-        )
-        self._roadmap.pull_requests[number] = opened
-        if cuts_its_release(opened, self._roadmap.default_branch):
-            self._record(ChangeKind.RELEASE_CUT, number, release)
-        return number
-
-    def merge_pull_request(
-        self,
-        title: str,
-        *,
-        base: str,
-        body: str = "",
-        changed_paths: Iterable[str] = (),
-        release: str | None = None,
-    ) -> int:
-        """Open a pull request into `base` that changes `changed_paths`, and merge it."""
-        number = self.open_pull_request(
-            title, base=base, head="feat/item", body=body, release=release
-        )
-        self._roadmap.merged_paths[number] = tuple(changed_paths)
-        self.close_pull_request(number, merged=True)
-        return number
-
-    def close_pull_request(self, number: int, *, merged: bool = False) -> None:
-        """Merge the pull request, or close it unmerged, which un-cuts its Release."""
-        closed = self._roadmap.pull_requests[number].model_copy(
-            update={
-                "state": PullRequestState.MERGED if merged else PullRequestState.CLOSED,
-                "updated_at": self._roadmap.clock(),
-            }
-        )
-        self._roadmap.pull_requests[number] = closed
-        if not merged and cuts_its_release(closed, self._roadmap.default_branch):
-            self._record(ChangeKind.RELEASE_UNCUT, number, closed.release, attributed=False)
-
-    def push_to_pull_request(self, number: int) -> None:
-        """Push a commit to an open pull request, which also updates it."""
-        now = self._roadmap.clock()
-        self._roadmap.pull_requests[number] = self._roadmap.pull_requests[number].model_copy(
-            update={"updated_at": now, "last_commit_at": now}
-        )
-
-    def publish_release(self, version: str) -> None:
-        """Publish GitHub Release `vX.Y.Z`; once its pull request has merged, the Release ships."""
-        title = require_release(self.releases(), version, "roadmap.release.publish").title
-        self._roadmap.published.add(title)
-        self._record(ChangeKind.RELEASE_SHIPPED, 0, title, attributed=False)
-
-    def seed_branch(self, name: str, sha: str) -> None:
-        """Push branch `name` at commit `sha`."""
-        self._roadmap.branches[name] = sha
-
-    # ── Releases ──
-
-    def releases(self) -> list[Release]:
-        """Every Release, sorted by version."""
-        counted = (self._counted(release) for release in self._roadmap.releases.values())
-        return sorted(counted, key=lambda release: release.version)
-
-    def release(self, version: str) -> Release | None:
-        """The Release of `version`, with or without its leading `v`, or None."""
-        return find_release(self.releases(), version)
-
-    def create_release(
-        self,
-        version: str,
-        *,
-        description: str = "",
-        due_on: date | None = None,
-        state: GitHubState = GitHubState.OPEN,
-    ) -> Release:
-        """Create the Release of `version`, raising if it already exists."""
-        title = require_new_release(self.releases(), version, "roadmap.release.create")
-        number = max(self._roadmap.releases, default=0) + 1
-        created = Release(
-            number=number,
-            title=title,
-            description=description,
-            state=state,
-            due_on=due_on,
-            closed_at=self._roadmap.clock() if state is GitHubState.CLOSED else None,
-        )
-        self._roadmap.releases[number] = created
-        self._log("create_release", value=title)
-        return self._counted(created)
-
-    def edit_release(
-        self,
-        version: str,
+        name: str,
         *,
         title: str | None = None,
         description: str | None = None,
         due_on: date | None = None,
         state: GitHubState | None = None,
-    ) -> Release:
-        """Change only the given fields of the Release of `version`, raising if there is none.
+    ) -> Milestone:
+        """Change only the given fields of the milestone `name` names, raising if there is none.
 
-        A new title is the one its issues and pull requests show from then on: GitHub keeps a
-        milestone by its number, so a rename moves nothing.
+        A new title is the one its issues show from then on: GitHub keeps a milestone by its
+        number, so a rename moves nothing.
         """
-        releases = self.releases()
-        current = require_release(releases, version, "roadmap.release.edit")
-        edits = release_edits(
-            releases, current, title=title, description=description, due_on=due_on, state=state
+        milestones = self.milestones()
+        current = require_milestone(milestones, name, "roadmap.milestone.edit")
+        edits = milestone_edits(
+            milestones, current, title=title, description=description, due_on=due_on, state=state
         )
         edited = current.model_copy(update=edits | self._closed_at(current, edits.get("state")))
-        self._roadmap.releases[current.number] = edited
+        self._roadmap.milestones[current.number] = edited
         if edited.title != current.title:
             self._retitle(current.title, edited.title)
-        self._log("edit_release", key=current.title, value=str(edits.get("state") or "") or None)
+        self._log("edit_milestone", current.number, value=str(edits.get("state") or "") or None)
         return self._counted(edited)
 
-    def close_release(self, version: str) -> Release:
-        """Close the Release of `version`, raising if there is none."""
-        return self.edit_release(version, state=GitHubState.CLOSED)
-
-    def delete_release(self, version: str) -> None:
-        """Delete the Release of `version`; its issues lose their Release, as on GitHub."""
-        deleted = require_release(self.releases(), version, "roadmap.release.delete")
-        del self._roadmap.releases[deleted.number]
-        self._log("delete_release", value=deleted.title)
-        for issue in list(self._roadmap.issues.values()):
-            if in_release(issue.release, deleted.version):
-                self._update_issue(issue, release=None)
+    def close_milestone(self, name: str) -> Milestone:
+        """Close the milestone `name` names, raising if there is none."""
+        return self.edit_milestone(name, state=GitHubState.CLOSED)
 
     # ── Issues ──
 
@@ -522,13 +381,6 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._log("create_issue", number, value=title)
         return self._roadmap.issues[number]
 
-    def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
-        """Comment on issue `number`, then close it for `reason`."""
-        issue = self._require_issue(number, "roadmap.issue.close")
-        self.comment(number, comment)
-        self._close(issue, reason)
-        self._log("close_issue", number, value=reason.value)
-
     def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
         """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
         issue `original`."""
@@ -536,7 +388,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._require_issue(original, "roadmap.issue.close_as_duplicate")
         if comment is not None:
             self.comment(number, comment)
-        self._close(issue, CloseReason.DUPLICATE, duplicate_of=original)
+        self._close(
+            self._roadmap.issues[issue.number], CloseReason.DUPLICATE, duplicate_of=original
+        )
         self._log("close_as_duplicate", number, value=str(original))
 
     def closures(self, number: int) -> list[Closure]:
@@ -548,7 +402,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.label")
         if label not in issue.labels:
             self._update_issue(issue, labels=(*issue.labels, label))
-            self._record(ChangeKind.LABELED, number, issue.release, label=label)
+            self._record(ChangeKind.LABELED, number, label=label)
         self._log("label_issue", number, value=label)
 
     def evidence_holds(self, evidence: Evidence) -> bool:
@@ -565,7 +419,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._update_issue(issue)
         self._roadmap.comments.setdefault(number, []).append(body)
         self._log("comment", number, value=body)
-        self._record(ChangeKind.COMMENTED, number, issue.release)
+        self._record(ChangeKind.COMMENTED, number)
 
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
@@ -596,7 +450,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.write_body")
         self._update_issue(issue, body=body)
         self._log("write_issue_body", number, value=body)
-        self._record(ChangeKind.EDITED, number, issue.release)
+        self._record(ChangeKind.EDITED, number)
 
     # ── Items ──
 
@@ -607,19 +461,22 @@ class InMemoryRoadmapStore(RoadmapStore):
         found = self._seen(join_items([issue], self._roadmap.cards)) if issue else []
         return next(iter(found), None)
 
-    def items(self, *, release: str | None = None) -> list[Item]:
-        """Every Item, open and closed, or only those in the Release of `release`."""
+    def items(self, *, milestone: int | None = None) -> list[Item]:
+        """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
         self._require_board()
         issues = list(self._roadmap.issues.values())
-        if release is not None:
-            version = parse_release_version(release)
-            issues = [issue for issue in issues if in_release(issue.release, version)]
+        if milestone is not None:
+            held = self._roadmap.milestones.get(milestone)
+            title = held.title if held is not None else None
+            issues = [issue for issue in issues if title is not None and issue.milestone == title]
         return self._seen(join_items(issues, self._roadmap.cards))
 
     def backlog(self) -> list[Item]:
-        """The open Items in no Release."""
+        """The open Items in no milestone."""
         return [
-            item for item in self.items() if item.state is GitHubState.OPEN and item.release is None
+            item
+            for item in self.items()
+            if item.state is GitHubState.OPEN and item.milestone is None
         ]
 
     def candidates(self) -> list[Candidate]:
@@ -629,7 +486,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
         """The changes made at or after `since`, oldest first, each as a poll reads it now,
-        leaving out those `except_actor` made; an empty actor leaves out nothing."""
+        without those `except_actor` made; an empty actor leaves out nothing."""
         cutoff = as_utc(since)
         skipped = except_actor or None
         return [
@@ -648,7 +505,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._roadmap.issues.get(number)
         if issue is None or issue.pull_request:
             raise GitHubOperationError(
-                f"#{number} is not an issue of {self._roadmap.repo}, so it can't be an Item.",
+                f"#{number} is not an issue of {self._roadmap.repo}, so it cannot be an Item.",
                 operation="roadmap.item.add",
                 details={"number": number},
             )
@@ -667,262 +524,39 @@ class InMemoryRoadmapStore(RoadmapStore):
         *,
         marks: Mapping[Any, str | None] | None = None,
     ) -> None:
-        """Set or clear one of the Item's fields; the store's own writes also record the value,
-        and `marks` with it, in one step, so no write stops between the two.
+        """Set or clear one of the Item's board fields; the store's own writes also record the
+        value, and `marks` with it, in one step, so no write stops between the two.
 
         `job_writes` keeps the field's entry, then one entry for each mark. A job's write of a
         board field a person changed since this view read the card raises, unless the card
         already holds `value`.
         """
         operation = "roadmap.item.set_field"
-        if field is ItemField.RELEASE:
-            self._require_release_unchanged(item, value, operation)
-        written = None if field is ItemField.RELEASE else field
-        entry = self._require_entry(item, operation, written, value)
-        if field is ItemField.RELEASE:
-            recorded = self._place_in_release(item.number, value)
-        else:
-            require_option(field_options(self._roadmap.board_fields.values()), field, value)
-            entry = entry.model_copy(update={field.name.lower(): value})
-            recorded = value
-            self._field_changed(item.number, field, value)
-        entry = self._recorded(entry, field, recorded)
-        self._log("set_field", item.number, field.value, recorded)
+        entry = self._require_entry(item, operation, field, value)
+        require_option(field_options(self._roadmap.board_fields.values()), field, value)
+        entry = self._recorded(entry.model_copy(update={field.name.lower(): value}), field, value)
+        self._record(ChangeKind.FIELD_CHANGED, item.number, field=field, value=value)
+        self._log("set_field", item.number, field.value, value)
         for mark, marked in (marks or {}).items():
             entry = self._recorded(entry, mark, marked)
             self._log("set_mark", item.number, mark.value, marked)
         self._roadmap.cards[item.number] = entry
-        self._remember(entry, written)
+        self._remember(entry, field)
 
-    def set_marks(
-        self,
-        item: Item,
-        marks: Mapping[Any, str | None],
-        *,
-        recorded: Mapping[ItemField, str | None] | None = None,
-        forgotten: Collection[ItemField] = (),
-    ) -> None:
-        """Set or clear a job's marks in the Item's job record, and record or forget a value for
-        a field; a person's view keeps no record.
-
-        `job_writes` keeps one entry for each field it records, then each it forgets, then each
-        mark.
-        """
+    def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
+        """Set or clear a job's marks in the Item's job record; a person's view keeps no record.
+        `job_writes` keeps one entry for each mark."""
         entry = self._require_entry(item, "roadmap.item.set_marks")
-        for field_recorded, value in (recorded or {}).items():
-            entry = self._recorded(entry, field_recorded, value)
-            self._log("record_field", item.number, field_recorded.value, value)
-        for field_forgotten in forgotten:
-            entry = self._forgotten(entry, field_forgotten)
-            self._log("forget_field", item.number, field_forgotten.value)
         for mark, value in marks.items():
             entry = self._recorded(entry, mark, value)
             self._log("set_mark", item.number, mark.value, value)
         self._roadmap.cards[item.number] = entry
         self._remember(entry)
 
-    def run_record(self) -> JobRecord:
-        """The run record card's job record, empty while the board has no such card."""
-        self._require_board()
-        return dict(self._roadmap.run_record or {})
-
-    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
-        """Set or clear marks in the run record, putting its card on the board when needed."""
-        self._require_board()
-        require_job_record_field(self._roadmap.board_fields)
-        if not self._writes_job_record:
-            return
-        self._roadmap.run_record = with_marks(self._roadmap.run_record or {}, marks)
-        for mark, value in marks.items():
-            self._log("set_run_record", key=mark.value, value=value)
-
-    def release_changes(self, number: int) -> list[Change]:
-        """Every time issue `number` joined or left a Release, oldest first."""
-        moves = (ChangeKind.JOINED_RELEASE, ChangeKind.LEFT_RELEASE)
-        return [
-            change
-            for change in self._roadmap.changes
-            if change.number == number and change.kind in moves
-        ]
-
-    # ── What the release rules read and write ──
-
-    def dependencies(self, number: int) -> list[Dependency]:
-        """The issues issue `number` waits on through blocked-by links, as they are now."""
-        deps: list[Dependency] = []
-        for on, repo in self._roadmap.dependencies.get(number, []):
-            if repo is None or repo == self._roadmap.repo:
-                target = self._roadmap.issues[on]
-                deps.append(
-                    Dependency(
-                        number=on,
-                        url=target.url,
-                        repository=self._roadmap.repo,
-                        state=target.state,
-                        release=target.release,
-                    )
-                )
-            else:
-                deps.append(
-                    Dependency(
-                        number=on,
-                        url=f"https://github.com/{repo}/issues/{on}",
-                        repository=repo,
-                        state=GitHubState.OPEN,
-                        release=None,
-                    )
-                )
-        return deps
-
-    def status_changed_at(self, number: int) -> datetime | None:
-        """When the Item's Status last changed, or None when it was never set."""
-        return self._roadmap.status_times.get(number)
-
-    def open_pull_requests(self) -> list[PullRequest]:
-        """Every open or merged pull request, by number."""
-        return [
-            pull_request
-            for _, pull_request in sorted(self._roadmap.pull_requests.items())
-            if pull_request.state in (PullRequestState.OPEN, PullRequestState.MERGED)
-        ]
-
-    def release_pull_requests(self, version: str) -> list[PullRequest]:
-        """Every pull request with the `release` label in the Release's milestone."""
-        wanted = require_release(self.releases(), version, "roadmap.release.pull_requests")
-        return [
-            pull_request
-            for _, pull_request in sorted(self._roadmap.pull_requests.items())
-            if is_release_pull_request(pull_request, wanted.version, pull_request.base)
-        ]
-
-    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
-        """Every pull request merged into `base`, by number, its commits named for it."""
-        return [
-            MergedPullRequest(
-                number=number,
-                url=pull_request.url,
-                title=self._roadmap.issues[number].title,
-                body=pull_request.body,
-                labels=pull_request.labels,
-                release=pull_request.release,
-                merge_commit=f"{number:040x}",
-                head_commit=f"{number:040x}"[::-1],
-                changed_paths=self._roadmap.merged_paths.get(number, ()),
-            )
-            for number, pull_request in sorted(self._roadmap.pull_requests.items())
-            if pull_request.state is PullRequestState.MERGED and pull_request.base == base
-        ]
-
-    def release_published(self, version: str) -> bool:
-        """Whether GitHub Release `vX.Y.Z` of `version` is published."""
-        return f"v{parse_release_version(version)}" in self._roadmap.published
-
-    def default_branch(self) -> Branch:
-        """The default branch and its head commit."""
-        name = self._roadmap.default_branch
-        return Branch(name=name, sha=self._roadmap.branches[name])
-
-    def branch(self, name: str) -> str | None:
-        """The head commit of branch `name`, or None."""
-        return self._roadmap.branches.get(name)
-
-    def create_branch(self, name: str, sha: str) -> None:
-        """Create branch `name` at `sha`, raising if it already exists."""
-        if name in self._roadmap.branches:
-            raise GitHubOperationError(
-                f"Branch {name} already exists in {self._roadmap.repo}.",
-                operation="roadmap.branch.create",
-                details={"branch": name[:256]},
-            )
-        self._roadmap.branches[name] = sha
-        self._log("create_branch", key=name, value=sha)
-
-    # ── The board ──
-
-    def board(self) -> Board | None:
-        """The board, or None when the board number names no board."""
-        return self._roadmap.board
-
-    def create_board(self, title: str, fields: Sequence[FieldSpec]) -> Board:
-        """Create the one board this roadmap holds, with `fields`, raising if it has one."""
-        if self._roadmap.board is not None:
-            raise GitHubOperationError(
-                "The in-memory roadmap already has its one board.",
-                operation="roadmap.board.create",
-                details={"number": self._roadmap.board.number},
-            )
-        self._roadmap.board = self._new_board(title)
-        for spec in fields:
-            self.seed_field(spec)
-        self._log("create_board", value=title)
-        return self._roadmap.board
-
-    def board_fields(self) -> list[BoardField]:
-        """Every field on the board, with each option's id, color and description."""
-        self._require_board()
-        return list(self._roadmap.board_fields.values())
-
-    def delete_field(self, name: str) -> None:
-        """Delete the board field `name`; every card loses its value for it."""
-        require_field(self.board_fields(), name, "roadmap.board.delete_field")
-        del self._roadmap.board_fields[name]
-        self._map_card_values(name, lambda _: None)
-        self._log("delete_field", key=name)
-
-    def cards(self) -> list[Card]:
-        """Every card: this repository's issues and pull requests on the board, then the run
-        record card when there is one."""
-        self._require_board()
-        self._read.update(self._roadmap.cards)
-        cards = [self._card(entry) for _, entry in sorted(self._roadmap.cards.items())]
-        if self._roadmap.run_record is not None:
-            cards.append(
-                Card(
-                    id=_RUN_RECORD_CARD_ID,
-                    kind=CardKind.DRAFT_ISSUE,
-                    job_record=self._roadmap.run_record,
-                )
-            )
-        return cards
-
-    def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
-        """Set or clear a board field on any card; the store's own writes also record it, and
-        raise for a field a person changed since this view read the card, unless the card
-        already holds `value`."""
-        operation = "roadmap.card.set_field"
-        require_board_field(field)
-        number = self._card_number(card, operation)
-        if self._writes_job_record:
-            require_job_record_field(self._roadmap.board_fields)
-        require_option(field_options(self._roadmap.board_fields.values()), field, value)
-        current = self._roadmap.cards[number]
-        self._require_unchanged(current, field, value, card.field_value(field), operation)
-        entry = current.model_copy(update={field.name.lower(): value})
-        self._roadmap.cards[number] = self._recorded(entry, field, value)
-        self._remember(self._roadmap.cards[number], field)
-        self._field_changed(number, field, value)
-        self._log("set_card_field", number, field.value, value)
-
-    def remove_card(self, card: Card) -> None:
-        """Take `card` off the board, raising if it is not on it."""
-        if card.id == _RUN_RECORD_CARD_ID and self._roadmap.run_record is not None:
-            self._roadmap.run_record = None
-            self._log("remove_card", value=CONST_ROADMAP_RUN_RECORD_TITLE)
-            return
-        number = self._card_number(card, "roadmap.card.remove")
-        del self._roadmap.cards[number]
-        self._read.pop(number, None)
-        self._log("remove_card", number)
-
-    def workflows(self) -> list[Workflow]:
-        """The board's built-in workflows."""
-        self._require_board()
-        return list(self._roadmap.workflows)
-
     # ── Helpers ──
 
-    def _closed_at(self, current: Release, state: object) -> dict[str, datetime | None]:
-        """When an edit closes the Release, now; when it reopens it, never; else unchanged."""
+    def _closed_at(self, current: Milestone, state: object) -> dict[str, datetime | None]:
+        """When an edit closes the milestone, now; when it reopens it, never; else unchanged."""
         if state is None or state == current.state:
             return {}
         return {"closed_at": self._roadmap.clock() if state == GitHubState.CLOSED else None}
@@ -938,7 +572,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             closed_at=self._roadmap.clock(),
         )
         self._closure(issue.number, ChangeKind.CLOSED, reason.value, duplicate_of)
-        self._record(ChangeKind.CLOSED, issue.number, issue.release)
+        self._record(ChangeKind.CLOSED, issue.number)
 
     def _update_issue(self, issue: IssueRecord, **changes: Any) -> None:
         """Write `changes` to the issue, which moves its `updated_at` to now, as any write to an
@@ -1000,39 +634,6 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._require_unchanged(entry, field, value, item.field_value(field), operation)
         return entry
 
-    def _require_release_unchanged(self, item: Item, target: str | None, operation: str) -> None:
-        """A job's write of `target` to Release raises when the issue holds another milestone
-        than this view read, compared by milestone number, unless it already holds `target`."""
-        if not self._writes_job_record:
-            return
-        issue = self._roadmap.issues[item.number]
-        now_title = issue.release
-        releases = self.releases()
-        read_num = release_number(releases, item.release)
-        now_num = release_number(releases, now_title)
-        target_num = release_number(releases, target)
-        if read_num != now_num and target_num != now_num:
-            if item.release == now_title:
-                texts = MESSAGES.roadmap
-                raise RoadmapCardChangedError(
-                    texts.card_changed.format(
-                        card=f"#{item.number}",
-                        field=ItemField.RELEASE.value,
-                        now=now_title or texts.card_value_unset,
-                        read=item.release or texts.card_value_unset,
-                    ),
-                    operation=operation,
-                    details={
-                        "card": f"#{item.number}"[:256],
-                        "field": ItemField.RELEASE.value,
-                        "read": item.release and item.release[:256],
-                        "now": now_title and now_title[:256],
-                    },
-                )
-            require_unchanged(
-                f"#{item.number}", ItemField.RELEASE, {item.release}, now_title, target, operation
-            )
-
     def _require_unchanged(
         self, entry: BoardEntry, field: ItemField, value: str | None, held: str | None, op: str
     ) -> None:
@@ -1075,46 +676,26 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def _as_read(self, change: Change) -> Change:
         """The change as a poll reads it now, as the GitHub adapter reads an issue event: with the
-        Item's job record, the field's value now, and, unless it names the Release it joined,
-        left or concerns, the Release the Item is in now."""
-        issue = self._roadmap.issues.get(change.number)
-        if change.kind in RELEASE_CHANGE_KINDS or issue is None:
+        Item's job record and the field's value now."""
+        if change.number not in self._roadmap.issues:
             return change
         entry = self._roadmap.cards.get(change.number, _entry(change.number))
-        values = entry.model_dump() | {"release": issue.release}
-        moved = change.field is ItemField.RELEASE
+        values = entry.model_dump()
         return change.model_copy(
             update={
                 "job_record": entry.job_record,
-                "release": change.release if moved else issue.release,
                 "value": values.get(change.field.name.lower()) if change.field else None,
             }
         )
 
-    def _field_changed(self, number: int, field: ItemField, value: str | None) -> None:
-        if field is ItemField.STATUS:
-            self._roadmap.status_times[number] = self._roadmap.clock()
-        release = self._roadmap.issues[number].release
-        self._record(ChangeKind.FIELD_CHANGED, number, release, field=field, value=value)
-
-    def _require_board(self) -> Board:
-        if self._roadmap.board is None:
+    def _require_board(self) -> None:
+        if not self._roadmap.has_board:
             raise GitHubOperationError(
-                "The board number names no board, so its cards and fields can't be read or written.",
+                "The board number names no board, so its cards and fields cannot be read or "
+                "written.",
                 operation="roadmap.board",
                 details={"repo": self._roadmap.repo[:256]},
             )
-        return self._roadmap.board
-
-    def _new_board(self, title: str) -> Board:
-        number = DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER
-        owner = self._roadmap.repo.split("/")[0]
-        return Board(
-            id=self._roadmap.new_id("board"),
-            number=number,
-            title=title,
-            url=f"https://github.com/users/{owner}/projects/{number}",
-        )
 
     def _with_id(self, option: FieldOption) -> FieldOption:
         return (
@@ -1135,101 +716,48 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
 
     def _recorded(
-        self, entry: BoardEntry, field: ItemField | JobMark | RefineRecordKey, value: str | None
+        self, entry: BoardEntry, key: ItemField | RefineRecordKey, value: str | None
     ) -> BoardEntry:
         if not self._writes_job_record:
             return entry
-        return entry.model_copy(update={"job_record": entry.job_record | {field: value}})
-
-    def _forgotten(self, entry: BoardEntry, field: ItemField) -> BoardEntry:
-        if not self._writes_job_record:
-            return entry
-        record = {key: value for key, value in entry.job_record.items() if key != field}
-        return entry.model_copy(update={"job_record": record})
-
-    def _card(self, entry: BoardEntry) -> Card:
-        issue = self._roadmap.issues[entry.number]
-        kind = CardKind.PULL_REQUEST if issue.pull_request else CardKind.ISSUE
-        return Card(
-            id=entry.card_id,
-            kind=kind,
-            url=issue.url,
-            repository=self._roadmap.repo,
-            **entry.model_dump(exclude={"card_id"}),
-        )
-
-    def _card_number(self, card: Card, operation: str) -> int:
-        self._require_board()
-        number = next((n for n, e in self._roadmap.cards.items() if e.card_id == card.id), None)
-        if number is None:
-            raise GitHubOperationError(
-                f"Card {card.id} is not on the board.",
-                operation=operation,
-                details={"card": card.id[:256]},
-            )
-        return number
+        return entry.model_copy(update={"job_record": entry.job_record | {key: value}})
 
     def _record(
         self,
         kind: ChangeKind,
         number: int,
-        release: str | None = None,
         *,
         field: ItemField | None = None,
         value: str | None = None,
         label: str | None = None,
-        attributed: bool = True,
     ) -> None:
-        """Record a change as a poll reads it; an `attributed=False` one names no actor, as
-        GitHub's listings name no one for a ship or an un-cut."""
+        """Record a change as a poll reads it."""
         self._roadmap.changes.append(
             Change(
                 kind=kind,
                 number=number,
-                actor=self._actor if attributed else None,
+                actor=self._actor,
                 at=self._roadmap.clock(),
-                release=release,
                 label=label,
                 field=field,
                 value=value,
             )
         )
 
-    def _place_in_release(self, number: int, version: str | None) -> str | None:
-        """Move the issue into the Release of `version`, or out of its Release, recording it."""
-        issue = self._roadmap.issues[number]
-        target = (
-            require_release(self.releases(), version, "roadmap.item.set_field").title
-            if version is not None
-            else None
-        )
-        if target != issue.release:
-            self._update_issue(issue, release=target)
-            moves = ((ChangeKind.LEFT_RELEASE, issue.release), (ChangeKind.JOINED_RELEASE, target))
-            for kind, title in moves:
-                if title is not None:
-                    self._record(kind, number, title, field=ItemField.RELEASE, value=target)
-        return target
-
     def _retitle(self, old: str, new: str) -> None:
-        """Show a renamed Release's new title on its issues and pull requests."""
+        """Show a renamed milestone's new title on its issues."""
         for issue in list(self._roadmap.issues.values()):
-            if issue.release == old:
-                self._update_issue(issue, release=new)
-        for number, pull_request in self._roadmap.pull_requests.items():
-            if pull_request.release == old:
-                self._roadmap.pull_requests[number] = pull_request.model_copy(
-                    update={"release": new}
-                )
+            if issue.milestone == old:
+                self._update_issue(issue, milestone=new)
 
-    def _counted(self, release: Release) -> Release:
-        """The Release with its open and closed issue counts, as GitHub reports them."""
+    def _counted(self, milestone: Milestone) -> Milestone:
+        """The milestone with its open and closed issue counts, as GitHub reports them."""
         states = [
             issue.state
             for issue in self._roadmap.issues.values()
-            if in_release(issue.release, release.version)
+            if issue.milestone == milestone.title
         ]
-        return release.model_copy(
+        return milestone.model_copy(
             update={
                 "open_issues": states.count(GitHubState.OPEN),
                 "closed_issues": states.count(GitHubState.CLOSED),

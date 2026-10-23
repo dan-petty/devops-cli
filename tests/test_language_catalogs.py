@@ -35,7 +35,6 @@ def test_domain_message_catalogs() -> None:
     assert MESSAGES.tls.cert_generated
     assert MESSAGES.ssh.key_generated
     assert MESSAGES.workspace.workspace_synced
-    assert MESSAGES.release.bumped_version
     assert MESSAGES.pr.gh_cli_required
     assert MESSAGES.prometheus.query_instant_header
     assert MESSAGES.tf.plan_success
@@ -52,7 +51,6 @@ def test_domain_error_catalogs() -> None:
     assert ERRORS.docker.cannot_connect
     assert ERRORS.grafana.invalid_uid
     assert ERRORS.mcp.invalid_transport
-    assert ERRORS.release.invalid_version_format
     assert ERRORS.tls.ca_not_found
     assert ERRORS.prometheus.expr_too_long
     assert ERRORS.rag.path_not_found
@@ -71,7 +69,6 @@ def test_domain_help_catalogs() -> None:
     assert HELP.serve.app
     assert HELP.docs.app
     assert HELP.pr.app
-    assert HELP.release.app
     assert HELP.review.app
     assert HELP.scan.app
     assert HELP.telemetry.app

@@ -1,18 +1,18 @@
 # Routine Tasks, Order, Frequency & Methodology — devops-cli
 
-This document serves as the authoritative operational manual for developers, maintainers, and AI agents contributing to `devops-cli`. It defines the exact **order of operations**, **execution frequency**, and **engineering methodology** across all routine maintenance, development, security, and release workflows.
+This document serves as the authoritative operational manual for developers, maintainers, and AI agents contributing to `devops-cli`. It defines the exact **order of operations**, **execution frequency**, and **engineering methodology** across all routine maintenance, development and security workflows. Releases are not agent work: [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) tells what a person does.
 
 ---
 
 ## 1. Engineering Principles & Methodology
 
 All routine operations in `devops-cli` adhere to six core engineering tenets:
-1. **Deterministic Execution**: Workflows run through standardized CLI commands (`devops ci`, `devops release`, `devops docs`, `uv`) to guarantee reproducible outcomes across local DevContainers and GitHub Actions CI.
+1. **Deterministic Execution**: Workflows run through standardized CLI commands (`devops ci`, `devops docs`, `uv`) to guarantee reproducible outcomes across local DevContainers and GitHub Actions CI.
 2. **Zero-Plaintext Credentials**: No token is stored in git, configuration or logs. Tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) come from a secret store. Examples are the OS Keyring (`devops config set`, Python `keyring`), the credential store of the owning tool and a Kubernetes Secret in the cluster.
-3. **Strict Quality Assurance**: Changes must pass the automated CI validation suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`, `uv_check`, `lockfile`, `outdated`) before merging.
-4. **Target Branch Hierarchy & Non-Merge Policy**: Feature/bugfix PRs strictly target active release branches (`release/vX.Y.Z`). Direct pushes to `main` are blocked. AI agents stage commits and open/update PRs, while PR merge actions are strictly reserved for human maintainers.
+3. **Strict Quality Assurance**: Changes must pass the automated CI validation suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`, `uv_check`, `lockfile`, `build`, `outdated`) before merging.
+4. **Target Branch & Non-Merge Policy**: Every topic PR targets `main`. Direct pushes to `main` are blocked. AI agents stage commits and open/update PRs, while PR merge actions are strictly reserved for human maintainers.
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
-6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, puts it on the board with its Priority and places a verified critical fix in a release; nobody sets a milestone or priority on the new issue by hand.
+6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, puts it on the board with its Priority and puts it in the backlog; nobody sets a milestone or priority on the new issue by hand.
 
 
 ---
@@ -34,29 +34,23 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`addopts`' `-n logical --dist worksteal`) | All tests pass |
 | **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
-| **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/release/vX.Y.Z` | Dedicated topic branch branching off active release branch | Clean branch tracking origin release branch |
-| **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --base release/vX.Y.Z --title "<type>(<scope>): <summary>"` | Opens PR targeting active release branch (add `--draft` for in-progress work) | PR opened with Conventional Commit title |
-| **Feature / PR Lifecycle** | Taxonomy & Milestone Linking | Step 3 | `devops gh labels audit` | Audits open PRs for mandatory `type/*` and `scope/*` labels (set the milestone with `devops pr edit <n> --milestone`) | Zero taxonomy audit findings |
-| **Feature / PR Lifecycle** | Project Field Sync | Step 4 | `devops gh project sync` | Reconciles Status and Priority on the cards already on the board; an open PR moves its issue's card to In Review | Issue card fields populated, status set to In Review; the PR gets no card |
-| **Feature / PR Lifecycle** | PR Monitoring & Review Resolution | Step 5 | `devops pr monitor <pr_number>` | Actively monitors checks, waits for Copilot reviews, remediates in-thread | All checks green, Copilot review settled, 0 unresolved threads |
+| **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/main` | Dedicated topic branch branching off `main` | Clean branch based on `origin/main` |
+| **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --title "<type>(<scope>): <summary>"` | Opens a draft PR into `main`; the title becomes the changelog line | Draft PR opened with Conventional Commit title |
+| **Feature / PR Lifecycle** | Taxonomy Linking | Step 3 | `devops gh labels audit` | Audits open PRs for mandatory `type/*` and `scope/*` labels | Zero taxonomy audit findings |
+| **Feature / PR Lifecycle** | Project Field Sync | Step 4 | `devops gh project sync` | Reconciles Status and Priority on the cards already on the board; the board's built-in `Pull request linked to issue` workflow moves the issue's card to In Review | Issue card fields populated; the PR gets no card |
+| **Feature / PR Lifecycle** | PR Monitoring & Review Resolution | Step 5 | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>` | Actively monitors checks and any review a person requested, remediates in-thread, then marks the draft ready | All checks green, requested reviews settled, 0 unresolved threads |
 | **Feature / PR Lifecycle** | AI Code Review | Step 6 | `devops ai review branch <name> --dry-run` | Automated review and group analysis | Findings inspected in `.data/reviews/` |
-| **Feature / PR Lifecycle** | Human Squash Merge | Step 7 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
+| **Feature / PR Lifecycle** | Human Squash Merge | Step 7 | GitHub web UI (a person) | Maintainer squash-merges the approved PR into `main` | PR merged and topic branch deleted |
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 8 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
-| **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
-| **Release Lifecycle** | Closure & Release Cut | Step 2 | `uv run devops roadmap close --confirm` (manual fallback: `uv run devops release prepare <version> --create-pr`) | Closes each delivered item with a summary comment; once the release holds no open item, bumps the version, renders `docs/ROADMAP.md` and opens the release PR | Release PR opened targeting `main` |
-| **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
-| **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
-| **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
-| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops roadmap intake` | Files active milestone deliverables as candidates; intake puts each on the board | Each deliverable is an open issue on the board |
-| **Release Lifecycle** | Historical Documentation Compaction | Step 7 | Automated / Manual | Compacts historical milestone docs in `docs/ROADMAP.md` and `RELEASE_NOTES.md` on major/minor releases | Expressive, token-efficient docs with zero bloat |
-| **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
-| **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
+| **Release (a person)** | Release Pull Request Merge | Step 1 | GitHub web UI | A person reads the version and changelog of the release-please pull request and squash-merges it; `release.yml` then publishes. Agents have no step ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)) | GitHub release, tag, packages and images published |
+| **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
+| **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type iac` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check --config pyproject.toml .` && `uv run devops ci test tests/test_architectural_invariants.py tests/test_ruff_complexity_cap.py` | Ruff `C901` enforces complexity <= 10 and the tests hold its configuration; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
-| **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR / Pre-Release | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates local Jekyll `docs/github-pages.config.yaml` / `docs/` | Clean verification; HTTPS strictly enforced |
+| **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates local Jekyll `docs/github-pages.config.yaml` / `docs/` | Clean verification; HTTPS strictly enforced |
 | **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`) and reports those not on the board as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
@@ -87,11 +81,11 @@ flowchart TD
 1. **GitHub Project Bootstrap, Issue Grounding & Task State Setup**:
    - **Inspect Project Status**: Inspect the project template via `devops gh project status` and the live board via `devops gh project audit` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
    - **Ground Requirement in GitHub Issue Card**: Every feature, bug fix, or refactor must map to an active tracking issue and project item.
-     - If a matching issue card exists: link task to it, verify milestone and taxonomy labels, and set its card to `In Progress` on the board (sync only sets Status when unset, or In Progress once a draft PR is open).
-     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it unless it duplicates an issue, puts it on the board and gives it its type, Priority, Value, Effort and place; set no milestone or priority on it yourself.
+     - If a matching issue card exists: link task to it, verify taxonomy labels, and set its card to `In Progress` on the board (sync only sets Status when unset, or In Progress once a draft PR is open).
+     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it unless it duplicates an issue, puts it on the board and gives it its type, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
    - For multi-step or architectural work, author an implementation plan (`implementation_plan.md` or `docs/agent/tasks/task-<issue>-<slug>.md`).
    - Explicitly track task progression across five lifecycle states:
-     - **Backlog**: Queued items awaiting milestone assignment.
+     - **Backlog**: Queued items that a person has not yet planned into a milestone.
      - **Ready**: Scoped items ready for immediate development.
      - **In-Progress Tasks (WIP)**: Active work items currently being modified. **Card MUST be moved to In Progress before editing code in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md`.
      - **In Review**: PR opened with CI checks and reviews running.
@@ -170,18 +164,19 @@ sequenceDiagram
     autonumber
     actor Dev as Developer / Agent
     participant Git as Git Repo
-    participant Hub as GitHub (release/vX.Y.Z)
+    participant Hub as GitHub (main)
     participant CI as GitHub Actions
     actor Maintainer as Human Maintainer
 
-    Dev->>Git: git checkout -b feat/my-feature origin/release/vX.Y.Z
+    Dev->>Git: git checkout -b feat/my-feature origin/main
     Dev->>Git: Code, Test, Format, devops ci
     Dev->>Hub: git push -u origin feat/my-feature
-    Dev->>Hub: devops pr create --base release/vX.Y.Z
+    Dev->>Hub: devops pr create (opens a draft into main)
     Hub->>CI: Trigger CI Validation
     CI-->>Hub: CI Checks Pass (Green)
     Dev->>Hub: Push additional fixes if needed (git push)
-    Maintainer->>Hub: Review & gh pr merge --squash
+    Dev->>Hub: devops pr ready <pr_number>
+    Maintainer->>Hub: Review & squash-merge in the web UI
 ```
 
 #### Rules & Methodology:
@@ -190,31 +185,31 @@ sequenceDiagram
   - Fixes: `fix/<name>`
   - Docs: `docs/<name>`
   - Chores/Refactors: `chore/<name>` or `refactor/<name>`
-- **Base Branch Targeting**: PRs must target the active release branch (`--base release/vX.Y.Z`). Only release branches target `main`.
+- **Base Branch Targeting**: Every PR targets `main`. The PR title is a Conventional Commit, and the squash commit takes it as the changelog line.
 - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
-  - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`--base release/vX.Y.Z`) or `main` (for official release PRs). If work is actively in progress or not yet fully implemented and ready for review, open the PR as a draft (`devops pr create --draft` or `draft: true`).
+  - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting `main`. `devops pr create` opens it as a draft.
   - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
-  - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the active release branch / active PR, and delete the obsolete remote branch immediately.
+  - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the active PR, and delete the obsolete remote branch immediately.
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
-  - When multiple open pull requests exist across the repository or targeting an active release branch, AI agents and automated workflows **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue determined by creation date ascending / lowest PR number first).
+  - When multiple open pull requests exist across the repository, AI agents and automated workflows **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue determined by creation date ascending / lowest PR number first).
   - Addressing review feedback, fixing CI check failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs.
-  - When a PR is squash-merged into the base release branch, agents MUST immediately prioritize updating, rebasing, and verifying the next oldest open pull request to prevent cascading merge conflicts and branch divergence.
-- **Mandatory Draft PRs for In-Progress Work & Two-Stage Review Lifecycle**:
-  - Whenever opening a pull request for work that is not yet fully implemented, tested, and ready for review, agents MUST create it as a draft PR (`devops pr create --draft`).
-  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`devops pr ready <pr_number>`).
+  - When a PR is squash-merged into `main`, agents MUST immediately prioritize updating, rebasing, and verifying the next oldest open pull request to prevent cascading merge conflicts and branch divergence.
+- **Every PR Opens as a Draft & Two-Stage Review Lifecycle**:
+  - Agents open every pull request with `devops pr create`, which always opens a draft.
+  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`devops pr ready <pr_number>`). It is the only path to ready.
 - **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never merge a PR (`gh pr merge` or the web UI).
 - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
-  - Marking a pull request as ready for review transitions it to public review and triggers automated GitHub Copilot review sessions and reviewer notifications (CodeQL runs on every push).
+  - Marking a pull request as ready for review transitions it to public review and triggers reviewer notifications (CodeQL runs on every push). Copilot reviews a pull request only when a person requests it.
   - Agents are strictly prohibited from concluding a task immediately after marking a PR ready.
   - **5-Minute Completion Allowance & 60-Second Polling Interval**:
-    - AI agents **MUST ALLOW AT LEAST 5 MINUTES (300 SECONDS)** for pull request CI checks, CodeQL scans, and Copilot review sessions to complete.
+    - AI agents **MUST ALLOW AT LEAST 5 MINUTES (300 SECONDS)** for pull request CI checks, CodeQL scans, and any requested review session to complete.
     - AI agents **MUST WAIT AT LEAST A FULL MINUTE (60 SECONDS) BETWEEN REQUEST CYCLES** when monitoring pull request status. Polling in tight loops or intervals shorter than 60 seconds is strictly prohibited to prevent hammering GitHub APIs, avoid secondary rate limits, and allow asynchronous automated review bots to execute.
   - Actively monitor pull requests via `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`), inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply in-thread (`devops pr threads reply <thread_id> "<body>"`), and programmatically resolve each thread (`devops pr threads resolve <thread_id>`).
   - Verify that all remote CI checks remain 100% green (`devops pr monitor <pr_number>`) before considering the task complete.
 - **Active PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
   - After opening or pushing updates to a PR, agents and developers **MUST ALWAYS** actively monitor remote GitHub Actions status and code reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`).
-  - **Strict Prohibition of Premature Completion**: Never conclude a turn or declare a task done while CI checks are pending/failing, or while automated code review sessions (e.g. GitHub Copilot code review) are in progress or unresolved.
-  - **Wait for Copilot Review Sessions to Settle**: Automated code review bots submit reviews asynchronously (typically 1–3 minutes after code push). `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete.
+  - **Strict Prohibition of Premature Completion**: Never conclude a turn or declare a task done while CI checks are pending/failing, or while a requested code review session (e.g. a GitHub Copilot review) is in progress or unresolved.
+  - **Wait for Requested Review Sessions to Settle**: Code review bots submit reviews asynchronously. When a person requests a Copilot review, agents wait for that review session to complete.
   - **Remediate Check Failures Immediately**: If any check fails (exit code 1), immediately inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply remediation commits directly to the PR source branch with concise effect-driven commit messages, push to origin, and re-run `devops pr monitor <pr_number>`.
   - **Review Comment Remediation & Direct In-Thread Reply Mandate**: If Copilot or reviewers leave comments (exit code 2):
     1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
@@ -223,8 +218,8 @@ sequenceDiagram
     4. Post direct in-thread replies to each specific comment addressed: `devops pr threads reply <thread_id> "<body>"` (never solely via top-level PR comments).
     5. Resolve threads: `devops pr threads resolve <thread_id>` (GraphQL `resolveReviewThread`).
     6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
-  - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled, and 0 unresolved review discussion threads remain.
-- **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.
+  - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, any requested review session has settled, and 0 unresolved review discussion threads remain.
+- **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/main` for the next task.
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
 - **Commit Standards & Message Hygiene**:
   - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
@@ -232,57 +227,23 @@ sequenceDiagram
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/tasks/` must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
-  - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`) and possess taxonomy labels (`type/*`, `scope/*`). A PR that delivers part of an item planned as several PRs says `Part of #<id>` instead, and the item's last PR closes it. A PR gets no card: its progress shows on its issue's card.
-  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile `Status` and `Priority` (when unset) on the cards already on the board; an open non-draft PR moves its issue's card to `In Review`. The board mirrors the milestone itself, and `Value` and `Effort` are set by hand.
+  - **Zero Disconnected PRs**: Every PR closes exactly one open issue with a canonical closing keyword (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`), changes that issue's task file, and has taxonomy labels (`type/*`, `scope/*`). GitHub closes the issue when the PR merges into `main`. A PR gets no card: its progress shows on its issue's card.
+  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile `Status` and `Priority` (when unset) on the cards already on the board. The board's built-in `Pull request linked to issue` workflow moves the issue's card to `In Review` when a PR that closes it opens. The board mirrors the milestone that a person sets, and `Value` and `Effort` are set by hand.
   - Reconcile task state transitions (`New` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/tasks/`](agent/tasks/README.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
   - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`. Audit views via `devops gh views list`, `devops gh views audit`, and `devops gh views spec`.
-  - Enforce taxonomy labels via `devops gh labels audit`, inspect milestone progress via `devops gh milestones list`, and close the milestone upon release merge via `devops gh milestones close <version>`. GitHub is the roadmap's source (ADR 0001): `devops roadmap render` regenerates `docs/ROADMAP.md` at the cut.
+  - Enforce taxonomy labels via `devops gh labels audit`, and inspect milestone progress via `devops gh milestones list`. GitHub is the roadmap's source (ADR 0001), and a milestone is a planning bucket that never names a version.
 
 ---
 
-### Cadence C: Release Lifecycle & Orchestration
+### Cadence C: Releases (a Person Only)
 
-Executed per scheduled release (patch/minor) or upon milestone completion. `devops roadmap close` closes each item delivered to the current release, and to a closed release that still holds an open issue, and cuts the current release once it holds no open item; `devops release prepare <version> --create-pr` is the manual fallback.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Maintainer as Maintainer / Release Lead
-    participant Branch as release/vX.Y.Z
-    participant CI as GitHub Actions
-    participant Hub as GitHub (Main & Releases)
-
-    Maintainer->>Branch: devops roadmap close --confirm (closes items, cuts the release on release/vX.Y.Z)
-    Branch->>CI: Quality Gates Validate Release PR
-    Maintainer->>Hub: Squash-Merge Release PR into main once its checks are green
-    CI->>Hub: release.yml cuts tag, creates release, closes milestone, builds, attests and tags service:vX.Y.Z and latest
-```
-
-#### Step-by-Step Procedure:
-1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. It first does the same on the branch of each closed release that still holds an open issue, as one does when its milestone closes before closure runs: it closes the items of that release its pull requests deliver, except an item a person reopened, and names the rest, which hold no cut. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; the cut collects the `changelog.d/` fragments into the version's `CHANGELOG.md` section and deletes them, and fails before it pushes when the release branch holds neither a fragment nor that section. Completed items with no `changelog.d/<issue>.md` are named: before the cut, add the fragment in a PR into `release/vX.Y.Z`; after it, edit the version's section of `CHANGELOG.md` in a PR.
-2. **Manual Fallback, Release Preparation**: Run `devops release prepare <version> --create-pr`.
-   - Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it).
-   - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.
-   - Regenerates docs and updates README Command Matrix.
-   - Commits the bumps on `release/v<version>`, pushes it, and opens a GitHub Release PR from it into `main` titled `feat(release): v<version>`.
-3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
-4. **Human Maintainer Merge**: The maintainer reviews the Release PR and squash-merges it into `main` once its checks are green (`uv run devops pr check-readiness <pr>` passes).
-5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes` (over GitHub's 125,000-character Release body limit, each entry's title alone and a link to the version's section of `CHANGELOG.md` at its tag), creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, publishes the pre-built DevContainer image, and builds, scans, pushes and attests the production service image `service:v<version>` from `main` before tagging it `v<version>` and `latest`; Argo CD Image Updater then rolls the Service onto the new digest (verified via `gh attestation verify oci://ghcr.io/dan-petty/devops-cli/service:v<version> -R dan-petty/devops-cli --signer-workflow dan-petty/devops-cli/.github/workflows/release.yml --source-ref refs/heads/main`).
-6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
-7. **Next Active Milestone Initialization & Issue/Views Population**:
-   - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
-   - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-   - Reconcile custom fields on the cards of GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
-8. **Automated Historical Documentation Compaction & Task Archival**:
-   - When transitioning across major or minor release boundaries, run `uv run devops docs compact --series <series>` to automatically compact historical documentation across `docs/ROADMAP.md` (consolidating completed milestone subsections and matrix rows into summary blocks) and `docs/RELEASE_NOTES.md` (consolidating highlight sections into unified series blocks).
-   - As a separate post-release procedure, archive completed modular task records from `docs/agent/tasks/` corresponding to the finished release series into `docs/agent/archive/`.
-   - Re-verify documentation freshness via `uv run devops docs generate --sync-readme` and `uv run devops docs check`.
+release-please opens and updates the release pull request from the pull request titles on `main`. A person reads the version and the changelog in it, then squash-merges it. `release.yml` then creates the GitHub release and its tag, and publishes the packages and images. Agents have no step in this cadence. They do not open, edit, update, review, comment on or merge the release pull request. They do not create tags or GitHub releases. [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) is the procedure.
 
 ---
 
 ### Cadence D: Security, Vulnerability & Dependency Audits
 
-Executed weekly, prior to major releases, or when dependencies are updated.
+Executed weekly, or when dependencies are updated.
 
 #### 1. Dependency Vulnerability Audit (`uv audit`, `npm audit`)
 - **Frequency**: Weekly & in every CI run.
@@ -361,10 +322,10 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   ```
 
 #### 4. GitHub Governance, Pages, Issues & Views Auditing
-- **Frequency**: Pre-PR, Pre-Release, or On-Demand.
+- **Frequency**: Pre-PR or On-Demand.
 - **Methodology**:
   - Validates GitHub Pages deployment health and verifies local publishing assets (`docs/github-pages.config.yaml` and `docs/`).
-  - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`, `priority/*`) and milestone links.
+  - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`, `priority/*`).
   - Audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift.
 - **Commands**:
   ```bash
@@ -390,4 +351,4 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
 | `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. |
 | `devops ci audit` says an audit could not run | The registry is unreachable or serves no advisories endpoint; npm exits 1 for this as for a finding, uv exits 2 | Read the output above the verdict, restore the network or registry configuration and re-run. |
-| Agent PR targeting error | Topic branch opened against `main` instead of release branch | Update PR base branch via `devops pr edit <id> --base release/vX.Y.Z`. |
+| Agent PR targeting error | Topic PR opened against a base other than `main` | Update PR base branch via `devops pr edit <id> --base main`. |

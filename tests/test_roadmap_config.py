@@ -15,31 +15,27 @@ def test_omitted_keys_take_their_defaults() -> None:
     config = parse_roadmap_config("board = 2\n")
     assert (
         config.board,
-        config.release_cap,
-        config.release_slots,
-        config.discovery_threshold,
-        config.planning_horizon,
-        config.stall_days,
+        config.refine_ready_target,
         config.open_issue_limit,
         config.throttle_start_fraction,
         config.overage_step_fraction,
-        config.release_credit_base,
-        config.release_credit_per_delivered_item,
-        config.release_item_target,
-        config.release_copilot_passes,
-    ) == (2, 12, 4, 24, 2, 14, 200, 0.8, 0.25, 10, 1, 50, 2)
+        config.quota_window_days,
+        config.quota_credit_base,
+        config.quota_credit_per_delivered_item,
+        config.quota_credit_cap,
+    ) == (2, 12, 200, 0.8, 0.25, 7, 10, 1, 50)
 
 
 def test_a_missing_board_fails_and_names_the_key() -> None:
     with pytest.raises(ConfigurationError, match="board") as raised:
-        parse_roadmap_config("release_cap = 10\n")
+        parse_roadmap_config("quota_window_days = 10\n")
     assert raised.value.details["key"] == "board"
 
 
 def test_an_unknown_key_fails_and_names_it() -> None:
-    with pytest.raises(ConfigurationError, match="release_kap") as raised:
-        parse_roadmap_config("board = 2\nrelease_kap = 10\n")
-    assert raised.value.details["key"] == "release_kap"
+    with pytest.raises(ConfigurationError, match="refine_ready_targit") as raised:
+        parse_roadmap_config("board = 2\nrefine_ready_targit = 10\n")
+    assert raised.value.details["key"] == "refine_ready_targit"
 
 
 def test_an_unknown_quota_key_is_rejected() -> None:
@@ -48,31 +44,18 @@ def test_an_unknown_quota_key_is_rejected() -> None:
     assert raised.value.details["key"] == "quota_bogus"
 
 
-def test_a_negative_release_slots_fails_and_names_the_key() -> None:
-    with pytest.raises(ConfigurationError, match="release_slots") as raised:
-        parse_roadmap_config("board = 2\nrelease_slots = -1\n")
-    assert raised.value.details["key"] == "release_slots"
-
-
 @pytest.mark.parametrize(
     ("line", "key"),
     [
-        pytest.param("release_copilot_passes = 0", "release_copilot_passes", id="below-one"),
-        pytest.param("release_copilot_pass = 2", "release_copilot_pass", id="unknown-key"),
+        pytest.param("quota_window_days = 0", "quota_window_days", id="window-below-one"),
+        pytest.param("refine_ready_target = 0", "refine_ready_target", id="target-below-one"),
+        pytest.param("quota_credit_cap = 0", "quota_credit_cap", id="cap-below-one"),
     ],
 )
-def test_a_copilot_budget_below_one_or_misspelt_fails_and_names_the_key(
-    line: str, key: str
-) -> None:
-    """A release pull request gets at least one Copilot pass, and a misspelt key is not read as
-    the default (#1345)."""
+def test_a_count_below_one_fails_and_names_the_key(line: str, key: str) -> None:
     with pytest.raises(ConfigurationError, match=key) as raised:
         parse_roadmap_config(f"board = 2\n{line}\n")
     assert raised.value.details["key"] == key
-
-
-def test_a_releases_limit_is_its_cap_plus_its_slots() -> None:
-    assert RoadmapConfig(board=1, release_cap=12, release_slots=4).release_limit == 16
 
 
 def test_text_that_is_not_toml_fails() -> None:
@@ -97,26 +80,20 @@ def test_fraction_boundary_zero_or_one_rejected_with_key_named(key: str, val: st
 
 def test_every_key_can_be_set() -> None:
     text = (
-        "board = 3\nrelease_cap = 8\nrelease_slots = 2\ndiscovery_threshold = 10\n"
-        "planning_horizon = 1\nstall_days = 7\nopen_issue_limit = 150\n"
-        "throttle_start_fraction = 0.75\noverage_step_fraction = 0.2\nrelease_credit_base = 5\n"
-        "release_credit_per_delivered_item = 2\nrelease_item_target = 40\n"
-        "release_copilot_passes = 3\n"
+        "board = 3\nrefine_ready_target = 8\nopen_issue_limit = 150\n"
+        "throttle_start_fraction = 0.75\noverage_step_fraction = 0.2\nquota_window_days = 14\n"
+        "quota_credit_base = 5\nquota_credit_per_delivered_item = 2\nquota_credit_cap = 40\n"
     )
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=3,
-        release_cap=8,
-        release_slots=2,
-        discovery_threshold=10,
-        planning_horizon=1,
-        stall_days=7,
+        refine_ready_target=8,
         open_issue_limit=150,
         throttle_start_fraction=0.75,
         overage_step_fraction=0.2,
-        release_credit_base=5,
-        release_credit_per_delivered_item=2,
-        release_item_target=40,
-        release_copilot_passes=3,
+        quota_window_days=14,
+        quota_credit_base=5,
+        quota_credit_per_delivered_item=2,
+        quota_credit_cap=40,
     )
 
 
@@ -124,21 +101,20 @@ def test_this_repositorys_file_names_board_2_and_declares_quota_keys() -> None:
     text = (REPO_ROOT / ".github" / "roadmap.toml").read_text(encoding="utf-8")
     assert parse_roadmap_config(text) == RoadmapConfig(
         board=2,
-        planning_horizon=3,
-        release_cap=16,  # temporary bridge until the Service runs #1514's slots
         open_issue_limit=200,
         throttle_start_fraction=0.8,
         overage_step_fraction=0.25,
-        release_credit_base=10,
-        release_credit_per_delivered_item=1,
-        release_item_target=50,
+        quota_window_days=7,
+        quota_credit_base=10,
+        quota_credit_per_delivered_item=1,
+        quota_credit_cap=50,
     )
 
 
 def test_the_file_is_read_at_the_ref_and_a_failed_read_stops() -> None:
     store = InMemoryRoadmapStore()
-    store.seed_file(".github/roadmap.toml", "board = 2\nplanning_horizon = 3\n", ref="release/x")
-    found = read_roadmap_config(store, ref="release/x")
+    store.seed_file(".github/roadmap.toml", "board = 2\nquota_window_days = 3\n", ref="topic/x")
+    found = read_roadmap_config(store, ref="topic/x")
     with pytest.raises(GitHubOperationError, match=r"roadmap\.toml"):
         read_roadmap_config(store, ref=None)
-    assert (found.board, found.planning_horizon) == (2, 3)
+    assert (found.board, found.quota_window_days) == (2, 3)

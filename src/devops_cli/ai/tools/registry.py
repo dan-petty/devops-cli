@@ -137,7 +137,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.ssh_audit,
             mcp_module.ssh_status,
             mcp_module.config_show,
-            mcp_module.release_status,
             mcp_module.review_export_feedback,
         ],
         "pm": [
@@ -148,7 +147,6 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             rag_search,
             mcp_module.repos_list,
             mcp_module.branches_list,
-            mcp_module.release_status,
         ],
     }
 

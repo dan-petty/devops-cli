@@ -23,8 +23,8 @@ def is_secret_scan_only(
     """Whether a file stays off review blocks and reaches the secret scan alone, by its
     repository-relative path (#948, #1151).
 
-    Lockfiles stay off for their size. Planning documents (the roadmap, the changelog and its
-    fragments, task files, ADRs) and generated references (`docs/commands/`, the CLI
+    Lockfiles stay off for their size. Planning documents (the changelog, task files, ADRs and
+    OpenSpec files) and generated references (`docs/commands/`, the CLI
     reference) stay off because no model finding on them held up. Path, branch and pull request
     reviews all decide with this predicate, and the secret scan still reads what it skips.
     """

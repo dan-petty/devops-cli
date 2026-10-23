@@ -9,13 +9,14 @@ does: a null node with a `NOT_FOUND` error, `gh` exiting 1. A card in `lagging` 
 that many listings, as GitHub's listing showed a new card up to two minutes after its add.
 
 `GitHubFake` is a whole repository and its board at the `gh` process edge: REST issues,
-milestones, labels, comments, events, files, pull requests and GitHub Releases, the board's
-fields, and the `gh project` writes, each applied to what later reads return. It also answers
+milestones, labels, comments, events and files, the board's fields, and the `gh project`
+writes, each applied to what later reads return. It also answers
 the project metrics reads (the repository, its Actions runs and its traffic), `gh api user`
 with its `login`, and `gh api rate_limit` with a full quota that resets in a minute. It keeps
 every argv, and charges each GraphQL request the points GitHub's own estimate
 (`rateLimit(dryRun: true)`, board #2, 2026-10-08) gives its shape (`GRAPHQL_POINTS`). Closing an
-issue runs the board's built-in "Item closed" workflow, which sets its card's Status to Done.
+issue as a duplicate runs the board's built-in "Item closed" workflow, which sets its card's
+Status to Done.
 `item-add` names the card an issue already has, archived or not, and `item-archive --undo`
 restores an archived one with its fields (#1403). Neither starts `gh` or opens a socket.
 `GitHubFake.process` stands in for `subprocess.run` itself, answering `gh` and passing every
@@ -278,8 +279,6 @@ class GitHubFake:
     `issues` maps a number to its REST payload; `on_board` numbers start as cards with the
     given `cards` fields. `lag` is how many board listings leave a card just added out. `files`
     maps a path to its text, or to the `(exit code, output)` `gh` gives for it, such as a 502.
-    `pulls` and `releases` are the pull request and GitHub Release listings, newest first, as
-    REST lists them (#1360).
     """
 
     def __init__(
@@ -292,16 +291,12 @@ class GitHubFake:
         lag: int = 0,
         commits: Iterable[str] = (),
         login: str = "roadmap-bot",
-        pulls: Iterable[dict[str, Any]] = (),
-        releases: Iterable[dict[str, Any]] = (),
     ) -> None:
         self.repo = repo
         self.login = login
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
-        self.pulls = list(pulls)
-        self.releases = list(releases)
         self.commits = set(commits)
         self.lag = lag
         self.issues: dict[int, dict[str, Any]] = {}
@@ -405,8 +400,6 @@ class GitHubFake:
             ("RoadmapGraphQLBudget", lambda: budget_reply(self.board.remaining)),
             ("fields(first", fields_reply),
             ("timelineItems", self._timeline),
-            ("defaultBranchRef", self._default_branch),
-            ("milestone(number", self._release_pull_requests),
             ("closeIssue", lambda: self._close_as_duplicate(stdin or "")),
         ]
         found = next((answer for key, answer in answers if key in query), None)
@@ -416,14 +409,6 @@ class GitHubFake:
     def _timeline(self) -> dict[str, Any]:
         connection = {"totalCount": 0, "nodes": []}
         return {"data": {"repository": {"issue": {"timelineItems": connection}}}}
-
-    def _default_branch(self) -> dict[str, Any]:
-        branch = {"name": "main", "target": {"oid": "a" * 40}}
-        return {"data": {"repository": {"defaultBranchRef": branch}}}
-
-    def _release_pull_requests(self) -> dict[str, Any]:
-        connection = {"totalCount": 0, "nodes": []}
-        return {"data": {"repository": {"milestone": {"pullRequests": connection}}}}
 
     # ── gh project ──
 
@@ -442,13 +427,6 @@ class GitHubFake:
             return self._edit(flags)
         if command == "item-archive":
             return self._unarchive(flags)
-        if command == "item-create":
-            card = {
-                "id": "PVTI_draft",
-                "content": {"type": "DraftIssue", "title": flags["--title"]},
-            }
-            self.board.listing["items"].append(card)
-            return {"id": card["id"], "title": flags["--title"], "type": "DraftIssue"}
         raise AssertionError(f"no fake for: {args}")
 
     def _edit(self, flags: dict[str, str]) -> str:
@@ -542,12 +520,9 @@ class GitHubFake:
             return self.files[name] if name in self.files else (1, "gh: Not Found (HTTP 404)")
         if parts[0] == "commits":
             return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
-        listings = {"issues/events": self.events, "pulls": self.pulls, "releases": self.releases}
-        if "/".join(parts) in listings:
+        if "/".join(parts) == "issues/events":
             size = int(query.get("per_page", "100"))
-            return listings["/".join(parts)][(page - 1) * size : page * size]
-        if parts[0] == "releases":
-            return self._release_by_tag(parts[1:])
+            return self.events[(page - 1) * size : page * size]
         if parts == ["actions", "runs"]:
             return {"total_count": 0, "workflow_runs": []}
         if parts[0] == "traffic":
@@ -558,12 +533,6 @@ class GitHubFake:
             labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page)
-
-    def _release_by_tag(self, rest: list[str]) -> Any:
-        """One GitHub Release by its tag, as `releases/tags/<tag>` reads it."""
-        tag = unquote("/".join(rest[1:])) if rest[0] == "tags" else None
-        found = next((release for release in self.releases if release["tag_name"] == tag), None)
-        return found if found is not None else (1, "gh: Not Found (HTTP 404)")
 
     def _issues(self, method: str, query: dict[str, str], fields: dict[str, str], page: int) -> Any:
         if method == "POST":
@@ -592,14 +561,6 @@ class GitHubFake:
         if rest == ["comments"]:
             bodies = self.comments.get(number, []) if page == 1 else []
             return [{"body": body} for body in bodies]
-        if method == "PATCH" and "milestone" in fields:
-            title = next(
-                (m["title"] for m in self.milestones if str(m["number"]) == fields["milestone"]),
-                None,
-            )
-            issue["milestone"] = self._milestone(title)
-        if method == "PATCH" and fields.get("state") == "closed":
-            self.close(number, fields["state_reason"])
         return issue
 
     def close(self, number: int, reason: str) -> None:

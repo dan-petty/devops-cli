@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import subprocess
 from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
@@ -65,18 +64,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectFieldOption(BaseModel):
-    """Option for single-select project custom fields.
-
-    `replaces` names board options this one takes the place of, for `devops roadmap migrate`.
-    Its plan has a person rename the first one the board has to this option in the board's
-    field settings, which keeps its id and so every card's value. Migrate moves the cards
-    holding any other here, and then the person removes that option.
-    """
+    """Option for single-select project custom fields."""
 
     name: str
     color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
     description: str = ""
-    replaces: list[str] = Field(default_factory=list)
 
 
 class ProjectField(BaseModel):
@@ -549,8 +541,8 @@ def provision_remote_project_fields(
 
     GitHub replaces a single-select field's whole option list, and its option input takes no
     id, so every option it is sent gets a new id and every card loses its value. No command
-    edits an existing board's options: `devops roadmap migrate` lists the edits a person makes
-    in the board's field settings, which keep ids.
+    edits an existing board's options: a person edits them in the board's field settings,
+    which keep ids.
     """
     owner_arg = _resolve_project_owner_arg(owner)
     existing_fields_by_name = _fetch_existing_fields_by_name(owner_arg, project_number)
@@ -809,8 +801,12 @@ def _label_names(labels: Sequence[Any]) -> list[str]:
     ]
 
 
-def _forced_status(item: Mapping[str, Any], has_open_pr: bool) -> tuple[str, str] | None:
-    """Return the status an item's state forces, with its source, or None."""
+def _forced_status(item: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Return the status an item's state forces, with its source, or None.
+
+    An issue that an open pull request closes gets In Review from the board's built-in
+    "Pull request linked to issue" workflow, so no pull request text is read here.
+    """
     url = str(item.get("html_url") or item.get("url") or "")
     is_pr = "/pull/" in url or "pull_request" in item
     if str(item.get("state", "OPEN")).upper() in ("CLOSED", "MERGED"):
@@ -821,8 +817,6 @@ def _forced_status(item: Mapping[str, Any], has_open_pr: bool) -> tuple[str, str
         if item.get("draft"):
             return "In Progress", "draft pull request"
         return "In Review", "open pull request"
-    if has_open_pr:
-        return "In Review", "linked open pull request"
     return None
 
 
@@ -848,7 +842,6 @@ def plan_item_changes(
     item: Mapping[str, Any],
     current: Mapping[str, str | None],
     *,
-    has_open_pr: bool = False,
     status_options: Collection[str] = (),
 ) -> list[FieldChange]:
     """Plan one item's board field changes, each with the source that decided it.
@@ -860,7 +853,7 @@ def plan_item_changes(
     its own, so it is never written.
     """
     labels = item.get("labels", [])
-    status = _forced_status(item, has_open_pr)
+    status = _forced_status(item)
     if status is None and not current.get("status"):
         status = initial_status(labels, status_options)
     priority = None if current.get("priority") else declared_priority(labels)
@@ -881,29 +874,6 @@ def plan_item_changes(
 def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate PRs from the repository via GitHub API."""
     return _fetch_repository_list(repo, "pulls", state)
-
-
-def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
-    """Extract linked issue numbers from open pull requests."""
-    linked_numbers: set[int] = set()
-    keyword_pattern = re.compile(
-        r"(?:closes|close|closed|fixes|fix|fixed|resolves|resolve|resolved)\s+#(\d+)",
-        re.IGNORECASE,
-    )
-    title_pattern = re.compile(r"\(#(\d+)\)\s*$", re.IGNORECASE)
-
-    for pr in prs:
-        if str(pr.get("state", "")).upper() != "OPEN":
-            continue
-        text = f"{pr.get('title', '')} {pr.get('body', '')}"
-        for match in keyword_pattern.finditer(text):
-            if match.group(1).isdigit():
-                linked_numbers.add(int(match.group(1)))
-        for match in title_pattern.finditer(str(pr.get("title", ""))):
-            if match.group(1).isdigit():
-                linked_numbers.add(int(match.group(1)))
-
-    return linked_numbers
 
 
 ReconcileMode = Literal["dry-run", "plan", "write"]
@@ -1039,7 +1009,6 @@ def _apply_changes(
 def _plan_changes(
     candidates: list[dict[str, Any]],
     board: Mapping[str, Mapping[str, str | None]],
-    linked: set[int],
     status_options: Collection[str],
 ) -> list[FieldChange]:
     """Every change the cards already on the board need, in the order the candidates came."""
@@ -1049,7 +1018,6 @@ def _plan_changes(
         for change in plan_item_changes(
             item,
             board[_item_url(item)],
-            has_open_pr=int(item.get("number", 0)) in linked,
             status_options=status_options,
         )
     ]
@@ -1081,8 +1049,7 @@ def reconcile_project_custom_fields(
     issues = _fetch_repository_issues(repo, state=state)
     prs = _fetch_repository_prs(repo, state=state)
     on_board = [item for item in issues + prs if _item_url(item) in board]
-    linked = _extract_linked_issue_numbers(prs)
-    planned = _plan_changes(on_board, board, linked, options[ItemField.STATUS])
+    planned = _plan_changes(on_board, board, options[ItemField.STATUS])
     for change in planned:
         require_option(options, ItemField(change.field), change.new)
     result = ReconcileResult(

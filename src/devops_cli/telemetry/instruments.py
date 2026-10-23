@@ -211,18 +211,6 @@ UPSTREAM_COMPONENT_STATUS = Instrument(
     "1",
     "Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component",
 )
-ROADMAP_RELEASE_SIZE_AT_START = Instrument(
-    "devops_cli_roadmap_release_size_at_start",
-    InstrumentKind.GAUGE,
-    "1",
-    "Release size at start, by release",
-)
-ROADMAP_RELEASE_DECISIONS = Instrument(
-    "devops_cli_roadmap_release_decisions",
-    InstrumentKind.GAUGE,
-    "1",
-    "Decisions on release items by release, group and reason",
-)
 
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
@@ -254,8 +242,6 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     PROJECT_FORKS_TOTAL,
     UPSTREAM_SERVICE_STATUS,
     UPSTREAM_COMPONENT_STATUS,
-    ROADMAP_RELEASE_SIZE_AT_START,
-    ROADMAP_RELEASE_DECISIONS,
 )
 
 
@@ -318,8 +304,6 @@ __all__ = [
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
-    "ROADMAP_RELEASE_DECISIONS",
-    "ROADMAP_RELEASE_SIZE_AT_START",
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
     "Instrument",

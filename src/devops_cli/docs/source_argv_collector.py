@@ -1,10 +1,10 @@
 """Collect the `devops` command lines built in source and resolve them statically.
 
 Code under `src/devops_cli` runs the CLI as `["devops", ...]` or `["uv", "run", "devops", ...]`:
-the MCP tools and resources, the quality gate's steps, the release gate and the devcontainer
-bootstrap. A command line that names a missing command or option fails only when it runs,
-and the failure comes back as tool text or a warning. This module reads those lists from the
-source of every module and hands each one to `resolve_devops_argv`; nothing runs.
+the MCP tools and resources, the quality gate's steps and the devcontainer bootstrap. A command
+line that names a missing command or option fails only when it runs, and the failure comes back
+as tool text or a warning. This module reads those lists from the source of every module and
+hands each one to `resolve_devops_argv`; nothing runs.
 
 Two rules decide what a list reads as:
 

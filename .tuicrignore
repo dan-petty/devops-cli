@@ -1,7 +1,7 @@
 # Files that `devops docs generate` writes from the code. `devops docs check` in `devops ci` checks
 # them, so the person does not read them in tuicr. Each pattern is in the generated class of
 # CONST_DOCS_INVENTORY, and tests/test_tuicr_config.py checks this.
-# Lockfiles, the pinned tools lock, CHANGELOG.md and docs/ROADMAP.md stay visible. A change to one
+# Lockfiles, the pinned tools lock and CHANGELOG.md stay visible. A change to one
 # of them is a change to a trust root or to a rule, and the person must see it.
 docs/commands/*.md
 docs/CLI_REFERENCE.md

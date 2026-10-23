@@ -13,8 +13,8 @@ leaves. Each text is embedded once, and the model judges the candidate against i
 `DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
 board; a new candidate that is a duplicate is not filed. An unfinished item, and an issue whose
 timeline shows a duplicate close that a person reversed by reopening it, skip the check. An
-existing issue a person planned (a milestone a person set, or a Priority a person set on its
-card or label) is never closed as a duplicate; intake reports it as a possible duplicate left for
+existing issue a person planned (a milestone, or a Priority a person set on its card or
+label) is never closed as a duplicate; intake reports it as a possible duplicate left for
 a person, places nothing else for it, and writes nothing (#1686). A duplicate pair closes the
 newer issue, never the older: when the model names an original newer than the candidate, intake
 reports the pair as a possible duplicate and closes nothing. A new candidate whose text holds
@@ -35,18 +35,14 @@ Otherwise the model's priority stands, and the comment says why and that a perso
 The comment shows each of the model's reasons as inline code, so no `#N` or `@name` in it links
 or notifies.
 
-**Placement.** A critical fix (P0 with `type/bug` or `type/security`) goes where #740's table
-admits a fix joining the current release (`decide`): into the current release, its release
-pull request open or not, or into the next planned one once that pull request has merged.
-Everything else, a P0 feature included, goes to the backlog. A planned release a person set
-stands; the current release goes through the same table. An unfinished item keeps any milestone
-it has.
+**Placement.** Intake puts every new item in the backlog and sets no milestone. A person
+plans the milestones on the board. A milestone the issue already has stands, and an unfinished
+item keeps its milestone.
 
 **Writes**, in order, with Priority last, which marks the item finished: file the issue (a new
-candidate only), add a `type/*` label when it has none, put it on the board, set the milestone
-when the placement changes it, set the empty ones of Status (New), Value and Effort, leave one
-reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set
-Priority. Each field write goes to the card the item has, or the card the add returned: no
+candidate only), add a `type/*` label when it has none, put it on the board, set the empty ones
+of Status (New), Value and Effort, leave one reason comment carrying
+`CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set Priority. Each field write goes to the card the item has, or the card the add returned: no
 placement looks for its card in the board listing, which can show a new card minutes after the
 add (#1361).
 
@@ -78,15 +74,16 @@ candidates were decided before, and when: the Service keeps it between rounds as
 `IntakeRecord`, beside `schedule.json`; `devops roadmap intake --limit` keeps none, so it takes
 the oldest candidates first.
 
-**The agent filing quota (#1153).** Every run reads the counts the quota needs through REST
-search and reports them. A new candidate comes from an agent unless its caller says a person
-filed it (`Filer`); an agent's is labeled `source/agent` and opens while the cycle's agent
-openings are below the allowance. Beyond it, a split or a required follow-up (`BorrowReason`)
+**The agent filing quota (#1153).** The quota counts over a rolling window of
+`quota_window_days` days that ends at the run. Every run reads the counts the quota needs
+through REST search and reports them. A new candidate comes from an agent unless its caller says
+a person filed it (`Filer`); an agent's is labeled `source/agent` and opens while the window's
+agent openings are below the allowance. Beyond it, a split or a required follow-up (`BorrowReason`)
 with the link it came from, or a P0/P1 bug or security issue, borrows (`budget/borrowed`), and
 anything else folds into its nearest open item: nothing is filed, and the report names the
 item. A duplicate folds into its original. An open `source/agent` issue filed outside intake is
 already counted: it opens when it is within the allowance by the order agents opened issues
-this cycle, borrows (and is labeled) when it may, and otherwise stays off the board for a person
+in the window, borrows (and is labeled) when it may, and otherwise stays off the board for a person
 to fold. Two runs at once can both open within one slot, as search lags recent filings.
 """
 
@@ -96,7 +93,7 @@ import logging
 import string
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cached_property
 from typing import Any
@@ -117,10 +114,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
-    CONST_ROADMAP_P0_PRIORITY,
+    CONST_ROADMAP_P0_PRIORITIES,
     CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
+    CONST_ROADMAP_STATUS_DONE,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_TRUSTED_AUTHORS,
     CONST_ROADMAP_TYPE_LABEL_PREFIX,
@@ -154,17 +152,6 @@ from devops_cli.roadmap.intake_model import (
     UnusableProposalError,
 )
 from devops_cli.roadmap.intake_requests import Spend, planned_requests
-from devops_cli.roadmap.reprioritize import (
-    Action,
-    Event,
-    Reason,
-    ReleaseState,
-    admission_event,
-    current_release,
-    decide,
-    placed_by_person,
-    release_state,
-)
 from devops_cli.roadmap.store import (
     AddedItem,
     ChangeKind,
@@ -177,13 +164,11 @@ from devops_cli.roadmap.store import (
     IssueRecord,
     Item,
     ItemField,
-    Release,
     RoadmapStore,
 )
 from devops_cli.security.sanitizer import redact_text
 
 _LABEL_SPECS = TypeAdapter(list[LabelSpec])
-_P0_PROPOSALS = frozenset({CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY})
 logger = logging.getLogger(__name__)
 
 
@@ -252,7 +237,7 @@ class Subject:
     body: str
     number: int | None = None
     labels: tuple[str, ...] = ()
-    release: str | None = None
+    milestone: str | None = None
     author_association: str | None = None
     updated_at: datetime | None = None
     item: Item | None = None
@@ -317,20 +302,21 @@ class Proposal:
 
 @dataclass(frozen=True)
 class Placement:
-    """Where a candidate goes (None for the backlog), and the comment's words for it."""
+    """The milestone a candidate stays in (None for the backlog), and the comment's words for it."""
 
-    release: str | None
+    milestone: str | None
     text: str
 
 
 @dataclass(frozen=True)
 class QuotaStanding:
-    """The quota's numbers for this cycle, which every run reports (#1153)."""
+    """The quota's numbers for the window, which every run reports (#1153): the window starts
+    `days` days before the run, at `since`."""
 
     open_issues: int
     delivered: int
-    previous: str | None
-    since: datetime | None
+    days: int
+    since: datetime
     agent_openings: int
     borrowed: int
     closures: int
@@ -345,9 +331,9 @@ class QuotaStanding:
             ratio=self.ratio,
             credit=self.credit,
             delivered=self.delivered,
-            previous=self.previous or MESSAGES.roadmap.intake_no_previous,
+            days=self.days,
             closures=self.closures,
-            since=self.since.isoformat() if self.since else MESSAGES.roadmap.intake_since_ever,
+            since=self.since.isoformat(timespec="seconds"),
             allowance=MESSAGES.roadmap.intake_unlimited if unlimited else self.allowance,
             openings=self.agent_openings,
             borrowed=self.borrowed,
@@ -386,11 +372,6 @@ class IntakeDecision:
             return self.subject.number is not None and not self.held
         return self.outcome is Outcome.PLACE
 
-    @property
-    def moves(self) -> bool:
-        """Whether the placement changes the milestone."""
-        return self.placement is not None and self.placement.release != self.subject.release
-
     def writes(self) -> list[str]:
         """Each write, in the order intake makes it."""
         texts = MESSAGES.roadmap
@@ -404,13 +385,6 @@ class IntakeDecision:
         planned = planned if self.subject.number is None else []
         planned += [texts.intake_write_label.format(label=label) for label in self.labels]
         planned += [texts.intake_write_add] if self.subject.item is None else []
-        if self.moves and self.placement is not None:
-            target = self.placement.release
-            planned.append(
-                texts.intake_write_release.format(release=target)
-                if target
-                else texts.intake_write_backlog
-            )
         planned += [texts.intake_write_field.format(field=f.value, value=v) for f, v in self.fields]
         planned += [texts.intake_write_comment] if self.comment else []
         planned.append(
@@ -534,34 +508,22 @@ class _InvalidProposal(ValueError):
 # ── Reading the roadmap ───────────────────────────────────────────────────────
 
 
-def _previous_release(releases: Sequence[Release], current: Release | None) -> Release | None:
-    """The closed Release the current cycle follows: the newest one older than the current one."""
-    closed = (
-        release
-        for release in releases
-        if release.state is GitHubState.CLOSED
-        and (current is None or release.version < current.version)
-    )
-    return max(closed, key=lambda release: release.version, default=None)
-
-
-def read_quota(store: RoadmapStore, config: RoadmapConfig) -> QuotaStanding:
+def read_quota(store: RoadmapStore, config: RoadmapConfig, *, now: datetime) -> QuotaStanding:
     """The quota's counts through REST search, and the allowance #1153's function gives.
 
-    The cycle starts when the previous Release closed; its closed issues are what it delivered.
-    A closure is an issue closed since then, less those closed as not planned with no comment;
-    a borrowed opening is an agent opening labeled `budget/borrowed`.
+    The window runs over the `quota_window_days` days before `now`. What it delivered is the
+    issues closed as completed in it. A closure is an issue closed in it, less those closed as
+    not planned with no comment; a borrowed opening is an agent opening labeled
+    `budget/borrowed`.
     """
-    releases = store.releases()
-    previous = _previous_release(releases, current_release(releases))
-    since = previous.closed_at if previous else None
-    delivered = previous.closed_issues if previous else 0
+    since = now - timedelta(days=config.quota_window_days)
 
     def count(**conditions: object) -> int:
         return store.count_issues(IssueQuery.model_validate(conditions))
 
     open_issues = count(state=GitHubState.OPEN)
     closed = count(state=GitHubState.CLOSED, closed_since=since)
+    delivered = count(state=GitHubState.CLOSED, closed_since=since, reason=CloseReason.COMPLETED)
     bulk = count(
         state=GitHubState.CLOSED,
         closed_since=since,
@@ -571,7 +533,7 @@ def read_quota(store: RoadmapStore, config: RoadmapConfig) -> QuotaStanding:
     return QuotaStanding(
         open_issues=open_issues,
         delivered=delivered,
-        previous=previous.title if previous else None,
+        days=config.quota_window_days,
         since=since,
         agent_openings=count(labels=(CONST_ROADMAP_SOURCE_AGENT_LABEL,), created_since=since),
         borrowed=count(
@@ -580,7 +542,7 @@ def read_quota(store: RoadmapStore, config: RoadmapConfig) -> QuotaStanding:
         ),
         closures=closed - bulk,
         ratio=quota.ratio(open_issues, config),
-        credit=quota.release_credit(delivered, config),
+        credit=quota.window_credit(delivered, config),
         allowance=quota.allowance(open_issues, delivered, closed - bulk, config),
     )
 
@@ -594,34 +556,9 @@ class _Run:
     config: RoadmapConfig
     model: IntakeModel
     ref: str | None
-    releases: list[Release]
     issues: list[IssueRecord]
     board: dict[int, Item]
     standing: QuotaStanding
-
-    @cached_property
-    def current(self) -> Release | None:
-        return current_release(self.releases)
-
-    @cached_property
-    def state(self) -> ReleaseState:
-        """The current release's state, a shipped one read as merged: a critical fix joins
-        neither."""
-        assert self.current is not None
-        found = release_state(self.store, self.current, self.store.default_branch().name)
-        return ReleaseState.MERGED if found is ReleaseState.SHIPPED else found
-
-    @cached_property
-    def next_release(self) -> Release | None:
-        """The planned release after the current one."""
-        later = (
-            release
-            for release in self.releases
-            if release.state is GitHubState.OPEN
-            and self.current is not None
-            and release.version > self.current.version
-        )
-        return min(later, key=lambda release: release.version, default=None)
 
     @cached_property
     def types(self) -> tuple[str, ...]:
@@ -656,22 +593,22 @@ class _Run:
 
     @cached_property
     def openings(self) -> list[int]:
-        """This cycle's agent openings, oldest first: the issues labeled `source/agent` created
-        since the cycle started."""
+        """The window's agent openings, oldest first: the issues labeled `source/agent` created
+        since the window started."""
         since = self.standing.since
         opened = [
             (issue.created_at, issue.number)
             for issue in self.issues
             if CONST_ROADMAP_SOURCE_AGENT_LABEL in issue.labels
             and issue.created_at is not None
-            and (since is None or issue.created_at >= since)
+            and issue.created_at >= since
         ]
         return [number for _, number in sorted(opened)]
 
     def within_allowance(self, subject: Subject, opened: int) -> bool:
         """Whether the agent's candidate opens within the allowance: a new one while the
-        cycle's openings, this run's included, are below it; an issue already open when it is
-        among the first `allowance` openings, or was opened before the cycle."""
+        window's openings, this run's included, are below it; an issue already open when it is
+        among the first `allowance` openings, or was opened before the window."""
         standing = self.standing
         if subject.new is not None:
             return standing.agent_openings + opened < standing.allowance
@@ -686,7 +623,7 @@ def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
         body=issue.body,
         number=issue.number,
         labels=issue.labels,
-        release=issue.release,
+        milestone=issue.milestone,
         author_association=issue.author_association,
         updated_at=issue.updated_at,
         item=item,
@@ -751,7 +688,6 @@ class _Entry:
     state: str
     item: bool = True
     done: bool = False
-    release: str | None = None
 
     @property
     def text(self) -> str:
@@ -768,7 +704,7 @@ def _is_done(issue: IssueRecord, run: _Run) -> bool:
     if issue.state is GitHubState.CLOSED and issue.state_reason != CloseReason.NOT_PLANNED:
         return True
     card = run.board.get(issue.number)
-    return card is not None and card.status == "Done"
+    return card is not None and card.status == CONST_ROADMAP_STATUS_DONE
 
 
 def _compared(issue: IssueRecord, run: _Run, *, off_board: bool) -> bool:
@@ -792,7 +728,6 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
             issue.state.value,
             issue.number in run.board,
             done=_is_done(issue, run),
-            release=issue.release,
         )
         for issue in run.issues
         if _compared(issue, run, off_board=off_board)
@@ -801,11 +736,7 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
 
 def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
     """Add a regression reference to the candidate's body when it matches a Done item."""
-    ref = (
-        f"regression of #{entry.number}, shipped in {entry.release}"
-        if entry.release
-        else f"regression of #{entry.number}"
-    )
+    ref = f"regression of #{entry.number}"
     if ref in subject.body:
         return subject
     body = f"{subject.body}\n\n{ref}" if subject.body else ref
@@ -862,7 +793,7 @@ def _choice(name: str, value: str, choices: Sequence[str], problems: list[str]) 
 
 def _priority_choice(value: str, problems: list[str], notes: list[str]) -> str:
     """The model's priority; a P0 is capped at P1, as only verified evidence sets P0."""
-    if value in _P0_PROPOSALS:
+    if value in CONST_ROADMAP_P0_PRIORITIES:
         capped = CONST_ROADMAP_MODEL_PRIORITIES[0]
         notes.append(
             MESSAGES.roadmap.intake_note_priority_capped.format(priority=value, capped=capped)
@@ -963,65 +894,30 @@ def _priority(store: RoadmapStore, subject: Subject, proposal: Proposal) -> tupl
 # ── Placement ─────────────────────────────────────────────────────────────────
 
 
-def _reason(reason: Reason, run: _Run) -> str:
-    current = run.current.title if run.current else ""
-    later = run.next_release.title if run.next_release else ""
-    return MESSAGES.roadmap.reasons[reason.value].format(release=current, next=later)
-
-
 def _to_backlog(reason: str) -> Placement:
     return Placement(None, MESSAGES.roadmap.intake_placement_backlog.format(reason=reason))
 
 
-def _into(release: str, reason: str) -> Placement:
+def _kept(milestone: str, reason: str) -> Placement:
     return Placement(
-        release, MESSAGES.roadmap.intake_placement_release.format(release=release, reason=reason)
+        milestone,
+        MESSAGES.roadmap.intake_placement_kept.format(milestone=milestone, reason=reason),
     )
 
 
-def _kept(release: str, reason: str) -> Placement:
-    return Placement(
-        release, MESSAGES.roadmap.intake_placement_kept.format(release=release, reason=reason)
-    )
-
-
-def _resumed(release: str) -> Placement:
+def _resumed(milestone: str) -> Placement:
     """An item's milestone, which it keeps."""
-    return _kept(release, MESSAGES.roadmap.intake_reason_resumed.format(release=release))
+    return _kept(milestone, MESSAGES.roadmap.intake_reason_resumed.format(milestone=milestone))
 
 
-def _by_table(run: _Run, event: Event, already_there: bool) -> Placement:
-    """Where #740's table sends a candidate joining the current release."""
-    assert run.current is not None
-    transition = decide(run.state, event)
-    reason = _reason(transition.reason, run)
-    if transition.action is Action.ADMIT:
-        place = _kept if already_there else _into
-        return place(run.current.title, reason)
-    if transition.action is Action.TO_NEXT and run.next_release is not None:
-        return _into(run.next_release.title, reason)
-    if transition.action is Action.TO_NEXT:
-        return _to_backlog(MESSAGES.roadmap.intake_reason_no_next.format(release=run.current.title))
-    return _to_backlog(reason)
-
-
-def _placement(run: _Run, subject: Subject, labels: tuple[str, ...], priority: str) -> Placement:
-    """Where the candidate goes."""
-    probe = Item(
-        number=subject.number or 0, title=subject.title, url="", labels=labels, priority=priority
-    )
-    event = admission_event(probe)
-    if subject.release is not None:
-        if subject.item is not None:
-            return _resumed(subject.release)
-        return _kept(
-            subject.release, MESSAGES.roadmap.intake_reason_person.format(release=subject.release)
-        )
-    if event is not Event.FIX_JOINED:
+def _placement(subject: Subject) -> Placement:
+    """Where the candidate stays: the milestone it has, or the backlog. Intake sets none."""
+    if subject.milestone is None:
         return _to_backlog(MESSAGES.roadmap.intake_reason_backlog)
-    if run.current is None:
-        return _to_backlog(MESSAGES.roadmap.intake_reason_no_release)
-    return _by_table(run, event, already_there=False)
+    if subject.item is not None:
+        return _resumed(subject.milestone)
+    reason = MESSAGES.roadmap.intake_reason_person.format(milestone=subject.milestone)
+    return _kept(subject.milestone, reason)
 
 
 # ── Deciding ──────────────────────────────────────────────────────────────────
@@ -1156,12 +1052,6 @@ def _rejected(named: int | None) -> tuple[str, ...]:
     return (MESSAGES.roadmap.intake_note_duplicate_rejected.format(number=named),)
 
 
-def _has_person_milestone(subject: Subject) -> bool:
-    if subject.item is not None:
-        return placed_by_person(subject.item)
-    return subject.release is not None
-
-
 def _has_person_priority(subject: Subject) -> bool:
     if any(lb.lower().startswith(CONST_ROADMAP_PRIORITY_LABEL_PREFIX) for lb in subject.labels):
         return True
@@ -1174,8 +1064,9 @@ def _has_person_priority(subject: Subject) -> bool:
 
 
 def _is_planned_by_person(subject: Subject) -> bool:
-    """Whether a person planned the candidate: set its milestone, or Priority on card or label."""
-    return _has_person_milestone(subject) or _has_person_priority(subject)
+    """Whether a person planned the candidate: set its milestone, or Priority on card or label.
+    No job sets a milestone, so every milestone is a person's."""
+    return subject.milestone is not None or _has_person_priority(subject)
 
 
 @dataclass
@@ -1360,7 +1251,7 @@ class _Planner:
             )
         if decided is QuotaDecision.BORROW and subject.item is None:
             notes += _judged_borrow(subject, type_label, priority[0])
-        placement = _placement(self.run, subject, (*subject.labels, type_label), priority[0])
+        placement = _placement(subject)
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
         lines = _reason_lines(proposal, added, fields, priority)
@@ -1396,10 +1287,12 @@ def plan_intake(
     new: NewCandidate | None = None,
     limit: int | None = None,
     waiting: Mapping[int, Waiting] | None = None,
+    now: datetime | None = None,
 ) -> IntakePlan:
     """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
     the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
-    what `waiting` says was decided before.
+    what `waiting` says was decided before. The quota's window ends at `now`, the time of the
+    run when None.
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1411,10 +1304,9 @@ def plan_intake(
         config=config,
         model=model,
         ref=ref,
-        releases=store.releases(),
         issues=store.issues(),
         board={item.number: item for item in store.items()},
-        standing=read_quota(store, config),
+        standing=read_quota(store, config, now=now or datetime.now(UTC)),
     )
     subjects, missing = _subjects(run, issues, new)
     queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
@@ -1477,8 +1369,8 @@ def _on_card(decision: IntakeDecision, item: AddedItem) -> IntakeDecision | None
     is, and the reason comment for those writes (#1403)."""
     if item.priority is not None:
         return None
-    release = decision.subject.release
-    placement = _resumed(release) if item.restored and release is not None else decision.placement
+    kept = decision.subject.milestone
+    placement = _resumed(kept) if item.restored and kept is not None else decision.placement
     fields = tuple((f, v) for f, v in decision.fields if _unset(item, f, v))
     held = {f.value for f, _ in decision.fields} - {f.value for f, _ in fields}
     lines = tuple(line for line in decision.reasons if line[0] not in held)
@@ -1510,11 +1402,8 @@ def _apply_placement(
 
 
 def _write_fields(store: RoadmapStore, item: Item, decision: IntakeDecision, number: int) -> None:
-    """The writes after the add: the milestone when the placement changes it, the fields, the
-    reason comment, then Priority."""
+    """The writes after the add: the fields, the reason comment, then Priority."""
     assert decision.priority is not None
-    if decision.moves and decision.placement is not None:
-        store.set_field(item, ItemField.RELEASE, decision.placement.release)
     for board_field, value in decision.fields:
         store.set_field(item, board_field, value)
     if decision.comment:
@@ -1523,17 +1412,13 @@ def _write_fields(store: RoadmapStore, item: Item, decision: IntakeDecision, num
 
 
 def _should_refine_on_intake(decision: IntakeDecision) -> bool:
-    if decision.outcome is not Outcome.PLACE:
-        return False
-    all_labels = set(decision.labels) | set(decision.filing_labels) | set(decision.subject.labels)
-    is_crit_fix = not CONST_ROADMAP_CRITICAL_FIX_LABELS.isdisjoint(all_labels)
-    is_p0 = decision.priority in (CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY)
-    admitted = decision.placement is not None and decision.placement.release is not None
-    return (is_crit_fix and admitted) or (is_p0 and not is_crit_fix)
+    """Whether intake refines the item it placed at once: a P0 item, a critical fix or a P0
+    feature."""
+    return decision.outcome is Outcome.PLACE and decision.priority in CONST_ROADMAP_P0_PRIORITIES
 
 
 def refine_item(store: RoadmapStore, number: int, **kwargs: Any) -> Any:
-    """Refine hook called by intake when admitting a critical fix or placing a P0 feature."""
+    """Refine hook called by intake when it places a P0 item."""
     from devops_cli.roadmap.refine import refine_item as _refine_item
 
     return _refine_item(store, number, **kwargs)

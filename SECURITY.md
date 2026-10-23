@@ -6,13 +6,7 @@ DevOps CLI follows an enterprise zero-trust security model designed to safeguard
 
 ## Supported Versions
 
-Security updates and critical vulnerability fixes are applied to the active release stream.
-
-| Version | Supported | Security Policy |
-| :--- | :--- | :--- |
-| `0.2.x` | :white_check_mark: | Full active security support & rapid patch cycle |
-| `0.1.x` | :x: | End of Life (upgrade to `0.2.x`) |
-| `< 0.1.0` | :x: | Unsupported prototype releases |
+Only the latest release gets security fixes. A fix ships in the next release.
 
 ---
 
@@ -55,5 +49,5 @@ To help us triage and remediate the issue rapidly, please include:
 
 - **Initial Triage & Acknowledgment**: Within **24 hours** of receipt.
 - **Vulnerability Assessment & Severity Rating**: Within **48 hours** using CVSS v3.1 scoring.
-- **Patch Development & Release**: Critical security fixes will be published to `main` and active release branches within **72 hours** of triage confirmation.
+- **Patch Development & Release**: Critical security fixes merge into `main` and ship in a release within **72 hours** of triage confirmation.
 - **Public Disclosure**: Coordinated after the patch release is confirmed and deployed.

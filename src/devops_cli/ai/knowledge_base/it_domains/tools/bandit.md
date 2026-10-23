@@ -15,7 +15,7 @@ tags:
 
 ## 1. Overview & Purpose
 
-Bandit is an open-source static code analysis tool designed to find common security issues in Python code. It processes Python source files, builds Abstract Syntax Trees (AST), and evaluates plugins against AST nodes to identify vulnerabilities such as hardcoded passwords, SQL injections, insecure cryptographic algorithms, unsafe shell executions, and unsafe deserialization. In `devops-cli`, Bandit is an enforced gate in `devops ci` and `devops release check`.
+Bandit is an open-source static code analysis tool designed to find common security issues in Python code. It processes Python source files, builds Abstract Syntax Trees (AST), and evaluates plugins against AST nodes to identify vulnerabilities such as hardcoded passwords, SQL injections, insecure cryptographic algorithms, unsafe shell executions, and unsafe deserialization. In `devops-cli`, Bandit is an enforced gate in `devops ci`.
 
 ---
 

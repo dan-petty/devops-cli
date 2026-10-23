@@ -274,7 +274,7 @@ def _exit_on_roadmap_error(action: str) -> Iterator[None]:
         raise typer.Exit(1) from exc
 
 
-def _parse_release_edits(
+def _parse_milestone_edits(
     state: str | None, due_on: str | None
 ) -> tuple[GitHubState | None, datetime.date | None]:
     """The `--state` and `--due-date` values as the store takes them, exiting 1 on a bad value."""
@@ -290,6 +290,7 @@ def _parse_release_edits(
 
 def _progress_row(prog: MilestoneProgress) -> list[str]:
     return [
+        str(prog.number),
         prog.title,
         prog.state.upper(),
         f"{prog.percent_complete:.1f}%",
@@ -306,40 +307,42 @@ def list_milestones(
     ] = CONST_GH_MILESTONE_STATE_ALL,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """List repository milestones and track issue completion rates."""
+    """List every milestone, by due date and then by number, with its issue completion rate."""
     if state not in CONST_GH_MILESTONE_STATE_FILTERS:
         print_error(f"Unsupported state '{state}'. Supported states: open, closed, all.")
         raise typer.Exit(1)
     target_repo = _resolve_repo(repo)
     with _exit_on_roadmap_error(f"Failed to list milestones in {target_repo}"):
-        releases = roadmap_store.get_roadmap_store(target_repo).releases()
-    shown = [r for r in releases if state in (CONST_GH_MILESTONE_STATE_ALL, r.state)]
+        milestones = roadmap_store.get_roadmap_store(target_repo).milestones()
+    shown = [m for m in milestones if state in (CONST_GH_MILESTONE_STATE_ALL, m.state)]
     if not shown:
         print_info("No milestones found in repository.")
         return
 
-    columns = ["Milestone", "State", "Progress", "Open", "Closed", "Due Date"]
-    rows = [_progress_row(calculate_milestone_progress(release)) for release in shown]
-    print_table("Release Milestones", columns, rows)
+    columns = ["Number", "Milestone", "State", "Progress", "Open", "Closed", "Due Date"]
+    rows = [_progress_row(calculate_milestone_progress(milestone)) for milestone in shown]
+    print_table("Milestones", columns, rows)
+
+
+MilestoneArgument = Annotated[str, typer.Argument(help=HELP.gh.milestone_name)]
 
 
 @milestones_app.command("status")
 def status_milestone(
-    name: Annotated[
-        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.11)")
-    ],
+    name: MilestoneArgument,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Inspect detailed progress and issue health for a specific milestone."""
     target_repo = _resolve_repo(repo)
     with _exit_on_roadmap_error(f"Failed to read milestone '{name}' in {target_repo}"):
-        matched = roadmap_store.get_roadmap_store(target_repo).release(name)
+        matched = roadmap_store.get_roadmap_store(target_repo).milestone(name)
     if matched is None:
         print_error(f"Milestone '{name}' not found in repository.")
         raise typer.Exit(1)
 
     prog = calculate_milestone_progress(matched)
     print_panel(
+        f"Number: {prog.number}\n"
         f"Title: {prog.title}\n"
         f"State: {prog.state.upper()}\n"
         f"Completion: {prog.percent_complete:.1f}%\n"
@@ -353,23 +356,19 @@ def status_milestone(
 
 @milestones_app.command("close", help=HELP.gh.milestones_close)
 def close_milestone(
-    name: Annotated[
-        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.11)")
-    ],
+    name: MilestoneArgument,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """Close the repository release milestone of the given version."""
+    """Close the milestone with the given title or number."""
     target_repo = _resolve_repo(repo)
     with _exit_on_roadmap_error(f"Failed to close milestone '{name}' in {target_repo}"):
-        roadmap_store.get_roadmap_store(target_repo).close_release(name)
+        roadmap_store.get_roadmap_store(target_repo).close_milestone(name)
     print_success(f"Successfully closed milestone '{name}' in {target_repo}.")
 
 
 @milestones_app.command("edit", help=HELP.gh.milestones_edit)
 def edit_milestone_cmd(
-    name: Annotated[
-        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.21)")
-    ],
+    name: MilestoneArgument,
     title: Annotated[
         str | None,
         typer.Option("--title", "-t", help="New milestone title"),
@@ -393,10 +392,10 @@ def edit_milestone_cmd(
         print_warning("No changes specified.")
         return
 
-    new_state, new_due_on = _parse_release_edits(state, due_on)
+    new_state, new_due_on = _parse_milestone_edits(state, due_on)
     target_repo = _resolve_repo(repo)
     with _exit_on_roadmap_error(f"Failed to update milestone '{name}' in {target_repo}"):
-        roadmap_store.get_roadmap_store(target_repo).edit_release(
+        roadmap_store.get_roadmap_store(target_repo).edit_milestone(
             name, title=title, description=description, due_on=new_due_on, state=new_state
         )
     print_success(f"Milestone '{name}' updated successfully in {target_repo}.")
@@ -1092,7 +1091,7 @@ def edit_issue_cmd(  # noqa: C901
         typer.Option(
             "--milestone",
             "-m",
-            help="New milestone version, title, or number (e.g. v0.2.21).",
+            help="New milestone title, or its number (e.g. 2026-11-05).",
         ),
     ] = None,
     clear_milestone: Annotated[

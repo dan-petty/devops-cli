@@ -446,8 +446,9 @@ def test_instruction_generator_devops_cli_and_force_modes(tmp_path: Path) -> Non
     assert "AI Agent Instructions" in (target_dir / "AGENTS.md").read_text(encoding="utf-8")
 
 
-def test_generate_agents_md_enforces_draft_pull_requests() -> None:
-    """Verify generated AGENTS.md mandates draft pull requests for in-progress work."""
+def test_generate_agents_md_opens_every_pull_request_as_a_draft() -> None:
+    """Verify generated AGENTS.md opens every pull request as a draft, with no condition, and
+    names `devops pr ready` as the way out of the draft."""
     meta = ProjectMetadata(
         name="sample-project",
         description="Sample project testing draft PR rules",
@@ -456,10 +457,34 @@ def test_generate_agents_md_enforces_draft_pull_requests() -> None:
     )
     content = generate_agents_md(meta)
     assert (
-        "Draft Pull Requests for In-Progress Work" in content,
-        "devops pr create --draft" in content,
+        "Stage 1: Every Pull Request Opens as a Draft" in content,
+        "open every pull request with `devops pr create`, which always opens a draft" in content,
         "devops pr ready" in content,
-    ) == (True, True, True)
+        "not yet fully implemented" in content,
+    ) == (True, True, True, False)
+
+
+def test_generated_agents_md_targets_the_default_branch_and_names_no_release_branch() -> None:
+    """Verify generated AGENTS.md sends topic pull requests to the default branch and names no
+    release branch, cut or Copilot rule for a release pull request, for any project."""
+    for is_devops_cli in (False, True):
+        content = generate_agents_md(
+            ProjectMetadata(
+                name="sample-project",
+                description="Sample project testing branch rules",
+                version="0.2.0",
+                requires_python=">=3.14",
+                is_devops_cli=is_devops_cli,
+            )
+        )
+        assert (
+            "PRs target the default branch" in content,
+            [
+                needle
+                for needle in ("release/", "release branch", "the cut", "roadmap close")
+                if needle in content
+            ],
+        ) == (True, [])
 
 
 def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
@@ -475,10 +500,10 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
         "Concise, Effect-Driven Commit Messages" in content,
         "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content,
         "devops pr monitor <pr_number>" in content,
-        "Wait for Copilot Review Sessions to Settle on PRs into `main`" in content,
+        "Wait for Requested Review Sessions to Settle" in content,
         "Stage 2: Transition to Ready for Review" in content,
         "Post-Ready Secondary Review & Copilot Monitoring Gate" in content,
-        "Automatic Copilot review runs on PRs into `main` only" in content,
+        "Copilot reviews a pull request only when a person requests it" in content,
         "devops pr ready <pr_number>" in content,
         "5-Minute Completion Allowance & 60-Second Polling Interval" in content,
         "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"
@@ -565,7 +590,8 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "devops roadmap intake --title",
         "--body-file",
         "never set a milestone or a priority on a new issue",
-        "never edit `docs/ROADMAP.md`",
+        "puts it in the backlog",
+        "rolling window of days",
         "source/agent",
         "budget/borrowed",
         "open_issue_limit",
@@ -573,15 +599,16 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "ask a person to return the item to `New` (`devops roadmap return <number>",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
-    # Intake is the one way in (#742): the ingestion rules that filed straight into a release
-    # or into docs/ROADMAP.md are gone, and docs/ROADMAP.md is rendered from GitHub (ADR 0001).
+    # Intake is the one way in (#742): it puts each new item in the backlog, and no rule files
+    # an item into a milestone or a roadmap document.
     ingestion_rules = [
         rule
         for rule in (
             "Automatic Roadmap Ingestion",
-            "TO THE ROADMAP (`docs/ROADMAP.md`)",
+            "docs/ROADMAP.md",
             "STRUCTURED ROADMAP TASKS",
             "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
+            "release_credit",
         )
         if rule in devops_content
     ]

@@ -14,7 +14,7 @@ import subprocess
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import date
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -79,10 +79,8 @@ from devops_cli.roadmap.refine import (
     select_candidates,
     validate_proposal,
 )
-from devops_cli.roadmap.reprioritize import plan_reprioritization
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
-    JobOutcome,
     _run_refine_adapter,
     build_stub_table,
     run_due_jobs,
@@ -91,7 +89,6 @@ from devops_cli.roadmap.store import (
     GitHubState,
     Item,
     ItemField,
-    JobMark,
     RefineRecordKey,
 )
 from tests.llm_stream_fakes import route_llm_clients
@@ -99,6 +96,8 @@ from tests.llm_stream_fakes import route_llm_clients
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 REPO = "example/roadmap"
+# The open milestones, planning buckets in due-date order: the first, then the second.
+FIRST, SECOND, THIRD = "2026-10-29", "2026-11-05", "2026-11-12"
 
 BOARD_OPTIONS = {
     ItemField.STATUS: ("New", "Ready", "In Progress", "Blocked", "Done"),
@@ -160,8 +159,8 @@ class BodyReadCountingStore(InMemoryRoadmapStore):
 def store() -> BodyReadCountingStore:
     s = BodyReadCountingStore(repo=REPO, board_options=BOARD_OPTIONS)
     s.seed_file(".github/roadmap.toml", "board = 1\n")
-    s.create_release("v0.2.25", state=GitHubState.OPEN)
-    s.create_release("v0.2.26", state=GitHubState.OPEN)
+    s.seed_milestone(FIRST, due_on=date(2026, 10, 29), state=GitHubState.OPEN)
+    s.seed_milestone(SECOND, due_on=date(2026, 11, 5), state=GitHubState.OPEN)
     return s
 
 
@@ -214,15 +213,15 @@ def test_extract_section_and_outside_and_hashes() -> None:
 
 
 def test_inspect_checkout_origin_match_and_mismatch(git_repo: Path) -> None:
-    sha, branch = inspect_checkout(git_repo, REPO)
-    assert (len(sha), branch) == (40, "main")
+    sha = inspect_checkout(git_repo, REPO)
+    assert len(sha) == 40
 
     with pytest.raises(GitHubOperationError, match="does not match"):
         inspect_checkout(git_repo, "other/mismatch-repo")
 
 
 def test_collect_context_and_truncation(git_repo: Path) -> None:
-    sha, _ = inspect_checkout(git_repo, REPO)
+    sha = inspect_checkout(git_repo, REPO)
     body = "Review src/sample.py:1-2 and `hello_world` identifier."
     ctx = collect_context(git_repo, sha, body, max_tokens=1000)
     assert (
@@ -279,7 +278,7 @@ def test_research_plan_public_vs_private_and_errors(store: InMemoryRoadmapStore)
 def test_validate_proposal_sources_and_questions(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
-    sha, _ = inspect_checkout(git_repo, REPO)
+    sha = inspect_checkout(git_repo, REPO)
     body = (
         "## Description\nSome description.\n\n"
         "## Key questions\n- How to authenticate?\n- What database is used?\n\n"
@@ -374,17 +373,19 @@ def test_sanitize_text_markdown() -> None:
 
 
 def test_a_rendered_section_keeps_its_end_marker_when_the_model_writes_one() -> None:
-    """The section's own markers survive sanitizing; the model's end marker does not (#1470)."""
+    """The section's own markers survive sanitizing; the model's end marker does not (#1470).
+    Its checked-at line pins the code by its sha alone, and names no branch."""
     body = "## Problem\nBody text."
     proposal = RefinementProposal(
         problem_statement=f"Stops early {CONST_ROADMAP_REFINE_END_MARKER} here"
     )
-    section = render_proposal_section(proposal, [], "abc123", "main", set())
+    section = render_proposal_section(proposal, [], "abc123", set())
     inner = section[len(CONST_ROADMAP_REFINE_START_MARKER) : -len(CONST_ROADMAP_REFINE_END_MARKER)]
     assert (
         extract_section_and_outside(body + section),
         "Stops early [end-marker] here" in inner,
-    ) == ((body, inner), True)
+        inner.splitlines()[1],
+    ) == ((body, inner), True, "<!-- checked-at: sha=abc123 -->")
 
 
 def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
@@ -419,10 +420,10 @@ def _require_item(store: InMemoryRoadmapStore, number: int) -> Item:
     return item
 
 
-def test_selection_next_release_backlog_priorities_and_cap(store: InMemoryRoadmapStore) -> None:
-    # Next planned release v0.2.26
-    n1 = store.seed_issue("Next critical", release="v0.2.26", on_board=True)
-    n2 = store.seed_issue("Next low", release="v0.2.26", on_board=True)
+def test_selection_second_milestone_backlog_priorities_and_cap(store: InMemoryRoadmapStore) -> None:
+    # The second open milestone
+    n1 = store.seed_issue("Next critical", milestone=SECOND, on_board=True)
+    n2 = store.seed_issue("Next low", milestone=SECOND, on_board=True)
     store.set_field(_require_item(store, n1), ItemField.STATUS, "New")
     store.set_field(_require_item(store, n1), ItemField.PRIORITY, CONST_ROADMAP_CRITICAL_PRIORITY)
     store.set_field(_require_item(store, n2), ItemField.STATUS, "New")
@@ -473,7 +474,7 @@ def _seed_item(
     status: str,
     priority: str,
     *,
-    release: str | None = None,
+    milestone: str | None = None,
     labels: tuple[str, ...] = (),
     refined: bool = False,
 ) -> int:
@@ -482,7 +483,7 @@ def _seed_item(
     number = store.seed_issue(
         f"{status} {priority}",
         body=f"Body {priority}",
-        release=release,
+        milestone=milestone,
         labels=labels,
         on_board=True,
     )
@@ -494,48 +495,48 @@ def _seed_item(
     return number
 
 
-def test_a_later_planned_release_is_refined_once_the_next_one_is_ready(
+def test_a_later_milestone_is_refined_once_the_second_one_is_ready(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """With the next planned release all Ready, refine takes the later release's New items,
+    """With the second open milestone all Ready, refine takes the third one's New items,
     highest priority first, up to its limit (#1515)."""
-    store.create_release("v0.2.27")
-    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", release="v0.2.26", refined=True)
+    store.seed_milestone(THIRD, due_on=date(2026, 11, 12))
+    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", milestone=SECOND, refined=True)
     later = [
-        _seed_item(store, "New", priority, release="v0.2.27")
+        _seed_item(store, "New", priority, milestone=THIRD)
         for priority in ("P1-High", "P2-Medium", "P1-High", "P1-High")
     ]
     selected, _skipped = select_candidates(store)
     assert [it.number for it in selected] == [later[0], later[2], later[3]]
 
 
-def test_a_critical_fix_in_the_current_release_goes_before_any_planned_item(
+def test_a_critical_fix_in_the_first_milestone_goes_before_any_later_item(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """A New critical fix in the current release is taken before a planned release's item, even
-    one of the same priority (#1515)."""
-    planned = _seed_item(store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.26")
+    """A New critical fix in the first open milestone is taken before a later milestone's item,
+    even one of the same priority (#1515)."""
+    planned = _seed_item(store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, milestone=SECOND)
     fix = _seed_item(
-        store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.25", labels=("type/bug",)
+        store, "New", CONST_ROADMAP_CRITICAL_PRIORITY, milestone=FIRST, labels=("type/bug",)
     )
     selected, _skipped = select_candidates(store)
     assert [it.number for it in selected] == [fix, planned]
 
 
-def test_ready_items_refine_never_saw_are_taken_in_planned_releases_and_backlog_p0_p1(
+def test_ready_items_refine_never_saw_are_taken_in_each_milestone_and_backlog_p0_p1(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """A Ready item refine holds no record of is taken like a New one in a planned release and
-    among the backlog's P0/P1 items; the current release's, one refine already saw, and a
-    lower-priority backlog one are not (#1515)."""
+    """A Ready item refine holds no record of is taken like a New one in each open milestone and
+    among the backlog's P0/P1 items; one refine already saw and a lower-priority backlog one are
+    not (#1515)."""
     ready = CONST_ROADMAP_STATUS_READY
-    _seed_item(store, ready, CONST_ROADMAP_CRITICAL_PRIORITY, release="v0.2.25")
-    _seed_item(store, ready, "P1-High", release="v0.2.26", refined=True)
-    planned = _seed_item(store, ready, "P2-Medium", release="v0.2.26")
+    first = _seed_item(store, ready, CONST_ROADMAP_CRITICAL_PRIORITY, milestone=FIRST)
+    _seed_item(store, ready, "P1-High", milestone=SECOND, refined=True)
+    planned = _seed_item(store, ready, "P2-Medium", milestone=SECOND)
     backlog = _seed_item(store, ready, "P1-High")
     _seed_item(store, ready, "P3-Low")
     selected, _skipped = select_candidates(store, limit=10)
-    assert [it.number for it in selected] == [planned, backlog]
+    assert [it.number for it in selected] == [first, planned, backlog]
 
 
 def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_is_then_skipped(
@@ -543,7 +544,7 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_is_then_skippe
 ) -> None:
     """Refine sets a Ready item it never saw back to New when its proposal is not ready, saying so
     in a comment, and the next round skips it as unchanged (#1515)."""
-    number = _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", release="v0.2.26")
+    number = _seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", milestone=SECOND)
     blocked = RefinementProposal(
         problem_statement="Needs the owner's decision.",
         acceptance_criteria=[AcceptanceCriterion(description="C", verification="V")],
@@ -607,24 +608,13 @@ def test_person_edits_guards(store: InMemoryRoadmapStore) -> None:
     assert err2 == "the section's hash differs from the one refine last recorded"
 
 
-def test_too_big_needs_split_and_reprioritize_descopes(
-    git_repo: Path, store: InMemoryRoadmapStore
-) -> None:
-    # Start release v0.2.25
-    r = store.release("v0.2.25")
-    assert r is not None
-    other_num = store.seed_issue("In progress work", release="v0.2.25", on_board=True)
-    other = _require_item(store, other_num)
-    store.set_field(other, ItemField.STATUS, "In Progress")
-    store.set_marks(other, {JobMark.ADMITTED: str(r.number)})
-
-    num = store.seed_issue("Heavy task", body="Big work", release="v0.2.25", on_board=True)
+def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> None:
+    """A proposal that does not fit one pull request leaves the item New and records it as
+    needing a split; no job moves it out of its milestone."""
+    num = store.seed_issue("Heavy task", body="Big work", milestone=FIRST, on_board=True)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
     store.set_field(item, ItemField.PRIORITY, "P1-High")
-    store.set_marks(item, {JobMark.ADMITTED: str(r.number)})
-
-    store.set_run_record({JobMark.STARTED: str(r.number), JobMark.SIZE: "2"})
 
     proposal = RefinementProposal(
         problem_statement="Too big",
@@ -640,16 +630,10 @@ def test_too_big_needs_split_and_reprioritize_descopes(
     assert updated is not None
     assert (
         updated.status,
+        updated.milestone,
         updated.job_record.get(RefineRecordKey.NEEDS_SPLIT),
         outcome.applied is not None and outcome.applied.split_count == 1,
-    ) == ("New", "true", True)
-
-    # Verify reprioritization descopes it due to needs_split
-    reprio_plan = plan_reprioritization(
-        store, repo=REPO, now=datetime.now(UTC), config=read_roadmap_config(store, ref=None)
-    )
-    descoped = [c.item.number for c in reprio_plan.changes if c.item.number == num]
-    assert descoped == [num]
+    ) == ("New", FIRST, "true", True)
 
 
 def test_intake_hook_calls_refine(store: InMemoryRoadmapStore) -> None:
@@ -659,7 +643,7 @@ def test_intake_hook_calls_refine(store: InMemoryRoadmapStore) -> None:
         body="Must be refined",
     )
     subject = Subject(title=cand.title, body=cand.body, labels=(), new=cand)
-    placement = Placement(release="v0.2.25", text="into v0.2.25")
+    placement = Placement(milestone=FIRST, text="into 2026-11")
     decision = IntakeDecision(
         subject=subject,
         outcome=Outcome.PLACE,
@@ -688,7 +672,7 @@ def test_intake_hook_skips_a_finished_card_the_add_restored(store: InMemoryRoadm
         subject=Subject(title="Critical feature", body="Must be refined", number=number),
         outcome=Outcome.PLACE,
         priority=CONST_ROADMAP_CRITICAL_PRIORITY,
-        placement=Placement(release="v0.2.25", text="into v0.2.25"),
+        placement=Placement(milestone=FIRST, text="into 2026-11"),
         fields=((ItemField.STATUS, "New"),),
     )
     spy_refine = MagicMock()
@@ -1089,10 +1073,7 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
     first, second, third = _seed_new_items(store)
     scripted_gateway({first: failing_answer()})
     table = build_stub_table(
-        {
-            "reprioritize": lambda **_: JobOutcome(),
-            "refine": lambda **kwargs: _run_refine_adapter(**(kwargs | {"clone_path": git_repo})),
-        }
+        {"refine": lambda **kwargs: _run_refine_adapter(**(kwargs | {"clone_path": git_repo}))}
     )
 
     with (
@@ -1131,7 +1112,7 @@ def test_intakes_refine_hook_still_reports_a_failed_refine(
         subject=Subject(title=candidate.title, body=candidate.body, labels=(), new=candidate),
         outcome=Outcome.PLACE,
         priority=CONST_ROADMAP_CRITICAL_PRIORITY,
-        placement=Placement(release="v0.2.25", text="into v0.2.25"),
+        placement=Placement(milestone=FIRST, text="into 2026-11"),
         fields=((ItemField.STATUS, "New"),),
     )
 
@@ -1153,7 +1134,7 @@ def test_intakes_refine_hook_still_reports_a_failed_refine(
     ) == (1, 1, True, False)
 
 
-# ── The hourly round: the configured cap, and no model call when nothing changed (#1515) ──
+# ── The hourly round: the ready target, and no model call when nothing changed (#1515) ──
 
 # A proposal refine leaves New: it does not fit one pull request.
 _SPLIT_PROPOSAL = json.dumps(
@@ -1169,7 +1150,7 @@ _SPLIT_PROPOSAL = json.dumps(
 @pytest.mark.parametrize(
     ("ready", "refined"), [(3, ("P1-High",)), (1, ("P1-High", "P2-Medium"))], ids=["3", "1"]
 )
-def test_backlog_p2_and_p3_wait_for_the_configured_release_cap(
+def test_backlog_p2_and_p3_wait_for_the_configured_ready_target(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
@@ -1177,12 +1158,12 @@ def test_backlog_p2_and_p3_wait_for_the_configured_release_cap(
     refined: tuple[str, ...],
 ) -> None:
     """A New backlog P1 is refined before a P2, and P2 and P3 only while fewer than the
-    `release_cap` of `.github/roadmap.toml` items are Ready across the next planned release and
-    the backlog (#1515)."""
-    store.seed_file(".github/roadmap.toml", "board = 1\nrelease_cap = 3\n")
+    `refine_ready_target` of `.github/roadmap.toml` items are Ready across the open milestones
+    and the backlog (#1515)."""
+    store.seed_file(".github/roadmap.toml", "board = 1\nrefine_ready_target = 3\n")
     store.seed_visibility(is_private=True)
-    for place in ("v0.2.26", None, None)[:ready]:
-        _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", release=place, refined=True)
+    for place in (SECOND, None, None)[:ready]:
+        _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", milestone=place, refined=True)
     numbers = {
         priority: _seed_item(store, "New", priority)
         for priority in ("P2-Medium", "P1-High", "P3-Low")
@@ -1201,7 +1182,7 @@ def test_a_round_after_refine_left_items_new_skips_them_reading_no_body_and_call
     issue body, selects nothing and sends the gateway no request, with a Ready item that has a
     recorded section among them (#1515, #1539)."""
     numbers = _seed_new_items(store)
-    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", release="v0.2.26", refined=True)
+    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", milestone=SECOND, refined=True)
     sent = scripted_gateway({}, default=_SPLIT_PROPOSAL)
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo))
     first_round = len(sent)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from devops_cli.commands.gh import milestones_app
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import GitHubState, Release, RoadmapStore
+from devops_cli.roadmap.store import GitHubState, Milestone, RoadmapStore
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 
 runner = CliRunner()
@@ -22,33 +23,46 @@ REPO = "example/scratch"
 
 def test_calculate_milestone_progress() -> None:
     """calculate_milestone_progress computes closed ratio and health metrics."""
-    release = Release(number=11, title="v0.2.11", open_issues=2, closed_issues=8)
+    milestone = Milestone(number=11, title="2026-11-05", open_issues=2, closed_issues=8)
 
-    progress = calculate_milestone_progress(release)
-    assert (progress.total_issues, progress.percent_complete, progress.is_complete) == (
-        10,
-        80.0,
-        False,
-    )
+    progress = calculate_milestone_progress(milestone)
+    assert (
+        progress.number,
+        progress.total_issues,
+        progress.percent_complete,
+        progress.is_complete,
+    ) == (11, 10, 80.0, False)
 
 
 def test_cli_milestones_close_command(
     roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
 ) -> None:
-    """devops gh milestones close closes the Release of a version, and exits 1 for an unknown one."""
-    roadmap_store.create_release("v0.2.11")
+    """devops gh milestones close closes the milestone a title or a number names, and exits 1
+    for one that no milestone has. No title is read as a version."""
+    titled = roadmap_store.seed_milestone("Q4 hardening")
+    numbered = roadmap_store.seed_milestone("2026-11-05")
 
-    closed = runner.invoke(milestones_app, ["close", "0.2.11", "--repo", REPO])
-    missing = runner.invoke(milestones_app, ["close", "v9.9.9", "--repo", REPO])
-    release = roadmap_store.release("v0.2.11")
+    by_title = runner.invoke(milestones_app, ["close", "Q4 hardening", "--repo", REPO])
+    by_number = runner.invoke(milestones_app, ["close", str(numbered.number), "--repo", REPO])
+    missing = runner.invoke(milestones_app, ["close", "Q4", "--repo", REPO])
+    states = {m.number: m.state for m in roadmap_store.milestones()}
     assert (
-        closed.exit_code,
-        f"Successfully closed milestone '0.2.11' in {REPO}" in closed.output,
-        release.state if release else None,
+        by_title.exit_code,
+        f"Successfully closed milestone 'Q4 hardening' in {REPO}" in by_title.output,
+        by_number.exit_code,
+        states,
         missing.exit_code,
-        "No Release 'v9.9.9' exists" in missing.output,
+        "No milestone has the title or number 'Q4'" in " ".join(missing.output.split()),
         roadmap_store_repos,
-    ) == (0, True, GitHubState.CLOSED, 1, True, [REPO, REPO])
+    ) == (
+        0,
+        True,
+        0,
+        {titled.number: GitHubState.CLOSED, numbered.number: GitHubState.CLOSED},
+        1,
+        True,
+        [REPO, REPO, REPO],
+    )
 
 
 def test_cli_labels_list() -> None:
@@ -133,17 +147,20 @@ def test_cli_labels_audit() -> None:
 
 
 def test_cli_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
-    """devops gh milestones list shows an empty notice, then the Releases in the state asked for."""
+    """devops gh milestones list shows an empty notice, then every milestone in the state asked
+    for, by due date and then by number, whatever its title: one with no due date comes last."""
     empty = runner.invoke(milestones_app, ["list", "--repo", REPO])
-    roadmap_store.create_release("v0.2.13")
-    roadmap_store.create_release("v0.2.12", state=GitHubState.CLOSED)
+    roadmap_store.seed_milestone("Someday")
+    roadmap_store.seed_milestone("Q4 hardening", due_on=date(2026, 12, 1))
+    roadmap_store.seed_milestone("Docs pass", due_on=date(2026, 11, 5), state=GitHubState.CLOSED)
 
     listed = runner.invoke(milestones_app, ["list", "--repo", REPO])
     open_only = runner.invoke(milestones_app, ["list", "--state", "open", "--repo", REPO])
+    order = [listed.output.index(title) for title in ("Docs pass", "Q4 hardening", "Someday")]
     assert (
         (empty.exit_code, "No milestones found" in empty.output),
-        (listed.exit_code, listed.output.index("v0.2.12") < listed.output.index("v0.2.13")),
-        ("v0.2.13" in open_only.output, "v0.2.12" in open_only.output),
+        (listed.exit_code, order == sorted(order)),
+        ("Q4 hardening" in open_only.output, "Docs pass" in open_only.output),
     ) == ((0, True), (0, True), (True, False))
 
 
@@ -169,7 +186,7 @@ def test_cli_milestones_list_names_a_failed_read(
     monkeypatch.setattr(roadmap_module, "get_roadmap_store", github_roadmap_factory)
     res = runner.invoke(milestones_app, ["list", "--repo", REPO])
     with pytest.raises(GitHubUnreadError) as raised:
-        github_roadmap_factory(REPO).releases()
+        github_roadmap_factory(REPO).milestones()
     assert (
         res.exit_code,
         f"GitHub gave no readable answer to GET {listing} (page 1) (HTTP 502)"
@@ -183,13 +200,13 @@ def test_cli_milestones_list_names_a_failed_read(
 def test_cli_milestones_status(
     roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
 ) -> None:
-    """devops gh milestones status shows a Release's progress, and exits 1 for an unknown one."""
-    roadmap_store.create_release("v0.2.13")
+    """devops gh milestones status shows a milestone's progress, and exits 1 for an unknown one."""
+    roadmap_store.seed_milestone("2026-11-05")
     for state in [GitHubState.OPEN] * 2 + [GitHubState.CLOSED] * 8:
-        roadmap_store.seed_issue("Work", state=state, release="v0.2.13")
+        roadmap_store.seed_issue("Work", state=state, milestone="2026-11-05")
 
-    found = runner.invoke(milestones_app, ["status", "0.2.13", "--repo", REPO])
-    missing = runner.invoke(milestones_app, ["status", "v9.9.9", "--repo", REPO])
+    found = runner.invoke(milestones_app, ["status", "2026-11-05", "--repo", REPO])
+    missing = runner.invoke(milestones_app, ["status", "2026-12-01", "--repo", REPO])
     assert (
         found.exit_code,
         "80.0%" in found.output,

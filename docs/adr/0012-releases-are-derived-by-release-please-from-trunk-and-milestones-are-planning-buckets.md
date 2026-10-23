@@ -1,5 +1,7 @@
 # Releases are derived by release-please from trunk, and milestones are planning buckets
 
+[ADR 0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) supersedes this ADR.
+
 ADR 0012 supersedes [ADR 0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md). ADR 0011 kept a bespoke prepare workflow, `towncrier` fragments and the milestone title as the version, because the repository already used those conventions. The owner decided that a formal release orchestrator must derive the versions.
 
 Releases used to run through a `release/vX.Y.Z` integration branch. Topic pull requests merged into it. A cut commit (version, changelog, roadmap) reached it through its own pull request. A release pull request carried the branch to `main`. `release.yml` published on the push to `main`. [#1751](https://github.com/dan-petty/devops-cli/issues/1751) asked whether that model is right.

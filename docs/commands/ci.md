@@ -222,6 +222,22 @@ devops ci lockfile [OPTIONS]
 
 ---
 
+## `devops ci build`
+
+**Build the wheel and the sdist via uv build.**
+
+```bash
+devops ci build [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci outdated`
 
 **Display outdated dependencies and packages via uv tree --outdated.**

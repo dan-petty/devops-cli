@@ -77,12 +77,6 @@ from devops_cli.models.k8s import (
     PodInfo,
     PolicyRuleViolation,
 )
-from devops_cli.models.release import (
-    ReleasePrepareRequest,
-    ReleasePrepareResult,
-    ReleaseStatusRequest,
-    ReleaseStatusResult,
-)
 from devops_cli.models.security import (
     NetworkIntelRequest,
     NetworkIntelResult,
@@ -406,7 +400,7 @@ def test_config_and_workspace_resource_models_roundtrip() -> None:
         name="devops-cli",
         path="/workspaces/devops-cli",
         is_git_repo=True,
-        current_branch="release/v0.2.5",
+        current_branch="feat/1-example",
         is_dirty=False,
         size_bytes=1048576,
     )
@@ -424,31 +418,8 @@ def test_config_and_workspace_resource_models_roundtrip() -> None:
     assert clean_res.files_removed == 12
 
 
-def test_release_and_ci_resource_models_roundtrip() -> None:
-    """Verify Release and CI request and result resource models."""
-    rel_req = ReleaseStatusRequest(check_remote=True)
-    assert rel_req.check_remote is True
-    rel_res = ReleaseStatusResult(
-        current_version="0.2.5",
-        latest_git_tag="v0.2.4",
-        is_clean=True,
-        branch_name="release/v0.2.5",
-        unreleased_commits_count=5,
-        docs_synchronized=True,
-        ready_for_release=True,
-    )
-    assert rel_res.ready_for_release is True
-
-    prep_req = ReleasePrepareRequest(bump_type="patch")
-    assert prep_req.bump_type == "patch"
-    prep_res = ReleasePrepareResult(
-        previous_version="0.2.4",
-        new_version="0.2.5",
-        updated_files=["pyproject.toml", "README.md"],
-        release_branch="release/v0.2.5",
-    )
-    assert prep_res.new_version == "0.2.5"
-
+def test_ci_resource_models_roundtrip() -> None:
+    """Verify CI request and result resource models."""
     ci_chk = CICheckResult(
         name="test",
         passed=True,
@@ -472,8 +443,8 @@ def test_git_resource_models_roundtrip() -> None:
     """Verify Git branch and repo request and result resource models."""
     branch_req = BranchesListRequest(repo_path=".")
     assert branch_req.repo_path == "."
-    branch_list = BranchListing(branches=["main", "release/v0.2.5"], current="release/v0.2.5")
-    assert branch_list.current == "release/v0.2.5"
+    branch_list = BranchListing(branches=["main", "feat/1-example"], current="feat/1-example")
+    assert branch_list.current == "feat/1-example"
 
     repo_req = ReposListRequest(filter_pattern="*")
     assert repo_req.filter_pattern == "*"
@@ -481,7 +452,7 @@ def test_git_resource_models_roundtrip() -> None:
         name="devops-cli",
         path="/workspaces/devops-cli",
         remote_url="https://github.com/dan-petty/devops-cli.git",
-        current_branch="release/v0.2.5",
+        current_branch="feat/1-example",
     )
     repos_res = ReposListResult(total_repos=1, repos=[repo_entry])
     assert repos_res.total_repos == 1
@@ -491,7 +462,7 @@ def test_git_resource_models_roundtrip() -> None:
     status_entry = RepoStatusEntry(
         name="devops-cli",
         path="/workspaces/devops-cli",
-        branch="release/v0.2.5",
+        branch="feat/1-example",
         is_clean=True,
         uncommitted_files_count=0,
         commits_ahead=0,
@@ -623,8 +594,6 @@ def test_domain_model_registry_completeness() -> None:
         "ConfigShowResult",
         "WorkspaceListRequest",
         "WorkspaceListResult",
-        "ReleaseStatusRequest",
-        "ReleaseStatusResult",
         "CIRunRequest",
         "CIRunResult",
         "ReviewPathRequest",

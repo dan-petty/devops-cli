@@ -24,7 +24,7 @@ flowchart LR
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
-6. **Branch Isolation & Human-in-the-Loop Governance**: Strict Git hierarchy isolating features to topic branches targeting active release branches (`release/vX.Y.Z`). AI agents cannot merge code autonomously; maintainers approve and squash-merge.
+6. **Branch Isolation & Human-in-the-Loop Governance**: Every change goes on a topic branch whose pull request targets `main`. AI agents cannot merge code autonomously; maintainers approve and squash-merge. release-please makes each release, and a person merges its pull request.
 7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and review stage.
 
 ---
@@ -43,18 +43,20 @@ sequenceDiagram
     participant Git as GitHub PR & CODEOWNERS
     actor Maintainer as Human Maintainer
     participant CI as GitHub Actions CI
-    participant Rel as Release Train
+    participant Rel as release-please
 
     Dev->>Plan: Author RFC / implementation_plan.md & file candidates via devops roadmap intake
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
     Dev->>Gate: Execute devops ci (Gated CI quality checks & >=90% coverage)
     Dev->>Review: Run automated review & verify findings
-    Dev->>Git: Push topic branch & open PR targeting release/vX.Y.Z
+    Dev->>Git: Push topic branch & open draft PR targeting main
     Git->>CI: Trigger CI workflows (matrix build, linters, security)
     Git->>Maintainer: Notify CODEOWNERS for mandatory human review
-    Maintainer->>Git: Approve & squash-merge PR into release/vX.Y.Z
-    Rel->>Rel: Release train automated publish (tagging, changelog, assets)
+    Maintainer->>Git: Approve & squash-merge PR into main
+    Rel->>Git: Open or update the release pull request (version, CHANGELOG.md)
+    Maintainer->>Git: Merge the release pull request when a release is wanted
+    Rel->>Rel: Create the GitHub release and tag, then publish the packages and images
 ```
 
 ---
@@ -68,20 +70,19 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - For multi-step or architectural modifications, author an `implementation_plan.md` in the agent artifacts tier (`.data/agent/brain/<plan-name>/`) or documentation RFC.
    - Outline problem motivation, architectural diagrams, component impacts, and proposed file modifications categorized with `[NEW]`, `[MODIFY]`, or `[DELETE]` annotations.
 2. **Roadmap & Backlog Synchronization**:
-   - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate and gives it its type, Priority, Value, Effort and place, the backlog unless it is a critical fix; never set a milestone or priority on a new issue, and never edit [`docs/ROADMAP.md`](ROADMAP.md), which `devops roadmap render` writes from GitHub at the cut.
+   - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog. Never set a milestone or priority on a new issue: a person plans the milestones on the board.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
-3. **Active Milestone GitHub Resource Population**:
-   - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
-   - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
+3. **Milestones Are Planning Buckets**:
+   - A person groups items into milestones on the GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`). A milestone never names a version, and no release reads one.
 4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
      - **Backlog / Ready**: Queued deliverables and scoped milestones.
      - **In Progress (WIP)**: Active focus items and files currently under modification.
      - **In Review / Done**: Pull requests in review and verified implementations.
    - Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`).
-5. **Target Branch Selection**:
-   - Identify active release branch (`git fetch origin`, inspect `origin/release/vX.Y.Z`).
-   - Create isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/release/vX.Y.Z`.
+5. **Topic Branch Creation**:
+   - Fetch the remote (`git fetch origin`).
+   - Create an isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/main`.
 
 ---
 
@@ -228,7 +229,7 @@ flowchart LR
 - **Group Model Analysis**: Bounded model analysis for admitted finding groups, grounded in installed-version rule documentation and secret-masked code excerpts.
 - **Knowledge Base Fact Grounding**: Findings and remediations cross-reference the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate false alarms (such as flagging verified dependencies like `httpx2` as suspicious).
 - **Verdicts & Feedback Loop**: No model verifies a finding. A person records a verdict with `devops review verify`, a label on that session's files that ranks review history and nothing else, and `devops review export-feedback` appends every verdict to the feedback dataset (`.data/feedback_dataset.jsonl`). A false positive that recurs becomes a reviewed `[[suppressions]]` entry in `.devops/review.toml`, with a reason and an expiry.
-- **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`docs/ROADMAP.md`, `CHANGELOG.md`, `changelog.d/`, `docs/agent/tasks/`, `docs/adr/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there keeps its severity: `[severity_caps]` in `.devops/review.toml` caps a scanner finding by its path class, never a secret; a change made only of such files calls no model.
+- **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`CHANGELOG.md`, `docs/agent/tasks/`, `docs/adr/`, `openspec/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there keeps its severity: `[severity_caps]` in `.devops/review.toml` caps a scanner finding by its path class, never a secret; a change made only of such files calls no model.
 - **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
   - The reported findings counted by status, each with its severities: verified and unverified, then, listed apart, the mitigated ones. Findings rank verified first, then by severity, location and title; a model's confidence plays no part.
   - The defect classes that recur among verified findings, most severe first. A finding's category is the CWE it cites or a class from a closed taxonomy. A persona's finding is reported unverified until a person judges it, and a scanner finding's severity is its tool's, capped at admission by its path class's `[severity_caps]` entry unless it is a secret.
@@ -240,40 +241,36 @@ flowchart LR
 
 ### Phase 6: Pull Request & Release Choreography
 
-Code promotion follows a structured branch hierarchy, automated dependency management, declarative code ownership, and semantic releases.
+Every change reaches `main` through a squash-merged pull request. release-please derives each release from the pull request titles on `main` ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
 
 ```mermaid
 gitGraph
-    commit id: "v0.2.20" tag: "v0.2.20"
-    branch release/v0.2.21
-    checkout release/v0.2.21
-    commit id: "feat(core): prepare release line"
+    commit id: "fix(ci): earlier change"
     branch feat/sdlc
     checkout feat/sdlc
     commit id: "feat(sdlc): add templates"
     commit id: "docs(sdlc): add manual"
-    checkout release/v0.2.21
-    merge feat/sdlc id: "squash-merge PR #292"
     checkout main
-    merge release/v0.2.21 id: "release PR merge" tag: "v0.2.21"
-    branch release/v0.2.22
-    checkout release/v0.2.22
-    commit id: "chore(release): v0.2.22"
+    merge feat/sdlc id: "feat(sdlc): add templates and manual"
+    branch release-please--branches--main
+    checkout release-please--branches--main
+    commit id: "chore(main): release"
+    checkout main
+    merge release-please--branches--main id: "release pull request merge" tag: "v<version>"
 ```
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
-- **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`, titled strictly `feat(release): v<version>`.
-- **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting the active release branch or `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
-- **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`.
+- **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request. Agents do not open, edit, update, review, comment on or merge it.
+- **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
+- **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. The `Semantic PR title` check enforces the PR title. The squash commit takes the title, and release-please writes it as the changelog line ([`CONTRIBUTING.md`](../CONTRIBUTING.md) lists the types that add a line).
   - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects.
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review IDs, subagent IDs, or arbitrary numbers.
-  - Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
-- **Automated Dependency Updates (`.github/renovate.json`)**: The configuration has Renovate propose `github-actions` and `docker` updates with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels; Renovate acts only where its GitHub App is installed for the repository. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
+- **Automated Dependency Updates (`.github/renovate.json`)**: The configuration has Renovate propose `github-actions` and `docker` updates with mandatory `type/chore` taxonomy labels. An update of a base image in the service image's `Dockerfile` has the prefix `fix(deps)`, so that it adds a changelog line to the next release pull request. Every other update has the prefix `chore(deps)`. Renovate acts only where its GitHub App is installed for the repository. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must carry `type/*` and `scope/*` labels, audited manually via `devops gh labels audit` (not enforced in CI).
-  - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.
+  - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones are planning buckets that a person sets, and the project board holds their Status and Priority.
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`New` -> `Ready` -> `In Progress` -> `In Review` -> `Done`, or `Blocked` while waiting on something outside the roadmap), audited via `devops gh views list` / `spec` / `audit` and synced via `devops gh views sync` (card fields via `devops gh project sync`; issues reach the board through `devops roadmap intake`) with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
 - **Human Review Round (`tuicr`)**: A person can review the diff of an agent in `tuicr`, a terminal program that `tools.lock` pins. The person reads the diff and the commit message, and adds comments of the type `issue`, `question` or `nit` (`.devops/tuicr.config.toml`). The agent then follows these steps:
@@ -286,20 +283,20 @@ gitGraph
   - **No verdicts**: A tuicr comment type carries no verdict. An agent records no verdict, and a person records verdicts with `devops review verify` (Phase 5).
   - **Errors and hidden files**: If `tuicr review comments` fails, the agent shows the message to the person and does not look for the session file. `.tuicrignore` hides `docs/commands/*.md` and `docs/CLI_REFERENCE.md` from the person, so no comment is on them.
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
-  - When multiple open PRs exist across the repository or targeting an active release branch, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
+  - When multiple open PRs exist across the repository, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
   - Remediating review comments, fixing CI failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs to eliminate cascading merge conflicts, branch divergence, and PR starvation.
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
-  - **Stage 1 (In-Progress Draft)**: Pull requests for in-progress work are created as drafts (`devops pr create --draft`). CI checks are monitored on every push.
-  - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`).
-  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready transitions it to public review state and triggers CI workflows and reviewer notifications (CodeQL runs on every push). Automatic Copilot review runs on PRs into `main` only, because reviewing every PR used the monthly token budget halfway through the month, so each release PR into `main` is the reviewed gate. Marking a `release/*` PR ready triggers CI, not Copilot; agents never wait for a Copilot review on a `release/*` PR. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
+  - **Stage 1 (Draft)**: Every pull request opens as a draft: `devops pr create` always opens one. CI checks are monitored on every push.
+  - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`), the only path to ready.
+  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready transitions it to public review state and triggers CI workflows and reviewer notifications (CodeQL runs on every push). Copilot reviews a pull request only when a person requests it, because an automatic review of every pull request would spend the monthly token budget. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
 - **Mandatory PR Monitoring Gate (`devops pr monitor`) & Review Remediation Mandate**:
-  - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews (on PRs into `main`) via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
+  - AI agents and developers **MUST ALWAYS** monitor remote CI checks and any review a person requested via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
   - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
-  - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions (on PRs into `main`) are unresolved.
-  - **Wait for Copilot Reviews to Settle on PRs into `main`**: On PRs targeting `main`, `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete; on `release/*` PRs, agents never wait for Copilot. A further Copilot pass on the release PR is requested only with `devops pr copilot-pass <pr_number>`, which holds the release PR to `release_copilot_passes` in `.github/roadmap.toml`, the pass when it opens included, and requests none once they are spent.
+  - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or a requested review session is unresolved.
+  - **Wait for Requested Reviews to Settle**: When a person requests a Copilot review, agents wait for that review session to complete.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply concise test-first fixes, push, and re-monitor.
   - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
-  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled on PRs into `main`, 0 unresolved threads). Once the release PR's Copilot passes are spent, a remaining Copilot comment blocks the merge only if it is a regression the release introduces; every other one becomes a follow-up issue (the stop rule, [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) Step 3).
+  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, any requested review settled, 0 unresolved threads).
 - **Automated & Peer Code Review Remediation Mandate**:
   - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
   - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
@@ -338,9 +335,9 @@ flowchart TD
 #### DORA Metrics Standards
 | Metric | Definition | DevOps CLI Target | Measurement Mechanism |
 | :--- | :--- | :--- | :--- |
-| **Deployment Frequency (DF)** | Rate of successful production/release releases | Weekly release train | GitHub Releases tag frequency (`vX.Y.Z`) |
+| **Deployment Frequency (DF)** | Rate of successful releases | A person decides when to release | GitHub Releases tag frequency (`v<version>`) |
 | **Lead Time for Changes (LT)** | Time from commit creation to release tag | $< 48$ hours | Git commit timestamp to GitHub Release event |
-| **Change Failure Rate (CFR)** | Percentage of releases requiring hotfixes | $< 5\%$ | Ratio of `fix(release)` commits to total releases |
+| **Change Failure Rate (CFR)** | Percentage of releases requiring a regression fix | $< 5\%$ | Releases that needed a regression fix, divided by all releases |
 | **Mean Time to Recovery (MTTR)** | Time to resolve pipeline or release defects | $< 2$ hours | GitHub Issue / Hotfix PR lifecycle duration |
 
 ---
@@ -349,14 +346,14 @@ flowchart TD
 
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
-| **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
+| **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, the project board | Clear backlog categorization (Pending, WIP, Done) |
 | **2. Specification** | Test-First Authoring | `uv run devops ci test tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
 | **5. AI Review**     | Automated Code Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
-| **6. PR Lifecycle**  | Branch Governance | `devops pr create --base release/vX.Y.Z` | CODEOWNERS notified; remote CI checks green |
-| **6. Release**       | Release Train | `devops roadmap close --confirm` (manual fallback: `devops release prepare <version> --create-pr`) | Items closed with summaries; release PR cut; tag and GitHub Release |
+| **6. PR Lifecycle**  | Branch Governance | `devops pr create` (opens a draft into `main`) | CODEOWNERS notified; remote CI checks green |
+| **6. Release**       | Release | A person merges the release-please pull request | Tag, GitHub Release, packages and images published |
 | **7. Observability** | Telemetry Audit | `devops telemetry status` | Active trace spans and Prometheus counters |
 
 ---
@@ -364,8 +361,8 @@ flowchart TD
 ## 4. Related Architecture & Documentation References
 
 - **Routine Operations Manual**: [`docs/ROUTINE_TASKS.md`](ROUTINE_TASKS.md)
-- **Release Management Runbook**: [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)
-- **Master Strategic Roadmap**: [`docs/ROADMAP.md`](ROADMAP.md)
+- **Release Cycle**: [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)
+- **Vision & Principles**: [`docs/VISION.md`](VISION.md)
 - **Contributing Guidelines**: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Enterprise Security Policy**: [`SECURITY.md`](../SECURITY.md)
 - **AI Agent Instructions & Invariants**: [`AGENTS.md`](../AGENTS.md)

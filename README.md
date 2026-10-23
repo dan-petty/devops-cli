@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/dan-petty/devops-cli/blob/main/LICENSE)
 [![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](https://github.com/dan-petty/devops-cli/blob/main/.devcontainer/devcontainer.json)
 
-`devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with tool-anchored **Automated Code Review & Group Analysis**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
+`devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with tool-anchored **Automated Code Review & Group Analysis**, OS Keyring secret isolation, and active SSRF network guardrails.
 
 ---
 
@@ -18,7 +18,6 @@
 - **Active SSRF & Egress Guardrails**: HTTP clients built by the `devops_cli.http.client` factory check the address they dial, at the connect and on every redirect, against their egress level (public, loopback or private), so a rebinding DNS answer cannot slip past a check made earlier; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Cloud metadata endpoints are refused at every level.
 - **Automated Code Review & Group Analysis**: Tool-anchored defect detection across branches and PRs combining static scanners, vulnerability analysis, and bounded model analysis for admitted finding groups.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle commands (`devops devcontainer post-create` / `post-start`, both runnable together via `devops devcontainer run-lifecycle`) implement the post-create and post-start hooks.
-- **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
 ---
@@ -35,7 +34,7 @@
 ## Architectural & Governance Documentation
 
 - [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
-- [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
+- [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — How release-please releases from `main`, and what a person does to release.
 - [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
 - [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
 - [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
@@ -134,7 +133,7 @@ Specialized personas available for interactive conversations via `devops ai chat
 
 ## Strategic Prioritization Matrix & Product Roadmap
 
-The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.0.1` through `v0.3.5`, plus `v0.4.x`/`v0.5.x` themes), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
+The roadmap lives on GitHub: the issues are its items, the [project board](https://github.com/dan-petty/devops-cli/projects) holds their Status, Priority, Value and Effort, and a person plans them into milestones. The *Value vs Effort Priority Matrix* view of the board shows the prioritization matrix. [`docs/VISION.md`](docs/VISION.md) holds the principles and themes.
 
 ---
 
@@ -142,9 +141,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 
 - [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
 - [Knowledge Base](src/devops_cli/ai/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
-- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
-- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
-- [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
+- [CHANGELOG.md](CHANGELOG.md) — The changes of each release, which release-please writes.
+- [Releases](https://github.com/dan-petty/devops-cli/releases) — The release notes, the wheel and the sdist of each release.
+- [VISION.md](docs/VISION.md) — Principles and themes.
 - [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
 
 ---
@@ -274,6 +273,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci uv-check [OPTIONS]` | Run uv check for fast static type checking and project validation. |
 |  | `devops ci lockfile [OPTIONS]` | Verify lockfile consistency and freshness via uv lock --check. |
+|  | `devops ci build [OPTIONS]` | Build the wheel and the sdist via uv build. |
 |  | `devops ci outdated [OPTIONS]` | Display outdated dependencies and packages via uv tree --outdated. |
 |  | `devops ci devcontainer [OPTIONS]` | Validate devcontainer manifest configuration syntax. |
 |  | `devops ci deps [OPTIONS]` | Validate dependency hygiene and imports via deptry. |
@@ -352,22 +352,9 @@ and excessive permissions fail it, and every other finding is shown. |
 | **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
 |  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
 |  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
-|  | `devops docs compact [OPTIONS]` | Compact historical documentation for completed release series. |
-| **release** | `devops release status [OPTIONS]` | Display current release status, versions, tags, changelog, and docs state. |
-|  | `devops release prepare [OPTIONS] <version>` | Bump version across pyproject.toml and source, update changelog, and sync docs. |
-|  | `devops release pr [OPTIONS]` | Create release cut branch, commit version bumps, and open a GitHub Release Pull Request. |
-|  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
-|  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
-|  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |
-|  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
-|  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
-| **roadmap** | `devops roadmap migrate [OPTIONS]` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
-|  | `devops roadmap render [OPTIONS]` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
-|  | `devops roadmap reprioritize [OPTIONS]` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm. |
-|  | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
-|  | `devops roadmap close [OPTIONS]` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm. |
-|  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
-|  | `devops roadmap run [OPTIONS]` | Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+| **roadmap** | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+|  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, each place by priority. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured refine_ready_target items are Ready across the open milestones and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
+|  | `devops roadmap run [OPTIONS]` | Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 |  | `devops roadmap return [OPTIONS] <item>` | Return an item to New on the roadmap board with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
@@ -375,14 +362,13 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |
-|  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
+|  | `devops pr create [OPTIONS]` | Open a draft pull request, into the default branch unless --base names another. |
 |  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
-|  | `devops pr copilot-pass [OPTIONS] <number>` | Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |

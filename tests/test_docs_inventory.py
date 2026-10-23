@@ -15,7 +15,6 @@ from devops_cli.ai.instruction_generator import (
     CONST_GEMINI_MD_FILENAME,
 )
 from devops_cli.config.constants import (
-    CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_DOCS_CLASS_GENERATED,
     CONST_DOCS_CLASS_HAND_WRITTEN,
     CONST_DOCS_INVENTORY,
@@ -49,7 +48,7 @@ def _inventory_problems(
     files: Iterable[str],
 ) -> tuple[list[str], dict[str, list[str]], list[str]]:
     """The files in no class, the files in several, and the entries naming one document that no
-    file is. A pattern entry matches the files of the release phase, so it may match none."""
+    file is. A pattern entry may match no file."""
     files = list(files)
     present = set(files)
     classes_by_file = {
@@ -74,15 +73,6 @@ def test_every_committed_markdown_file_has_exactly_one_class() -> None:
     assert _inventory_problems(_committed_markdown_files()) == ([], {}, [])
 
 
-def test_the_inventory_holds_with_no_changelog_fragment_committed() -> None:
-    """Verify the inventory passes on a tree without a `changelog.d/<issue>.md`, as the release
-    cut leaves it and as a release branch is before its first fragment."""
-    fragments = [f"{CONST_CHANGELOG_FRAGMENTS_DIR}/[0-9]*.md"]
-    files = [path for path in _committed_markdown_files() if not _matches(path, fragments)]
-
-    assert ("changelog.d/README.md" in files, _inventory_problems(files)) == (True, ([], {}, []))
-
-
 def test_a_listed_document_with_no_file_fails_the_inventory() -> None:
     """Verify an entry naming one document that is not committed is reported, so deleting a
     document leaves no entry behind."""
@@ -93,10 +83,10 @@ def test_a_listed_document_with_no_file_fails_the_inventory() -> None:
 
 def test_a_pattern_entry_with_no_file_still_leaves_a_stray_file_unclassified() -> None:
     """Verify a pattern entry that matches no file is not an error, while a file beside it that
-    no entry covers is still unclassified."""
-    files = ["changelog.d/README.md", "changelog.d/notes.md"]
+    no entry covers is still unclassified: `openspec/specs/**/*.md` matches no file here."""
+    files = ["openspec/notes.md"]
 
-    assert _inventory_problems(files)[0] == ["changelog.d/notes.md"]
+    assert _inventory_problems(files)[0] == ["openspec/notes.md"]
 
 
 @pytest.mark.parametrize(
@@ -104,7 +94,7 @@ def test_a_pattern_entry_with_no_file_still_leaves_a_stray_file_unclassified() -
     [
         ("docs/SDLC.md", False),
         ("docs/commands/*.md", True),
-        ("changelog.d/[0-9]*.md", True),
+        ("docs/agent/tasks/task-[0-9]*.md", True),
         ("k8s/**/README.md", True),
         ("docs/adr/000?.md", True),
     ],
@@ -151,7 +141,7 @@ def test_every_hand_written_document_names_only_real_commands() -> None:
     )
     assert (
         problems,
-        {"README.md", "docs/SELF_IMPROVEMENT.md", "RELEASE_CYCLE.md", "k8s/README.md"}
+        {"README.md", "docs/SELF_IMPROVEMENT.md", "CONTRIBUTING.md", "k8s/README.md"}
         <= documents_read,
         cli_reference_lines >= 60,
     ) == ([], True, True)

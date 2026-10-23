@@ -60,7 +60,7 @@ uv run pre-commit install
    ```bash
    uv run devops ci
    ```
-   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, workflow actionlint, and documentation freshness.
+   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint, and documentation freshness.
 
 ---
 
@@ -71,19 +71,29 @@ uv run pre-commit install
   - `fix/<short-description>`: Defect repairs
   - `refactor/<short-description>`: Code structure improvements
   - `docs/<short-description>`: Documentation changes
-- **Branch Targeting**:
-  - All feature, fix, refactoring, and docs branches **must target the active release branch** (e.g. `--base release/v0.2.11`), **NEVER** `main` directly.
-  - Official release branches target `main` when cutting an official release tag.
-- **Draft Pull Requests for In-Progress Work**:
-  - Open pull requests as drafts (`gh pr create --draft`) whenever implementation is ongoing or not yet ready for final maintainer review and merge.
-  - Convert to ready for review (`gh pr ready <pr-number>`) once all features, tests, and CI quality gates pass.
-- **Conventional Commits**:
-  All commits must strictly follow the Conventional Commits format:
+- **Branch Targeting**: Every topic branch targets `main`. A maintainer squash-merges the pull request.
+- **Drafts First**:
+  - Open every pull request with `devops pr create`. It always opens a draft.
+  - When all checks pass, mark the pull request ready with `devops pr ready <pr-number>`. This is the only way out of the draft.
+- **The Title Is the Changelog Line**:
+  The pull request title is a Conventional Commit, and the `Semantic PR title` check enforces it. The squash commit takes the title as its subject. release-please writes the changelog from these titles, so write the title for a reader of the changelog:
   ```
   feat(k8s): add automated minikube helm adoption check
   fix(runner): prevent thread pool executor blocking on tool timeout
   docs(sdlc): add enterprise lifecycle manual
   ```
+  Before `1.0.0` nothing is a breaking change, so a title has no `!` and a body has no `BREAKING CHANGE:` footer. Only these types add a line to the changelog:
+
+  | Title type | Changelog section |
+  | :--- | :--- |
+  | `feat` | Features |
+  | `fix` | Bug Fixes |
+  | `perf` | Performance Improvements |
+  | `refactor` | Code Refactoring |
+  | `revert` | Reverts |
+
+  The other types (`docs`, `test`, `build`, `ci`, `style`, `chore`) add no line. Do not edit `CHANGELOG.md`: release-please writes it in its release pull request. [`RELEASE_CYCLE.md`](RELEASE_CYCLE.md) tells what happens after the merge.
+- **Commits on the Branch**: Commits on a topic branch also follow the Conventional Commits format. The squash merge replaces them with the title.
 - **Documentation Synchronization**:
   Run documentation introspection after any command or option change:
   ```bash

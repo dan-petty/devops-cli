@@ -60,14 +60,14 @@ This document provides context, architectural principles, and best practices for
   - AI agents, workflows, and developers **MUST NEVER PUSH COMMITS (`git push`)** to any remote branch unless `uv run devops ci` has completed locally with 100% passing status (every check `devops ci` runs, coverage $\ge 90.0\%$, zero failed tests, zero unhandled deprecation warnings) in the active session.
   - Enforced locally via git hooks (`.pre-commit-config.yaml` pre-push stage running `uv run devops ci`). Bypassing pre-push hooks (`--no-verify`) is strictly forbidden.
   - When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged.
-- **Strict Prohibition of Direct Commits to `main` and `release/*` Branches (Pull Requests Required)**:
-  - AI agents, workflows, and developers **MUST NEVER COMMIT OR PUSH DIRECTLY TO `main` OR ANY `release/*` BRANCH**.
-  - Release branch creation is permitted when bootstrapping a release cycle (e.g. `git checkout -b release/v<version>`). All code changes, bug fixes, and documentation intended for `main` or `release/*` MUST be committed to topic branches (`fix/<description>`, `feat/<description>`, `docs/<description>`, `refactor/<description>`) and merged exclusively via GitHub Pull Requests.
-  - Blocked locally by the pre-commit hook `no-commit-to-branch` (`args: [--branch, main, --pattern, '^release/.*']`).
+- **Strict Prohibition of Direct Commits to `main` (Pull Requests Required)**:
+  - AI agents, workflows, and developers **MUST NEVER COMMIT OR PUSH DIRECTLY TO `main`**.
+  - Every change goes on a topic branch (`fix/<description>`, `feat/<description>`, `docs/<description>`, `refactor/<description>`) and reaches `main` only through a GitHub pull request.
+  - The pre-commit hook `no-commit-to-branch` (`args: [--branch, main]`) blocks a commit on `main`.
 - **Proactive GitHub Project Tracking & Workflow Grounding**: Every engineering action, planned deliverable, active WIP implementation, review remediation, and defect investigation MUST be grounded in GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues. Work without an active project card is strictly prohibited. Bootstrap tasks into issues, maintain real-time card state transitions, and reconcile custom fields on every lifecycle event.
 - **Author All Code, Documentation, Status & Wording as Merged/Committed (Zero Administrative Tracking PRs)**:
   - Status and wording of all code, documentation, checklists, deliverable descriptions, and task tracking files (`docs/agent/tasks/`) **MUST BE AUTHORED FROM THE OUTSET EXACTLY AS THEY WILL READ ONCE COMMITTED AND MERGED**.
-  - **Strict Prohibition of Standalone Tracking Commits & Follow-Up Status PRs**: Never create commits or pull requests solely to update tracking after a PR has merged. Such PRs are pointless administrative clutter. The deliverable is described in its final completed state within the functional deliverable PR itself (`- [x]`). An item delivered as several PRs is the one exception: each `Part of #<issue>` PR may author or update its task file, and the last closes the issue. Work not done is a plain bullet naming its follow-up issue; checks only a person can run are plain bullets starting `Pending a person:`.
+  - **Strict Prohibition of Standalone Tracking Commits & Follow-Up Status PRs**: Never create commits or pull requests solely to update tracking after a PR has merged. Such PRs are pointless administrative clutter. The deliverable is described in its final completed state within the functional deliverable PR itself (`- [x]`). Work not done is a plain bullet naming its follow-up issue; checks only a person can run are plain bullets starting `Pending a person:`.
 - **API Rate Limit Honor, Resilient Backoff & Quota Budgeting**:
   - Respect API rate limits, complexity budgets, and resource quotas across external services (GitHub REST/GraphQL, AI LLM/embedding inference, package registries, cloud providers).
   - Inspect remaining rate limits proactively (`devops gh rate-limit`, `x-ratelimit-remaining`, `Retry-After`).
@@ -86,9 +86,9 @@ This document provides context, architectural principles, and best practices for
 - **Mandatory Root-Cause Remediation**: Investigate and fix the cause at the source. If an external constraint blocks the fix, add a check that fails when the problem returns, and link the incident. Add prose here only when no check is possible.
 - **Proactive Deprecation Remediation & Zero-Warning Mandate**: When encountering deprecation warnings (`DeprecationWarning`, Python 3.14+, Pydantic v2, Typer, Click), investigate and resolve them at the source immediately. Enforced by `uv run devops ci`.
 - **Continuous Roadmap Synthesis, Field Observations & Self-Improvement**:
-  - File candidates with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`). The body states friction, evidence, and proposed remedy. Intake checks duplicates, labels `source/agent`, assigns type, Priority, Value, Effort, and places in backlog or release.
-  - Never set milestone or priority on a new issue, and never edit `docs/ROADMAP.md` (written from GitHub at release cut; see [ADR 0001](docs/adr/0001-github-is-the-roadmap-source.md)).
-  - Respect agent filing quota (`source/agent`, `budget/borrowed` for splits/follow-ups/P0/P1 bugs; see [#1153](https://github.com/dan-petty/devops-cli/issues/1153)).
+  - File candidates with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`). The body states friction, evidence, and proposed remedy. Intake checks duplicates, labels `source/agent`, assigns type, Priority, Value, Effort, and puts the item in the backlog.
+  - Never set milestone or priority on a new issue. A person plans milestones on the board ([ADR 0013](docs/adr/0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md)).
+  - Respect agent filing quota over its rolling window of days (`source/agent`, `budget/borrowed` for splits/follow-ups/P0/P1 bugs; see [#1153](https://github.com/dan-petty/devops-cli/issues/1153)).
 - **Continuous Interaction & Collaborative Value Improvement**: Suggest ways to improve ergonomics, speed, resilience, docs, test coverage, and tooling efficiency.
 
 ---
@@ -115,9 +115,9 @@ All work follows a test-first progressive verification strategy:
 - **GitHub Projects v2 Bootstrap**: Ground every task in an issue card on the board (`https://github.com/dan-petty/devops-cli/projects`). Move cards to `In Progress` before editing `src/`.
 - **Modular Per-Task Tracking Architecture (`docs/agent/tasks/`)**:
   - Task tracking lives exclusively in isolated per-task files (`docs/agent/tasks/task-<issue>-<slug>.md`). Topic branches create/modify only their own task file.
-  - **Changelog Fragments**: Add changelog entry as `changelog.d/<issue>.md` (under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`). Never edit `CHANGELOG.md` or `docs/ROADMAP.md` in topic PRs. Fragments are collected at the release cut. An item delivered as several PRs gets its fragment from the PR that closes it; a `Part of #<issue>` PR adds none, so parts open at once never conflict on it and an item moved out of the release part-way publishes no entry under it.
+  - **Changelog**: The PR title is the changelog line. Never edit `CHANGELOG.md`, `.release-please-manifest.json` or a version line: release-please writes them in its own pull request.
   - **Issue-Only Linking & No Metadata Fields**: Task files link only their issue (`**Issue**: [#<issue>](...)`). Never carry `**PR**`, `**Status**`, `**Milestone**`, or `**Priority**` lines (status, milestone, and priority live exclusively on GitHub per ADR 0001). Enforced by [`tests/test_agent_task_files.py`](tests/test_agent_task_files.py).
-  - **Mandatory Author-as-Merged Rule**: Deliverable PR authors the task file in the deliverable commit with ticked boxes (`- [x]`) only for completed work. Once merged, the issue closes and cards move to Done without administrative commits. An item delivered as several PRs: each but the last says `Part of #<issue>`; the last closes the issue. Work not done is a plain bullet naming its follow-up issue.
+  - **Mandatory Author-as-Merged Rule**: Deliverable PR authors the task file in the deliverable commit with ticked boxes (`- [x]`) only for completed work. Once merged, the issue closes and cards move to Done without administrative commits. Work not done is a plain bullet naming its follow-up issue.
   - Reconcile board fields (`Status`, `Priority`) using `devops gh project sync` (sets Status from issue labels; adds no cards).
 
 ### Knowledge Base & Routine Operations
@@ -130,46 +130,49 @@ All work follows a test-first progressive verification strategy:
 | Operation | Command | Purpose |
 | :--- | :--- | :--- |
 | **Dependency Sync** | `uv sync` | Synchronize virtual environment with lockfile. |
-| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Quality gate (version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs, deps, openspec). |
+| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Quality gate (python_version, test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, build, actionlint, docs, deps, openspec). |
 | **Targeted Test** | `uv run devops ci test tests/test_<feature>.py` | Fast, isolated unit test execution, serial for a few test files. |
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
 | **Documentation Sync** | `devops docs generate --sync-readme` | Synchronize markdown CLI references and README matrix. |
-| **Milestone Lifecycle** | `devops gh milestones list` / `close <ver>` | Inspect milestone progress and close on release merge. |
+| **Milestones** | `devops gh milestones list` | Inspect the progress of the planning milestones. |
 | **Project Sync** | `devops gh project sync` | Reconcile Status and Priority on cards already on the board. |
 
 ---
 
-## 3. Git Hygiene, Release Governance & GitHub Integration
+## 3. Git Hygiene, Pull Requests & GitHub Integration
 
-### Branch Governance & Hierarchy
-- **Branch Targeting**: Topic PRs target active release branch (`--base release/v<version>`). Release PRs target `main`, titled strictly `feat(release): v<version>`. Direct commits to `main` and `release/*` are blocked by `no-commit-to-branch` hook.
+### Branches & Releases
+- **Branch Targeting**: Topic PRs target `main`. The PR title is a Conventional Commit (`type(scope): summary`). Before `1.0.0` nothing is a breaking change, so a title has no `!` and a body has no `BREAKING CHANGE:` footer. The `Semantic PR title` check enforces it. The squash commit takes the title, and the title becomes the changelog line.
+- **Agents Take No Part in Releases**: release-please makes every release, and a person merges its pull request ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)).
+  - Agents do not open, edit, update, review, comment on or merge the release-please pull request.
+  - Agents do not create tags or GitHub releases. Agents do not edit `CHANGELOG.md`, `.release-please-manifest.json` or version lines.
+  - Agents do not run release-please, and do not change its settings to steer a version. Agents never write a `Release-As:` line.
 - **`roadmap-service` Is Suspended ([#1562](https://github.com/dan-petty/devops-cli/issues/1562))**:
   - GitHub suspended the Service's machine account. `deployment/roadmap-service` is held at 0 replicas in git. Rules describing the running Service do not apply until #1562's revert merges.
   - Nobody scales up, restarts, or re-pushes secrets for `roadmap-service`.
-  - An agent files its own new candidate with `intake --title`, `--body-file` and `--confirm`. Only a person runs any other mutating `devops roadmap` command, from their own account: `close --confirm`, `return --confirm`, `reprioritize`, `refine`, `run --confirm`, and `intake` over existing issues. For these, an agent uses `--plan` and `--dry-run` only.
+  - An agent files its own new candidate with `intake --title`, `--body-file` and `--confirm`. Only a person runs any other mutating `devops roadmap` command, from their own account: `return --confirm`, `refine`, `run --confirm`, and `intake` over existing issues. For these, an agent uses `--plan` and `--dry-run` only.
   - Items labelled `status/blocked` pointing to #1562 stay blocked until reinstated.
-- **In-Cluster Service & Concurrency Avoidance**: When `roadmap-service` is active, avoid concurrent manual mutations (`close --confirm`, `intake --confirm`). Read-only inspection (`--plan`, `--dry-run`) is permitted. For service architecture, job cycles, telemetry, and diagnostics, see `k8s/README.md` and [`docs/SDLC.md`](docs/SDLC.md) Phase 6.
-- **Remote Branch Lifecycle**: Every remote branch must have an open PR (`--draft` for WIP). Merged or superseded branches must be deleted immediately (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
+- **In-Cluster Service & Concurrency Avoidance**: When `roadmap-service` is active, avoid concurrent manual mutations (`intake --confirm`). Read-only inspection (`--plan`, `--dry-run`) is permitted. For service architecture, job cycles, telemetry, and diagnostics, see `k8s/README.md` and [`docs/SDLC.md`](docs/SDLC.md) Phase 6.
+- **Remote Branch Lifecycle**: Every remote branch must have an open PR, which `devops pr create` opens as a draft. Merged or superseded branches must be deleted immediately (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Commit Standards**: Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`). Concise, effect-driven messages. Never include internal session timestamps (`164259`), review IDs, or prompt phase numbers. Zero standalone tracking commits.
 
 ### Pull Request Lifecycle & Review Remediation
-- **Sequential PR Processing (FIFO)**: When multiple open PRs exist, process and advance them in strict chronological order (lowest PR number / earliest creation date first). Addressing feedback, fixing CI, and resolving conflicts on older PRs strictly takes precedence over newer PRs.
+- **Sequential PR Processing (FIFO)**: When multiple open PRs exist, process and advance them in strict chronological order (lowest PR number / earliest creation date first). Addressing feedback, fixing CI, and resolving conflicts on older PRs strictly takes precedence over newer PRs. Process only your own PRs. Skip the release-please PR: agents do not touch it.
 - **Two-Stage PR Lifecycle**:
-  - **Stage 1 (Draft PR)**: Open draft PR (`devops pr create --draft`) for in-progress work. Monitor remote CI checks on push.
-  - **Stage 2 (Ready for Review)**: Convert to ready via `devops pr ready <pr_number>` (invoking GraphQL `markPullRequestReadyForReview`; REST API ignores `draft: false`).
+  - **Stage 1 (Draft PR)**: Open every PR with `devops pr create`, which always opens a draft. Monitor remote CI checks on push.
+  - **Stage 2 (Ready for Review)**: After the checks pass, convert the PR with `devops pr ready <pr_number>` (GraphQL `markPullRequestReadyForReview`; REST API ignores `draft: false`). It is the only path to ready.
 - **Mandatory PR Monitoring Gate (`devops pr monitor`)**:
-  - Run `devops pr monitor <pr_number>` immediately after opening or updating PRs. Allow at least 5 minutes (300s) for remote CI checks (and Copilot review on PRs into `main` only; `release/*` PRs do not wait for Copilot). Wait at least 60s between polls.
+  - Run `devops pr monitor <pr_number>` immediately after opening or updating PRs. Allow at least 5 minutes (300s) for remote CI checks. Wait at least 60s between polls. Copilot reviews a PR only when a person requests it.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply test-first fixes, push, and re-monitor.
   - **In-Thread Review Replies & Resolution**: When review comments are submitted (exit code 2), inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply **directly within each review thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve threads (`devops pr threads resolve <thread_id>`). Top-level summary comments alone do not satisfy this requirement.
   - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits 0 (all checks green, 0 unresolved threads). Maintainers approve and squash-merge; agents never merge autonomously. See [`docs/SDLC.md`](docs/SDLC.md) Phase 6.
 
 ### GitHub Projects, Issues, Views, Milestones & Pages
-- **Milestone Population & Issue Templates**: Author tracking issues for active milestones using templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`). Assign Conventional Commit titles, milestone links, and taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-- **PR Closing Keywords**: PRs must link their issue via closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`). A PR that delivers part of an item planned as several PRs says `Part of #<id>` instead, naming one open item of the base's release and changing its task file; the item's last PR closes it. `devops pr check-readiness` blocks a body that names no issue, several, or both a closing keyword and a part reference.
+- **Issue Templates & Milestones**: Intake files new issues in the shape of the templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`), with Conventional Commit titles and taxonomy labels (`type/*`, `scope/*`, `priority/*`). A milestone is a planning bucket that a person sets. It never names a version.
+- **PR Closing Keywords**: The PR body closes exactly one open issue with a closing keyword (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`). GitHub closes the issue when the PR merges into `main`. The PR changes that issue's task file. `devops pr check-readiness` blocks a body that closes no issue or several.
 - **Four Canonical Project Views**: Ground work in `.github/project-template.json` views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*). Link board via `devops gh project link <number>`.
-- **Triage Auditing**: Regularly run `devops gh issues triage` to detect untriaged issues. Close milestones on release merge (`devops gh milestones close <version>`).
-- **Historical Documentation Compaction**: On major/minor releases, consolidate older subsections in `docs/ROADMAP.md` and `docs/RELEASE_NOTES.md` into summary blocks to preserve context window capacity.
+- **Triage Auditing**: Regularly run `devops gh issues triage` to detect untriaged issues.
 - **GitHub Pages Verification**: Run `devops gh pages verify` to validate Jekyll config (`docs/github-pages.config.yaml`) and docs publishing root.
 - **Rate-Managed Tooling**: Always use native CLI commands (`devops pr`, `devops gh`) or FastMCP tools (`pr_monitor`, `gh_rate_limit`, `run_gh`). Bare `gh` invocations are strictly prohibited.
 
@@ -184,7 +187,7 @@ All work follows a test-first progressive verification strategy:
 - **Test Conventions**: Tests follow [`docs/TESTING.md`](docs/TESTING.md): they double only process edges, each through one shared fake ([ADR 0007](docs/adr/0007-tests-double-only-process-edges.md)), and never hardcode live credentials or endpoints.
 - **Standard Parsers Over Brittle Literals**: Never rely on partial collections of string literals or ad-hoc file extensions. Use standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`, `urllib.parse`, `ipaddress`) and official specifications (Public Suffix List via `tldextract`, PEP 508 `packaging.requirements`).
 - **Pure Markdown Prompt Tasks**: All LLM system prompts and task instructions MUST reside in dedicated Markdown files under `src/devops_cli/ai/tasks/` loaded via `load_task_prompt()`. Inline multi-line prompt strings in Python code are strictly prohibited.
-- **Line Breaks Belong to Source Files, Not Output**: Hard-wrap text only where line length limits apply (Python source files, Markdown documents). Never hand-wrap emitted text: terminal messages, Rich renderables, log records, commit bodies, PR descriptions, release notes, or `lang/en/` strings. Compose emitted text as continuous paragraphs, splitting source strings via implicit string concatenation across lines rather than inserting embedded `\n`.
+- **Line Breaks Belong to Source Files, Not Output**: Hard-wrap text only where line length limits apply (Python source files, Markdown documents). Never hand-wrap emitted text: terminal messages, Rich renderables, log records, commit bodies, PR descriptions, or `lang/en/` strings. Compose emitted text as continuous paragraphs, splitting source strings via implicit string concatenation across lines rather than inserting embedded `\n`.
 - **Canonical Location Formatting**: Terminal output, Rich tables, reports, and findings must format locations as `filename.ext:line` or `filename.ext:n-n`.
 - **Zero Hardcoded Scoring**: Never hardcode arbitrary numerical scores or confidence weights. Scoring must originate directly from external tools or structured AI responses; otherwise fields remain `None` or 0.0.
 - **Standardized Domain Exception Taxonomy**: All domain error states must raise typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`, specifying POSIX exit codes, machine-readable error codes (`CONST_ERROR_CODE_*`), and structured context dictionaries. Bare Python exceptions (`ValueError`, `RuntimeError`) in domain logic are strictly prohibited.
