@@ -73,7 +73,7 @@ def test_run_checkov_scan_list_output(tmp_path: Path) -> None:
             }
         ]
     )
-    mock_proc = MagicMock(stdout=fake_output)
+    mock_proc = MagicMock(stdout=fake_output, returncode=0, stderr="")
     with (
         patch("shutil.which", return_value="/usr/local/bin/checkov"),
         patch("subprocess.run", return_value=mock_proc),
@@ -101,7 +101,7 @@ def test_run_checkov_scan_single_dict_output(tmp_path: Path) -> None:
             }
         }
     )
-    mock_proc = MagicMock(stdout=single_dict_output)
+    mock_proc = MagicMock(stdout=single_dict_output, returncode=0, stderr="")
     with (
         patch("shutil.which", return_value="/usr/local/bin/checkov"),
         patch("subprocess.run", return_value=mock_proc),

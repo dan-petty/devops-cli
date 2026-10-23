@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_TRIVY, build_trivy_scan_cmd
@@ -15,6 +15,9 @@ from devops_cli.config.defaults import (
     DEFAULT_TRIVY_SEVERITIES,
 )
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +150,8 @@ def run_trivy_scan(
     severity: str = DEFAULT_TRIVY_SEVERITIES,
     *,
     isolated: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Trivy scanner and return scan outcome; `isolated` for a review (#972)."""
-    scanner = TrivyScanner()
+    scanner = TrivyScanner(tool_executor)
     return scanner.scan(target, isolated=isolated, scan_type=scan_type, severity=severity)

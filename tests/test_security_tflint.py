@@ -63,7 +63,7 @@ def test_tflint_scan_mocked_binary(tmp_path: Path) -> None:
         }
     )
 
-    mock_proc = MagicMock()
+    mock_proc = MagicMock(returncode=0, stderr="")
     mock_proc.stdout = fake_output
 
     with patch("shutil.which", return_value="/usr/local/bin/tflint"):

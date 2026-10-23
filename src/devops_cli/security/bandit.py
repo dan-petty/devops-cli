@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import configparser
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
@@ -21,6 +21,9 @@ from devops_cli.security.base import (
     ScanOutcome,
     relativize_scan_path,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 
 def _parse_single_bandit_result(
@@ -97,8 +100,8 @@ class BanditScanner(BaseSecurityScanner):
         ScannerConfigFile("--ini", CONST_BANDIT_INI_NAME, CONST_REVIEW_SCAN_BANDIT_INI),
     )
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
+        super().__init__(tool_executor)
         self._tree: Path | None = None
 
     def scan(
@@ -202,10 +205,11 @@ def run_bandit_scan(
     *,
     isolated: bool = False,
     tree: Path | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Bandit Python security scanner subprocess and return scan outcome; `isolated` for
     a review (#972)."""
-    scanner = BanditScanner()
+    scanner = BanditScanner(tool_executor)
     return scanner.scan(
         target,
         isolated=isolated,

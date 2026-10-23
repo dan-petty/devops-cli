@@ -13,7 +13,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
@@ -26,6 +26,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_CACHE_DATA_DIR
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +250,10 @@ class OsvScanner(BaseSecurityScanner):
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
 
-    def __init__(self, snapshot_digest: str | None = None) -> None:
+    def __init__(
+        self, snapshot_digest: str | None = None, tool_executor: ToolExecutor | None = None
+    ) -> None:
+        super().__init__(tool_executor)
         self.snapshot_digest = snapshot_digest or get_or_compute_snapshot_digest()
         self.last_cyclonedx: dict[str, Any] = {}
         self.last_locked_packages: dict[str, list[str]] = {}
@@ -315,11 +321,11 @@ class OsvScanner(BaseSecurityScanner):
         if isolated:
             with tempfile.TemporaryDirectory(prefix="devops-scan-osv-") as scan_dir:
                 outcome = self._run_scanner_command(
-                    cmd, Path(scan_dir), effective_lockfiles[0], timeout=timeout
+                    cmd, Path(scan_dir), effective_lockfiles, timeout=timeout
                 )
         else:
             outcome = self._run_scanner_command(
-                cmd, scan_tree, effective_lockfiles[0], timeout=timeout
+                cmd, scan_tree, effective_lockfiles, timeout=timeout
             )
 
         if gaps and outcome.status == "ran":
@@ -333,8 +339,9 @@ def run_osv_scan(
     tree: Path | None = None,
     isolated: bool = False,
     snapshot_digest: str | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute osv-scanner over target lockfiles and return ScanOutcome (#1146)."""
-    scanner = OsvScanner(snapshot_digest=snapshot_digest)
+    scanner = OsvScanner(snapshot_digest=snapshot_digest, tool_executor=tool_executor)
     target_path = targets[0] if targets else (tree or Path.cwd())
     return scanner.scan(target_path, lockfiles=targets, tree=tree, isolated=isolated)
