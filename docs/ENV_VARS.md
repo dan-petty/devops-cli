@@ -84,6 +84,6 @@ All configuration options for `devops-cli` can be overridden via environment var
 
 ## Usage Notes
 
-- Secret tokens (`*.token`, `*.api_key`) should be set via `devops config set <key> <val>` to store them securely in the OS Keyring.
+- A credential (`*.token`, `*.api_key`, `*.password`) goes to the OS keyring with `devops config set <key>`, which asks for it at a hidden prompt. A multi-line credential, such as a PEM private key, comes from a file with `devops config set <key> --from-file key.pem`, or from stdin with `--from-file -`.
 - Environment variable overrides take precedence over values in `config.yaml`.
 - Run `devops config output` to inspect all active environment variables.

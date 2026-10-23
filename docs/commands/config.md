@@ -34,8 +34,13 @@ devops config get <key>
 
 **Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.**
 
+Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.
+
+A multi-line credential, such as a PEM private key, comes from a file or stdin:
+`devops config set <key> --from-file key.pem`, or `--from-file -` to read stdin.
+
 ```bash
-devops config set <key> <value>
+devops config set [OPTIONS] <key> <value>
 ```
 
 **Arguments:**
@@ -43,7 +48,13 @@ devops config set <key> <value>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
-| `<value>` | `string` | No | Value to set. Omit it for a credential to type it at a hidden prompt, keeping it out of the shell history and the process list. |
+| `<value>` | `string` | No | Value to set. Omit it for a credential to type it at a hidden prompt, keeping it out of the shell history and the process list. The prompt reads one line, so a multi-line credential comes from --from-file. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--from-file` | `filename` | - | Read the credential from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them, and the value never shows in the output. |
 
 ---
 

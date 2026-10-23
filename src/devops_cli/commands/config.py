@@ -6,7 +6,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, BinaryIO
 
 import typer
 
@@ -15,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_CONFIG_PATH,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
+    CONST_SECRET_FILE_MAX_BYTES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -183,13 +184,67 @@ def _value_or_prompt(key: str, value: str | None) -> str:
     return str(typer.prompt(MESSAGES.config.secret_prompt.format(key=key), hide_input=True))
 
 
+def _from_file_error(message: str) -> typer.BadParameter:
+    return typer.BadParameter(message, param_hint="'--from-file'")
+
+
+def _read_to_end(source: BinaryIO, limit: int) -> bytes | None:
+    """Every byte up to the end of `source`, or None once more than `limit` bytes arrive.
+
+    The io contract lets one read of a terminal return less than it asks for before the end, so
+    the loop reads until a read returns nothing.
+    """
+    data = bytearray()
+    while chunk := source.read(limit + 1 - len(data)):
+        data += chunk
+        if len(data) > limit:
+            return None
+    return bytes(data)
+
+
+def _secret_from_file(key: str, value: str | None, source: BinaryIO) -> str:
+    """The credential a file or stdin holds, as its UTF-8 text, with no line added or removed.
+
+    A key that is not a credential, a VALUE given as well, and an input that is empty, too
+    large or not UTF-8 each exit 2 before anything is stored. No message quotes the input.
+    """
+    if key not in _SECRET_FIELDS:
+        raise _from_file_error(MESSAGES.config.from_file_not_secret.format(key=key))
+    if value is not None:
+        raise _from_file_error(MESSAGES.config.from_file_and_value)
+    raw = _read_to_end(source, CONST_SECRET_FILE_MAX_BYTES)
+    if raw is None:
+        limit = CONST_SECRET_FILE_MAX_BYTES
+        raise _from_file_error(MESSAGES.config.from_file_oversize.format(limit=limit))
+    try:
+        secret = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # The decode error quotes the bytes it could not decode, and they are part of the secret.
+        raise _from_file_error(MESSAGES.config.from_file_not_text) from None
+    if not secret.strip():
+        raise _from_file_error(MESSAGES.config.from_file_empty)
+    return secret
+
+
 @app.command("set")
 def set_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
     value: Annotated[str | None, typer.Argument(help=HELP.config.value)] = None,
+    from_file: Annotated[
+        typer.FileBinaryRead | None,
+        typer.Option("--from-file", metavar="PATH", help=HELP.config.from_file),
+    ] = None,
 ) -> None:
-    """Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden."""
-    value = _value_or_prompt(key, value)
+    """Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.
+
+    A multi-line credential, such as a PEM private key, comes from a file or stdin:
+    `devops config set <key> --from-file key.pem`, or `--from-file -` to read stdin.
+    """
+    value = (
+        _value_or_prompt(key, value)
+        if from_file is None
+        else _secret_from_file(key, value, from_file)
+    )
     settings = load_settings()
     try:
         dotted_set(settings, key, value)
