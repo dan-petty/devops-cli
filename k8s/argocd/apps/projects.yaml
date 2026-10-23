@@ -57,6 +57,9 @@ spec:
         name: valkey-runs-auth
       - group: ''
         kind: Secret
+        name: valkey-auth
+      - group: ''
+        kind: Secret
         name: devops-cli
       - group: ''
         kind: ConfigMap

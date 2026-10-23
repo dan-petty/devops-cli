@@ -233,7 +233,11 @@ class TestK8sPortkeyManifests:
         )
 
     def test_portkey_network_policy_rules(self) -> None:
-        """Verify Portkey NetworkPolicy isolates egress to model backends and cache."""
+        """Verify Portkey NetworkPolicy isolates egress to the model backends.
+
+        Portkey 1.15.0 reads its cache only from REDIS_CONNECTION_STRING, which the Deployment
+        does not set, so it calls no Valkey and its policy admits none (#1654).
+        """
         netpol_docs = list(
             yaml.safe_load_all((PORTKEY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8"))
         )
@@ -252,10 +256,7 @@ class TestK8sPortkeyManifests:
             sorted(egress_backends),
         ) == (
             "portkey-perimeter",
-            [
-                ("app.kubernetes.io/name", "valkey"),
-                ("llm.devops.io/provider", "ollama"),
-            ],
+            [("llm.devops.io/provider", "ollama")],
         )
 
     def test_portkey_ollama_egress_selects_every_ollama_tier(self) -> None:

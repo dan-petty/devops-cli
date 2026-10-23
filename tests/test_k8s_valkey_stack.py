@@ -1,12 +1,78 @@
 """Tests verifying Valkey is configured as the key-value store across all Kubernetes stacks."""
 
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import yaml
 
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
+LLM_DIR = K8S_DIR / "llm"
+CACHE_SERVICE_HOST = "valkey.llm.svc.cluster.local"
+
+
+def _document(path: Path, kind: str, name: str) -> dict[str, Any]:
+    """Return the document of this kind and name from a multi-document manifest."""
+    return next(
+        document
+        for document in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(document, dict)
+        and document.get("kind") == kind
+        and document["metadata"]["name"] == name
+    )
+
+
+def _container(deployment: dict[str, Any], name: str) -> dict[str, Any]:
+    """Return the named container of a Deployment's pod template."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    return next(container for container in containers if container["name"] == name)
+
+
+def _secret_env(container: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """Return each environment variable a container reads from a Secret, as (Secret, key)."""
+    return {
+        variable["name"]: (
+            variable["valueFrom"]["secretKeyRef"]["name"],
+            variable["valueFrom"]["secretKeyRef"]["key"],
+        )
+        for variable in container.get("env", [])
+        if "secretKeyRef" in variable.get("valueFrom", {})
+    }
+
+
+def _password_setup(deployment: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+    """Return the valkey container's script before `exec`, the exec'd command, and the
+    emptyDir that holds the config file the script writes."""
+    container = _container(deployment, "valkey")
+    _shell, _flag, script = container["command"]
+    prelude, _, server = script.partition("exec ")
+    mount = next(m for m in container["volumeMounts"] if m["mountPath"] == "/run/valkey")
+    volume = next(
+        v for v in deployment["spec"]["template"]["spec"]["volumes"] if v["name"] == mount["name"]
+    )
+    return prelude, server, volume["emptyDir"]
+
+
+def _cache_secret() -> tuple[str, str]:
+    """Return the name and only key of the Secret that holds the cache Valkey's password."""
+    secret = next(s for s in CLUSTER_SECRETS if s.ref == "llm/valkey-auth")
+    (entry,) = secret.entries
+    return secret.name, entry.key
+
+
+def _strings(node: Any) -> Iterator[str]:
+    """Yield every string value in a parsed YAML document, at any depth."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _strings(item)
 
 
 def _extract_images_from_yaml(data: Any) -> list[str]:
@@ -64,7 +130,7 @@ def test_llm_valkey_manifest_specification() -> None:
     container = containers[0]
     assert container.get("name") == "valkey"
     assert container.get("image") == "valkey/valkey:9.1.2-alpine"
-    assert "valkey-server" in container.get("command", [])
+    assert "exec valkey-server " in container["command"][-1]
 
     service = next((d for d in docs if isinstance(d, dict) and d.get("kind") == "Service"), None)
     assert service is not None, f"Expected Service document in {valkey_path}"
@@ -99,3 +165,106 @@ def test_no_proprietary_redis_images_in_stack() -> None:
                 assert image_name != "redis", (
                     f"Found proprietary redis image {img!r} in {yml_file.relative_to(REPO_ROOT)}"
                 )
+
+
+def test_the_cache_valkey_takes_its_password_from_its_secret_as_the_run_index_does() -> None:
+    """The llm cache Valkey requires a password from Secret valkey-auth, written as the run index
+    writes its own (#1654).
+
+    It ran with no password, so every pod in llm and monitoring, and Traefik, could read and
+    write Open WebUI's state. The script writes the password into a config file on a memory
+    volume, never onto valkey-server's command line, where the process list would show it.
+    """
+    cache = _document(LLM_DIR / "valkey.yaml", "Deployment", "valkey")
+    runs = _document(LLM_DIR / "valkey-runs.yaml", "Deployment", "valkey-runs")
+    cache_prelude, cache_server, cache_volume = _password_setup(cache)
+    runs_prelude, _, runs_volume = _password_setup(runs)
+    secret, key = _cache_secret()
+
+    assert _secret_env(_container(cache, "valkey")) == {"VALKEY_PASSWORD": (secret, key)}
+    assert (cache_prelude, cache_volume) == (runs_prelude, runs_volume)
+    assert cache_server.split() == [
+        "valkey-server",
+        "/run/valkey/auth.conf",
+        "--save",
+        '""',
+        "--appendonly",
+        "no",
+        "--dir",
+        "/data",
+    ]
+
+
+def test_the_cache_valkey_exporter_scrapes_with_the_password() -> None:
+    """The redis-exporter sidecar sends the password, so `redis_up` stays 1 once Valkey requires it."""
+    cache = _document(LLM_DIR / "valkey.yaml", "Deployment", "valkey")
+
+    assert _secret_env(_container(cache, "redis-exporter")) == {"REDIS_PASSWORD": _cache_secret()}
+
+
+def test_open_webui_sends_the_password_from_the_secret_in_both_redis_urls() -> None:
+    """Open WebUI reads the cache Valkey's password from Secret valkey-auth (#1654).
+
+    The chart renders REDIS_URL and WEBSOCKET_REDIS_URL from `websocket.url` before
+    `extraEnvVars`, and Kubernetes expands `$(VAR)` only from a variable defined earlier. The
+    variables of `envFrom` come before every `env` entry, so the Secret comes in through
+    `extraEnvFrom`, and its key is the variable the URL names.
+    """
+    values = yaml.safe_load((LLM_DIR / "values-open-webui.yaml").read_text(encoding="utf-8"))
+    secret, key = _cache_secret()
+
+    assert values["extraEnvFrom"] == [{"secretRef": {"name": secret}}]
+    assert values["websocket"]["url"] == f"redis://:$({key})@{CACHE_SERVICE_HOST}:6379/0"
+
+
+def test_only_open_webui_and_the_metrics_scrapers_reach_the_cache_valkey() -> None:
+    """valkey-perimeter admits Open WebUI on 6379 and the monitoring namespace on the exporter's
+    port, and lets Valkey dial nothing (#1654).
+
+    llm-default-perimeter admitted every pod in llm, the monitoring namespace and Traefik on
+    every port. Policies add up, so llm-default-perimeter leaves valkey out.
+    """
+    policy = _document(LLM_DIR / "valkey.yaml", "NetworkPolicy", "valkey-perimeter")
+
+    assert policy["spec"] == {
+        "podSelector": {"matchLabels": {"app.kubernetes.io/name": "valkey"}},
+        "policyTypes": ["Ingress", "Egress"],
+        "ingress": [
+            {
+                "from": [
+                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "open-webui"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 6379}],
+            },
+            {
+                "from": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "TCP", "port": 9121}],
+            },
+        ],
+        "egress": [],
+    }
+
+
+def test_open_webui_is_the_only_workload_that_names_the_cache_valkey() -> None:
+    """Only Open WebUI is set up to reach the cache Valkey, so its perimeter admits no other pod (#1654).
+
+    Portkey 1.15.0 reads its cache only from REDIS_CONNECTION_STRING, so its CACHE_STORE and
+    REDIS_URL had no effect. LiteLLM reads no LITELLM_REDIS_* variable, and the gateway config
+    turns on no cache. Neither connected to Valkey.
+    """
+    files = sorted(
+        {
+            path.relative_to(K8S_DIR).as_posix()
+            for path in K8S_DIR.rglob("*.yaml")
+            for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+            if any(CACHE_SERVICE_HOST in value for value in _strings(document))
+        }
+    )
+
+    assert files == ["llm/values-open-webui.yaml"]

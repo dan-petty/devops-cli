@@ -898,7 +898,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_workloads(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, portkey, and the run index
+        """Verify llm-default-perimeter excludes gateway, portkey and both Valkeys
         to avoid additive policy leakage."""
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
@@ -911,7 +911,7 @@ class TestK8sLLMGatewayManifests:
             sorted(name_expr["values"]),
         ) == (
             "NotIn",
-            ["llm-gateway", "portkey", "valkey-runs"],
+            ["llm-gateway", "portkey", "valkey", "valkey-runs"],
         )
 
     def test_llm_manifests_have_a_deploy_path(self) -> None:
@@ -975,10 +975,10 @@ class TestK8sLLMGatewayManifests:
     def test_gateway_egress_admits_all_backends_in_configmap(self) -> None:
         """Verify the gateway policy admits every backend the gateway calls (#795).
 
-        The backends are read from the manifests: each ConfigMap `api_base` and the Deployment's
-        Valkey host. Each must be a Service under k8s/llm with a selector, and some egress rule
-        must select a subset of that selector on the Service's numeric targetPort. The test used
-        to pin four selector names, two of which match no pod, and never read the ConfigMap.
+        The backends are read from the ConfigMap: each `api_base`. Each must be a Service under
+        k8s/llm with a selector, and some egress rule must select a subset of that selector on
+        the Service's numeric targetPort. The test used to pin four selector names, two of which
+        match no pod, and never read the ConfigMap.
         """
         policy = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
         backends = _gateway_backends()
@@ -1025,22 +1025,15 @@ def _service_target(service: dict[str, Any] | None, port: int | None) -> Backend
 def _gateway_backends() -> dict[str, BackendTarget | None]:
     """Map each backend the gateway calls to its Service's selector and targetPort, or None.
 
-    The backends are every `api_base` in the gateway ConfigMap and the Deployment's
-    LITELLM_REDIS_HOST and LITELLM_REDIS_PORT. A backend maps to None unless its host names a
+    The backends are every `api_base` in the gateway ConfigMap. The config turns on no cache,
+    so the gateway calls no Valkey (#1654). A backend maps to None unless its host names a
     Service under k8s/llm that has a selector and a numeric targetPort on the port it calls.
     """
-    deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
-    env = {
-        variable["name"]: variable.get("value")
-        for variable in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
-    }
     api_bases = {
         urlsplit(model["litellm_params"].get("api_base", ""))
         for model in _gateway_config()["model_list"]
     }
-    addresses = {(url.hostname, url.port) for url in api_bases} | {
-        (env["LITELLM_REDIS_HOST"], int(env["LITELLM_REDIS_PORT"]))
-    }
+    addresses = {(url.hostname, url.port) for url in api_bases}
     services = _llm_services()
     return {
         f"{host}:{port}": _service_target(services.get(host or ""), port)

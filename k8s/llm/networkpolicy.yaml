@@ -13,6 +13,7 @@ spec:
         values:
           - llm-gateway
           - portkey
+          - valkey
           - valkey-runs
   policyTypes:
     - Ingress

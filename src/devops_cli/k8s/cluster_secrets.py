@@ -206,6 +206,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "valkey-runs"),),
         labels={"app.kubernetes.io/name": "valkey-runs"},
     ),
+    # The cache Valkey's password, which a workstation sends through `devops k8s port-forward`.
+    # Open WebUI loads the Secret with envFrom, so its key is the variable's name.
+    ClusterSecret(
+        namespace="llm",
+        name="valkey-auth",
+        stack="llm",
+        entries=(
+            SecretEntry(
+                "VALKEY_PASSWORD",
+                KeyringSource("valkey_password", opt.VALKEY_PASSWORD),
+                generator=SecretGenerator("hex", 32),
+            ),
+        ),
+        restarts=(Workload("deployment", "valkey"), Workload("statefulset", "open-webui")),
+        labels={"app.kubernetes.io/name": "valkey"},
+    ),
     ClusterSecret(
         namespace="cloudflared",
         name="cloudflared-token",

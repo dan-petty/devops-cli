@@ -31,8 +31,9 @@ spec:
         - protocol: TCP
           port: 8787
   egress:
-    # Allow communication to backend inference pods (Ollama) and Valkey cache. Every Ollama
-    # tier (profiles/ollama-profiles.yaml) carries llm.devops.io/provider: ollama.
+    # Allow communication to backend inference pods (Ollama). Every Ollama tier
+    # (profiles/ollama-profiles.yaml) carries llm.devops.io/provider: ollama. Portkey reads its
+    # cache only from REDIS_CONNECTION_STRING, which is not set, so it calls no Valkey.
     - to:
         - podSelector:
             matchLabels:
@@ -40,13 +41,6 @@ spec:
       ports:
         - protocol: TCP
           port: 11434
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: valkey
-      ports:
-        - protocol: TCP
-          port: 6379
     # DNS queries to kube-system
     - to:
         - namespaceSelector:
