@@ -1,5 +1,61 @@
 {
  "scenarios": {
+  "archive-adds-a-spec": [
+   {
+    "argv": [
+     "archive",
+     "1930-export-widgets",
+     "--yes"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1930-export-widgets' archived as '2026-10-23-1930-export-widgets'.\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
+   }
+  ],
+  "archive-is-refused": [
+   {
+    "argv": [
+     "archive",
+     "1931-export-json",
+     "--yes"
+    ],
+    "returncode": 1,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nwidget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\nAborted. No files were changed.\n"
+   }
+  ],
+  "archive-leaves-a-placeholder-purpose": [
+   {
+    "argv": [
+     "archive",
+     "1932-export-widgets",
+     "--yes"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1932-export-widgets' archived as '2026-10-23-1932-export-widgets'.\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 1,
+    "stderr": "\u2717 spec/widget-export\n  \u26a0 [WARNING] overview: Purpose section is still a placeholder rather than a Purpose anyone wrote (the sentence `openspec archive` writes for a new capability, or a `TBD`/`TODO` marker left in its place). Replace it with what this capability is for, editing the main spec directly: a `## Purpose` in a delta is read only when the capability is created, so it cannot replace this one.\n",
+    "stdout": "Totals: 0 passed, 1 failed (1 items)\nDetails: openspec validate widget-export --type spec\n"
+   }
+  ],
   "archived-change-with-unticked-task": [
    {
     "argv": [

@@ -271,6 +271,14 @@ class OpenSpecMessages:
         "`openspec instructions`."
     )
     regenerated: str = "Regenerated the OpenSpec skills under the isolated custom profile."
+    archived: str = "Archived {change}. Every spec and change validates."
+    archive_failed: str = (
+        "{command} failed with exit code {code}. The reason is above. The validation did not run."
+    )
+    archive_left_invalid: str = (
+        "{command} failed with exit code {code}. The archive is applied. Fix the specs that the "
+        "tool names above. Then run `uv run devops openspec check`. Do not run the archive again."
+    )
 
 
 @dataclass(frozen=True)

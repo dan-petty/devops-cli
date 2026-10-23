@@ -1,8 +1,10 @@
-"""`devops openspec check` and `devops openspec regenerate`: wiring, output and exit code (#1844)."""
+"""`devops openspec check`, `regenerate` and `archive`: wiring, output and exit code (#1844)."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +12,15 @@ import pytest
 from tests.support.fakes.openspec import OpenSpecFake
 
 Cli = Callable[..., Any]
+
+ARCHIVE_COMMAND = ("archive", "1930-export-widgets", "--yes")
+VALIDATE_COMMAND = ("validate", "--all", "--strict")
+
+
+def _runs_after_the_settings(fake: OpenSpecFake) -> list[tuple[tuple[str, ...], Path]]:
+    """The commands the fake ran after the four `config set` runs of the isolated configuration,
+    each with the directory it was started in."""
+    return [(call.argv, call.cwd) for call in fake.calls if call.argv[0] != "config"]
 
 
 def test_check_passes_a_sound_tree_and_exits_0(
@@ -99,12 +110,141 @@ def test_regenerate_in_a_dry_run_writes_and_runs_nothing(
     assert (result.exit_code, openspec_fake.calls) == (0, [])
 
 
+def test_archive_archives_the_change_then_validates_every_spec_and_change(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The order is the point: the validation reads what the archive wrote. The archive passes
+    `--yes` and never `--skip-specs`, which a change that declares `skip_specs` does not need."""
+    tree = openspec_fake.tree("archive-adds-a-spec")
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "archive", "1930-export-widgets")
+
+    assert (result.exit_code, "Archived 1930-export-widgets." in result.output) == (0, True)
+    assert _runs_after_the_settings(openspec_fake) == [
+        (ARCHIVE_COMMAND, tree),
+        (VALIDATE_COMMAND, tree),
+    ]
+
+
+def test_archive_runs_under_the_opt_outs_and_a_configuration_directory_of_its_own(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A direct `openspec archive` would report usage and read the developer's own profile. Both
+    runs opt out and read one scratch directory, which is gone when the command ends."""
+    developer_config = tmp_path / "developer-config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(developer_config))
+    monkeypatch.setenv("OPENSPEC_TELEMETRY", "1")
+    monkeypatch.chdir(openspec_fake.tree("archive-adds-a-spec"))
+
+    cli("openspec", "archive", "1930-export-widgets")
+
+    [config_home] = {Path(call.env["XDG_CONFIG_HOME"]) for call in openspec_fake.calls}
+    opt_outs = {
+        "DO_NOT_TRACK": "1",
+        "OPENSPEC_NO_UPDATE_CHECK": "1",
+        "OPENSPEC_TELEMETRY": "0",
+        "OPEN_SPEC_INTERACTIVE": "0",
+    }
+    assert (
+        [
+            {key: value for key, value in call.env.items() if key != "XDG_CONFIG_HOME"}
+            for call in openspec_fake.calls
+        ],
+        config_home == developer_config,
+        config_home.exists(),
+    ) == ([opt_outs] * 6, False, False)
+
+
+def test_a_refused_archive_skips_the_validation_and_exits_1(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool refuses a `MODIFIED` of a spec that does not exist and changes no file, so there is
+    nothing to validate: the command stops at the archive and reports why."""
+    tree = openspec_fake.tree("archive-is-refused")
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "archive", "1931-export-json")
+
+    assert result.exit_code == 1
+    assert "target spec does not exist" in result.output
+    assert "Aborted. No files were changed." in result.output
+    assert "The validation did not run." in result.output
+    assert _runs_after_the_settings(openspec_fake) == [
+        (("archive", "1931-export-json", "--yes"), tree)
+    ]
+
+
+def test_an_archive_that_leaves_a_spec_the_validation_fails_exits_1(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new capability without a Purpose archives with exit 0 and a placeholder, which only the
+    validation fails. The command reports it, so the author fixes the spec in the same commit."""
+    tree = openspec_fake.tree("archive-leaves-a-placeholder-purpose")
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "archive", "1932-export-widgets")
+
+    assert result.exit_code == 1
+    assert "Purpose section is still a placeholder" in result.output
+    assert "The archive is applied." in result.output
+    assert _runs_after_the_settings(openspec_fake) == [
+        (("archive", "1932-export-widgets", "--yes"), tree),
+        (VALIDATE_COMMAND, tree),
+    ]
+
+
+def test_a_failed_validation_names_the_failing_spec_after_a_dozen_passing_ones(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`validate` prints a line for each passing spec on standard output and the failure on
+    standard error. A tree of a dozen specs fills 256 characters with the passing lines, so the
+    command prints the whole output: the author sees which spec failed and why."""
+    tree = openspec_fake.tree("archive-leaves-a-placeholder-purpose")
+    failed = openspec_fake.scenarios["archive-leaves-a-placeholder-purpose"][VALIDATE_COMMAND]
+    passing = "".join(f"✓ spec/capability-{number:02d}\n" for number in range(12))
+    openspec_fake.script(VALIDATE_COMMAND, 1, passing + failed.stdout, failed.stderr)
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "archive", "1932-export-widgets")
+
+    assert len(passing + failed.stdout) > 256
+    assert (
+        result.exit_code,
+        "✗ spec/widget-export" in result.output,
+        "Purpose section is still a placeholder" in result.output,
+        "Do not run the archive again." in result.output,
+    ) == (1, True, True, True)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("--dry-run", "openspec", "archive", "1930-export-widgets"),
+        ("openspec", "archive", "1930-export-widgets", "--dry-run"),
+    ],
+)
+def test_archive_in_a_dry_run_starts_nothing_and_prints_the_commands_it_would_run(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...]
+) -> None:
+    """A dry run makes no process, so not even the scratch configuration is set."""
+    monkeypatch.chdir(openspec_fake.tree("archive-adds-a-spec"))
+
+    result = cli(*argv)
+
+    assert (
+        result.exit_code,
+        openspec_fake.calls,
+        "openspec archive 1930-export-widgets --yes" in result.output,
+        "openspec validate --all --strict" in result.output,
+    ) == (0, [], True, True)
+
+
 def test_the_commands_are_registered_under_openspec(cli: Cli) -> None:
-    """`devops openspec --help` lists both commands."""
+    """`devops openspec --help` lists all three commands, each as the first word of a row."""
     result = cli("openspec", "--help")
 
-    assert (result.exit_code, "check" in result.output, "regenerate" in result.output) == (
+    assert (result.exit_code, sorted(re.findall(r"^│ (\w+) ", result.output, re.MULTILINE))) == (
         0,
-        True,
-        True,
+        ["archive", "check", "regenerate"],
     )

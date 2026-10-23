@@ -190,6 +190,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
 | **openspec** | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
 |  | `devops openspec regenerate [OPTIONS]` | Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written. |
+|  | `devops openspec archive [OPTIONS] <change>` | Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation. |
 | **k8s** | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |

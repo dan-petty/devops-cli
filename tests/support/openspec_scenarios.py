@@ -1,4 +1,4 @@
-"""The OpenSpec trees the gate is recorded and tested over (#1844).
+"""The OpenSpec trees the gate and the archive are recorded and tested over (#1844).
 
 A scenario is a small checkout: `openspec/` with a configuration and some change folders, the
 generated skills the repository commits, and a git repository around them. `build_scenario`
@@ -55,9 +55,11 @@ _UNTICKED = "## 1. Export\n\n- [ ] 1.1 Write the file\n"
 
 @dataclass(frozen=True)
 class OpenSpecScenario:
-    """A checkout: its files by path from its root."""
+    """A checkout: its files by path from its root, and the change that `devops openspec archive`
+    archives over it. A scenario that archives nothing is the one the gate runs over."""
 
     files: dict[str, str]
+    archives: str | None = None
 
 
 def delta(operation: str, requirement: str, text: str, *, purpose: bool = False) -> str:
@@ -97,7 +99,9 @@ def change(
     return files
 
 
-def _scenario(*changes: dict[str, str], config: str = CONFIG) -> OpenSpecScenario:
+def _scenario(
+    *changes: dict[str, str], config: str = CONFIG, archives: str | None = None
+) -> OpenSpecScenario:
     """A scenario holding `changes` and an empty `openspec/specs` and archive."""
     files = {
         "openspec/config.yaml": config,
@@ -106,7 +110,7 @@ def _scenario(*changes: dict[str, str], config: str = CONFIG) -> OpenSpecScenari
     }
     for files_of_change in changes:
         files.update(files_of_change)
-    return OpenSpecScenario(files)
+    return OpenSpecScenario(files, archives)
 
 
 _WIDGET = "The system SHALL export every widget to a file."
@@ -168,6 +172,36 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
         },
     ),
     "configuration-openspec-ignores": _scenario(config=CONFIG_WITH_WARNINGS),
+    # The three ways `devops openspec archive` ends: the archive and the validation pass, the
+    # archive is refused (`MODIFIED` of a spec that does not exist), and the archive passes but
+    # leaves the placeholder Purpose that the validation then fails.
+    "archive-adds-a-spec": _scenario(
+        change(
+            "1930-export-widgets",
+            "widget-export",
+            delta("ADDED", "Export widgets", _WIDGET, purpose=True),
+            ticked=True,
+        ),
+        archives="1930-export-widgets",
+    ),
+    "archive-is-refused": _scenario(
+        change(
+            "1931-export-json",
+            "widget-export",
+            delta("MODIFIED", "Export widgets", _JSON),
+            ticked=True,
+        ),
+        archives="1931-export-json",
+    ),
+    "archive-leaves-a-placeholder-purpose": _scenario(
+        change(
+            "1932-export-widgets",
+            "widget-export",
+            delta("ADDED", "Export widgets", _WIDGET),
+            ticked=True,
+        ),
+        archives="1932-export-widgets",
+    ),
 }
 
 

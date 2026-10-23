@@ -1,14 +1,14 @@
 """The real OpenSpec's answers, recorded over the scenarios, which `OpenSpecFake` replays (#1844).
 
 `record_scenarios` builds each scenario of `tests/support/openspec_scenarios.py` in a scratch
-directory and runs the gate over it with the real tool, keeping every `openspec` run: its
-arguments, exit code, standard output and standard error. A run's text names the directory it ran
-in, which differs on every recording, so the record holds `{cwd}` in its place. A scenario's runs
-that equal the `empty` scenario's, such as `config set` and `update --force`, are kept once, in
-`empty`, and the fake falls back to them.
+directory and runs the gate over it with the real tool, or `devops openspec archive` for the change
+the scenario names. It keeps every `openspec` run: its arguments, exit code, standard output and
+standard error. A run's text names the directory it ran in, which differs on every recording, so
+the record holds `{cwd}` in its place. A scenario's runs that equal the `empty` scenario's, such as
+`config set` and `update --force`, are kept once, in `empty`, and the fake falls back to them.
 
-Record again when the pin in `tools.lock` changes, or a command the gate runs does, with the
-pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`):
+Record again when the pin in `tools.lock` changes, or a command the gate or the archive runs, with
+the pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`):
 
     uv run python -c "from tests.support.openspec_recording import record_scenarios; record_scenarios()"
 
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from tests.support.openspec_scenarios import SCENARIOS, build_scenario
+from tests.support.openspec_scenarios import SCENARIOS, OpenSpecScenario, build_scenario
 
 # The scenario every other scenario falls back to for a run it does not hold itself.
 BASE_SCENARIO = "empty"
@@ -64,10 +64,33 @@ def _with_placeholder(text: str, cwd: Path) -> str:
     return text.replace(str(cwd), _CWD)
 
 
-def _record_gate(tree: Path) -> list[dict[str, Any]]:
-    """Every `openspec` run the gate makes over `tree`, as the record holds it."""
+def _run_archive(tree: Path, change: str) -> None:
+    """Run `devops openspec archive` for `change` over `tree`. The tool refusing the archive, or
+    the validation failing after it, is what a scenario records, so it ends the run."""
+    from devops_cli.exceptions import ToolExecutionError
+    from devops_cli.openspec.archive import archive_change
+    from devops_cli.openspec.tool import isolated_openspec
+
+    try:
+        with isolated_openspec() as tool:
+            archive_change(tool, tree, change)
+    except ToolExecutionError:
+        return
+
+
+def run_scenario(scenario: OpenSpecScenario, tree: Path) -> None:
+    """Start the commands the record holds over `tree`: `devops openspec archive` for the change
+    the scenario names, else the gate."""
     from devops_cli.openspec.gate import check_openspec
 
+    if scenario.archives is None:
+        check_openspec(tree)
+    else:
+        _run_archive(tree, scenario.archives)
+
+
+def _record_runs(scenario: OpenSpecScenario, tree: Path) -> list[dict[str, Any]]:
+    """Every `openspec` run the scenario starts over `tree`, as the record holds it."""
     real_run = subprocess.run
     runs: list[dict[str, Any]] = []
 
@@ -86,24 +109,24 @@ def _record_gate(tree: Path) -> list[dict[str, Any]]:
         return completed
 
     with patch.object(subprocess, "run", recording_run):
-        check_openspec(tree)
+        run_scenario(scenario, tree)
     return runs
 
 
 def record_scenarios(destination: Path | None = None) -> None:
-    """Run the gate over every scenario with the real `openspec` on PATH and write the record to
-    `destination`, by default the committed one."""
+    """Run every scenario with the real `openspec` on PATH and write the record to `destination`,
+    by default the committed one."""
     version = subprocess.run(
         ["openspec", "--version"], capture_output=True, text=True, check=True
     ).stdout.strip()
     committed_skills = Path(str(files("tests"))).parent
     recorded: dict[str, list[dict[str, Any]]] = {}
-    for name in SCENARIOS:
+    for name, scenario in SCENARIOS.items():
         with tempfile.TemporaryDirectory(prefix="openspec-scenario-") as scratch:
             tree = Path(scratch) / "tree"
             tree.mkdir()
             build_scenario(name, tree, committed_skills)
-            recorded[name] = _record_gate(tree)
+            recorded[name] = _record_runs(scenario, tree)
     base = {tuple(run["argv"]): run for run in recorded[BASE_SCENARIO]}
     scenarios = {
         name: [run for run in runs if name == BASE_SCENARIO or base.get(tuple(run["argv"])) != run]
