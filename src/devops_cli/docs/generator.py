@@ -13,6 +13,8 @@ import click
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_CONFIG_BACKUP_INFIX,
+    CONST_CONFIG_BACKUPS_KEPT,
     CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS,
     CONST_DOC_CREDENTIAL_NAME_WORDS,
     CONST_DOC_CREDENTIAL_NAMING_WORD,
@@ -872,6 +874,15 @@ class DocGenerator:
             "checkout is another repository, and an installed devops-cli trusts no repository "
             "this way. An absolute `DEVOPS_CLI_DATA_DIR` or `data.dir` names the data directory "
             "every command uses.",
+            "",
+            "A command that saves settings, such as `devops config set`, writes the file "
+            "`DEVOPS_CLI_CONFIG` names, else the project configuration it finds, else the global "
+            "one. It writes the whole file from the settings it loaded. Before it changes the "
+            f"file, it copies the file to `<name>{CONST_CONFIG_BACKUP_INFIX}<YYYYMMDD-HHMMSS>` "
+            f"in the same directory, with the time in UTC, and keeps the newest "
+            f"{CONST_CONFIG_BACKUPS_KEPT} copies. Then it appends a record to the audit log "
+            "(`data.audit_log_path`) with the command and the dotted names of the keys that "
+            "changed, never a value. A save that changes no byte of the file writes nothing.",
             "",
             "---",
             "",

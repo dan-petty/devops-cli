@@ -38,6 +38,13 @@ CONST_PROJECT_CONFIG_CANDIDATES: Final[tuple[str, ...]] = (
     ".devops.yaml",
     ".devcontainer/.devops.yaml",
 )
+# A write that changes a config file first copies it beside itself as `<name>.bak-<UTC stamp>`,
+# and keeps the newest of these copies, so a person can restore what a write replaced (#1921).
+CONST_CONFIG_BACKUP_INFIX: Final[str] = ".bak-"
+CONST_CONFIG_BACKUP_STAMP_FORMAT: Final[str] = "%Y%m%d-%H%M%S"
+CONST_CONFIG_BACKUPS_KEPT: Final[int] = 10
+# The `action` of the audit record that each write of a config file appends (#1921).
+CONST_AUDIT_ACTION_CONFIG_WRITE: Final[str] = "config_write"
 CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     "github": (
         "GitHub Configuration (`github`)",

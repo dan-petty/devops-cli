@@ -62,6 +62,8 @@ secrets/
 
 # Local project config override (copy config.example.yaml → config.yaml to activate)
 /config.yaml
+# The copies a write of config.yaml keeps beside it, newest ten (#1921)
+/config.yaml.bak-*
 
 # devops-cli's in-cluster config: `devops k8s deploy-stack` renders it from config.yaml at deploy
 # time (k8s/devops/configmap.example.yaml is the template), so a copy never belongs in git

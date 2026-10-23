@@ -1159,15 +1159,26 @@ def _prune_default_data_config(dumped_data: dict[str, Any], settings: Settings) 
 
 
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
-    """Persist settings to config YAML (secrets stay in keyring only)."""
+    """Persist settings to config YAML (secrets stay in keyring only).
+
+    A write that changes the file first copies the file beside itself, and then records the
+    command and the changed keys in the audit log (`write_history`, #1921). A write that leaves
+    every byte of the file as it is writes nothing.
+    """
+    from devops_cli.config import write_history
+
     dest_path = target_path or get_active_config_path()
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     _prune_default_data_config(data, settings)
-    content = yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    tmp = dest_path.with_suffix(".yaml.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, dest_path)
+    content = yaml.dump(data, default_flow_style=False, allow_unicode=True).encode("utf-8")
+    previous = dest_path.read_bytes() if dest_path.is_file() else None
+    if content != previous:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        backup = write_history.back_up(dest_path)
+        tmp = dest_path.with_suffix(".yaml.tmp")
+        tmp.write_bytes(content)
+        os.replace(tmp, dest_path)
+        write_history.record_write(dest_path, previous, data, backup)
     # The writer knows the values changed, so it says so outright rather than leaving the
     # next load to infer it from a timestamp the filesystem may not yet have advanced.
     reset_settings_cache()
