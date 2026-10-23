@@ -42,11 +42,12 @@ from tests.support.telemetry_capture import Captured
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
-SENT_SERIES = {series for instrument in INSTRUMENTS for series in instrument.series}
+SENT_SERIES = {instrument.name for instrument in INSTRUMENTS}
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
 QUANTILE_OF = re.compile(
-    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s+by\s*\([^)]*\)\s*\(\s*(?:(?:rate|increase)\(\s*)?([a-z0-9_]+)"
+    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s*(?:by\s*\([^)]*\)\s*)?\(\s*"
+    r"(?:(?:rate|increase|last_over_time)\(\s*)?([a-z0-9_]+)"
 )
 INNERMOST_PARENTHESES = re.compile(r"\([^()]*\)")
 
@@ -156,13 +157,11 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     and RAG p95 of each stage (#975). Qdrant retries are charted by operation and error type.
     """
     wanted = {
-        ("devops_cli_command_duration_seconds_bucket", "command"),
+        ("devops_cli_command_duration_seconds", "command"),
         ('devops_cli_command_total{status="error"}', "command"),
-        ("devops_cli_review_duration_seconds_count", "target_type"),
-        ("devops_cli_review_duration_seconds_bucket", "target_type"),
+        ("devops_cli_review_duration_seconds", "target_type"),
         ("devops_cli_findings_total", "severity"),
-        ('devops_cli_rag_query_duration_ms_bucket{stage="total"}', "le"),
-        ('devops_cli_rag_query_duration_ms_bucket{stage=~"embedding|search|ranking"}', "stage"),
+        ('devops_cli_rag_query_duration_ms{stage=~"embedding|search|ranking"}', "stage"),
         ("devops_cli_qdrant_retries_total", "operation"),
         ("devops_cli_qdrant_retries_total", "error_type"),
     }
@@ -179,10 +178,10 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     assert (sorted(wanted - grouped), quantiles) == (
         [],
         {
-            "devops_cli_command_duration_seconds_bucket": {0.5, 0.95, 0.99},
-            "devops_cli_review_duration_seconds_bucket": {0.5, 0.95},
-            "devops_cli_rag_query_duration_ms_bucket": {0.5, 0.95},
-            "devops_cli_project_release_interval_days_bucket": {0.5, 0.95},
+            "devops_cli_command_duration_seconds": {0.5, 0.95, 0.99},
+            "devops_cli_review_duration_seconds": {0.5, 0.95},
+            "devops_cli_rag_query_duration_ms": {0.5, 0.95},
+            "devops_cli_project_release_interval_days": {0.5, 0.95},
         },
     )
 
@@ -282,7 +281,8 @@ def test_every_panel_counting_with_increase_states_its_limits(dashboard: Path) -
 
 
 def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> None:
-    """Verify every duration panel in devops-cli.json includes sum/count mean and sample count targets."""
+    """Verify every duration panel in devops-cli.json charts the mean and the sample count of its
+    native histogram beside the quantiles."""
     duration_panels = [
         panel
         for panel in _panels(DASHBOARDS / "devops-cli.json")
@@ -291,7 +291,8 @@ def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> No
     missing = [
         panel["title"]
         for panel in duration_panels
-        if "_sum" not in _panel_queries(panel) or "_count" not in _panel_queries(panel)
+        if "histogram_avg(" not in _panel_queries(panel)
+        or "histogram_count(" not in _panel_queries(panel)
     ]
     assert (len(duration_panels), missing) == (5, [])
 

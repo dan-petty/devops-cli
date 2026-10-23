@@ -54,6 +54,11 @@ datasources:
         url: http://prometheus-server.monitoring.svc.cluster.local:9090
         access: proxy
         isDefault: true
+        jsonData:
+          # The scrape interval of k8s-monitoring (global.scrapeInterval). Grafana sets
+          # $__rate_interval to at least four times it; with the 15s default a rate window held
+          # one 60s sample, and every rate panel was empty (#1955).
+          timeInterval: 60s
       - name: Loki
         type: loki
         uid: loki

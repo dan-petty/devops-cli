@@ -161,10 +161,10 @@
             "type": "grafana-pyroscope-datasource",
             "uid": "pyroscope"
           },
-          "expr": "goroutine:goroutine:count:goroutines:count{service_name=~\".*$service.*\"}",
+          "expr": "goroutine:goroutine:count:goroutine:count{service_name=~\".*$service.*\"}",
           "groupBy": [],
           "labelSelector": "{service_name=~\".*$service.*\"}",
-          "profileTypeId": "goroutine:goroutine:count:goroutines:count",
+          "profileTypeId": "goroutine:goroutine:count:goroutine:count",
           "queryType": "profile",
           "refId": "A"
         }

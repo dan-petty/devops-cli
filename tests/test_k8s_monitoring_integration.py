@@ -168,7 +168,8 @@ def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
     """Each node's journal reaches Loki through the alloy-logs DaemonSet that already reads pod
     logs, with no other agent (#1080). Kernel lines are kept at every priority (GPU Xid, MCE and
     thermal lines), the host units and systemd's own lines about them at info and above, and every
-    other line at warning and above. Each unit has its own rate limit; kernel lines have none."""
+    other line at warning and above. Each unit has its own rate limit; kernel lines have none.
+    The `host-storage` preset keeps the read positions on the node across restarts (#1955)."""
     values = _k8s_monitoring_values()
     node_logs = values["nodeLogs"]
     rules = " ".join(node_logs["extraDiscoveryRules"].split())
@@ -194,7 +195,7 @@ def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
     ) == (
         True,
         "alloy-logs",
-        ["daemonset", "filesystem-log-reader"],
+        ["daemonset", "filesystem-log-reader", "host-storage"],
         [],
         {"transport": "transport"},
         {"boot_id": "boot_id"},
@@ -212,7 +213,9 @@ def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
     (#1080: boot time, temperatures with their chip names, pressure, EDAC memory errors, NVMe,
     filesystem space and the host units' state) come through because node-exporter serves them.
     The systemd collector is turned on here for the host units only: it reads unit state over
-    the host's D-Bus socket, which the node's root mount already exposes.
+    the host's D-Bus socket, which the node's root mount already exposes. The processes and
+    tcpstat collectors, off by default, give Node Exporter Full its process and TCP panels
+    (#1955).
 
     The keep sources are rebuilt the way the chart's `_linux_hosts.alloy.tpl` concatenates them
     (the default list unless `useDefaultAllowList` is false, the integration list when
@@ -238,9 +241,27 @@ def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
             "|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs|tmpfs|ramfs)$",
             "--collector.systemd",
             f"--collector.systemd.unit-include={HOST_UNIT_PATTERN}",
+            "--collector.processes",
+            "--collector.tcpstat",
         ],
         {"DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/host/root/run/dbus/system_bus_socket"},
     )
+
+
+def test_grafana_rate_windows_hold_two_samples_at_the_scrape_interval() -> None:
+    """Grafana makes `$__rate_interval` at least four times the datasource's scrape interval.
+    With no `timeInterval` it assumes 15s, so at the chart's 60s scrape a 1m window held one
+    sample and every `rate()`, `irate()` and `increase()` panel was empty (#1955). The two
+    settings name the same interval."""
+    grafana = yaml.safe_load(
+        (K8S_DIR / "monitoring" / "grafana-values.yaml").read_text(encoding="utf-8")
+    )
+    datasources = grafana["datasources"]["datasources.yaml"]["datasources"]
+    prometheus = next(source for source in datasources if source["uid"] == "prometheus")
+    assert (
+        prometheus.get("jsonData", {}).get("timeInterval"),
+        _k8s_monitoring_values()["global"]["scrapeInterval"],
+    ) == ("60s", "60s")
 
 
 def test_each_alloy_collector_runs_in_one_controller_preset() -> None:
@@ -1022,7 +1043,8 @@ def test_no_stack_values_file_sets_a_debug_log_level() -> None:
 
 def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
     """Profiling runs on `k8s-monitoring`'s `alloy-profiles` DaemonSet instead of Pyroscope's
-    bundled Alloy subchart (#1134)."""
+    bundled Alloy subchart (#1134). It runs as root in the host PID namespace through the `root`
+    preset and `hostPID`, which replace the deprecated `privileged` preset (#1955)."""
     pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
     values = _k8s_monitoring_values()
     destination = values["destinations"]["localPyroscope"]
@@ -1034,7 +1056,7 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
         pyroscope["alloy"],
         (destination["type"], endpoint.hostname, endpoint.port),
         (profiling["enabled"], profiling["collector"], profiling["ebpf"], profiling["pprof"]),
-        collector["presets"],
+        (collector["presets"], collector["controller"]),
     ) == (
         {"enabled": False},
         ("pyroscope", "pyroscope.monitoring.svc.cluster.local", 4040),
@@ -1044,7 +1066,7 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
             {"enabled": True, "targetingScheme": "all"},
             {"enabled": True},
         ),
-        ["daemonset", "privileged"],
+        (["daemonset", "root"], {"hostPID": True}),
     )
 
 
@@ -1057,4 +1079,29 @@ def test_the_profiler_limit_leaves_room_above_the_spikes_that_killed_it() -> Non
     assert (resources["requests"]["memory"], resources["limits"]["memory"]) == (
         "128Mi",
         "1024Mi",
+    )
+
+
+def test_every_target_is_scraped_once_and_every_signal_names_its_cluster_once() -> None:
+    """A target scraped twice counts each value twice in a sum, and a second cluster label on
+    logs and profiles splits their streams (#1955). kube-state-metrics has one replica, so its
+    Service is the target; endpoints discovery also scraped its telemetry port into the same
+    job. Pyroscope's two Services both matched its ServiceMonitor, so the headless one is
+    dropped. Every destination writes `cluster` only."""
+    values = _k8s_monitoring_values()
+    pyroscope = _k8s_yaml("monitoring/pyroscope-values.yaml")
+    assert (
+        values["clusterMetrics"]["kube-state-metrics"]["discoveryType"],
+        pyroscope["serviceMonitor"]["relabelings"],
+        {name: d.get("clusterLabels") for name, d in values["destinations"].items()},
+    ) == (
+        "service",
+        [
+            {
+                "sourceLabels": ["__meta_kubernetes_service_name"],
+                "regex": "pyroscope-headless",
+                "action": "drop",
+            }
+        ],
+        {name: ["cluster"] for name in ("localPrometheus", "localLoki", "localPyroscope")},
     )

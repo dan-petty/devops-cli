@@ -782,15 +782,19 @@
   "templating": {
     "list": [
       {
-        "allValue": null,
-        "current": {},
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
         },
         "definition": "label_values(DCGM_FI_DEV_GPU_TEMP, instance)",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": null,
         "multi": true,
         "name": "instance",

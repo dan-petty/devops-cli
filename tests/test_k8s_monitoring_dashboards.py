@@ -158,3 +158,52 @@ def test_root_kustomization_leaves_dashboards_to_monitoring_stack() -> None:
     resources = _kustomization(K8S_DIR)["resources"]
 
     assert "monitoring/dashboards" not in resources
+
+
+def _multi_value_variables(dashboard: dict[str, Any]) -> set[str]:
+    """The names of a dashboard's template variables that can hold more than one value."""
+    return {
+        variable["name"]
+        for variable in dashboard.get("templating", {}).get("list", [])
+        if variable.get("multi") or variable.get("includeAll")
+    }
+
+
+def _expressions(node: Any) -> list[str]:
+    """Every query expression in a dashboard: `expr` for Prometheus and Loki targets."""
+    if isinstance(node, dict):
+        own = [node["expr"]] if isinstance(node.get("expr"), str) else []
+        return own + [expr for value in node.values() for expr in _expressions(value)]
+    if isinstance(node, list):
+        return [expr for value in node for expr in _expressions(value)]
+    return []
+
+
+def test_no_query_matches_a_multi_value_variable_exactly() -> None:
+    """A variable that holds All or several values expands to a regular expression, so an exact
+    `label="$var"` matcher finds nothing. The Pods view matched `pod="$pod"` against such a
+    variable, and nine of its panels were empty (#1955)."""
+    exact = {
+        (path.name, variable)
+        for path in sorted(DASHBOARDS_DIR.glob("*.json"))
+        for dashboard in [json.loads(path.read_text(encoding="utf-8"))]
+        for variable in _multi_value_variables(dashboard)
+        for expr in _expressions(dashboard)
+        if f'="${variable}"' in expr or f'="${{{variable}}}"' in expr
+    }
+    assert exact == set()
+
+
+def test_no_query_selects_the_container_series_the_chart_drops() -> None:
+    """k8s-monitoring drops every cAdvisor CPU, memory, filesystem, network and pressure series
+    with an empty `image` label (`clusterMetrics.cadvisor.metricsTuning.dropEmptyImageLabels`,
+    on by default), so a panel that selects `image=""` is always empty. Two Nodes panels did
+    (#1955)."""
+    values = yaml.safe_load((MONITORING_DIR / "k8s-monitoring-values.yaml").read_text("utf-8"))
+    tuning = values["clusterMetrics"]["cadvisor"].get("metricsTuning", {})
+    selecting = sorted(
+        path.name
+        for path in DASHBOARDS_DIR.glob("*.json")
+        if any('image=""' in expr for expr in _expressions(json.loads(path.read_text("utf-8"))))
+    )
+    assert (tuning.get("dropEmptyImageLabels", True), selecting) == (True, [])

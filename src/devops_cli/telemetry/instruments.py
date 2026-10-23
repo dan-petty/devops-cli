@@ -2,8 +2,11 @@
 
 Every command runs as its own short-lived process, so a counter or histogram cannot keep a
 running total. Each observation is sent as a delta, and the collector's `deltatocumulative`
-processor adds a series' deltas up across processes before Prometheus stores them. Dashboards
-query only the metrics defined here; `tests/test_telemetry_instruments.py` checks each query.
+processor adds a series' deltas up across processes before Prometheus stores them. A histogram
+is exponential, so Prometheus stores it as a native histogram under the instrument's own name,
+with no `_bucket`, `_sum` or `_count` series (#792); a dashboard reads it with
+`histogram_quantile`, `histogram_avg` and `histogram_count`. Dashboards query only the metrics
+defined here; `tests/test_telemetry_instruments.py` checks each query.
 """
 
 from __future__ import annotations
@@ -29,13 +32,6 @@ class Instrument:
     kind: InstrumentKind
     unit: str
     description: str
-
-    @property
-    def series(self) -> tuple[str, ...]:
-        """The names Prometheus stores the metric under."""
-        if self.kind is InstrumentKind.HISTOGRAM:
-            return tuple(f"{self.name}_{suffix}" for suffix in ("bucket", "sum", "count"))
-        return (self.name,)
 
 
 COMMAND_TOTAL = Instrument(
