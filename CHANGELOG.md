@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1](https://github.com/dan-petty/devops-cli/compare/v0.3.0...v0.3.1) (2026-10-23)
+
+
+### Performance Improvements
+
+* **ci:** the release builds the service image for linux/amd64 only, with no QEMU ([#1956](https://github.com/dan-petty/devops-cli/issues/1956)) ([6be0c3d](https://github.com/dan-petty/devops-cli/commit/6be0c3d8ae7d0a1278582b0f6a5278e38beb4af7))
+
 ## [0.3.0](https://github.com/dan-petty/devops-cli/compare/v0.2.39...v0.3.0) (2026-10-23)
 
 
