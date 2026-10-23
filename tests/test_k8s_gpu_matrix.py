@@ -167,7 +167,7 @@ def test_rendered_gateway_configmap_matches_ollama_profiles() -> None:
         tokens_match_services,
     ) == (
         "",
-        19,
+        22,
         [],
         True,
     )
