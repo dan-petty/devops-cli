@@ -340,30 +340,25 @@ def _run_intake_adapter(
     repo: str,
     repo_dir: Path,
     now: datetime,
-    config: RoadmapConfig | None = None,
     model: IntakeModel | None = None,
     limit: int = DEFAULT_ROADMAP_INTAKE_LIMIT,
     **_: Any,
 ) -> JobOutcome:
     """Decide at most `limit` of `repo`'s candidates, fresh ones first, and place them (#1360).
     The record of what it decided is written before any placement, so intake keeps the round's
-    skips and folds when a placement raises, and a candidate whose placement raised is decided
-    again after the fresh ones. A candidate whose write fails is skipped, the round's others are
-    placed, and the job then fails naming it (#1443)."""
-    from devops_cli.roadmap.config import read_roadmap_config
+    skips and duplicates when a placement raises, and a candidate whose placement raised is
+    decided again after the fresh ones. A candidate whose write fails is skipped, the round's
+    others are placed, and the job then fails naming it (#1443)."""
     from devops_cli.roadmap.intake_model import build_intake_model
 
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
     record = read_intake_record(record_path)
-    active_config = config or read_roadmap_config(store, ref=None)
     plan = plan_intake(
         store,
         repo=repo,
-        config=active_config,
         model=model or build_intake_model(),
         limit=limit,
         waiting=record.waiting,
-        now=now,
     )
     _write_intake_record(record_path, record.after(plan, now))
     if plan.has_writes:

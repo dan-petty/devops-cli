@@ -29,7 +29,6 @@ from devops_cli.roadmap.store import (
     EvidenceKind,
     FieldOption,
     GitHubState,
-    IssueQuery,
     ItemField,
     RefineRecordKey,
     RoadmapStore,
@@ -711,36 +710,6 @@ def test_evidence_holds_only_for_what_github_confirms(store: InMemoryRoadmapStor
         Evidence(kind=EvidenceKind.FAILED_RUN, value="abc1234"),
     ]
     assert [store.evidence_holds(evidence) for evidence in asked] == [True, False, False]
-
-
-def test_counting_issues_narrows_by_each_condition_given(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    start = clock.now
-    store.seed_issue("before the window", labels=("source/agent",))
-    clock.now += timedelta(hours=1)
-    agent = store.seed_issue("agent", labels=("source/agent", "budget/borrowed"))
-    done = store.seed_issue("done")
-    store.comment(done, "Delivered.")
-    store.as_actor("alice").close_by_hand(done, CloseReason.COMPLETED)
-    bulk = store.seed_issue("bulk")
-    store.as_actor("alice").close_by_hand(bulk, CloseReason.NOT_PLANNED)
-    store.seed_issue("a pull request", pull_request=True)
-    since = start + timedelta(minutes=1)
-    queries = [
-        IssueQuery(),
-        IssueQuery(state=GitHubState.OPEN),
-        IssueQuery(labels=("source/agent",), created_since=since),
-        IssueQuery(labels=("source/agent", "budget/borrowed")),
-        IssueQuery(state=GitHubState.CLOSED, closed_since=since),
-        IssueQuery(closed_since=since, reason=CloseReason.COMPLETED),
-        IssueQuery(closed_since=since, reason=CloseReason.NOT_PLANNED, uncommented=True),
-        IssueQuery(closed_since=clock.now + timedelta(seconds=1)),
-    ]
-    assert ([store.count_issues(query) for query in queries], agent) == (
-        [4, 2, 1, 1, 2, 1, 1, 0],
-        2,
-    )
 
 
 def test_a_milestone_records_when_it_closed_and_forgets_it_when_reopened(

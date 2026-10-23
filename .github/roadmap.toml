@@ -5,26 +5,5 @@
 # The project board (number) that holds the roadmap's Items. It has no default.
 board = 2
 
-# L: open issue limit where the throttle ratio reaches 1 closure per opening
-open_issue_limit = 200
-
-# s: share of open_issue_limit at which the throttle ratio begins rising above 0
-throttle_start_fraction = 0.8
-
-# o: share of open_issue_limit above the limit that adds one closure per opening
-overage_step_fraction = 0.25
-
-# The agent filing quota (#1153) counts over a rolling window of this many days that ends now
-quota_window_days = 7
-
-# Credit the window gives with no item closed as completed in it
-quota_credit_base = 10
-
-# Credit each item closed as completed in the window adds
-quota_credit_per_delivered_item = 1
-
-# The most credit the window gives
-quota_credit_cap = 50
-
 # Keys left out take these defaults:
 # refine_ready_target = 12  # refine readies backlog items while fewer than this many items are Ready

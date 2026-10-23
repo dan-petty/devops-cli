@@ -51,7 +51,7 @@ import logging
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from http import HTTPStatus
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -110,13 +110,11 @@ from devops_cli.roadmap.store import (
     Candidate,
     Change,
     ChangeKind,
-    CloseReason,
     Closure,
     Evidence,
     EvidenceKind,
     FieldOption,
     GitHubState,
-    IssueQuery,
     IssueRecord,
     Item,
     ItemField,
@@ -295,11 +293,6 @@ class _WorkflowRunPayload(BaseModel):
     conclusion: str | None = None
 
 
-class _SearchPayload(BaseModel):
-    total_count: int
-    incomplete_results: bool = False
-
-
 class _BoardItemPayload(BaseModel):
     """One board item. gh keys each field's value by the field's name, so those stay extra."""
 
@@ -453,7 +446,6 @@ _COMMENT = TypeAdapter(_CommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
-_SEARCH = TypeAdapter(_SearchPayload)
 
 # The board is found by its owner's login and number; `ProjectV2Owner` covers users and
 # organizations alike.
@@ -487,12 +479,6 @@ _CLOSE_AS_DUPLICATE_MUTATION = (
     "mutation($issue: ID!, $original: ID!) { closeIssue(input: {issueId: $issue, "
     "stateReason: DUPLICATE, duplicateIssueId: $original}) { issue { number } } }"
 )
-# How REST search names each close reason in its `reason:` qualifier.
-_SEARCH_REASONS: Mapping[CloseReason, str] = {
-    CloseReason.COMPLETED: "completed",
-    CloseReason.NOT_PLANNED: '"not planned"',
-    CloseReason.DUPLICATE: "duplicate",
-}
 
 
 def _text_value(raw: object) -> str | None:
@@ -551,33 +537,10 @@ def _wire_value(value: str | date) -> str:
     return f"{value.isoformat()}T00:00:00Z" if isinstance(value, date) else str(value)
 
 
-def _search_time(moment: datetime) -> str:
-    """A time as REST search's `created:` and `closed:` qualifiers take it: ISO 8601 in UTC."""
-    return as_utc(moment).astimezone(UTC).isoformat(timespec="seconds")
-
-
 def repository_file_args(repo: str, path: str, *, ref: str | None) -> list[str]:
     """The `gh` arguments that read the raw text of `path` on `ref` through the contents API."""
     query = f"?ref={quote(ref, safe='')}" if ref else ""
     return ["api", "-H", CONST_GH_RAW_CONTENT_ACCEPT, f"repos/{repo}/contents/{quote(path)}{query}"]
-
-
-def issue_search_text(repo: str, query: IssueQuery) -> str:
-    """The REST search text for `query`: `repo`'s issues, narrowed by each condition."""
-    terms = [f"repo:{repo}", "is:issue"]
-    terms += [f"is:{query.state}"] if query.state else []
-    terms += [f"label:{json.dumps(label)}" for label in query.labels]
-    terms += [f"created:>={_search_time(query.created_since)}"] if query.created_since else []
-    terms += [f"closed:>={_search_time(query.closed_since)}"] if query.closed_since else []
-    terms += [f"reason:{_SEARCH_REASONS[query.reason]}"] if query.reason else []
-    terms += ["comments:0"] if query.uncommented else []
-    return " ".join(terms)
-
-
-def issue_count_args(repo: str, query: IssueQuery) -> list[str]:
-    """The `gh` arguments of the REST search whose `total_count` counts `query`'s issues."""
-    q = issue_search_text(repo, query)
-    return ["api", "-X", "GET", "search/issues", "-f", f"q={q}", "-F", "per_page=1"]
 
 
 def milestones_endpoint(repo: str) -> str:
@@ -1074,19 +1037,6 @@ class GitHubRoadmapStore(RoadmapStore):
             absent=(HTTPStatus.NOT_FOUND, HTTPStatus.UNPROCESSABLE_ENTITY),
         )
         return commit is not None
-
-    def count_issues(self, query: IssueQuery) -> int:
-        """How many issues match `query`, from REST search's `total_count`, which spends the REST
-        quota and no GraphQL points; an incomplete search raises rather than undercount."""
-        found = self._read(issue_count_args(self._repo, query), _SEARCH, "issue search")
-        if found.incomplete_results:
-            raise GitHubOperationError(
-                f"GitHub's issue search of {self._repo} came back incomplete, so the count cannot "
-                "be trusted; run again.",
-                operation="roadmap.read",
-                details={"repo": self._repo[:256]},
-            )
-        return found.total_count
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The raw text of `path` on `ref` through the contents API, raising when it cannot be read."""
@@ -1602,8 +1552,6 @@ __all__ = [
     "graphql_request",
     "is_private_args",
     "issue_args",
-    "issue_count_args",
-    "issue_search_text",
     "issues_endpoint",
     "item_add_args",
     "item_edit_args",

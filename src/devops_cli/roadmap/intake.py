@@ -61,8 +61,8 @@ Priority, or an open duplicate, and the next run finishes it. Intake writes to n
 candidate.
 
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
-GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no quota or decision, that
-holds the requests a run makes, in order, with placeholders for what a read gives
+GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no decision, that holds
+the requests a run makes, in order, with placeholders for what a read gives
 (`intake_requests`). `plan_intake` makes the reads and the model calls and writes nothing; the
 command reports what it spent. `apply_intake` makes the writes.
 
@@ -74,17 +74,9 @@ candidates were decided before, and when: the Service keeps it between rounds as
 `IntakeRecord`, beside `schedule.json`; `devops roadmap intake --limit` keeps none, so it takes
 the oldest candidates first.
 
-**The agent filing quota (#1153).** The quota counts over a rolling window of
-`quota_window_days` days that ends at the run. Every run reads the counts the quota needs
-through REST search and reports them. A new candidate comes from an agent unless its caller says
-a person filed it (`Filer`); an agent's is labeled `source/agent` and opens while the window's
-agent openings are below the allowance. Beyond it, a split or a required follow-up (`BorrowReason`)
-with the link it came from, or a P0/P1 bug or security issue, borrows (`budget/borrowed`), and
-anything else folds into its nearest open item: nothing is filed, and the report names the
-item. A duplicate folds into its original. An open `source/agent` issue filed outside intake is
-already counted: it opens when it is within the allowance by the order agents opened issues
-in the window, borrows (and is labeled) when it may, and otherwise stays off the board for a person
-to fold. Two runs at once can both open within one slot, as search lags recent filings.
+**Agent candidates.** A new candidate comes from an agent unless its caller says a person
+filed it (`Filer`). An agent's is filed with the `source/agent` label, a person's with none.
+Intake files every new candidate that is not a duplicate.
 """
 
 from __future__ import annotations
@@ -93,7 +85,7 @@ import logging
 import string
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
 from typing import Any
@@ -104,9 +96,6 @@ from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
-    CONST_ROADMAP_BORROWED_LABEL,
-    CONST_ROADMAP_BORROWING_PRIORITIES,
-    CONST_ROADMAP_CRITICAL_FIX_LABELS,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
@@ -141,8 +130,6 @@ from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import quota
-from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.intake_model import (
     IntakeModel,
     ModelEvidence,
@@ -160,7 +147,6 @@ from devops_cli.roadmap.store import (
     Evidence,
     EvidenceKind,
     GitHubState,
-    IssueQuery,
     IssueRecord,
     Item,
     ItemField,
@@ -172,27 +158,11 @@ _LABEL_SPECS = TypeAdapter(list[LabelSpec])
 logger = logging.getLogger(__name__)
 
 
-class BorrowReason(StrEnum):
-    """Why a new candidate may open beyond the allowance: work in flight needs it (#1153)."""
-
-    SPLIT = "split"
-    FOLLOW_UP = "follow-up"
-
-
 class Filer(StrEnum):
-    """Who files a new candidate: an agent's counts toward the quota, a person's never does."""
+    """Who files a new candidate: an agent's is labeled `source/agent`, a person's is not."""
 
     AGENT = "agent"
     PERSON = "person"
-
-
-class QuotaDecision(StrEnum):
-    """What the agent filing quota decides for a candidate."""
-
-    OPEN = "open"
-    BORROW = "borrow"
-    FOLD = "fold"
-    NOT_COUNTED = "not_counted"
 
 
 class Outcome(StrEnum):
@@ -200,20 +170,18 @@ class Outcome(StrEnum):
 
     PLACE = "place"
     DUPLICATE = "duplicate"
-    FOLD = "fold"
     SKIP = "skip"
 
 
 @dataclass(frozen=True)
 class NewCandidate:
     """A candidate that is not an issue yet: its title and body, the link it came from, the
-    evidence its caller attaches, why it may borrow (which needs `source`), and who files it."""
+    evidence its caller attaches, and who files it."""
 
     title: str
     body: str
     source: str | None = None
     evidence: tuple[Evidence, ...] = ()
-    borrow_reason: BorrowReason | None = None
     filed_by: Filer = Filer.AGENT
 
     def filed_body(self) -> str:
@@ -309,38 +277,6 @@ class Placement:
 
 
 @dataclass(frozen=True)
-class QuotaStanding:
-    """The quota's numbers for the window, which every run reports (#1153): the window starts
-    `days` days before the run, at `since`."""
-
-    open_issues: int
-    delivered: int
-    days: int
-    since: datetime
-    agent_openings: int
-    borrowed: int
-    closures: int
-    ratio: float
-    credit: int
-    allowance: int | float
-
-    def render(self) -> str:
-        unlimited = self.allowance == float("inf")
-        return MESSAGES.roadmap.intake_quota.format(
-            open=self.open_issues,
-            ratio=self.ratio,
-            credit=self.credit,
-            delivered=self.delivered,
-            days=self.days,
-            closures=self.closures,
-            since=self.since.isoformat(timespec="seconds"),
-            allowance=MESSAGES.roadmap.intake_unlimited if unlimited else self.allowance,
-            openings=self.agent_openings,
-            borrowed=self.borrowed,
-        )
-
-
-@dataclass(frozen=True)
 class IntakeDecision:
     """What intake does with one candidate, and every write it makes for it.
 
@@ -351,10 +287,8 @@ class IntakeDecision:
 
     subject: Subject
     outcome: Outcome
-    quota: QuotaDecision = QuotaDecision.NOT_COUNTED
     original: int | None = None
     reason: str = ""
-    fold_into: int | None = None
     labels: tuple[str, ...] = ()
     placement: Placement | None = None
     fields: tuple[tuple[ItemField, str], ...] = ()
@@ -395,18 +329,17 @@ class IntakeDecision:
 
 @dataclass(frozen=True)
 class IntakePlan:
-    """The quota's numbers, a decision for each candidate, and the asked-for issues that are not
-    candidates; with `spend`, the requests the planning run made.
+    """A decision for each candidate, and the asked-for issues that are not candidates; with
+    `spend`, the requests the planning run made.
 
     With a `limit`, `left` holds the candidates the run left for a later one, in the order a
     later run takes them, and `fresh_left` whether a fresh one is among them: never decided, or
     edited since it was.
 
-    A dry run (`dry_run`) made no request, so it has no quota and no decision: `requests` holds
-    the reads and model calls a run makes, in order, and `writes` those `--confirm` adds.
+    A dry run (`dry_run`) made no request, so it has no decision: `requests` holds the reads
+    and model calls a run makes, in order, and `writes` those `--confirm` adds.
     """
 
-    quota: QuotaStanding | None
     decisions: tuple[IntakeDecision, ...]
     missing: tuple[int, ...] = ()
     limit: int | None = None
@@ -508,57 +441,16 @@ class _InvalidProposal(ValueError):
 # ── Reading the roadmap ───────────────────────────────────────────────────────
 
 
-def read_quota(store: RoadmapStore, config: RoadmapConfig, *, now: datetime) -> QuotaStanding:
-    """The quota's counts through REST search, and the allowance #1153's function gives.
-
-    The window runs over the `quota_window_days` days before `now`. What it delivered is the
-    issues closed as completed in it. A closure is an issue closed in it, less those closed as
-    not planned with no comment; a borrowed opening is an agent opening labeled
-    `budget/borrowed`.
-    """
-    since = now - timedelta(days=config.quota_window_days)
-
-    def count(**conditions: object) -> int:
-        return store.count_issues(IssueQuery.model_validate(conditions))
-
-    open_issues = count(state=GitHubState.OPEN)
-    closed = count(state=GitHubState.CLOSED, closed_since=since)
-    delivered = count(state=GitHubState.CLOSED, closed_since=since, reason=CloseReason.COMPLETED)
-    bulk = count(
-        state=GitHubState.CLOSED,
-        closed_since=since,
-        reason=CloseReason.NOT_PLANNED,
-        uncommented=True,
-    )
-    return QuotaStanding(
-        open_issues=open_issues,
-        delivered=delivered,
-        days=config.quota_window_days,
-        since=since,
-        agent_openings=count(labels=(CONST_ROADMAP_SOURCE_AGENT_LABEL,), created_since=since),
-        borrowed=count(
-            labels=(CONST_ROADMAP_SOURCE_AGENT_LABEL, CONST_ROADMAP_BORROWED_LABEL),
-            created_since=since,
-        ),
-        closures=closed - bulk,
-        ratio=quota.ratio(open_issues, config),
-        credit=quota.window_credit(delivered, config),
-        allowance=quota.allowance(open_issues, delivered, closed - bulk, config),
-    )
-
-
 @dataclass
 class _Run:
     """What one run reads once, from `repo`'s `store`."""
 
     store: RoadmapStore
     repo: str
-    config: RoadmapConfig
     model: IntakeModel
     ref: str | None
     issues: list[IssueRecord]
     board: dict[int, Item]
-    standing: QuotaStanding
 
     @cached_property
     def types(self) -> tuple[str, ...]:
@@ -590,31 +482,6 @@ class _Run:
             untyped = texts.intake_labels_untyped.format(**where)
             raise ConfigurationError(untyped, details={"path": path})
         return types
-
-    @cached_property
-    def openings(self) -> list[int]:
-        """The window's agent openings, oldest first: the issues labeled `source/agent` created
-        since the window started."""
-        since = self.standing.since
-        opened = [
-            (issue.created_at, issue.number)
-            for issue in self.issues
-            if CONST_ROADMAP_SOURCE_AGENT_LABEL in issue.labels
-            and issue.created_at is not None
-            and issue.created_at >= since
-        ]
-        return [number for _, number in sorted(opened)]
-
-    def within_allowance(self, subject: Subject, opened: int) -> bool:
-        """Whether the agent's candidate opens within the allowance: a new one while the
-        window's openings, this run's included, are below it; an issue already open when it is
-        among the first `allowance` openings, or was opened before the window."""
-        standing = self.standing
-        if subject.new is not None:
-            return standing.agent_openings + opened < standing.allowance
-        if subject.number not in self.openings:
-            return True
-        return self.openings.index(subject.number) < standing.allowance
 
 
 def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
@@ -680,13 +547,12 @@ def _queue(subjects: Sequence[Subject], waiting: Mapping[int, Waiting], limit: i
 @dataclass(frozen=True)
 class _Entry:
     """An item, a not-planned issue or an open agent issue off the board, that a candidate is
-    compared with; `item` when it is on the board, or placed by this run."""
+    compared with; `done` when it is a completed item."""
 
     number: int | None
     title: str
     body: str
     state: str
-    item: bool = True
     done: bool = False
 
     @property
@@ -721,14 +587,7 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
     """Every item, open or closed, and every issue closed as not planned; with `off_board`, for
     a new candidate, also the open agent issues off the board."""
     return [
-        _Entry(
-            issue.number,
-            issue.title,
-            issue.body,
-            issue.state.value,
-            issue.number in run.board,
-            done=_is_done(issue, run),
-        )
+        _Entry(issue.number, issue.title, issue.body, issue.state.value, done=_is_done(issue, run))
         for issue in run.issues
         if _compared(issue, run, off_board=off_board)
     ]
@@ -923,74 +782,11 @@ def _placement(subject: Subject) -> Placement:
 # ── Deciding ──────────────────────────────────────────────────────────────────
 
 
-def _borrows_by_reason(subject: Subject) -> bool:
-    """Whether the caller says the new candidate is a split or a required follow-up, and links
-    the item or review it came from."""
-    new = subject.new
-    return new is not None and new.borrow_reason is not None and bool(new.source)
-
-
-def _may_borrow(subject: Subject, type_label: str, priority: str) -> bool:
-    """A split or a required follow-up with its link, or a P0/P1 bug or security issue (#1153)."""
-    critical_kind = type_label in CONST_ROADMAP_CRITICAL_FIX_LABELS
-    return _borrows_by_reason(subject) or (
-        critical_kind and priority in CONST_ROADMAP_BORROWING_PRIORITIES
-    )
-
-
-def _quota_decision(
-    run: _Run, opened: int, subject: Subject, type_label: str = "", priority: str = ""
-) -> QuotaDecision:
-    """Open, borrow or fold for an agent's candidate; a person's is not counted. An issue on
-    the board, or already labeled `budget/borrowed`, keeps the decision made when it opened."""
-    if not subject.agent:
-        return QuotaDecision.NOT_COUNTED
-    borrowed = CONST_ROADMAP_BORROWED_LABEL in subject.labels
-    if subject.item is not None or borrowed:
-        return QuotaDecision.BORROW if borrowed else QuotaDecision.OPEN
-    if run.within_allowance(subject, opened):
-        return QuotaDecision.OPEN
-    if _may_borrow(subject, type_label, priority):
-        return QuotaDecision.BORROW
-    return QuotaDecision.FOLD
-
-
-def _judged_borrow(subject: Subject, type_label: str, priority: str) -> tuple[str, ...]:
-    """A note when a borrow rests on the model's type or priority, not on the caller's reason, a
-    type already on the issue and verified P0 evidence."""
-    if _borrows_by_reason(subject) or (
-        subject.type_label is not None and priority == CONST_ROADMAP_CRITICAL_PRIORITY
-    ):
-        return ()
-    return (
-        MESSAGES.roadmap.intake_note_borrow_judged.format(
-            type=type_label, priority=priority, label=CONST_ROADMAP_BORROWED_LABEL
-        ),
-    )
-
-
-def _filing_labels(subject: Subject, decided: QuotaDecision) -> tuple[str, ...]:
-    """The labels a new candidate is filed with: an agent's `source/agent`, and
-    `budget/borrowed` when it borrows."""
+def _filing_labels(subject: Subject) -> tuple[str, ...]:
+    """The labels a new candidate is filed with: `source/agent` when an agent files it."""
     if subject.new is None or not subject.agent:
         return ()
-    borrowed = (CONST_ROADMAP_BORROWED_LABEL,) if decided is QuotaDecision.BORROW else ()
-    return (CONST_ROADMAP_SOURCE_AGENT_LABEL, *borrowed)
-
-
-def _added_labels(
-    subject: Subject, type_label: str | None, decided: QuotaDecision
-) -> tuple[str, ...]:
-    """The labels added once the issue exists: its `type/*` label when it has none, and
-    `budget/borrowed` for an agent issue already open that borrows."""
-    borrows = (
-        decided is QuotaDecision.BORROW
-        and subject.new is None
-        and CONST_ROADMAP_BORROWED_LABEL not in subject.labels
-    )
-    return ((type_label,) if type_label else ()) + (
-        (CONST_ROADMAP_BORROWED_LABEL,) if borrows else ()
-    )
+    return (CONST_ROADMAP_SOURCE_AGENT_LABEL,)
 
 
 def _reason_lines(
@@ -1078,7 +874,6 @@ class _Planner:
     off_board: bool = False
     entries: list[_Entry] = field(default_factory=list)
     vectors: list[list[float]] = field(default_factory=list)
-    opened: int = 0
 
     def decide_all(self, subjects: Sequence[Subject]) -> Iterator[IntakeDecision]:
         """Each candidate's decision, in turn. A run with a candidate reads `.github/labels.yml`
@@ -1093,8 +888,6 @@ class _Planner:
             if decision.outcome is Outcome.PLACE and vector is not None:
                 self.entries.append(_Entry(subject.number, subject.title, subject.body, "open"))
                 self.vectors.append(vector)
-            opens = decision.quota in (QuotaDecision.OPEN, QuotaDecision.BORROW)
-            self.opened += decision.outcome is Outcome.PLACE and opens
             yield decision
 
     def _embed(
@@ -1111,32 +904,22 @@ class _Planner:
         own = iter(vectors[len(self.entries) :])
         return [next(own) if check else None for check in checked]
 
-    def _ranked(self, vector: list[float], number: int | None, *, items: bool) -> list[int]:
-        """The comparison entries other than the candidate, nearest first; with `items`, only
-        the open items."""
+    def _shortlist(self, vector: list[float] | None, number: int | None) -> list[_Entry]:
+        """The comparison entries other than the candidate, nearest first, at most
+        `DEFAULT_ROADMAP_INTAKE_SHORTLIST` of them."""
+        if vector is None:
+            return []
         indexes = [
             index
             for index, entry in enumerate(self.entries)
-            if entry.number is not None
-            and entry.number != number
-            and (not items or (entry.item and entry.state == GitHubState.OPEN.value))
+            if entry.number is not None and entry.number != number
         ]
-        return sorted(
+        nearest = sorted(
             indexes,
             key=lambda index: cosine_similarity(self.vectors[index], vector),
             reverse=True,
         )
-
-    def _shortlist(self, vector: list[float] | None, number: int | None) -> list[_Entry]:
-        if vector is None:
-            return []
-        nearest = self._ranked(vector, number, items=False)[:DEFAULT_ROADMAP_INTAKE_SHORTLIST]
-        return [self.entries[index] for index in nearest]
-
-    def _nearest_item(self, vector: list[float] | None, number: int | None) -> int | None:
-        """The open item nearest the candidate, which a fold names."""
-        nearest = self._ranked(vector, number, items=True)[:1] if vector is not None else []
-        return self.entries[nearest[0]].number if nearest else None
+        return [self.entries[index] for index in nearest[:DEFAULT_ROADMAP_INTAKE_SHORTLIST]]
 
     def _decide(self, subject: Subject, vector: list[float] | None) -> IntakeDecision:
         shortlist = self._shortlist(vector, subject.number)
@@ -1171,8 +954,7 @@ class _Planner:
         if dup is not None:
             return self._duplicate(subject, dup, dup_reason)
         assert proposal is not None
-        nearest = self._nearest_item(vector, subject.number)
-        return self._place(subject, proposal, rejected + proposal.notes, nearest)
+        return self._place(subject, proposal, rejected + proposal.notes)
 
     def _retry_proposal(
         self,
@@ -1199,27 +981,20 @@ class _Planner:
         if dup is not None:
             return self._duplicate(subject, dup, dup_reason)
         assert proposal is not None
-        nearest = self._nearest_item(vector, subject.number)
-        return self._place(subject, proposal, rejected + proposal.notes, nearest)
+        return self._place(subject, proposal, rejected + proposal.notes)
 
     def _skipped(self, subject: Subject, reason: str, notes: tuple[str, ...]) -> IntakeDecision:
-        """A candidate with no usable proposal: nothing is written, and the quota still decides."""
-        quota = _quota_decision(self.run, self.opened, subject)
-        return IntakeDecision(subject, Outcome.SKIP, quota=quota, reason=reason, notes=notes)
+        """A candidate with no usable proposal: nothing is written."""
+        return IntakeDecision(subject, Outcome.SKIP, reason=reason, notes=notes)
 
     def _duplicate(self, subject: Subject, original: int, reason: str) -> IntakeDecision:
-        """A duplicate, which for an agent's candidate is the quota's fold into its original;
-        its comment is left out when a stopped run already left it."""
+        """A duplicate: an issue closes as a duplicate of its original, and a new candidate is
+        not filed. Its comment is left out when a stopped run already left it."""
         if subject.number is not None and (
             _is_planned_by_person(subject) or subject.number < original
         ):
             return IntakeDecision(
-                subject,
-                Outcome.DUPLICATE,
-                quota=QuotaDecision.NOT_COUNTED,
-                original=original,
-                reason=reason,
-                held=True,
+                subject, Outcome.DUPLICATE, original=original, reason=reason, held=True
             )
         marker = CONST_ROADMAP_INTAKE_DUPLICATE_MARKER
         comment = (
@@ -1232,25 +1007,16 @@ class _Planner:
         return IntakeDecision(
             subject,
             Outcome.DUPLICATE,
-            quota=QuotaDecision.FOLD if subject.agent else QuotaDecision.NOT_COUNTED,
             original=original,
             reason=reason,
-            fold_into=original if subject.agent else None,
             comment=comment,
         )
 
     def _place(
-        self, subject: Subject, proposal: Proposal, notes: tuple[str, ...], nearest: int | None
+        self, subject: Subject, proposal: Proposal, notes: tuple[str, ...]
     ) -> IntakeDecision:
         type_label = subject.type_label or proposal.type
         priority = _priority(self.run.store, subject, proposal)
-        decided = _quota_decision(self.run, self.opened, subject, type_label, priority[0])
-        if decided is QuotaDecision.FOLD:
-            return IntakeDecision(
-                subject, Outcome.FOLD, quota=decided, fold_into=nearest, notes=notes
-            )
-        if decided is QuotaDecision.BORROW and subject.item is None:
-            notes += _judged_borrow(subject, type_label, priority[0])
         placement = _placement(subject)
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
@@ -1263,13 +1029,12 @@ class _Planner:
         return IntakeDecision(
             subject,
             Outcome.PLACE,
-            quota=decided,
-            labels=_added_labels(subject, added, decided),
+            labels=(added,) if added else (),
             placement=placement,
             fields=fields,
             priority=priority[0],
             comment=comment,
-            filing_labels=_filing_labels(subject, decided),
+            filing_labels=_filing_labels(subject),
             shown=_shown(subject, type_label, priority[0], proposal),
             notes=notes,
             reasons=lines,
@@ -1280,19 +1045,16 @@ def plan_intake(
     store: RoadmapStore,
     *,
     repo: str,
-    config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
     limit: int | None = None,
     waiting: Mapping[int, Waiting] | None = None,
-    now: datetime | None = None,
 ) -> IntakePlan:
     """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
     the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
-    what `waiting` says was decided before. The quota's window ends at `now`, the time of the
-    run when None.
+    what `waiting` says was decided before.
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1301,18 +1063,15 @@ def plan_intake(
     run = _Run(
         store=store,
         repo=repo,
-        config=config,
         model=model,
         ref=ref,
         issues=store.issues(),
         board={item.number: item for item in store.items()},
-        standing=read_quota(store, config, now=now or datetime.now(UTC)),
     )
     subjects, missing = _subjects(run, issues, new)
     queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
     decisions = tuple(_Planner(run, off_board=new is not None).decide_all(queue.decided))
     return IntakePlan(
-        quota=run.standing,
         decisions=decisions,
         missing=missing,
         limit=limit,
@@ -1345,9 +1104,7 @@ def dry_run_intake(
     reads, writes = planned_requests(
         subjects, repo=repo, ref=ref, new=new is not None, each=each, limit=limit
     )
-    return IntakePlan(
-        quota=None, decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes
-    )
+    return IntakePlan(decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes)
 
 
 # ── Writing ───────────────────────────────────────────────────────────────────
@@ -1520,14 +1277,13 @@ def intake_candidate(
     candidate: NewCandidate,
     *,
     repo: str,
-    config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
     confirm: bool = False,
 ) -> CandidateOutcome:
     """The entry point discovery (#745) and the review hand-off call: decide one candidate that
-    is not an issue yet, and with `confirm` file and place it unless it is a duplicate or folds."""
-    plan = plan_intake(store, repo=repo, config=config, model=model, ref=ref, new=candidate)
+    is not an issue yet, and with `confirm` file and place it unless it is a duplicate."""
+    plan = plan_intake(store, repo=repo, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
     applied = apply_intake(store, plan) if confirm else None
     if applied is not None:
@@ -1539,34 +1295,11 @@ def intake_candidate(
 # ── The report ────────────────────────────────────────────────────────────────
 
 
-def _quota_words(decision: IntakeDecision) -> str:
-    """The quota's decision for an agent's skipped or duplicate candidate, to end its line."""
-    texts = MESSAGES.roadmap
-    if decision.quota is QuotaDecision.NOT_COUNTED:
-        return ""
-    if decision.outcome is Outcome.DUPLICATE:
-        return " " + texts.intake_quota_fold.format(target=decision.original)
-    return " " + texts.intake_quota_suffix.format(
-        quota=texts.intake_quota_decisions[decision.quota.value]
-    )
-
-
-def _fold_line(decision: IntakeDecision, standing: QuotaStanding) -> str:
-    texts = MESSAGES.roadmap
-    target = f"#{decision.fold_into}" if decision.fold_into else texts.intake_fold_nowhere
-    allowance = texts.intake_unlimited if standing.allowance == float("inf") else standing.allowance
-    line = texts.intake_fold_line if decision.subject.number is None else texts.intake_fold_open
-    return line.format(subject=decision.subject.name, target=target, allowance=allowance)
-
-
-def _decision_lines(decision: IntakeDecision, standing: QuotaStanding) -> list[str]:
+def _decision_lines(decision: IntakeDecision) -> list[str]:
     texts = MESSAGES.roadmap
     subject = decision.subject.name
     if decision.outcome is Outcome.SKIP:
-        line = texts.intake_skip_line.format(subject=subject, reason=decision.reason)
-        return [line + _quota_words(decision)]
-    if decision.outcome is Outcome.FOLD:
-        return [_fold_line(decision, standing)]
+        return [texts.intake_skip_line.format(subject=subject, reason=decision.reason)]
     if decision.outcome is Outcome.DUPLICATE:
         if decision.held:
             return [
@@ -1579,10 +1312,11 @@ def _decision_lines(decision: IntakeDecision, standing: QuotaStanding) -> list[s
             if decision.subject.number is not None
             else texts.intake_duplicate_files_nothing.format(original=decision.original)
         )
-        line = texts.intake_duplicate_line.format(
-            subject=subject, original=decision.original, reason=decision.reason, action=action
-        )
-        return [line + _quota_words(decision)]
+        return [
+            texts.intake_duplicate_line.format(
+                subject=subject, original=decision.original, reason=decision.reason, action=action
+            )
+        ]
     assert decision.placement is not None
     kind, priority, value, effort = decision.shown
     return [
@@ -1593,7 +1327,6 @@ def _decision_lines(decision: IntakeDecision, standing: QuotaStanding) -> list[s
             value=value,
             effort=effort,
             placement=decision.placement.text,
-            quota=texts.intake_quota_decisions[decision.quota.value],
         )
     ]
 
@@ -1609,15 +1342,14 @@ def render_intake_dry_run(plan: IntakePlan, *, repo: str) -> None:
 
 
 def render_intake(plan: IntakePlan, *, repo: str) -> str:
-    """The run's report: the quota's numbers, then each candidate, its writes and notes, and
-    what the run spent. A dry run, which has no quota, prints through `render_intake_dry_run`."""
+    """The run's report: each candidate, its writes and notes, and what the run spent. A dry
+    run prints through `render_intake_dry_run`."""
     texts = MESSAGES.roadmap
-    assert plan.quota is not None, "a dry run prints through render_intake_dry_run"
-    lines = [texts.intake_title.format(repo=repo), "", plan.quota.render(), ""]
+    lines = [texts.intake_title.format(repo=repo), ""]
     if not plan.decisions and not plan.missing:
         lines.append(texts.intake_nothing)
     for decision in plan.decisions:
-        lines += _decision_lines(decision, plan.quota)
+        lines += _decision_lines(decision)
         if decision.has_writes:
             lines.append(texts.intake_writes.format(writes="; ".join(decision.writes())))
         lines += [texts.intake_note.format(note=note) for note in decision.notes]
@@ -1629,7 +1361,6 @@ def render_intake(plan: IntakePlan, *, repo: str) -> str:
 
 
 __all__ = [
-    "BorrowReason",
     "CandidateOutcome",
     "Filer",
     "IntakeApplied",
@@ -1641,8 +1372,6 @@ __all__ = [
     "Placement",
     "PlacementFailure",
     "Proposal",
-    "QuotaDecision",
-    "QuotaStanding",
     "Subject",
     "Waiting",
     "apply_intake",
@@ -1650,7 +1379,6 @@ __all__ = [
     "intake_candidate",
     "plan_intake",
     "raise_for_failed_placements",
-    "read_quota",
     "refine_item",
     "render_intake",
     "render_intake_dry_run",

@@ -3069,13 +3069,10 @@ CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS: Final[dict[str, str]] = {
     "build": "type/infra",
     "ci": "type/infra",
 }
-# The agent filing quota's labels (#1153): an agent's candidate, and one opened beyond the allowance.
+# The label of a candidate an agent files.
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
-CONST_ROADMAP_BORROWED_LABEL: Final[str] = "budget/borrowed"
 # The Priority options the model may propose; only verified evidence sets P0-Critical.
 CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
-# A bug or security opening at these priorities may borrow beyond the allowance (#1153).
-CONST_ROADMAP_BORROWING_PRIORITIES: Final[frozenset[str]] = frozenset({"P0-Critical", "P1-High"})
 # The Value and Effort options (`.github/project-template.json`).
 CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
 # An author with write access, the machine account included, as GitHub's author_association says.

@@ -56,21 +56,17 @@ from devops_cli.roadmap.board_read import (
     BOARD_ITEMS_OPERATION,
     GRAPHQL_BUDGET_OPERATION,
 )
-from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
+from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake import (
-    BorrowReason,
-    Filer,
     IntakePlan,
     NewCandidate,
     Outcome,
-    QuotaDecision,
     apply_intake,
     dry_run_intake,
     intake_candidate,
     plan_intake,
     raise_for_failed_placements,
-    read_quota,
     render_intake,
 )
 from devops_cli.roadmap.intake_model import (
@@ -86,20 +82,17 @@ from devops_cli.roadmap.store import (
     Evidence,
     EvidenceKind,
     GitHubState,
-    IssueQuery,
     Item,
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
 from tests.roadmap_board_fake import GitHubFake, field_id
-from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
 # The roadmap's milestones, planning buckets a person made: one closed, two open.
 DONE, PLANNED, LATER = "Docs pass", "2026-11-05", "Q4 hardening"
-CONFIG = RoadmapConfig(board=1)
 OPTIONS = {
     ItemField.STATUS: ("New", "Ready", "In Progress", "In Review", "Done", "Blocked"),
     ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
@@ -119,13 +112,6 @@ DEFAULT_PROPOSAL: dict[str, Any] = {
 }
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def window_end(clock: ClockFake) -> None:
-    """The wall clock stands at `NOW`, so the quota's rolling window ends where every case's
-    roadmap reads its time (#1153)."""
-    clock.move_to(NOW)
 
 
 @dataclass
@@ -160,11 +146,9 @@ class Roadmap:
     def __init__(
         self,
         store: InMemoryRoadmapStore | None = None,
-        config: RoadmapConfig = CONFIG,
         labels: str | None = LABELS_YML,
     ):
         self.now = NOW - timedelta(days=1)
-        self.config = config
         self.store = store or InMemoryRoadmapStore(board_options=OPTIONS, clock=self.clock)
         self.person = self.store.as_actor("alice")
         if labels is not None:
@@ -219,7 +203,7 @@ class Roadmap:
         return self.store.comments_on(number)
 
     def plan(self, model: FakeModel, **options: Any) -> IntakePlan:
-        return plan_intake(self.store, repo=REPO, config=self.config, model=model, **options)
+        return plan_intake(self.store, repo=REPO, model=model, **options)
 
     def run(self, model: FakeModel, **options: Any) -> list[JobWrite]:
         """Apply a plan as the CLI and the Service do: every candidate, then the failures."""
@@ -315,7 +299,7 @@ def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
     store: Any = _Recorded(roadmap.store, ran)
     model = FakeModel()
     with pytest.raises(ConfigurationError) as raised:
-        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+        plan_intake(store, repo=REPO, model=model)
     message = str(raised.value)
     assert (
         raised.value.details,
@@ -365,7 +349,7 @@ def test_a_labels_read_github_fails_stays_a_github_error() -> None:
     github.seed_issue(1, "feat: export the board as CSV")
     model = FakeModel()
     with pytest.raises(GitHubOperationError) as raised:
-        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+        plan_intake(store, repo=REPO, model=model)
     assert (
         isinstance(raised.value, (ConfigurationError, GitHubFileNotFoundError)),
         "HTTP 502" in str(raised.value),
@@ -911,7 +895,6 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
             evidence=(commit,),
         ),
         repo=REPO,
-        config=CONFIG,
         model=model,
         confirm=True,
     )
@@ -919,7 +902,6 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
         roadmap.store,
         NewCandidate(title="fix: claimed", body="Introduced by abc1234."),
         repo=REPO,
-        config=CONFIG,
         model=model,
         confirm=True,
     )
@@ -946,134 +928,42 @@ def test_an_asked_for_issue_that_is_no_candidate_is_reported_and_left_alone(
     ) == ([candidate], (item,), True)
 
 
-# ── The agent filing quota (#1153) ────────────────────────────────────────────
+# ── Agent candidates (#1959) ──────────────────────────────────────────────────
 
 
 PARENT = "https://github.com/example/roadmap/issues/1"
-TIGHT = RoadmapConfig(
-    board=1, open_issue_limit=2, quota_credit_base=1, quota_credit_per_delivered_item=0
-)
-
-
-@pytest.fixture
-def crowded() -> Roadmap:
-    """Three open items over a limit of two, so each opening costs three closures, none were
-    made in the window, and the credit allows one agent opening."""
-    roadmap = Roadmap(config=TIGHT)
-    for title in ("one", "two", "three"):
-        number = roadmap.issue(title, on_board=True)
-        roadmap.store.set_field(roadmap.item(number), ItemField.PRIORITY, "P3-Low")
-    return roadmap
 
 
 def _new(title: str, **options: Any) -> NewCandidate:
     return NewCandidate(title=title, body=f"{title} body", **options)
 
 
-def test_an_agent_opening_within_the_allowance_is_filed_with_source_agent(
-    crowded: Roadmap,
+def test_an_agent_candidate_is_filed_however_many_issues_agents_opened_recently(
+    roadmap: Roadmap,
 ) -> None:
+    """No filing quota holds an agent's candidate back (#1959). With 162 open items and 12 of
+    them opened by agents today, a new candidate that duplicates nothing is filed and placed,
+    and the report names no quota."""
+    for index in range(150):
+        roadmap.finished(f"chore: open item {index}")
+    for index in range(12):
+        roadmap.finished(f"feat: agent opening {index}", labels=("source/agent",))
     outcome = intake_candidate(
-        crowded.store,
-        _new("feat: within"),
+        roadmap.store,
+        _new("feat: one more"),
         repo=REPO,
-        config=TIGHT,
         model=FakeModel(),
         confirm=True,
     )
-    standing = outcome.plan.quota
-    assert standing is not None
-    assert (
-        outcome.decision.quota,
-        outcome.number,
-        _labels(crowded, outcome.number or 0),
-        crowded.fields(outcome.number or 0)[0],
-        standing.allowance,
-        standing.ratio,
-    ) == (QuotaDecision.OPEN, 4, ("source/agent", "type/feature"), "New", 1, 3.0)
-
-
-def test_beyond_the_allowance_an_opening_folds_and_a_split_borrows_and_is_never_refused(
-    crowded: Roadmap,
-) -> None:
-    model = FakeModel()
-    intake_candidate(
-        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    number = outcome.number
+    filed = (_labels(roadmap, number), roadmap.fields(number)[:2]) if number else None
+    report = render_intake(outcome.plan, repo=REPO).lower()
+    assert (outcome.decision.outcome, filed, "quota" in report, "allowance" in report) == (
+        Outcome.PLACE,
+        (("source/agent", "type/feature"), ("New", "P2-Medium")),
+        False,
+        False,
     )
-    folded = intake_candidate(
-        crowded.store, _new("feat: second"), repo=REPO, config=TIGHT, model=model, confirm=True
-    )
-    borrowed = intake_candidate(
-        crowded.store,
-        _new("feat: split", borrow_reason=BorrowReason.SPLIT, source=PARENT),
-        repo=REPO,
-        config=TIGHT,
-        model=model,
-        confirm=True,
-    )
-    assert (
-        (folded.decision.quota, folded.number, folded.decision.fold_into is not None),
-        (borrowed.decision.quota, _labels(crowded, borrowed.number or 0)),
-        len(crowded.store.issues()),
-    ) == (
-        (QuotaDecision.FOLD, None, True),
-        (QuotaDecision.BORROW, ("source/agent", "budget/borrowed", "type/feature")),
-        5,
-    )
-
-
-def test_a_p1_bug_beyond_the_allowance_borrows(crowded: Roadmap) -> None:
-    model = FakeModel(proposals={"fix: second": {"type": "type/bug", "priority": "P1-High"}})
-    intake_candidate(
-        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
-    )
-    bug = intake_candidate(crowded.store, _new("fix: second"), repo=REPO, config=TIGHT, model=model)
-    assert (
-        bug.decision.quota,
-        bug.number,
-        any("rests on the model's" in note for note in bug.decision.notes),
-    ) == (QuotaDecision.BORROW, None, True)
-
-
-def test_a_persons_issue_skips_the_quota_check(crowded: Roadmap) -> None:
-    crowded.issue("feat: from a person")
-    plan = crowded.plan(FakeModel())
-    (decision,) = plan.decisions
-    assert (decision.quota, decision.outcome) == (QuotaDecision.NOT_COUNTED, Outcome.PLACE)
-
-
-def test_every_run_reports_the_quota_with_the_numbers_behind_it(crowded: Roadmap) -> None:
-    """Two open at a limit of two cost one closure per opening: the credit of one, plus the one
-    closure made in the seven days before the run, allows two agent openings. A close before
-    the window counts for nothing."""
-    crowded.store.comment(1, "Delivered.")
-    crowded.store.as_actor("alice").close_by_hand(1, CloseReason.COMPLETED)
-    crowded.store.as_actor("alice").close_by_hand(2, CloseReason.NOT_PLANNED)
-    crowded.issue("three again")
-    report = " ".join(render_intake(crowded.plan(FakeModel()), repo=REPO).split())
-    assert (
-        "2 open issues, r(n) = 1.00" in report,
-        "credit 1 from 1 delivered in the last 7 day(s)" in report,
-        "1 closure(s) since 2026-09-27T12:00:00+00:00" in report,
-        "allowance 2; 0 agent opening(s) in the window, 0 borrowed" in report,
-    ) == (True, True, True, True)
-
-
-def test_the_window_counts_only_the_openings_and_closures_of_its_days(crowded: Roadmap) -> None:
-    """The quota's window rolls: an agent opening and a closure older than its days count for
-    nothing, so no release or milestone starts the cycle again (#1153)."""
-    crowded.now = NOW - timedelta(days=8)
-    crowded.issue("feat: an old agent opening", labels=("source/agent",))
-    crowded.store.as_actor("alice").close_by_hand(1, CloseReason.COMPLETED)
-    crowded.now = NOW
-    standing = read_quota(crowded.store, TIGHT, now=NOW)
-    assert (
-        standing.since,
-        standing.days,
-        standing.agent_openings,
-        standing.closures,
-        standing.delivered,
-    ) == (NOW - timedelta(days=7), 7, 0, 0, 0)
 
 
 # ── The command and its MCP mirror ────────────────────────────────────────────
@@ -1235,7 +1125,6 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
         "Dry run: no request was made",
         f"gh api -H 'Accept: application/vnd.github.raw+json' repos/{REPO}/contents/.github/roadmap.toml",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
-        f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
         f"{REPO}/contents/.github/labels.yml",
         "[only if the run has a candidate]",
         "GraphQL read the closes and reopens on #7's timeline",
@@ -1260,17 +1149,16 @@ def test_a_dry_run_is_an_intake_plan_of_planned_requests_with_placeholders() -> 
         if r.target.endswith("<the candidate>")
     }
     assert (
-        (type(every), every.dry_run, every.quota, every.decisions, every.has_writes),
+        (type(every), every.dry_run, every.decisions, every.has_writes),
         (config.method, config.target, config.argv[-1]),
-        {"REST read", "REST search read", "GraphQL read", "embedding", "model"}
-        <= {r.method for r in every.requests},
+        {"REST read", "GraphQL read", "embedding", "model"} <= {r.method for r in every.requests},
         repeated,
         any("timeline" in r.target for r in new.requests),
         (new.writes[0].method, new.writes[0].target.startswith('file new candidate "feat: idea"')),
         "<the filed issue>" in new.writes[-1].target,
         any(r.repeat for r in new.requests + new.writes if not r.argv),
     ) == (
-        (IntakePlan, True, None, (), False),
+        (IntakePlan, True, (), False),
         (
             "REST read",
             ".github/roadmap.toml at main, which names the board",
@@ -1292,12 +1180,6 @@ STORE_OPERATIONS: dict[str, str | None] = {
     "issues": "issues",
     "board": "items",
     "board_issues": None,
-    "count_open": "count_issues",
-    "count_closed": "count_issues",
-    "count_delivered": "count_issues",
-    "count_bulk": "count_issues",
-    "count_openings": "count_issues",
-    "count_borrowed": "count_issues",
     "closures": "closures",
     "embed": "embed",
     "embed_new": "embed",
@@ -1385,7 +1267,7 @@ def test_a_dry_runs_requests_follow_the_order_a_run_makes_them(roadmap: Roadmap,
     store: Any = _Recorded(roadmap.store, ran)
     model: Any = _Recorded(FakeModel(proposals={title: REGRESSION}), ran)
     store.repository_file(".github/roadmap.toml")
-    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, issues=issues, new=candidate)
+    plan = plan_intake(store, repo=REPO, model=model, issues=issues, new=candidate)
     apply_intake(store, plan)
     planned = _operations(dry_run_intake(REPO, issues=issues, new=candidate))
     assert (plan.decisions[0].priority, _in_order(ran, planned)) == ("P0-Critical", True), (
@@ -1396,21 +1278,18 @@ def test_a_dry_runs_requests_follow_the_order_a_run_makes_them(roadmap: Roadmap,
 
 def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
     ran: list[tuple[str, ...]] = []
-    replies = {"search/issues": '{"total_count": 0, "incomplete_results": false}'}
 
     def gh(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         ran.append(("GET", *args) if args[0].startswith(API) else ("gh", *args))
-        stdout = next((reply for key, reply in replies.items() if key in args), "[]")
-        return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
 
     store = GitHubRoadmapStore(REPO, runner=gh, session=RunnerSession(gh))
     store.repository_file(".github/roadmap.toml", ref="feat/topic")
     store.issues()
-    store.count_issues(IssueQuery(state=GitHubState.OPEN))
     store.repository_file(".github/labels.yml", ref="feat/topic")
     planned = dry_run_intake(REPO, ref="feat/topic").requests
     shown = {r.argv for r in planned if r.argv}
-    assert (len(ran), set(ran) <= shown) == (4, True)
+    assert (len(ran), set(ran) <= shown) == (3, True)
 
 
 def test_a_dry_run_still_refuses_a_candidate_holding_a_secret(
@@ -1602,7 +1481,6 @@ def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accep
             title="feat: via mcp",
             body_file=temp_body,
             source=PARENT,
-            borrow_reason="split",
         )
         previewed = len(board.store.job_writes())
         mcp_server.roadmap_intake(repo=REPO, confirm=True)
@@ -1713,7 +1591,7 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=Client())
     garbled = roadmap.issue("feat: garbled")
     fine = roadmap.issue("feat: fine")
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model)
     apply_intake(roadmap.store, plan)
     skipped = plan.decisions[0]
     assert (
@@ -1743,7 +1621,7 @@ def test_off_list_type_retries_once_and_files_valid_second_reply(roadmap: Roadma
     client = Client()
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
     issue = roadmap.issue("perf(ci): faster hook")
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model)
     apply_intake(roadmap.store, plan)
     (decision,) = plan.decisions
     assert (
@@ -1773,7 +1651,7 @@ def test_two_off_list_replies_skip_candidate_with_both_problems_in_report(roadma
     client = Client()
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
     issue = roadmap.issue("perf(ci): bad type twice")
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model)
     apply_intake(roadmap.store, plan)
     (decision,) = plan.decisions
     report = render_intake(plan, repo=REPO)
@@ -1806,7 +1684,7 @@ def test_off_list_value_or_effort_is_retried_the_same_way(roadmap: Roadmap) -> N
     client = Client()
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=client)
     issue = roadmap.issue("feat: big thing")
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model)
     apply_intake(roadmap.store, plan)
     (decision,) = plan.decisions
     assert (
@@ -1962,129 +1840,50 @@ def test_the_gateway_a_failure_names_carries_no_password() -> None:
     ) == (False, True)
 
 
-# ── Review fixes: the quota ───────────────────────────────────────────────────
+# ── Agent candidates and their duplicates ─────────────────────────────────────
 
 
-def test_a_duplicate_agent_candidate_folds_into_its_original_and_the_report_says_so(
+def test_a_duplicate_agent_candidate_is_not_filed_and_the_report_names_its_original(
     roadmap: Roadmap,
 ) -> None:
     original = roadmap.finished("feat: cache embeddings")
     model = FakeModel(duplicates={"feat: cached embeddings": "feat: cache embeddings"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: cached embeddings"), repo=REPO, config=CONFIG, model=model
+        roadmap.store, _new("feat: cached embeddings"), repo=REPO, model=model, confirm=True
     )
     report = " ".join(render_intake(outcome.plan, repo=REPO).split())
     assert (
         outcome.decision.outcome,
-        outcome.decision.quota,
-        outcome.decision.fold_into,
-        f"Quota: fold into #{original}" in report,
-    ) == (Outcome.DUPLICATE, QuotaDecision.FOLD, original, True)
+        outcome.decision.original,
+        outcome.number,
+        len(roadmap.store.issues()),
+        f"Nothing is filed; add to #{original} instead." in report,
+    ) == (Outcome.DUPLICATE, original, None, 1, True)
 
 
-def test_a_skipped_agent_candidate_still_reports_its_quota_decision(roadmap: Roadmap) -> None:
-    model = FakeModel(proposals={"feat: odd": {"value": "Enormous"}})
-    outcome = intake_candidate(
-        roadmap.store, _new("feat: odd"), repo=REPO, config=CONFIG, model=model
-    )
-    report = " ".join(render_intake(outcome.plan, repo=REPO).split())
-    assert (outcome.decision.outcome, outcome.decision.quota, "Quota: open" in report) == (
-        Outcome.SKIP,
-        QuotaDecision.OPEN,
-        True,
-    )
-
-
-def test_a_fold_names_the_nearest_open_item_never_a_rejected_issue(crowded: Roadmap) -> None:
-    rejected = crowded.issue(
-        "widget exporter", state=GitHubState.CLOSED, state_reason="not_planned"
-    )
-    model = FakeModel(topics=("widget",))
-    intake_candidate(
-        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
-    )
-    folded = intake_candidate(
-        crowded.store, _new("feat: widget export"), repo=REPO, config=TIGHT, model=model
-    )
-    assert (folded.decision.quota, folded.decision.fold_into in {1, 2, 3}, rejected) == (
-        QuotaDecision.FOLD,
-        True,
-        4,
-    )
-
-
-def test_a_persons_new_candidate_beyond_the_allowance_is_filed_and_not_counted(
-    crowded: Roadmap,
-) -> None:
-    model = FakeModel()
-    intake_candidate(
-        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
-    )
-    mine = intake_candidate(
-        crowded.store,
-        _new("feat: mine", filed_by=Filer.PERSON),
-        repo=REPO,
-        config=TIGHT,
-        model=model,
-        confirm=True,
-    )
-    assert (mine.decision.quota, _labels(crowded, mine.number or 0)) == (
-        QuotaDecision.NOT_COUNTED,
-        ("type/feature",),
-    )
-
-
-def test_a_split_borrows_only_with_the_link_it_was_split_from(crowded: Roadmap) -> None:
-    model = FakeModel()
-    intake_candidate(
-        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
-    )
-    unlinked = intake_candidate(
-        crowded.store,
-        _new("feat: split", borrow_reason=BorrowReason.SPLIT),
-        repo=REPO,
-        config=TIGHT,
-        model=model,
-    )
-    assert unlinked.decision.quota is QuotaDecision.FOLD
-
-
-def test_an_agent_issue_filed_outside_intake_is_decided_against_the_allowance(
-    crowded: Roadmap,
-) -> None:
-    """Three agent openings in the window over an allowance of one: the earliest opens, a later
-    feature folds and stays off the board, and a later P1 bug borrows and is labeled."""
-    early = crowded.issue("feat: early", labels=("source/agent",))
-    feature = crowded.issue("feat: outside", labels=("source/agent",))
-    bug = crowded.issue("fix: outside", labels=("source/agent",))
+def test_every_agent_issue_filed_outside_intake_is_placed(roadmap: Roadmap) -> None:
+    """Agent issues filed outside intake are all placed, a P1 bug among them, and none gets a
+    label beyond its type."""
+    issues = [
+        roadmap.issue(title, labels=("source/agent",))
+        for title in ("feat: early", "feat: outside", "fix: outside")
+    ]
     model = FakeModel(proposals={"fix: outside": {"type": "type/bug", "priority": "P1-High"}})
-    plan = crowded.plan(model)
-    apply_intake(crowded.store, plan)
+    plan = roadmap.plan(model)
+    apply_intake(roadmap.store, plan)
     assert (
-        [(d.subject.number, d.quota) for d in plan.decisions],
-        crowded.fields(early)[0],
-        crowded.store.item(feature),
-        _labels(crowded, bug),
-        crowded.fields(bug)[1],
+        [(d.subject.number, d.outcome) for d in plan.decisions],
+        [roadmap.fields(number)[:2] for number in issues],
+        [_labels(roadmap, number) for number in issues],
     ) == (
-        [(early, QuotaDecision.OPEN), (feature, QuotaDecision.FOLD), (bug, QuotaDecision.BORROW)],
-        "New",
-        None,
-        ("source/agent", "type/bug", "budget/borrowed"),
-        "P1-High",
+        [(number, Outcome.PLACE) for number in issues],
+        [("New", "P2-Medium"), ("New", "P2-Medium"), ("New", "P1-High")],
+        [
+            ("source/agent", "type/feature"),
+            ("source/agent", "type/feature"),
+            ("source/agent", "type/bug"),
+        ],
     )
-
-
-def test_an_agent_issue_filed_outside_intake_within_the_allowance_opens(crowded: Roadmap) -> None:
-    crowded.issue("feat: outside", labels=("source/agent",))
-    (decision,) = crowded.plan(FakeModel()).decisions
-    assert (decision.quota, decision.outcome) == (QuotaDecision.OPEN, Outcome.PLACE)
-
-
-def test_the_borrowed_count_is_of_agent_openings_only(crowded: Roadmap) -> None:
-    crowded.issue("a person's", labels=("budget/borrowed",), on_board=True)
-    crowded.issue("an agent's", labels=("source/agent", "budget/borrowed"), on_board=True)
-    assert read_quota(crowded.store, TIGHT, now=NOW).borrowed == 1
 
 
 def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: Roadmap) -> None:
@@ -2093,24 +1892,13 @@ def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: 
     filed = roadmap.issue("feat: retry me", labels=("source/agent",))
     model = FakeModel(duplicates={"feat: retry me": "feat: retry me"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: retry me"), repo=REPO, config=CONFIG, model=model, confirm=True
+        roadmap.store, _new("feat: retry me"), repo=REPO, model=model, confirm=True
     )
     assert (outcome.decision.outcome, outcome.decision.original, len(roadmap.store.issues())) == (
         Outcome.DUPLICATE,
         filed,
         1,
     )
-
-
-def test_a_borrow_reason_needs_the_source_it_came_from(
-    board: Roadmap, fake_model: FakeModel, tmp_path: Path
-) -> None:
-    body = tmp_path / "body.md"
-    body.write_text("text", encoding="utf-8")
-    output = _intake(
-        "--title", "feat: split", "--body-file", str(body), "--borrow-reason", "split", exit_code=1
-    )
-    assert "--source" in output
 
 
 def test_a_person_files_through_the_command_without_the_agent_label(
@@ -2165,7 +1953,7 @@ def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadma
 def _intake_on_github(
     store: GitHubRoadmapStore, model: FakeModel, **options: Any
 ) -> tuple[IntakePlan, Any]:
-    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, **options)
+    plan = plan_intake(store, repo=REPO, model=model, **options)
     return plan, lambda: apply_intake(store, plan, refine=lambda *_: None)
 
 
@@ -2399,7 +2187,7 @@ def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(
         title="fix(k8s): tempo runs under otel namespace",
         body="Tempo fails to start under restricted pod security.",
     )
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
     assert decision.outcome is Outcome.PLACE
     applied = apply_intake(roadmap.store, plan)
@@ -2425,13 +2213,9 @@ def test_candidate_matching_open_item_is_folded(roadmap: Roadmap) -> None:
         title="feat: open feature copy",
         body="Duplicate feature.",
     )
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    assert (decision.outcome, decision.quota, decision.original) == (
-        Outcome.DUPLICATE,
-        QuotaDecision.FOLD,
-        open_item,
-    )
+    assert (decision.outcome, decision.original) == (Outcome.DUPLICATE, open_item)
     applied = apply_intake(roadmap.store, plan)
     assert applied.filed == ()
 
@@ -2449,12 +2233,8 @@ def test_candidate_matching_item_closed_as_not_planned_is_folded(roadmap: Roadma
         title="feat: rejected proposal again",
         body="Same idea again.",
     )
-    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model, new=candidate)
+    plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    assert (decision.outcome, decision.quota, decision.original) == (
-        Outcome.DUPLICATE,
-        QuotaDecision.FOLD,
-        not_planned,
-    )
+    assert (decision.outcome, decision.original) == (Outcome.DUPLICATE, not_planned)
     applied = apply_intake(roadmap.store, plan)
     assert applied.filed == ()
