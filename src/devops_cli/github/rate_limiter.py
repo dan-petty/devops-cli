@@ -1527,6 +1527,16 @@ def _is_rate_limit_check(args: list[str]) -> bool:
     return len(clean) >= 2 and clean[0] == "api" and clean[1].lstrip("/") == "rate_limit"
 
 
+def _prints_rate_limit_answer(args: list[str]) -> bool:
+    """Whether the command is a rate-limit check whose stdout ends with GitHub's /rate_limit
+    answer, which `_post_process_run` reads into the quotas. An output flag such as `--jq` makes
+    gh print something else, which `run_gh` returns unread (#1886)."""
+    if not _is_rate_limit_check(args):
+        return False
+    api_args = parse_gh_api_args(args[1:])
+    return api_args is not None and api_args.prints_body
+
+
 def _is_rate_limit_exempt(args: list[str]) -> bool:
     """Determine whether the command is a read-only rate limit inspection or local non-API command."""
     clean = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
@@ -1598,17 +1608,17 @@ def _post_process_run(
     proc: subprocess.CompletedProcess[str],
     resource: str,
     limiter: GitHubRateLimiter,
-    is_rate_limit_check: bool = False,
+    reads_quota: bool = False,
     is_exempt: bool = False,
     cost: int = 1,
 ) -> None:
     """Extract rate limit metrics from response headers or payload, or record quota utilization.
 
-    A rate-limit check's answer is read only when gh succeeded: a failed `gh api rate_limit`
-    has GitHub's error body on stdout, and its caller reads the failure, as
+    With `reads_quota`, the /rate_limit answer is read only when gh succeeded: a failed
+    `gh api rate_limit` has GitHub's error body on stdout, and its caller reads the failure, as
     `_refresh_from_github` does (#983).
     """
-    if is_rate_limit_check:
+    if reads_quota:
         if proc.returncode == 0 and proc.stdout:
             _extract_rate_limit_endpoint_response(proc.stdout, limiter)
         return
@@ -1629,7 +1639,7 @@ def _execute_gh_single_attempt(
     capture_output: bool,
     target_resource: str,
     limiter: GitHubRateLimiter,
-    is_check: bool,
+    reads_quota: bool,
     is_exempt: bool,
     is_mutation: bool,
     cost: int,
@@ -1661,7 +1671,7 @@ def _execute_gh_single_attempt(
         proc,
         target_resource,
         limiter,
-        is_rate_limit_check=is_check,
+        reads_quota=reads_quota,
         is_exempt=is_exempt,
         cost=cost,
     )
@@ -1720,7 +1730,7 @@ def _run_gh_retry_loop(
     capture_output: bool,
     target_resource: str,
     limiter: GitHubRateLimiter,
-    is_check: bool,
+    reads_quota: bool,
     is_exempt: bool,
     is_mutation: bool,
     effective_cost: int,
@@ -1741,7 +1751,7 @@ def _run_gh_retry_loop(
             capture_output,
             target_resource,
             limiter,
-            is_check,
+            reads_quota,
             is_exempt,
             is_mutation,
             effective_cost,
@@ -1807,7 +1817,7 @@ def run_gh(
         return proc
     limiter = get_github_rate_limiter()
     target_resource = resource or _detect_resource(clean_args)
-    is_check = _is_rate_limit_check(clean_args)
+    reads_quota = _prints_rate_limit_answer(clean_args)
     is_exempt = _is_rate_limit_exempt(clean_args)
     is_mutation = not is_exempt and is_write_gh_command(clean_args, input=input, cwd=valid_cwd)
 
@@ -1827,7 +1837,7 @@ def run_gh(
         capture_output,
         target_resource,
         limiter,
-        is_check,
+        reads_quota,
         is_exempt,
         is_mutation,
         effective_cost,

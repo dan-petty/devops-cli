@@ -7,6 +7,7 @@ import subprocess
 import time
 from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1001,6 +1002,33 @@ def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged() -> None:
         0,
         "1\n2\n3\n",
         [[CONST_GH_CLI, *argv]],
+    )
+
+
+def test_gh_api_prints_the_number_a_jq_filter_selects_from_the_rate_limit() -> None:
+    """`devops gh api rate_limit --jq '.resources.graphql.remaining'` prints the number that gh
+    selects and exits 0. gh is faked at `subprocess.run`, and it runs once (#1886)."""
+    from devops_cli.config.constants import CONST_GH_CLI
+
+    real_run = subprocess.run
+    argvs: list[list[str]] = []
+
+    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] != CONST_GH_CLI:
+            return real_run(cmd, **kwargs)
+        argvs.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, "4321\n", "")
+
+    jq = ".resources.graphql.remaining"
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("subprocess.run", side_effect=gh),
+    ):
+        result = runner.invoke(app, ["api", "rate_limit", "--jq", jq])
+    assert (result.exit_code, result.output, argvs) == (
+        0,
+        "4321\n",
+        [[CONST_GH_CLI, "api", "rate_limit", "-q", jq]],
     )
 
 

@@ -23,6 +23,8 @@ from devops_cli.config.constants import (
     CONST_GH_API_FIELD_SEPARATOR,
     CONST_GH_API_FILE_VALUE_PREFIX,
     CONST_GH_API_GRAPHQL_ENDPOINT,
+    CONST_GH_API_OUTPUT_SWITCH_FLAGS,
+    CONST_GH_API_OUTPUT_VALUE_FLAGS,
     CONST_GH_API_PARAMS_METHOD,
     CONST_GH_API_STDIN_PATH,
     CONST_GH_API_SUBCOMMAND,
@@ -54,13 +56,19 @@ class GitHubRequest:
 
 @dataclass(frozen=True, slots=True)
 class GhApiArgs:
-    """What a `gh api` argv tells gh to send: its endpoint, method, fields and body file."""
+    """What a `gh api` argv tells gh to send: its endpoint, method, fields and body file.
+
+    `prints_body` tells whether stdout ends with the response body as GitHub sent it, that is,
+    when no flag of `CONST_GH_API_OUTPUT_VALUE_FLAGS` or `CONST_GH_API_OUTPUT_SWITCH_FLAGS` is
+    given.
+    """
 
     endpoint: str | None
     method: str
     raw_fields: tuple[str, ...]
     typed_fields: tuple[str, ...]
     input_path: str | None
+    prints_body: bool
 
     @property
     def has_params(self) -> bool:
@@ -125,6 +133,7 @@ def parse_gh_api_args(api_args: Sequence[str]) -> GhApiArgs | None:
         raw_fields=raw_fields,
         typed_fields=typed_fields,
         input_path=parsed.input,
+        prints_body=not parsed.output_flags,
     )
 
 
@@ -165,7 +174,7 @@ def _gh_api_parser() -> argparse.ArgumentParser:
 
     argparse takes neither a switch given a value (`--paginate=true`) nor a value starting with
     a dash (`--jq -.a`), which gh's parser accepts; such an argv doesn't parse, so it counts as
-    a write.
+    a write. Each output flag given adds its value, or its name, to `output_flags`.
     """
     parser = argparse.ArgumentParser(
         prog="gh api", add_help=False, allow_abbrev=False, exit_on_error=False
@@ -179,6 +188,10 @@ def _gh_api_parser() -> argparse.ArgumentParser:
         parser.add_argument(*flags, action="append")
     for flags in CONST_GH_API_SWITCH_FLAGS:
         parser.add_argument(*flags, action="store_true")
+    for flags in CONST_GH_API_OUTPUT_VALUE_FLAGS:
+        parser.add_argument(*flags, action="append", dest="output_flags")
+    for flags in CONST_GH_API_OUTPUT_SWITCH_FLAGS:
+        parser.add_argument(*flags, action="append_const", const=flags[-1], dest="output_flags")
     return parser
 
 

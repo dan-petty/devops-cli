@@ -1961,3 +1961,89 @@ def test_two_workers_at_the_reset_both_wait_it_out_and_run(clock: ClockFake) -> 
         [_ISSUES, _ISSUES],
         [0.5, 0.5],
     )
+
+
+# ── A rate-limit check whose output a gh flag changes (#1886) ─────────────────
+
+_ANSWER = {"resources": {"core": _window(4830, _RESET), "graphql": _window(4321, _RESET)}}
+_BODY = json.dumps(_ANSWER)
+
+
+def _gh_printing(stdout: str, argvs: list[list[str]]) -> Any:
+    """gh faked at the process edge: each gh command prints `stdout`, exits 0 and is recorded in
+    `argvs`. A command that is not gh runs for real, as `_GhAtTheReset` lets it."""
+
+    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] != "gh":
+            return _REAL_RUN(cmd, **kwargs)
+        argvs.append(list(cmd[1:]))
+        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+
+    return gh
+
+
+def _quotas() -> dict[str, tuple[int | None, float | None]]:
+    limiter = get_github_rate_limiter()
+    return {
+        resource: (limiter.get_quota(resource).remaining, limiter.get_quota(resource).reset_epoch)
+        for resource in ("core", "graphql")
+    }
+
+
+@pytest.mark.parametrize(
+    ("flags", "printed"),
+    [
+        pytest.param(["--jq", ".resources.graphql.remaining"], "4321\n", id="jq"),
+        pytest.param(["-q", ".resources.graphql.remaining"], "4321\n", id="q"),
+        pytest.param(["--template", "{{.resources.graphql.remaining}}"], "4321", id="template"),
+        pytest.param(["-t", "{{.resources.graphql.remaining}}"], "4321", id="t"),
+        pytest.param(["--paginate", "--slurp"], f"[{_BODY}]\n", id="slurp"),
+        pytest.param(
+            ["--verbose"],
+            "* Request to https://api.github.com/rate_limit\n> GET /rate_limit HTTP/1.1\n\n"
+            f"< HTTP/2.0 200 OK\n\n{_BODY}\n* Request took 1ms\n",
+            id="verbose",
+        ),
+        pytest.param(["--silent"], "", id="silent"),
+    ],
+)
+def test_a_rate_limit_check_whose_output_a_flag_changes_returns_it_and_reads_no_quota(
+    flags: list[str], printed: str
+) -> None:
+    """With an output flag, gh prints something other than the /rate_limit answer: `run_gh`
+    returns what gh printed, runs gh once, and keeps the stored quotas."""
+    argvs: list[list[str]] = []
+    before = _quotas()
+    with patch("subprocess.run", side_effect=_gh_printing(printed, argvs)):
+        proc = run_gh(["api", "rate_limit", *flags])
+    assert (proc.returncode, proc.stdout, argvs, _quotas()) == (
+        0,
+        printed,
+        [["api", "rate_limit", *flags]],
+        before,
+    )
+
+
+@pytest.mark.parametrize(
+    ("flags", "printed"),
+    [
+        pytest.param([], _BODY, id="plain"),
+        pytest.param(
+            ["--include"], f"HTTP/2.0 200 OK\nContent-Type: application/json\n\n{_BODY}", id="i"
+        ),
+        pytest.param(["--paginate"], _BODY, id="paginate"),
+    ],
+)
+def test_a_rate_limit_check_that_prints_the_answer_reads_the_quota_from_it(
+    flags: list[str], printed: str
+) -> None:
+    """gh prints the /rate_limit answer whole, after the status line and headers `--include`
+    adds: `run_gh` stores the quota of each resource it reports."""
+    argvs: list[list[str]] = []
+    with patch("subprocess.run", side_effect=_gh_printing(printed, argvs)):
+        proc = run_gh(["api", "rate_limit", *flags])
+    assert (proc.returncode, argvs, _quotas()) == (
+        0,
+        [["api", "rate_limit", *flags]],
+        {"core": (4830, _RESET), "graphql": (4321, _RESET)},
+    )
