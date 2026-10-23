@@ -434,6 +434,28 @@ def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
     assert [None if f is None else f.token for f in found] == ["clsoe", None]
 
 
+def _every_step(path: Path) -> list[dict[str, Any]]:
+    """The steps of a workflow's jobs, or of a composite action."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if "runs" in data:
+        return list(data["runs"].get("steps", []))
+    return [step for job in data["jobs"].values() for step in job.get("steps", [])]
+
+
+def test_no_image_build_emulates_a_platform() -> None:
+    """Every node that runs the images is amd64, so no workflow or action sets up QEMU, and every
+    image build names linux/amd64 only. The arm64 builds under emulation made the devcontainer
+    check take about 25 minutes and the release service image job 9.5 (#1951, #1954)."""
+    paths = [*WORKFLOWS_DIR.glob("*.yml"), *Path(".github/actions").glob("*/action.yml")]
+    steps = [step for path in paths for step in _every_step(path)]
+    assert (
+        [step["uses"] for step in steps if "setup-qemu-action" in step.get("uses", "")],
+        sorted(
+            {step["with"]["platforms"] for step in steps if "platforms" in step.get("with", {})}
+        ),
+    ) == ([], ["linux/amd64"])
+
+
 def test_no_run_block_interpolates_an_actions_expression() -> None:
     """Actions pastes a `${{ }}` expression into the script before the shell parses it, so a
     value holding `$(...)` runs; each value reaches `run:` through the step's `env:` (#861)."""
